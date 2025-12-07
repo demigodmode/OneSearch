@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Meilisearch - Fast search engine
   meilisearch:
