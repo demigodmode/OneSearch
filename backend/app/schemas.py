@@ -1,0 +1,105 @@
+"""
+Pydantic schemas for request/response validation
+"""
+from datetime import datetime
+from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field
+
+
+class Document(BaseModel):
+    """
+    Normalized document structure returned by extractors
+    and sent to Meilisearch for indexing
+    """
+    id: str  # Format: "source_id:/path/to/file"
+    source_id: str
+    source_name: str
+    path: str
+    basename: str
+    extension: str
+    type: str  # File type: text, markdown, pdf, etc.
+    size_bytes: int
+    modified_at: int  # Unix timestamp
+    indexed_at: int  # Unix timestamp
+    content: str  # Extracted full text
+    title: Optional[str] = None  # Extracted or derived title
+    metadata: Dict[str, Any] = Field(default_factory=dict)  # Additional metadata
+
+
+class SourceBase(BaseModel):
+    """Base schema for Source"""
+    name: str
+    root_path: str
+    include_patterns: Optional[List[str]] = None
+    exclude_patterns: Optional[List[str]] = None
+
+
+class SourceCreate(SourceBase):
+    """Schema for creating a new source"""
+    id: Optional[str] = None  # Auto-generated if not provided
+
+
+class SourceUpdate(BaseModel):
+    """Schema for updating a source"""
+    name: Optional[str] = None
+    root_path: Optional[str] = None
+    include_patterns: Optional[List[str]] = None
+    exclude_patterns: Optional[List[str]] = None
+
+
+class SourceResponse(SourceBase):
+    """Schema for source response"""
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SearchQuery(BaseModel):
+    """Schema for search query request"""
+    q: str  # Query string
+    source_id: Optional[str] = None
+    type: Optional[str] = None
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)
+
+
+class SearchResult(BaseModel):
+    """Schema for individual search result"""
+    id: str
+    path: str
+    basename: str
+    source_name: str
+    type: str
+    size_bytes: int
+    modified_at: int
+    snippet: str  # Content snippet with highlighting
+    score: float  # Relevance score
+
+
+class SearchResponse(BaseModel):
+    """Schema for search response"""
+    results: List[SearchResult]
+    total: int
+    limit: int
+    offset: int
+    processing_time_ms: int
+
+
+class SourceStatus(BaseModel):
+    """Schema for source indexing status"""
+    source_id: str
+    source_name: str
+    total_files: int
+    indexed_files: int
+    failed_files: int
+    last_indexed_at: Optional[datetime] = None
+
+
+class HealthResponse(BaseModel):
+    """Schema for health check response"""
+    status: str
+    meilisearch_connected: bool
+    database_connected: bool
