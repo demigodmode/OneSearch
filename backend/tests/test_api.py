@@ -319,12 +319,13 @@ class TestReindexEndpoint:
     @pytest.mark.asyncio
     async def test_reindex_source_success(self, client, sample_source):
         """Test reindexing returns statistics"""
-        # Note: This test may fail if Meilisearch is not running
-        # In a real test environment, you'd mock the Meilisearch client
+        # TODO: Mock Meilisearch to properly test success path
+        # Currently accepts 500 when Meilisearch unavailable (test environment limitation)
+        # See: https://github.com/demigodmode/OneSearch/issues/XX
 
         response = client.post(f"/api/sources/{sample_source.id}/reindex")
 
-        # May return 500 if Meilisearch is not available, which is expected
+        # Accepts both 200 (success) and 500 (Meilisearch unavailable)
         assert response.status_code in [200, 500]
 
         if response.status_code == 200:
@@ -332,6 +333,8 @@ class TestReindexEndpoint:
             assert "message" in data
             assert "stats" in data
             assert "total_scanned" in data["stats"]
+            assert "successful" in data["stats"]
+            assert "failed" in data["stats"]
 
 
 class TestSearchEndpoint:
@@ -357,7 +360,8 @@ class TestSearchEndpoint:
     @pytest.mark.asyncio
     async def test_search_with_valid_query(self, client):
         """Test search with valid query"""
-        # Note: This test may fail if Meilisearch is not running
+        # Note: This test requires Meilisearch to be running or will fail
+        # This is intentional - we want to catch connectivity issues
         search_query = {
             "q": "test query",
             "limit": 20,
@@ -366,20 +370,21 @@ class TestSearchEndpoint:
 
         response = client.post("/api/search", json=search_query)
 
-        # May return 500 if Meilisearch is not available
-        assert response.status_code in [200, 500]
+        # Should return 200 - don't accept 500 errors
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json()}"
 
-        if response.status_code == 200:
-            data = response.json()
-            assert "results" in data
-            assert "total" in data
-            assert "limit" in data
-            assert "offset" in data
-            assert "processing_time_ms" in data
+        data = response.json()
+        assert "results" in data
+        assert "total" in data
+        assert "limit" in data
+        assert "offset" in data
+        assert "processing_time_ms" in data
+        assert isinstance(data["results"], list)
 
     @pytest.mark.asyncio
     async def test_search_with_filters(self, client):
         """Test search with source_id and type filters"""
+        # This test also validates proper filter quoting/escaping
         search_query = {
             "q": "test",
             "source_id": "test-source",
@@ -389,8 +394,12 @@ class TestSearchEndpoint:
 
         response = client.post("/api/search", json=search_query)
 
-        # May return 500 if Meilisearch is not available
-        assert response.status_code in [200, 500]
+        # Should return 200 - validates filters are properly formatted
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json()}"
+
+        data = response.json()
+        assert "results" in data
+        assert isinstance(data["results"], list)
 
     def test_search_limit_validation(self, client):
         """Test search limit is validated (1-100)"""

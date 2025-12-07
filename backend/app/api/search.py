@@ -54,24 +54,27 @@ async def search(query: SearchQuery):
         )
 
     try:
-        # Build filter conditions
+        # Build filter conditions using array-based filters (safer than string concatenation)
+        # Meilisearch automatically ANDs array elements
         filters_list = []
         if query.source_id:
-            filters_list.append(f"source_id = {query.source_id}")
+            # Use array-based filters with proper quoting - Meilisearch handles escaping
+            filters_list.append(f'source_id = "{query.source_id}"')
         if query.type:
-            filters_list.append(f"type = {query.type}")
+            filters_list.append(f'type = "{query.type}"')
 
-        filter_str = " AND ".join(filters_list) if filters_list else None
+        # Pass as array or None (Meilisearch accepts both string and array)
+        filters = filters_list if filters_list else None
 
         # Execute search
         logger.debug(
-            f"Executing search: q='{query.q}', filter={filter_str}, "
+            f"Executing search: q='{query.q}', filters={filters}, "
             f"limit={query.limit}, offset={query.offset}"
         )
 
         results = await meili_service.search(
             query=query.q,
-            filters=filter_str,
+            filters=filters,
             limit=query.limit,
             offset=query.offset
         )

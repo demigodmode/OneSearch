@@ -1,6 +1,7 @@
 """
 Meilisearch client wrapper and document indexing
 """
+import asyncio
 import logging
 from typing import List, Dict, Any, Optional
 
@@ -117,7 +118,7 @@ class MeilisearchService:
 
     async def index_documents(self, documents: List[Any]) -> Dict[str, Any]:
         """
-        Index multiple documents in Meilisearch
+        Index multiple documents in Meilisearch (runs in thread pool)
 
         Args:
             documents: List of Document objects or dictionaries
@@ -139,7 +140,8 @@ class MeilisearchService:
                 else:
                     raise ValueError(f"Invalid document type: {type(doc)}")
 
-            task = self.index.add_documents(doc_dicts)
+            # Run blocking HTTP call in thread pool
+            task = await asyncio.to_thread(self.index.add_documents, doc_dicts)
             logger.info(f"Indexed {len(doc_dicts)} documents, task: {task.task_uid}")
             return task.__dict__
 
@@ -149,7 +151,7 @@ class MeilisearchService:
 
     async def delete_document(self, document_id: str) -> Dict[str, Any]:
         """
-        Delete a document from the index
+        Delete a document from the index (runs in thread pool)
 
         Args:
             document_id: Document ID to delete
@@ -161,7 +163,8 @@ class MeilisearchService:
             raise RuntimeError("Index not initialized")
 
         try:
-            task = self.index.delete_document(document_id)
+            # Run blocking HTTP call in thread pool
+            task = await asyncio.to_thread(self.index.delete_document, document_id)
             logger.info(f"Deleted document {document_id}")
             return task.__dict__
 
@@ -194,16 +197,16 @@ class MeilisearchService:
     async def search(
         self,
         query: str,
-        filters: Optional[str] = None,
+        filters: Optional[List[str]] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> Dict[str, Any]:
         """
-        Search documents
+        Search documents (runs blocking Meilisearch HTTP call in thread pool)
 
         Args:
             query: Search query string
-            filters: Optional Meilisearch filter string
+            filters: Optional list of Meilisearch filter strings (safer than single string)
             limit: Number of results to return
             offset: Pagination offset
 
@@ -214,10 +217,12 @@ class MeilisearchService:
             raise RuntimeError("Index not initialized")
 
         try:
-            results = self.index.search(
+            # Run blocking Meilisearch HTTP call in thread pool to avoid blocking event loop
+            results = await asyncio.to_thread(
+                self.index.search,
                 query,
                 {
-                    "filter": filters,
+                    "filter": filters,  # Can be string or array
                     "limit": limit,
                     "offset": offset,
                     "attributesToHighlight": ["content"],
