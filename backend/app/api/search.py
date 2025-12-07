@@ -54,14 +54,19 @@ async def search(query: SearchQuery):
         )
 
     try:
-        # Build filter conditions using array-based filters (safer than string concatenation)
+        # Build filter conditions using array-based filters with proper escaping
         # Meilisearch automatically ANDs array elements
+        # Use json.dumps() to safely escape string values and prevent filter injection
+        import json
+
         filters_list = []
         if query.source_id:
-            # Use array-based filters with proper quoting - Meilisearch handles escaping
-            filters_list.append(f'source_id = "{query.source_id}"')
+            # json.dumps ensures proper escaping of quotes and special characters
+            escaped_source_id = json.dumps(query.source_id)
+            filters_list.append(f'source_id = {escaped_source_id}')
         if query.type:
-            filters_list.append(f'type = "{query.type}"')
+            escaped_type = json.dumps(query.type)
+            filters_list.append(f'type = {escaped_type}')
 
         # Pass as array or None (Meilisearch accepts both string and array)
         filters = filters_list if filters_list else None

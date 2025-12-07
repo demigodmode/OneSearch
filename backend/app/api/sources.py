@@ -278,9 +278,23 @@ async def reindex_source(source_id: str, db: Session = Depends(get_db)):
     indexing_service = IndexingService(db, meili_service)
 
     try:
-        # Run indexing
+        # Run indexing in thread pool to prevent blocking the event loop
+        # index_source contains blocking file I/O and synchronous DB operations
+        from starlette.concurrency import run_in_threadpool
+
         logger.info(f"Starting reindex for source: {source_id}")
-        stats = await indexing_service.index_source(source_id)
+
+        # Create a synchronous wrapper for the async index_source
+        def sync_index_wrapper():
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(indexing_service.index_source(source_id))
+            finally:
+                loop.close()
+
+        stats = await run_in_threadpool(sync_index_wrapper)
 
         logger.info(
             f"Reindex complete for '{source_id}': "
