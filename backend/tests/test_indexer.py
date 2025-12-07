@@ -283,6 +283,29 @@ class TestIndexingService:
             assert doc is None
 
     @pytest.mark.asyncio
+    async def test_update_indexed_file_missing_file(self, db_session):
+        """Test handling of files that disappear during indexing"""
+        service = IndexingService(db_session, Mock())
+
+        # Try to update a file that doesn't exist
+        service._update_indexed_file(
+            "test_source",
+            "/nonexistent/file.txt",
+            status="success"
+        )
+
+        # Should create record with failed status
+        indexed_file = db_session.query(IndexedFile).filter_by(
+            source_id="test_source",
+            path="/nonexistent/file.txt"
+        ).first()
+
+        assert indexed_file is not None
+        assert indexed_file.status == "failed"
+        assert "File not found" in indexed_file.error_message
+        assert indexed_file.size_bytes == 0
+
+    @pytest.mark.asyncio
     @patch('app.services.indexer.FileScanner')
     async def test_index_source_full_flow(
         self,

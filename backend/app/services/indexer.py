@@ -304,9 +304,27 @@ class IndexingService:
             status: Status (success, failed, skipped)
             error: Error message if any
         """
-        # Get file stats
+        # Get file stats - handle case where file disappeared
         path = Path(file_path)
-        stat = path.stat()
+        try:
+            stat = path.stat()
+            size_bytes = stat.st_size
+            modified_at = datetime.fromtimestamp(stat.st_mtime)
+        except FileNotFoundError:
+            # File was deleted between scan and now
+            # Mark as failed so we can track it was attempted
+            logger.warning(f"File disappeared before updating record: {file_path}")
+            size_bytes = 0
+            modified_at = datetime.utcnow()
+            status = "failed"
+            error = error or "File not found during index update"
+        except (OSError, PermissionError) as e:
+            # Other file access errors
+            logger.warning(f"Error accessing file during update: {file_path}: {e}")
+            size_bytes = 0
+            modified_at = datetime.utcnow()
+            status = "failed"
+            error = error or f"File access error: {str(e)}"
 
         # Check if record exists
         stmt = select(IndexedFile).where(
@@ -317,8 +335,8 @@ class IndexingService:
 
         if indexed_file:
             # Update existing record
-            indexed_file.size_bytes = stat.st_size
-            indexed_file.modified_at = datetime.fromtimestamp(stat.st_mtime)
+            indexed_file.size_bytes = size_bytes
+            indexed_file.modified_at = modified_at
             indexed_file.indexed_at = datetime.utcnow()
             indexed_file.status = status
             indexed_file.error_message = error
@@ -327,8 +345,8 @@ class IndexingService:
             indexed_file = IndexedFile(
                 source_id=source_id,
                 path=file_path,
-                size_bytes=stat.st_size,
-                modified_at=datetime.fromtimestamp(stat.st_mtime),
+                size_bytes=size_bytes,
+                modified_at=modified_at,
                 indexed_at=datetime.utcnow(),
                 status=status,
                 error_message=error

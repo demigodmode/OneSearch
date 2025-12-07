@@ -35,11 +35,18 @@ class FileScanner:
             root_path: Root directory to scan
             include_patterns: Glob patterns for files to include (e.g., ["**/*.pdf", "**/*.txt"])
             exclude_patterns: Glob patterns for files to exclude (e.g., ["**/node_modules/**", "**/.git/**"])
+                             If None, defaults to common exclusions (VCS, dependencies, build dirs)
             follow_symlinks: Whether to follow symbolic links
         """
         self.root_path = Path(root_path).resolve()
         self.include_patterns = include_patterns or ["**/*"]  # Default: all files
-        self.exclude_patterns = exclude_patterns or []
+
+        # Default to excluding common directories that shouldn't be indexed
+        if exclude_patterns is None:
+            self.exclude_patterns = get_default_exclude_patterns()
+        else:
+            self.exclude_patterns = exclude_patterns
+
         self.follow_symlinks = follow_symlinks
 
         # Validate root path

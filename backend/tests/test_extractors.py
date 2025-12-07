@@ -80,7 +80,7 @@ class TestTextExtractor:
     async def test_extract_text_file(self, sample_text_file):
         """Test extracting from a plain text file"""
         extractor = TextExtractor("test_source", "Test Source")
-        doc = await extractor.extract(sample_text_file)
+        doc = await extractor.extract_with_timeout(sample_text_file)
 
         assert doc.source_id == "test_source"
         assert doc.source_name == "Test Source"
@@ -109,7 +109,7 @@ class TestTextExtractor:
         extractor = TextExtractor("test_source", "Test Source")
 
         with pytest.raises(ValueError, match="File too large"):
-            await extractor.extract(str(large_file))
+            await extractor.extract_with_timeout(str(large_file))
 
     @pytest.mark.asyncio
     async def test_encoding_detection(self, temp_dir):
@@ -120,7 +120,7 @@ class TestTextExtractor:
             f.write("Test with special chars: \xe9\xe8")
 
         extractor = TextExtractor("test_source", "Test Source")
-        doc = await extractor.extract(str(latin1_file))
+        doc = await extractor.extract_with_timeout(str(latin1_file))
 
         assert doc.content is not None
         assert len(doc.content) > 0
@@ -128,9 +128,11 @@ class TestTextExtractor:
     @pytest.mark.asyncio
     async def test_timeout(self, temp_dir, monkeypatch):
         """Test extraction timeout"""
-        # Create a mock extract that takes too long
-        async def slow_extract(self, file_path):
-            await asyncio.sleep(10)
+        import time
+
+        # Create a mock extract that does blocking I/O for too long
+        def slow_extract(self, file_path):
+            time.sleep(10)  # Blocking sleep
             return None
 
         monkeypatch.setattr(TextExtractor, "extract", slow_extract)
@@ -138,8 +140,11 @@ class TestTextExtractor:
         extractor = TextExtractor("test_source", "Test Source")
         extractor.TIMEOUT = 1  # 1 second timeout
 
+        test_file = temp_dir / "test.txt"
+        test_file.write_text("test")
+
         with pytest.raises(TimeoutError):
-            await extractor.extract_with_timeout(str(temp_dir / "test.txt"))
+            await extractor.extract_with_timeout(str(test_file))
 
 
 class TestMarkdownExtractor:
@@ -149,7 +154,7 @@ class TestMarkdownExtractor:
     async def test_extract_markdown_with_frontmatter(self, sample_markdown_file):
         """Test extracting markdown with YAML front-matter"""
         extractor = MarkdownExtractor("test_source", "Test Source")
-        doc = await extractor.extract(sample_markdown_file)
+        doc = await extractor.extract_with_timeout(sample_markdown_file)
 
         assert doc.source_id == "test_source"
         assert doc.type == "markdown"
@@ -166,7 +171,7 @@ class TestMarkdownExtractor:
         file_path.write_text("# Title from Heading\n\nContent here.")
 
         extractor = MarkdownExtractor("test_source", "Test Source")
-        doc = await extractor.extract(str(file_path))
+        doc = await extractor.extract_with_timeout(str(file_path))
 
         assert doc.title == "Title from Heading"
         assert doc.metadata["has_frontmatter"] is False
@@ -178,7 +183,7 @@ class TestMarkdownExtractor:
         file_path.write_text("Just some content without a heading.")
 
         extractor = MarkdownExtractor("test_source", "Test Source")
-        doc = await extractor.extract(str(file_path))
+        doc = await extractor.extract_with_timeout(str(file_path))
 
         assert doc.title == "my_document"
 
@@ -197,7 +202,7 @@ class TestPDFExtractor:
     async def test_extract_pdf(self, sample_pdf_file):
         """Test extracting from PDF file"""
         extractor = PDFExtractor("test_source", "Test Source")
-        doc = await extractor.extract(sample_pdf_file)
+        doc = await extractor.extract_with_timeout(sample_pdf_file)
 
         assert doc.source_id == "test_source"
         assert doc.type == "pdf"
@@ -220,13 +225,39 @@ class TestPDFExtractor:
         corrupted_pdf.write_text("This is not a PDF file")
 
         extractor = PDFExtractor("test_source", "Test Source")
-        doc = await extractor.extract(str(corrupted_pdf))
+        doc = await extractor.extract_with_timeout(str(corrupted_pdf))
 
         # Should still create document with minimal content
         assert doc is not None
         assert doc.content == ""
         assert doc.metadata.get("extraction_failed") is True
         assert "extraction_error" in doc.metadata
+
+    @pytest.mark.asyncio
+    async def test_encrypted_pdf(self, temp_dir):
+        """Test handling of encrypted PDF that cannot be decrypted"""
+        # Create encrypted PDF
+        from PyPDF2 import PdfWriter, PdfReader
+
+        encrypted_pdf = temp_dir / "encrypted.pdf"
+
+        # Create and encrypt a PDF
+        writer = PdfWriter()
+        writer.add_blank_page(width=200, height=200)
+        writer.encrypt(user_password="password123", owner_password="password456")
+
+        with open(encrypted_pdf, "wb") as f:
+            writer.write(f)
+
+        extractor = PDFExtractor("test_source", "Test Source")
+        doc = await extractor.extract_with_timeout(str(encrypted_pdf))
+
+        # Should handle gracefully with error in metadata
+        assert doc is not None
+        assert doc.metadata.get("extraction_failed") is True
+        error_msg = doc.metadata.get("extraction_error", "").lower()
+        # PyPDF2 returns "file has not been decrypted" for encrypted PDFs
+        assert "decrypt" in error_msg or "encrypted" in error_msg
 
 
 class TestExtractorRegistry:

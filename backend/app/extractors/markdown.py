@@ -29,7 +29,7 @@ class MarkdownExtractor(BaseExtractor):
     # Timeout from settings
     TIMEOUT = settings.text_extraction_timeout
 
-    async def extract(self, file_path: str) -> Document:
+    def extract(self, file_path: str) -> Document:
         """
         Extract markdown content and parse YAML front-matter
 

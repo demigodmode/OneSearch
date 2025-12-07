@@ -44,9 +44,10 @@ class TextExtractor(BaseExtractor):
     # Timeout from settings
     TIMEOUT = settings.text_extraction_timeout
 
-    async def extract(self, file_path: str) -> Document:
+    def extract(self, file_path: str) -> Document:
         """
-        Extract text content from file with encoding detection
+        Extract text content from file with encoding detection (synchronous)
+        This runs in a thread pool to allow timeout interruption
 
         Args:
             file_path: Path to text file

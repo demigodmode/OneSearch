@@ -41,7 +41,8 @@ class TestFileScanner:
 
     def test_scan_all_files(self, test_directory):
         """Test scanning all files"""
-        scanner = FileScanner(str(test_directory))
+        # Explicitly disable default excludes for this test
+        scanner = FileScanner(str(test_directory), exclude_patterns=[])
         files = list(scanner.scan())
 
         # Should find all files including those in subdirectories
@@ -53,7 +54,8 @@ class TestFileScanner:
         """Test include pattern filtering"""
         scanner = FileScanner(
             str(test_directory),
-            include_patterns=["**/*.md"]
+            include_patterns=["**/*.md"],
+            exclude_patterns=[]  # Disable default excludes
         )
         files = list(scanner.scan())
 
@@ -65,7 +67,8 @@ class TestFileScanner:
         """Test multiple include patterns"""
         scanner = FileScanner(
             str(test_directory),
-            include_patterns=["**/*.md", "**/*.py"]
+            include_patterns=["**/*.md", "**/*.py"],
+            exclude_patterns=[]  # Disable default excludes
         )
         files = list(scanner.scan())
 
@@ -91,7 +94,8 @@ class TestFileScanner:
         """Test scan_with_stats method"""
         scanner = FileScanner(
             str(test_directory),
-            include_patterns=["**/*.md"]
+            include_patterns=["**/*.md"],
+            exclude_patterns=[]  # Disable default excludes
         )
         files, stats = scanner.scan_with_stats()
 
@@ -103,7 +107,8 @@ class TestFileScanner:
         """Test count_files method"""
         scanner = FileScanner(
             str(test_directory),
-            include_patterns=["**/*.md"]
+            include_patterns=["**/*.md"],
+            exclude_patterns=[]  # Disable default excludes
         )
         count = scanner.count_files()
 
@@ -111,7 +116,7 @@ class TestFileScanner:
 
     def test_get_file_types(self, test_directory):
         """Test get_file_types method"""
-        scanner = FileScanner(str(test_directory))
+        scanner = FileScanner(str(test_directory), exclude_patterns=[])
         file_types = scanner.get_file_types()
 
         assert ".md" in file_types
@@ -126,7 +131,7 @@ class TestFileScanner:
 
     def test_sorted_output(self, test_directory):
         """Test that files are returned in sorted order"""
-        scanner = FileScanner(str(test_directory))
+        scanner = FileScanner(str(test_directory), exclude_patterns=[])
         files = list(scanner.scan())
 
         # Files should be sorted
@@ -135,10 +140,20 @@ class TestFileScanner:
     def test_empty_directory(self):
         """Test scanning empty directory"""
         with TemporaryDirectory() as tmp:
-            scanner = FileScanner(tmp)
+            scanner = FileScanner(tmp, exclude_patterns=[])
             files = list(scanner.scan())
 
             assert len(files) == 0
+
+    def test_default_exclude_patterns(self, test_directory):
+        """Test that default exclude patterns work correctly"""
+        # Scanner with defaults should exclude .git and node_modules
+        scanner = FileScanner(str(test_directory))
+        files = list(scanner.scan())
+
+        # Should NOT find files in excluded directories
+        assert not any(".git" in f for f in files)
+        assert not any("node_modules" in f for f in files)
 
 
 class TestValidateGlobPatterns:

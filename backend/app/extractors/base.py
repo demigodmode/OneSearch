@@ -41,9 +41,12 @@ class BaseExtractor(ABC):
         self.source_name = source_name
 
     @abstractmethod
-    async def extract(self, file_path: str) -> Document:
+    def extract(self, file_path: str) -> Document:
         """
-        Extract content from a file and return normalized Document
+        Extract content from a file and return normalized Document (synchronous)
+
+        This method performs blocking I/O and will be run in a thread pool
+        by extract_with_timeout() to enable timeout interruption.
 
         Args:
             file_path: Absolute path to the file
@@ -54,7 +57,6 @@ class BaseExtractor(ABC):
         Raises:
             FileNotFoundError: If file doesn't exist
             ValueError: If file is too large or invalid format
-            TimeoutError: If extraction exceeds timeout
             Exception: For other extraction errors
         """
         pass
@@ -62,6 +64,9 @@ class BaseExtractor(ABC):
     async def extract_with_timeout(self, file_path: str) -> Document:
         """
         Extract with timeout protection
+
+        Runs the synchronous extract() in a thread pool so that
+        asyncio.wait_for can properly timeout blocking I/O operations.
 
         Args:
             file_path: Absolute path to the file
@@ -73,8 +78,9 @@ class BaseExtractor(ABC):
             TimeoutError: If extraction exceeds timeout
         """
         try:
+            # Run extraction in a thread pool to ensure blocking I/O can be interrupted
             return await asyncio.wait_for(
-                self.extract(file_path),
+                asyncio.to_thread(self.extract, file_path),
                 timeout=self.TIMEOUT
             )
         except asyncio.TimeoutError:

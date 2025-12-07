@@ -31,7 +31,7 @@ class PDFExtractor(BaseExtractor):
     # Timeout from settings
     TIMEOUT = settings.pdf_extraction_timeout
 
-    async def extract(self, file_path: str) -> Document:
+    def extract(self, file_path: str) -> Document:
         """
         Extract text and metadata from PDF file
 
