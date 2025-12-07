@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  # Meilisearch - Fast search engine
+  meilisearch:
+    image: getmeili/meilisearch:v1.5
+    container_name: onesearch-meilisearch
+    volumes:
+      - meilisearch_data:/meili_data
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - MEILI_ENV=production
+    networks:
+      - onesearch_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--spider", "http://localhost:7700/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # OneSearch Backend - FastAPI application
+  onesearch:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: onesearch-backend
+    volumes:
+      # Persistent data (SQLite database)
+      - onesearch_data:/app/data
+
+      # Example source mounts (uncomment and modify as needed)
+      # Add your local directories or NAS mounts here
+      # Format: /host/path:/container/path:ro (ro = read-only)
+
+      # - /mnt/nas/documents:/data/nas_docs:ro
+      # - /home/user/Documents:/data/documents:ro
+      # - /path/to/photos:/data/photos:ro
+
+    environment:
+      - MEILI_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - DATABASE_URL=sqlite:///data/onesearch.db
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    expose:
+      - "8000"
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+    networks:
+      - onesearch_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # OneSearch Frontend - React application served by nginx
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: onesearch-frontend
+    ports:
+      - "8000:80"
+    depends_on:
+      - onesearch
+    networks:
+      - onesearch_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  # Meilisearch index data
+  meilisearch_data:
+    driver: local
+
+  # OneSearch database and application data
+  onesearch_data:
+    driver: local
+
+networks:
+  onesearch_network:
+    driver: bridge
