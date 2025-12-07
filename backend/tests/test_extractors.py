@@ -5,7 +5,7 @@ import pytest
 import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from PyPDF2 import PdfWriter
+from pypdf import PdfWriter
 
 from app.extractors import (
     TextExtractor,
@@ -237,7 +237,7 @@ class TestPDFExtractor:
     async def test_encrypted_pdf(self, temp_dir):
         """Test handling of encrypted PDF that cannot be decrypted"""
         # Create encrypted PDF
-        from PyPDF2 import PdfWriter, PdfReader
+        from pypdf import PdfWriter, PdfReader
 
         encrypted_pdf = temp_dir / "encrypted.pdf"
 
@@ -256,7 +256,7 @@ class TestPDFExtractor:
         assert doc is not None
         assert doc.metadata.get("extraction_failed") is True
         error_msg = doc.metadata.get("extraction_error", "").lower()
-        # PyPDF2 returns "file has not been decrypted" for encrypted PDFs
+        # pypdf returns "file has not been decrypted" for encrypted PDFs
         assert "decrypt" in error_msg or "encrypted" in error_msg
 
 

@@ -11,10 +11,10 @@ dependencies = [
     "sqlalchemy==2.0.23",
     "alembic==1.12.1",
     "meilisearch==0.31.0",
-    "PyPDF2==3.0.1",
+    "pypdf>=5.0.0,<6.0.0",
     "python-frontmatter==1.0.1",
     "chardet==5.2.0",
-    "python-multipart==0.0.6",
+    "python-multipart==0.0.18",
 ]
 
 [project.optional-dependencies]
