@@ -3,6 +3,7 @@ Indexing service with incremental logic
 Orchestrates file scanning, extraction, and Meilisearch indexing
 """
 import logging
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
@@ -12,6 +13,7 @@ from sqlalchemy import select
 from ..models import Source, IndexedFile
 from ..schemas import Document
 from ..extractors import extractor_registry
+from ..config import settings
 from .scanner import FileScanner
 from .search import SearchService
 
@@ -89,9 +91,16 @@ class IndexingService:
         if not source:
             raise ValueError(f"Source not found: {source_id}")
 
-        logger.info(f"Starting indexing for source: {source.name} ({source.id})")
+        # Track timing for performance metrics
+        start_time = time.time()
+
+        logger.info(
+            f"Starting indexing for source: '{source.name}' (ID: {source.id}) "
+            f"at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
 
         stats = IndexingStats()
+        total_bytes_processed = 0  # Track bytes for throughput metrics
 
         try:
             # Parse include/exclude patterns
@@ -112,14 +121,21 @@ class IndexingService:
                 current_files.add(file_path)
                 stats.total_scanned += 1
 
-            logger.info(f"Scanned {stats.total_scanned} files for source {source.name}")
+            scan_elapsed = time.time() - start_time
+            logger.info(
+                f"Scanned {stats.total_scanned} files for source '{source.name}' "
+                f"in {scan_elapsed:.2f}s"
+            )
 
             # Get previously indexed files for this source
             indexed_files_map = self._get_indexed_files_map(source_id)
 
             # Process current files
             documents_to_index = []
+            files_processed = 0
+
             for file_path in current_files:
+                files_processed += 1
                 try:
                     # Check if file needs indexing
                     needs_indexing, reason = self._check_needs_indexing(
@@ -145,6 +161,7 @@ class IndexingService:
                     if document is None:
                         # File type not supported
                         stats.skipped += 1
+                        logger.debug(f"Skipped unsupported file type: {file_path}")
                         self._update_indexed_file(
                             source_id, file_path, status="skipped",
                             error="Unsupported file type"
@@ -153,6 +170,7 @@ class IndexingService:
 
                     # Add to batch for indexing
                     documents_to_index.append(document)
+                    total_bytes_processed += document.size_bytes
 
                     # Update indexed_files table
                     self._update_indexed_file(
@@ -161,13 +179,30 @@ class IndexingService:
 
                     stats.successful += 1
 
-                    # Batch index every 100 documents
-                    if len(documents_to_index) >= 100:
+                    # Batch index using configurable batch size
+                    if len(documents_to_index) >= settings.meilisearch_batch_size:
+                        logger.debug(
+                            f"Indexing batch of {len(documents_to_index)} documents "
+                            f"to Meilisearch"
+                        )
                         await self.search_service.index_documents(documents_to_index)
                         documents_to_index = []
 
+                    # Progress reporting
+                    if files_processed % settings.indexing_progress_interval == 0:
+                        elapsed = time.time() - start_time
+                        rate = files_processed / elapsed if elapsed > 0 else 0
+                        logger.info(
+                            f"Progress: {files_processed}/{stats.total_scanned} files processed "
+                            f"({stats.successful} indexed, {stats.failed} failed, "
+                            f"{stats.skipped} skipped) - {rate:.1f} files/sec"
+                        )
+
                 except Exception as e:
-                    logger.error(f"Error indexing file {file_path}: {e}")
+                    logger.warning(
+                        f"Failed to index file '{Path(file_path).name}': {type(e).__name__}: {e}",
+                        extra={"file_path": file_path, "error": str(e)}
+                    )
                     stats.failed += 1
                     stats.errors.append({
                         "file": file_path,
@@ -181,6 +216,7 @@ class IndexingService:
 
             # Index remaining documents
             if documents_to_index:
+                logger.debug(f"Indexing final batch of {len(documents_to_index)} documents")
                 await self.search_service.index_documents(documents_to_index)
 
             # Handle deleted files (in DB but not in current scan)
@@ -192,11 +228,26 @@ class IndexingService:
             # Commit all database changes
             self.db.commit()
 
+            # Calculate final metrics
+            elapsed_time = time.time() - start_time
+            files_per_sec = stats.successful / elapsed_time if elapsed_time > 0 else 0
+            mb_per_sec = (total_bytes_processed / (1024 * 1024)) / elapsed_time if elapsed_time > 0 else 0
+
             logger.info(
-                f"Indexing complete for {source.name}: "
+                f"✓ Indexing complete for '{source.name}': "
                 f"{stats.successful} successful, {stats.failed} failed, "
-                f"{stats.skipped} skipped, {stats.deleted_files} deleted"
+                f"{stats.skipped} skipped, {stats.deleted_files} deleted "
+                f"({stats.unchanged_files} unchanged) | "
+                f"Scanned {stats.total_scanned} files in {elapsed_time:.2f}s | "
+                f"Performance: {files_per_sec:.1f} files/sec, {mb_per_sec:.2f} MB/sec"
             )
+
+            # Log errors summary if any failures
+            if stats.failed > 0:
+                logger.warning(
+                    f"Indexing completed with {stats.failed} failures for '{source.name}'. "
+                    f"First 5 errors: {stats.errors[:5]}"
+                )
 
         except Exception as e:
             logger.error(f"Fatal error during indexing: {e}")
