@@ -3,7 +3,7 @@
 Thanks for your interest in OneSearch! This project protects `main` with branch rules—please work in feature branches and open pull requests for review.
 
 ## Prerequisites
-- Python 3.11+
+- Python 3.13+
 - Node 18+ with npm
 - Docker + Docker Compose (for Meilisearch and containerized dev)
 

@@ -2,7 +2,7 @@
 name = "onesearch"
 version = "0.1.0"
 description = "Self-hosted, privacy-focused search for your homelab"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "fastapi==0.104.1",
     "uvicorn[standard]==0.24.0",

@@ -1,7 +1,7 @@
 # Multi-stage build for smaller final image with uv
 
 # Stage 1: Builder - Install dependencies with uv
-FROM python:3.11-slim as builder
+FROM python:3.13-slim as builder
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -17,7 +17,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv pip sync --system uv.lock
 
 # Stage 2: Runtime - Minimal production image
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # Install curl for healthcheck
 RUN apt-get update && \
@@ -32,7 +32,7 @@ RUN useradd -m -u 1000 onesearch && \
 WORKDIR /app
 
 # Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
