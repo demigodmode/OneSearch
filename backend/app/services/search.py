@@ -115,12 +115,12 @@ class MeilisearchService:
         except Exception as e:
             return {"status": "error", "error": str(e)}
 
-    def index_documents(self, documents: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def index_documents(self, documents: List[Any]) -> Dict[str, Any]:
         """
         Index multiple documents in Meilisearch
 
         Args:
-            documents: List of document dictionaries
+            documents: List of Document objects or dictionaries
 
         Returns:
             dict: Task information from Meilisearch
@@ -129,15 +129,25 @@ class MeilisearchService:
             raise RuntimeError("Index not initialized")
 
         try:
-            task = self.index.add_documents(documents)
-            logger.info(f"Indexed {len(documents)} documents, task: {task.task_uid}")
+            # Convert Document objects to dicts if needed
+            doc_dicts = []
+            for doc in documents:
+                if hasattr(doc, 'model_dump'):  # Pydantic model
+                    doc_dicts.append(doc.model_dump())
+                elif isinstance(doc, dict):
+                    doc_dicts.append(doc)
+                else:
+                    raise ValueError(f"Invalid document type: {type(doc)}")
+
+            task = self.index.add_documents(doc_dicts)
+            logger.info(f"Indexed {len(doc_dicts)} documents, task: {task.task_uid}")
             return task.__dict__
 
         except Exception as e:
             logger.error(f"Failed to index documents: {e}")
             raise
 
-    def delete_document(self, document_id: str) -> Dict[str, Any]:
+    async def delete_document(self, document_id: str) -> Dict[str, Any]:
         """
         Delete a document from the index
 
@@ -223,6 +233,9 @@ class MeilisearchService:
             logger.error(f"Search failed: {e}")
             raise
 
+
+# Type alias for compatibility
+SearchService = MeilisearchService
 
 # Global Meilisearch service instance
 meili_service = MeilisearchService()

@@ -1,0 +1,18 @@
+"""
+Document extractors package
+
+Import all extractors to ensure they register with the extractor_registry
+"""
+from .base import BaseExtractor, ExtractorRegistry, extractor_registry
+from .text import TextExtractor
+from .markdown import MarkdownExtractor
+from .pdf import PDFExtractor
+
+__all__ = [
+    "BaseExtractor",
+    "ExtractorRegistry",
+    "extractor_registry",
+    "TextExtractor",
+    "MarkdownExtractor",
+    "PDFExtractor",
+]

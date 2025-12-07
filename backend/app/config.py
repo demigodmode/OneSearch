@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     text_extraction_timeout: int = Field(default=5, env="TEXT_EXTRACTION_TIMEOUT")
     pdf_extraction_timeout: int = Field(default=30, env="PDF_EXTRACTION_TIMEOUT")
 
+    # Indexing configuration
+    meilisearch_batch_size: int = Field(default=100, env="MEILISEARCH_BATCH_SIZE")
+    indexing_progress_interval: int = Field(default=100, env="INDEXING_PROGRESS_INTERVAL")
+
     class Config:
         env_file = ".env"
         case_sensitive = False
