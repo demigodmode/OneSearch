@@ -4,7 +4,7 @@ Handles text extraction from PDF documents with robust error handling
 """
 from pathlib import Path
 from typing import Optional
-import PyPDF2
+from pypdf import PdfReader
 import io
 
 from .base import BaseExtractor, extractor_registry
@@ -92,7 +92,7 @@ class PDFExtractor(BaseExtractor):
         with open(file_path, 'rb') as f:
             # Create PDF reader
             try:
-                pdf_reader = PyPDF2.PdfReader(f)
+                pdf_reader = PdfReader(f)
             except Exception as e:
                 raise ValueError(f"Failed to open PDF: {str(e)}")
 

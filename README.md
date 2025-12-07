@@ -20,6 +20,8 @@ Search across all your files, documents, and notes from a single, unified interf
 
 ## Quick Start
 
+This repo ships with a ready-to-use `docker-compose.yml` that starts the backend API, Meilisearch, and the frontend together. The steps below use it.
+
 ### Prerequisites
 
 - Docker and Docker Compose installed
