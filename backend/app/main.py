@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .services.search import meili_service
+from .api import sources, search, status
 
 # Configure logging
 logging.basicConfig(
@@ -59,6 +60,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include API routers
+app.include_router(sources.router)
+app.include_router(search.router)
+app.include_router(status.router)
 
 
 @app.get("/api/health")

@@ -53,6 +53,20 @@ class SourceResponse(SourceBase):
     created_at: datetime
     updated_at: datetime
 
+    @classmethod
+    def from_orm_model(cls, source):
+        """Create SourceResponse from ORM model, deserializing JSON fields"""
+        import json
+        return cls(
+            id=source.id,
+            name=source.name,
+            root_path=source.root_path,
+            include_patterns=json.loads(source.include_patterns) if source.include_patterns else None,
+            exclude_patterns=json.loads(source.exclude_patterns) if source.exclude_patterns else None,
+            created_at=source.created_at,
+            updated_at=source.updated_at,
+        )
+
     class Config:
         from_attributes = True
 
