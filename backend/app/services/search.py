@@ -191,7 +191,7 @@ class MeilisearchService:
             logger.error(f"Failed to delete documents: {e}")
             raise
 
-    def search(
+    async def search(
         self,
         query: str,
         filters: Optional[str] = None,
