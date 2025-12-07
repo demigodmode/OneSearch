@@ -171,7 +171,7 @@ class TestIndexingService:
         assert reason == "modified"
 
     @pytest.mark.asyncio
-    async def test_update_indexed_file_new(self, db_session):
+    async def test_update_indexed_file_new(self, db_session, test_source):
         """Test creating new indexed file record"""
         service = IndexingService(db_session, Mock())
 
@@ -192,7 +192,7 @@ class TestIndexingService:
             assert indexed_files[0].status == "success"
 
     @pytest.mark.asyncio
-    async def test_update_indexed_file_existing(self, db_session):
+    async def test_update_indexed_file_existing(self, db_session, test_source):
         """Test updating existing indexed file record"""
         service = IndexingService(db_session, Mock())
 
@@ -283,7 +283,7 @@ class TestIndexingService:
             assert doc is None
 
     @pytest.mark.asyncio
-    async def test_update_indexed_file_missing_file(self, db_session):
+    async def test_update_indexed_file_missing_file(self, db_session, test_source):
         """Test handling of files that disappear during indexing"""
         service = IndexingService(db_session, Mock())
 
