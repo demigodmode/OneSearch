@@ -1,5 +1,11 @@
 """
 Tests for FastAPI API endpoints
+
+IMPORTANT: These tests require Meilisearch to be running for full coverage.
+- Start Meilisearch: docker run -p 7700:7700 getmeili/meilisearch:latest
+- Or use docker-compose: docker-compose up meilisearch
+
+Tests that depend on Meilisearch will be skipped if it's not available.
 """
 import pytest
 import json
@@ -88,6 +94,16 @@ def sample_source(db_session, temp_source_dir):
     db_session.commit()
     db_session.refresh(source)
     return source
+
+
+@pytest.fixture(scope="session")
+def meili_available():
+    """Check if Meilisearch is available for testing"""
+    try:
+        # Check if the index is initialized (not just client exists)
+        return meili_service.index is not None
+    except:
+        return False
 
 
 class TestHealthEndpoint:
@@ -317,27 +333,25 @@ class TestReindexEndpoint:
         assert "not found" in response.json()["detail"].lower()
 
     @pytest.mark.asyncio
-    async def test_reindex_source_success(self, client, sample_source):
+    async def test_reindex_source_success(self, client, sample_source, meili_available):
         """Test reindexing returns statistics
 
-        Note: This test requires Meilisearch running to pass with 200.
-        Without Meilisearch, the test will fail with 500.
-        TODO: Mock Meilisearch service for reliable CI testing
+        Requires Meilisearch to be running. Will skip if unavailable.
         """
+        if not meili_available:
+            pytest.skip("Meilisearch not available - start with: docker run -p 7700:7700 getmeili/meilisearch:latest")
+
         response = client.post(f"/api/sources/{sample_source.id}/reindex")
 
-        # Accept either 200 (Meilisearch available) or 500 (Meilisearch unavailable)
-        # This is a test environment limitation - CI should start Meilisearch
-        assert response.status_code in [200, 500], \
-            f"Expected 200 or 500, got {response.status_code}: {response.json()}"
+        assert response.status_code == 200, \
+            f"Expected 200, got {response.status_code}: {response.json()}"
 
-        if response.status_code == 200:
-            data = response.json()
-            assert "message" in data
-            assert "stats" in data
-            assert "total_scanned" in data["stats"]
-            assert "successful" in data["stats"]
-            assert "failed" in data["stats"]
+        data = response.json()
+        assert "message" in data
+        assert "stats" in data
+        assert "total_scanned" in data["stats"]
+        assert "successful" in data["stats"]
+        assert "failed" in data["stats"]
 
 
 class TestSearchEndpoint:
@@ -361,13 +375,14 @@ class TestSearchEndpoint:
         assert response.status_code == 422  # Pydantic validation error
 
     @pytest.mark.asyncio
-    async def test_search_with_valid_query(self, client):
+    async def test_search_with_valid_query(self, client, meili_available):
         """Test search with valid query
 
-        Note: This test requires Meilisearch running to pass with 200.
-        Without Meilisearch, the test will fail with 500.
-        TODO: Mock Meilisearch service for reliable CI testing
+        Requires Meilisearch to be running. Will skip if unavailable.
         """
+        if not meili_available:
+            pytest.skip("Meilisearch not available - start with: docker run -p 7700:7700 getmeili/meilisearch:latest")
+
         search_query = {
             "q": "test query",
             "limit": 20,
@@ -376,28 +391,27 @@ class TestSearchEndpoint:
 
         response = client.post("/api/search", json=search_query)
 
-        # Accept either 200 (Meilisearch available) or 500 (Meilisearch unavailable)
-        # CI should start Meilisearch for reliable testing
-        assert response.status_code in [200, 500], \
-            f"Expected 200 or 500, got {response.status_code}: {response.json()}"
+        assert response.status_code == 200, \
+            f"Expected 200, got {response.status_code}: {response.json()}"
 
-        if response.status_code == 200:
-            data = response.json()
-            assert "results" in data
-            assert "total" in data
-            assert "limit" in data
-            assert "offset" in data
-            assert "processing_time_ms" in data
-            assert isinstance(data["results"], list)
+        data = response.json()
+        assert "results" in data
+        assert "total" in data
+        assert "limit" in data
+        assert "offset" in data
+        assert "processing_time_ms" in data
+        assert isinstance(data["results"], list)
 
     @pytest.mark.asyncio
-    async def test_search_with_filters(self, client):
+    async def test_search_with_filters(self, client, meili_available):
         """Test search with source_id and type filters
 
         This test validates proper filter quoting/escaping.
-        Note: Requires Meilisearch running for 200 status.
-        TODO: Mock Meilisearch service for reliable CI testing
+        Requires Meilisearch to be running. Will skip if unavailable.
         """
+        if not meili_available:
+            pytest.skip("Meilisearch not available - start with: docker run -p 7700:7700 getmeili/meilisearch:latest")
+
         search_query = {
             "q": "test",
             "source_id": "test-source",
@@ -407,14 +421,12 @@ class TestSearchEndpoint:
 
         response = client.post("/api/search", json=search_query)
 
-        # Accept either 200 (Meilisearch available) or 500 (Meilisearch unavailable)
-        assert response.status_code in [200, 500], \
-            f"Expected 200 or 500, got {response.status_code}: {response.json()}"
+        assert response.status_code == 200, \
+            f"Expected 200, got {response.status_code}: {response.json()}"
 
-        if response.status_code == 200:
-            data = response.json()
-            assert "results" in data
-            assert isinstance(data["results"], list)
+        data = response.json()
+        assert "results" in data
+        assert isinstance(data["results"], list)
 
     def test_search_limit_validation(self, client):
         """Test search limit is validated (1-100)"""

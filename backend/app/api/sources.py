@@ -274,25 +274,36 @@ async def reindex_source(source_id: str, db: Session = Depends(get_db)):
             detail=f"Source '{source_id}' not found"
         )
 
-    # Initialize indexing service
-    indexing_service = IndexingService(db, meili_service)
+    logger.info(f"Starting reindex for source: {source_id}")
 
     try:
         # Run indexing in thread pool to prevent blocking the event loop
-        # index_source contains blocking file I/O and synchronous DB operations
+        # index_source performs blocking file I/O and synchronous DB operations
         from starlette.concurrency import run_in_threadpool
+        from sqlalchemy.orm import sessionmaker
+        from ..db.database import engine
 
-        logger.info(f"Starting reindex for source: {source_id}")
-
-        # Create a synchronous wrapper for the async index_source
+        # Create a thread-safe wrapper that creates its own DB session
         def sync_index_wrapper():
             import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+
+            # Create a new DB session for this thread (thread-safe)
+            SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+            thread_db = SessionLocal()
+
             try:
-                return loop.run_until_complete(indexing_service.index_source(source_id))
+                # Create new event loop for this thread
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+                try:
+                    # Create indexing service with thread-local session
+                    indexing_service = IndexingService(thread_db, meili_service)
+                    return loop.run_until_complete(indexing_service.index_source(source_id))
+                finally:
+                    loop.close()
             finally:
-                loop.close()
+                thread_db.close()
 
         stats = await run_in_threadpool(sync_index_wrapper)
 
