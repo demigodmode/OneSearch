@@ -30,8 +30,8 @@ Search across all your files, documents, and notes from a single, unified interf
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/onesearch.git
-   cd onesearch
+   git clone https://github.com/demigodmode/OneSearch.git
+   cd OneSearch
    ```
 
 2. **Create environment file**
@@ -132,6 +132,8 @@ OneSearch/
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, coding standards, and branching guidelines.
+
 ### Backend Development
 
 1. **Set up Python virtual environment**
@@ -173,6 +175,7 @@ OneSearch/
 ```bash
 # Backend tests
 cd backend
+docker-compose up -d meilisearch  # required for API/search tests
 pytest
 
 # Frontend tests (coming soon)
@@ -262,10 +265,6 @@ Sources are configured via the Web UI and stored in SQLite. Each source supports
 - Advanced filters and facets
 - Export search results
 
-See [local_docs/phase_0_plan.md](local_docs/phase_0_plan.md) for detailed implementation plans.
-
----
-
 ## Architecture
 
 OneSearch consists of:
@@ -302,26 +301,20 @@ All components run in Docker containers and communicate over a private network.
 
 ## License
 
-[Choose a license - MIT recommended for open source]
+License pending. A LICENSE file will be added before a public release (MIT recommended).
 
 ---
 
 ## Contributing
 
-Contributions welcome! Please:
-
-1. Open an issue to discuss proposed changes
-2. Fork the repository
-3. Create a feature branch
-4. Submit a pull request
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, coding standards, and testing requirements.
 
 ---
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/onesearch/issues)
-- **Documentation**: See `docs/` directory
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/onesearch/discussions)
+- **Issues**: [GitHub Issues](https://github.com/demigodmode/OneSearch/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/demigodmode/OneSearch/discussions) (enable if desired)
 
 ---
 
