@@ -38,6 +38,10 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY --chown=onesearch:onesearch . .
 
+# Copy and set up entrypoint script
+COPY --chown=onesearch:onesearch entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Switch to non-root user
 USER onesearch
 
@@ -48,5 +52,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run entrypoint script (which runs migrations then starts app)
+ENTRYPOINT ["/app/entrypoint.sh"]

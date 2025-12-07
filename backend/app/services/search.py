@@ -44,8 +44,12 @@ class MeilisearchService:
             # Test connection
             self.client.health()
 
-            # Get or create index
-            self.index = self.client.index(INDEX_NAME)
+            # Get or create index with primary key
+            # This ensures the index exists before we try to configure it
+            self.index = self.client.get_or_create_index(
+                INDEX_NAME,
+                {"primaryKey": "id"}
+            )
 
             # Configure index settings
             self._configure_index()
