@@ -56,17 +56,22 @@ class TextExtractor(BaseExtractor):
             file_path: Path to text file
 
         Returns:
-            Document with extracted text content
+            Document with extracted text content (may have minimal content on extraction failure)
 
         Raises:
             FileNotFoundError: If file doesn't exist
-            ValueError: If file is too large
-            UnicodeDecodeError: If file cannot be decoded
+            ValueError: If file is too large (hard failure - file should be skipped)
         """
+        # Check file size first (hard failure - we don't index oversized files)
         try:
-            # Check file size
             size_bytes = self._check_file_size(file_path)
+        except (FileNotFoundError, ValueError) as e:
+            # These are hard failures - don't try to recover
+            logger.warning(f"Text file check failed for {file_path}: {e}")
+            raise
 
+        # Try extraction with graceful fallback on encoding errors
+        try:
             # Read file content with encoding detection
             content = self._read_with_encoding_detection(file_path)
 
@@ -80,22 +85,41 @@ class TextExtractor(BaseExtractor):
             doc.metadata = {
                 "detected_encoding": self._detect_encoding(file_path),
                 "line_count": content.count('\n') + 1,
+                "extraction_failed": False,
             }
 
             return doc
 
-        except FileNotFoundError as e:
-            logger.error(f"Text file not found: {file_path}")
-            raise
-        except ValueError as e:
-            logger.warning(f"Text file extraction failed for {file_path}: {e}")
-            raise
         except UnicodeDecodeError as e:
-            logger.error(f"Text file encoding error for {file_path}: {e}")
-            raise
+            # Graceful fallback: Index by filename only
+            logger.warning(
+                f"Text file encoding error for {file_path}: {e}. File will be indexed by filename only.",
+                extra={"file_path": file_path, "error": str(e)}
+            )
+            # Create minimal document with just filename
+            doc = self._create_base_document(file_path, "")
+            doc.title = Path(file_path).stem
+            doc.metadata = {
+                "extraction_error": str(e),
+                "extraction_failed": True,
+            }
+            return doc
+
         except Exception as e:
-            logger.error(f"Unexpected error extracting text from {file_path}: {e}", exc_info=True)
-            raise
+            # Graceful fallback for unexpected errors
+            logger.warning(
+                f"Unexpected error extracting text from {file_path}: {e}. File will be indexed by filename only.",
+                extra={"file_path": file_path, "error": str(e)},
+                exc_info=True
+            )
+            # Create minimal document
+            doc = self._create_base_document(file_path, "")
+            doc.title = Path(file_path).stem
+            doc.metadata = {
+                "extraction_error": str(e),
+                "extraction_failed": True,
+            }
+            return doc
 
     def _read_with_encoding_detection(self, file_path: str) -> str:
         """

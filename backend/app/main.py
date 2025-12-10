@@ -71,16 +71,20 @@ async def log_requests(request: Request, call_next):
     """
     start_time = time.time()
 
-    # Log incoming request
+    # Log incoming request (query params and client only at DEBUG level for privacy)
     logger.info(
         f"→ {request.method} {request.url.path}",
         extra={
             "method": request.method,
             "path": request.url.path,
-            "query_params": str(request.query_params),
-            "client": request.client.host if request.client else None,
         }
     )
+
+    # Log query params and client at DEBUG level to avoid PII leakage
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            f"Request details: query={request.query_params}, client={request.client.host if request.client else None}"
+        )
 
     # Process request
     try:

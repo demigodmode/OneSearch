@@ -40,17 +40,22 @@ class MarkdownExtractor(BaseExtractor):
             file_path: Path to markdown file
 
         Returns:
-            Document with extracted content and metadata
+            Document with extracted content (may have minimal content on extraction failure)
 
         Raises:
             FileNotFoundError: If file doesn't exist
-            ValueError: If file is too large
-            UnicodeDecodeError: If file cannot be decoded
+            ValueError: If file is too large (hard failure - file should be skipped)
         """
+        # Check file size first (hard failure - we don't index oversized files)
         try:
-            # Check file size
             size_bytes = self._check_file_size(file_path)
+        except (FileNotFoundError, ValueError) as e:
+            # These are hard failures - don't try to recover
+            logger.warning(f"Markdown file check failed for {file_path}: {e}")
+            raise
 
+        # Try extraction with graceful fallback on parsing errors
+        try:
             # Parse markdown with front-matter
             post, content, metadata = self._parse_markdown(file_path)
 
@@ -61,22 +66,41 @@ class MarkdownExtractor(BaseExtractor):
             doc.title = self._extract_title(post, content, file_path)
 
             # Add front-matter metadata
+            metadata["extraction_failed"] = False
             doc.metadata = metadata
 
             return doc
 
-        except FileNotFoundError as e:
-            logger.error(f"Markdown file not found: {file_path}")
-            raise
-        except ValueError as e:
-            logger.warning(f"Markdown file extraction failed for {file_path}: {e}")
-            raise
         except UnicodeDecodeError as e:
-            logger.error(f"Markdown file encoding error for {file_path}: {e}")
-            raise
+            # Graceful fallback: Index by filename only
+            logger.warning(
+                f"Markdown file encoding error for {file_path}: {e}. File will be indexed by filename only.",
+                extra={"file_path": file_path, "error": str(e)}
+            )
+            # Create minimal document
+            doc = self._create_base_document(file_path, "")
+            doc.title = Path(file_path).stem
+            doc.metadata = {
+                "extraction_error": str(e),
+                "extraction_failed": True,
+            }
+            return doc
+
         except Exception as e:
-            logger.error(f"Unexpected error extracting markdown from {file_path}: {e}", exc_info=True)
-            raise
+            # Graceful fallback for unexpected errors (e.g., invalid YAML front-matter)
+            logger.warning(
+                f"Unexpected error extracting markdown from {file_path}: {e}. File will be indexed by filename only.",
+                extra={"file_path": file_path, "error": str(e)},
+                exc_info=True
+            )
+            # Create minimal document
+            doc = self._create_base_document(file_path, "")
+            doc.title = Path(file_path).stem
+            doc.metadata = {
+                "extraction_error": str(e),
+                "extraction_failed": True,
+            }
+            return doc
 
     def _parse_markdown(self, file_path: str) -> tuple[Any, str, Dict[str, Any]]:
         """
