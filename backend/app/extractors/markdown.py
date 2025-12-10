@@ -2,6 +2,7 @@
 Markdown file extractor with YAML front-matter support
 Extracts content and metadata from markdown documents
 """
+import logging
 import frontmatter
 from pathlib import Path
 from typing import Dict, Any
@@ -9,6 +10,8 @@ from typing import Dict, Any
 from .base import BaseExtractor, extractor_registry
 from ..schemas import Document
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class MarkdownExtractor(BaseExtractor):
@@ -37,29 +40,67 @@ class MarkdownExtractor(BaseExtractor):
             file_path: Path to markdown file
 
         Returns:
-            Document with extracted content and metadata
+            Document with extracted content (may have minimal content on extraction failure)
 
         Raises:
             FileNotFoundError: If file doesn't exist
-            ValueError: If file is too large
-            UnicodeDecodeError: If file cannot be decoded
+            ValueError: If file is too large (hard failure - file should be skipped)
         """
-        # Check file size
-        size_bytes = self._check_file_size(file_path)
+        # Check file size first (hard failure - we don't index oversized files)
+        try:
+            size_bytes = self._check_file_size(file_path)
+        except (FileNotFoundError, ValueError) as e:
+            # These are hard failures - don't try to recover
+            logger.warning(f"Markdown file check failed for {file_path}: {e}")
+            raise
 
-        # Parse markdown with front-matter
-        post, content, metadata = self._parse_markdown(file_path)
+        # Try extraction with graceful fallback on parsing errors
+        try:
+            # Parse markdown with front-matter
+            post, content, metadata = self._parse_markdown(file_path)
 
-        # Create base document
-        doc = self._create_base_document(file_path, content)
+            # Create base document
+            doc = self._create_base_document(file_path, content)
 
-        # Extract title from front-matter or first heading
-        doc.title = self._extract_title(post, content, file_path)
+            # Extract title from front-matter or first heading
+            doc.title = self._extract_title(post, content, file_path)
 
-        # Add front-matter metadata
-        doc.metadata = metadata
+            # Add front-matter metadata
+            metadata["extraction_failed"] = False
+            doc.metadata = metadata
 
-        return doc
+            return doc
+
+        except UnicodeDecodeError as e:
+            # Graceful fallback: Index by filename only
+            logger.warning(
+                f"Markdown file encoding error for {file_path}: {e}. File will be indexed by filename only.",
+                extra={"file_path": file_path, "error": str(e)}
+            )
+            # Create minimal document
+            doc = self._create_base_document(file_path, "")
+            doc.title = Path(file_path).stem
+            doc.metadata = {
+                "extraction_error": str(e),
+                "extraction_failed": True,
+            }
+            return doc
+
+        except Exception as e:
+            # Graceful fallback for unexpected errors (e.g., invalid YAML front-matter)
+            logger.warning(
+                f"Unexpected error extracting markdown from {file_path}: {e}. File will be indexed by filename only.",
+                extra={"file_path": file_path, "error": str(e)},
+                exc_info=True
+            )
+            # Create minimal document
+            doc = self._create_base_document(file_path, "")
+            doc.title = Path(file_path).stem
+            doc.metadata = {
+                "extraction_error": str(e),
+                "extraction_failed": True,
+            }
+            return doc
 
     def _parse_markdown(self, file_path: str) -> tuple[Any, str, Dict[str, Any]]:
         """

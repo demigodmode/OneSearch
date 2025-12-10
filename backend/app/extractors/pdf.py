@@ -2,6 +2,7 @@
 PDF file extractor with metadata extraction
 Handles text extraction from PDF documents with robust error handling
 """
+import logging
 from pathlib import Path
 from typing import Optional
 from pypdf import PdfReader
@@ -10,6 +11,8 @@ import io
 from .base import BaseExtractor, extractor_registry
 from ..schemas import Document
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class PDFExtractor(BaseExtractor):
@@ -46,31 +49,47 @@ class PDFExtractor(BaseExtractor):
             ValueError: If file is too large
             Exception: For other PDF extraction errors
         """
-        # Check file size
-        size_bytes = self._check_file_size(file_path)
-
-        # Extract text and metadata from PDF
         try:
-            content, metadata = self._extract_pdf_content(file_path)
+            # Check file size
+            size_bytes = self._check_file_size(file_path)
+
+            # Extract text and metadata from PDF
+            try:
+                content, metadata = self._extract_pdf_content(file_path)
+            except Exception as e:
+                # Log extraction failure but continue with partial indexing
+                logger.warning(
+                    f"PDF extraction failed for {file_path}: {e}. File will be indexed by filename only.",
+                    extra={"file_path": file_path, "error": str(e)}
+                )
+                # Fallback: Create document with minimal content on extraction failure
+                # This allows the file to still be indexed by filename
+                content = ""
+                metadata = {
+                    "extraction_error": str(e),
+                    "extraction_failed": True,
+                }
+
+            # Create base document
+            doc = self._create_base_document(file_path, content)
+
+            # Set title from metadata or filename
+            doc.title = metadata.get("title") or Path(file_path).stem
+
+            # Add PDF metadata
+            doc.metadata = metadata
+
+            return doc
+
+        except FileNotFoundError as e:
+            logger.error(f"PDF file not found: {file_path}")
+            raise
+        except ValueError as e:
+            logger.warning(f"PDF file extraction failed for {file_path}: {e}")
+            raise
         except Exception as e:
-            # Fallback: Create document with minimal content on extraction failure
-            # This allows the file to still be indexed by filename
-            content = ""
-            metadata = {
-                "extraction_error": str(e),
-                "extraction_failed": True,
-            }
-
-        # Create base document
-        doc = self._create_base_document(file_path, content)
-
-        # Set title from metadata or filename
-        doc.title = metadata.get("title") or Path(file_path).stem
-
-        # Add PDF metadata
-        doc.metadata = metadata
-
-        return doc
+            logger.error(f"Unexpected error extracting PDF from {file_path}: {e}", exc_info=True)
+            raise
 
     def _extract_pdf_content(self, file_path: str) -> tuple[str, dict]:
         """
