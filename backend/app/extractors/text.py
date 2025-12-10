@@ -2,12 +2,15 @@
 Text file extractor for plain text documents
 Supports various text-based file formats with encoding detection
 """
+import logging
 import chardet
 from pathlib import Path
 
 from .base import BaseExtractor, extractor_registry
 from ..schemas import Document
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class TextExtractor(BaseExtractor):
@@ -60,25 +63,39 @@ class TextExtractor(BaseExtractor):
             ValueError: If file is too large
             UnicodeDecodeError: If file cannot be decoded
         """
-        # Check file size
-        size_bytes = self._check_file_size(file_path)
+        try:
+            # Check file size
+            size_bytes = self._check_file_size(file_path)
 
-        # Read file content with encoding detection
-        content = self._read_with_encoding_detection(file_path)
+            # Read file content with encoding detection
+            content = self._read_with_encoding_detection(file_path)
 
-        # Create base document
-        doc = self._create_base_document(file_path, content)
+            # Create base document
+            doc = self._create_base_document(file_path, content)
 
-        # Try to extract title from first line (for code files, config files)
-        doc.title = self._extract_title(file_path, content)
+            # Try to extract title from first line (for code files, config files)
+            doc.title = self._extract_title(file_path, content)
 
-        # Add metadata
-        doc.metadata = {
-            "detected_encoding": self._detect_encoding(file_path),
-            "line_count": content.count('\n') + 1,
-        }
+            # Add metadata
+            doc.metadata = {
+                "detected_encoding": self._detect_encoding(file_path),
+                "line_count": content.count('\n') + 1,
+            }
 
-        return doc
+            return doc
+
+        except FileNotFoundError as e:
+            logger.error(f"Text file not found: {file_path}")
+            raise
+        except ValueError as e:
+            logger.warning(f"Text file extraction failed for {file_path}: {e}")
+            raise
+        except UnicodeDecodeError as e:
+            logger.error(f"Text file encoding error for {file_path}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error extracting text from {file_path}: {e}", exc_info=True)
+            raise
 
     def _read_with_encoding_detection(self, file_path: str) -> str:
         """

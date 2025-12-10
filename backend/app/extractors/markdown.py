@@ -2,6 +2,7 @@
 Markdown file extractor with YAML front-matter support
 Extracts content and metadata from markdown documents
 """
+import logging
 import frontmatter
 from pathlib import Path
 from typing import Dict, Any
@@ -9,6 +10,8 @@ from typing import Dict, Any
 from .base import BaseExtractor, extractor_registry
 from ..schemas import Document
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class MarkdownExtractor(BaseExtractor):
@@ -44,22 +47,36 @@ class MarkdownExtractor(BaseExtractor):
             ValueError: If file is too large
             UnicodeDecodeError: If file cannot be decoded
         """
-        # Check file size
-        size_bytes = self._check_file_size(file_path)
+        try:
+            # Check file size
+            size_bytes = self._check_file_size(file_path)
 
-        # Parse markdown with front-matter
-        post, content, metadata = self._parse_markdown(file_path)
+            # Parse markdown with front-matter
+            post, content, metadata = self._parse_markdown(file_path)
 
-        # Create base document
-        doc = self._create_base_document(file_path, content)
+            # Create base document
+            doc = self._create_base_document(file_path, content)
 
-        # Extract title from front-matter or first heading
-        doc.title = self._extract_title(post, content, file_path)
+            # Extract title from front-matter or first heading
+            doc.title = self._extract_title(post, content, file_path)
 
-        # Add front-matter metadata
-        doc.metadata = metadata
+            # Add front-matter metadata
+            doc.metadata = metadata
 
-        return doc
+            return doc
+
+        except FileNotFoundError as e:
+            logger.error(f"Markdown file not found: {file_path}")
+            raise
+        except ValueError as e:
+            logger.warning(f"Markdown file extraction failed for {file_path}: {e}")
+            raise
+        except UnicodeDecodeError as e:
+            logger.error(f"Markdown file encoding error for {file_path}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error extracting markdown from {file_path}: {e}", exc_info=True)
+            raise
 
     def _parse_markdown(self, file_path: str) -> tuple[Any, str, Dict[str, Any]]:
         """

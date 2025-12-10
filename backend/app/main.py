@@ -3,9 +3,10 @@ OneSearch FastAPI Application
 Main entry point for the backend API
 """
 import logging
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
@@ -60,6 +61,66 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Request/Response logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """
+    Log all HTTP requests and responses with timing information
+    """
+    start_time = time.time()
+
+    # Log incoming request
+    logger.info(
+        f"→ {request.method} {request.url.path}",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "query_params": str(request.query_params),
+            "client": request.client.host if request.client else None,
+        }
+    )
+
+    # Process request
+    try:
+        response = await call_next(request)
+
+        # Calculate processing time
+        process_time = time.time() - start_time
+
+        # Log response
+        log_level = logging.INFO if response.status_code < 400 else logging.WARNING
+        logger.log(
+            log_level,
+            f"← {request.method} {request.url.path} → {response.status_code} ({process_time*1000:.2f}ms)",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "process_time_ms": round(process_time * 1000, 2),
+            }
+        )
+
+        # Add processing time header
+        response.headers["X-Process-Time"] = str(process_time)
+
+        return response
+
+    except Exception as e:
+        process_time = time.time() - start_time
+        logger.error(
+            f"✗ {request.method} {request.url.path} → ERROR ({process_time*1000:.2f}ms): {e}",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "error": str(e),
+                "process_time_ms": round(process_time * 1000, 2),
+            },
+            exc_info=True
+        )
+        raise
+
 
 # Include API routers
 app.include_router(sources.router)
