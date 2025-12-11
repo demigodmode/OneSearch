@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OneSearch API",
     description="Self-hosted, privacy-focused search for your homelab",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -148,7 +148,7 @@ async def health_check():
     return {
         "status": overall_status,
         "service": "onesearch-backend",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "meilisearch": meili_health,
         "config": {
             "database": settings.database_url.split("///")[0],  # Just the protocol
@@ -163,7 +163,7 @@ async def root():
     """Root endpoint - API information"""
     return {
         "message": "OneSearch API",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "docs": "/docs",
         "redoc": "/redoc",
         "health": "/api/health",
