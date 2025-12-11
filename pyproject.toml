@@ -1,0 +1,106 @@
+[project]
+name = "onesearch"
+version = "0.2.0"
+description = "Self-hosted, privacy-focused search for your homelab"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "demigodmode"}
+]
+keywords = ["search", "homelab", "self-hosted", "meilisearch", "privacy"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+]
+
+[project.urls]
+Homepage = "https://github.com/demigodmode/OneSearch"
+Repository = "https://github.com/demigodmode/OneSearch"
+Issues = "https://github.com/demigodmode/OneSearch/issues"
+
+[project.optional-dependencies]
+# Install all workspace packages for development
+all = [
+    "onesearch-backend",
+    "onesearch-cli",
+]
+backend = ["onesearch-backend"]
+cli = ["onesearch-cli"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# UV Workspace configuration
+[tool.uv.workspace]
+members = ["backend", "cli"]
+
+# Source paths for workspace packages
+[tool.uv.sources]
+onesearch-backend = { workspace = true }
+onesearch-cli = { workspace = true }
+
+# Shared development dependencies
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.12.0",
+    "httpx>=0.25.0",
+    "ruff>=0.1.0",
+]
+
+# Shared Ruff configuration
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "dist",
+    "build",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "W",      # pycodestyle warnings
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/*" = ["S101"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "onesearch"]
+
+# Shared pytest configuration
+[tool.pytest.ini_options]
+testpaths = ["backend/tests", "cli/tests"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
