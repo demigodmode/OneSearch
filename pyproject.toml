@@ -53,9 +53,9 @@ members = ["backend", "cli"]
 onesearch-backend = { workspace = true }
 onesearch-cli = { workspace = true }
 
-# Shared development dependencies
-[tool.uv]
-dev-dependencies = [
+# Shared development dependencies (PEP 735)
+[dependency-groups]
+dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-mock>=3.12.0",
