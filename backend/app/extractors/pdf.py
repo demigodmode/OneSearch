@@ -1,3 +1,6 @@
+# Copyright (C) 2025 demigodmode
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """
 PDF file extractor with metadata extraction
 Handles text extraction from PDF documents with robust error handling

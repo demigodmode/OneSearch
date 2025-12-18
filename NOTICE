@@ -1,0 +1,43 @@
+OneSearch
+Copyright (C) 2025 demigodmode
+
+This software is licensed under the GNU Affero General Public License v3.0.
+See LICENSE file for details.
+
+================================================================================
+
+THIRD-PARTY SOFTWARE NOTICES AND INFORMATION
+
+This software includes dependencies licensed under various permissive licenses.
+The following is a summary of the primary dependencies and their licenses:
+
+Backend Dependencies (Python):
+- FastAPI - MIT License
+- Uvicorn - BSD-3-Clause License
+- Pydantic - MIT License
+- SQLAlchemy - MIT License
+- Alembic - MIT License
+- Meilisearch Python Client - MIT License
+- Click - BSD-3-Clause License
+- Rich - MIT License
+- Requests - Apache-2.0 License
+- PyPDF - BSD-3-Clause License
+- python-frontmatter - MIT License
+
+Frontend Dependencies (JavaScript/TypeScript):
+- React - MIT License
+- React Router - MIT License
+- Vite - MIT License
+- TypeScript - Apache-2.0 License
+- TailwindCSS - MIT License
+
+External Services:
+- Meilisearch Server - MIT License (open source core)
+
+All third-party licenses are compatible with AGPL-3.0.
+See individual dependency repositories for complete license terms.
+
+================================================================================
+
+For questions about licensing, please open an issue at:
+https://github.com/demigodmode/OneSearch/issues

@@ -1,3 +1,6 @@
+# Copyright (C) 2025 demigodmode
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """
 Application configuration using pydantic-settings
 Loads settings from environment variables

@@ -1,3 +1,6 @@
+# Copyright (C) 2025 demigodmode
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """Initial schema - sources and indexed_files tables
 
 Revision ID: 7de02f6a9de2

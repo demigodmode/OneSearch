@@ -36,3 +36,39 @@ Thanks for your interest in OneSearch! This project protects `main` with branch 
 - Python: target `py311`, line length 100 (see `pyproject.toml`); match existing style.
 - JS/TS: follow project eslint/prettier defaults (via `npm run lint`).
 - Security: do not commit secrets; prefer environment variables.
+
+## License and Copyright
+
+By contributing to OneSearch, you agree that your contributions will be licensed under the GNU Affero General Public License v3.0 (AGPL-3.0-only).
+
+### Developer Certificate of Origin
+
+By submitting a pull request, you certify that:
+
+1. The contribution was created in whole or in part by you and you have the right to submit it under the AGPL-3.0-only license; or
+2. The contribution is based upon previous work that, to the best of your knowledge, is covered under an appropriate open source license and you have the right under that license to submit that work with modifications, whether created in whole or in part by you, under the AGPL-3.0-only license; or
+3. The contribution was provided directly to you by some other person who certified (1) or (2) and you have not modified it.
+4. You understand and agree that this project and the contribution are public and that a record of the contribution (including all personal information you submit with it) is maintained indefinitely and may be redistributed consistent with this project or the open source license(s) involved.
+
+### Copyright Headers
+
+All new source files must include the following copyright header at the top:
+
+**Python files:**
+```python
+# Copyright (C) 2025 demigodmode
+# SPDX-License-Identifier: AGPL-3.0-only
+```
+
+**JavaScript/TypeScript files:**
+```javascript
+// Copyright (C) 2025 demigodmode
+// SPDX-License-Identifier: AGPL-3.0-only
+```
+
+**CSS files:**
+```css
+/* Copyright (C) 2025 demigodmode
+ * SPDX-License-Identifier: AGPL-3.0-only
+ */
+```

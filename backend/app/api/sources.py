@@ -1,3 +1,6 @@
+# Copyright (C) 2025 demigodmode
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """
 Source management API endpoints
 Provides CRUD operations for search sources

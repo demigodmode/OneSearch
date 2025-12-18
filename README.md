@@ -1,5 +1,7 @@
 # OneSearch
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 **Self-hosted, privacy-focused search for your homelab**
 
 Search across all your files, documents, and notes from a single, unified interface. No cloud dependencies, no telemetry, just fast local search.
@@ -303,7 +305,18 @@ All components run in Docker containers and communicate over a private network.
 
 ## License
 
-License pending. A LICENSE file will be added before a public release (MIT recommended).
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0-only).
+
+### What this means
+
+- You can freely use, modify, and distribute this software
+- If you modify and deploy this software on a network server, you must make your source code available to users
+- This ensures OneSearch remains free and open source for everyone
+- See the [LICENSE](LICENSE) file for complete terms
+
+### Dependencies
+
+All dependencies use permissive licenses (MIT, BSD, Apache-2.0) compatible with AGPL-3.0.
 
 ---
 

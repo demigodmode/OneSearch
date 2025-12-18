@@ -2,6 +2,7 @@
 name = "onesearch-cli"
 version = "0.2.0"
 description = "CLI for OneSearch - Self-hosted, privacy-focused search"
+license = {text = "AGPL-3.0-only"}
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.1.0",
