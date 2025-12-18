@@ -1,3 +1,6 @@
+# Copyright (C) 2025 demigodmode
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """
 Markdown file extractor with YAML front-matter support
 Extracts content and metadata from markdown documents

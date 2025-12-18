@@ -1,3 +1,6 @@
+# Copyright (C) 2025 demigodmode
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """
 Text file extractor for plain text documents
 Supports various text-based file formats with encoding detection

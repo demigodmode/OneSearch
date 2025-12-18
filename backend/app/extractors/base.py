@@ -1,3 +1,6 @@
+# Copyright (C) 2025 demigodmode
+# SPDX-License-Identifier: AGPL-3.0-only
+
 """
 Base extractor interface for document extraction
 All extractors must inherit from BaseExtractor
