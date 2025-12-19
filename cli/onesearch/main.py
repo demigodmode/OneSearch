@@ -36,8 +36,13 @@ def get_default_url() -> str:
     is_flag=True,
     help="Enable verbose output.",
 )
+@click.option(
+    "-q", "--quiet",
+    is_flag=True,
+    help="Suppress non-essential output. Only show results/errors.",
+)
 @pass_context
-def cli(ctx: Context, url: str, verbose: bool):
+def cli(ctx: Context, url: str, verbose: bool, quiet: bool):
     """OneSearch - Self-hosted, privacy-focused search for your homelab.
 
     Search across all your files, documents, and notes from a single,
@@ -54,6 +59,7 @@ def cli(ctx: Context, url: str, verbose: bool):
     """
     ctx.url = url
     ctx.verbose = verbose
+    ctx.quiet = quiet
 
 
 # Import and register command groups after cli is defined

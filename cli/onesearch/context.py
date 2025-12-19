@@ -3,6 +3,8 @@
 
 """Shared CLI context and utilities."""
 
+import io
+
 import click
 from rich.console import Console
 
@@ -12,6 +14,9 @@ from onesearch.api import OneSearchAPI
 console = Console()
 err_console = Console(stderr=True)
 
+# Quiet console that discards output
+_quiet_console = Console(file=io.StringIO(), force_terminal=False)
+
 
 class Context:
     """CLI context object passed to commands."""
@@ -19,6 +24,7 @@ class Context:
     def __init__(self):
         self.api: OneSearchAPI | None = None
         self.verbose: bool = False
+        self.quiet: bool = False
         self.url: str = "http://localhost:8000"
 
     def get_api(self) -> OneSearchAPI:
@@ -26,6 +32,12 @@ class Context:
         if self.api is None:
             self.api = OneSearchAPI(base_url=self.url)
         return self.api
+
+    def get_console(self) -> Console:
+        """Get the appropriate console based on quiet mode."""
+        if self.quiet:
+            return _quiet_console
+        return console
 
 
 pass_context = click.make_pass_decorator(Context, ensure=True)
