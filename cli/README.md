@@ -120,6 +120,7 @@ onesearch --url http://onesearch.local:8000 search "test"
 
 - `--url URL` - Override backend API URL
 - `-v, --verbose` - Enable verbose output
+- `-q, --quiet` - Suppress non-essential output (headers, hints, decorations)
 - `-h, --help` - Show help message
 - `--version` - Show version
 

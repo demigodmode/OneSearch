@@ -87,6 +87,8 @@ def search(
             offset=offset,
         )
 
+        out = ctx.get_console()
+
         if as_json:
             console.print(json.dumps(result, indent=2))
             return
@@ -97,10 +99,10 @@ def search(
         processing_time = result.get("processing_time_ms", 0)
 
         if not results:
-            console.print(f"[dim]No results found for:[/dim] [cyan]{escape(query)}[/cyan]")
+            out.print(f"[dim]No results found for:[/dim] [cyan]{escape(query)}[/cyan]")
             return
 
-        console.print(f"\nFound [green]{total}[/green] results in [dim]{processing_time}ms[/dim]\n")
+        out.print(f"\nFound [green]{total}[/green] results in [dim]{processing_time}ms[/dim]\n")
 
         for i, hit in enumerate(results, start=offset + 1):
             # Title line - backend returns: basename, source_name
@@ -129,11 +131,11 @@ def search(
 
             console.print()
 
-        # Pagination hint
+        # Pagination hint (only in non-quiet mode)
         if offset + len(results) < total:
             next_offset = offset + limit
-            console.print(f"[dim]Showing {offset + 1}-{offset + len(results)} of {total}. ")
-            console.print(f"Use --offset {next_offset} for more results.[/dim]")
+            out.print(f"[dim]Showing {offset + 1}-{offset + len(results)} of {total}. ")
+            out.print(f"Use --offset {next_offset} for more results.[/dim]")
 
     except APIError as e:
         err_console.print(f"[red]Error:[/red] {e.message}")

@@ -10,6 +10,7 @@ import click
 from rich.table import Table
 
 from onesearch.api import APIError
+from onesearch.config import get_config_path, get_backend_url
 from onesearch.context import Context, pass_context, console, err_console
 from onesearch.main import cli
 
@@ -150,7 +151,8 @@ def status(ctx: Context, source_id: str | None, as_json: bool):
 def health(ctx: Context, as_json: bool):
     """Check system health.
 
-    Verifies connectivity to the backend and Meilisearch.
+    Verifies connectivity to the backend and Meilisearch,
+    and displays current configuration.
 
     \b
     Examples:
@@ -158,38 +160,62 @@ def health(ctx: Context, as_json: bool):
       onesearch health --json
     """
     api = ctx.get_api()
+    config_path = get_config_path()
+
     try:
         result = api.health()
 
         if as_json:
+            # Include config info in JSON output
+            result["config"] = {
+                "config_file": str(config_path),
+                "config_exists": config_path.exists(),
+                "backend_url": ctx.url,
+            }
             console.print(json.dumps(result, indent=2))
             return
 
-        console.print()
-        # Backend returns status as "healthy" or "degraded"
+        # Essential status always shown (even in quiet mode)
         overall = result.get("status", "unknown")
         if overall == "healthy":
             console.print("[bold green]✓ System Healthy[/bold green]")
         else:
             console.print(f"[bold yellow]⚠ System Status: {overall}[/bold yellow]")
 
-        console.print()
-        console.print(f"  Backend:     {ctx.url} [green]✓[/green]")
-        console.print(f"  Service:     {result.get('service', 'onesearch-backend')} v{result.get('version', '?')}")
+        # Detailed info only in non-quiet mode
+        out = ctx.get_console()
+        out.print()
+        out.print("[bold]Services:[/bold]")
+        out.print(f"  Backend:     {ctx.url} [green]✓[/green]")
+        out.print(f"  Service:     {result.get('service', 'onesearch-backend')} v{result.get('version', '?')}")
 
         # Meilisearch status - backend returns {status: "available"|"degraded"|...}
         meili = result.get("meilisearch", {})
         meili_status = meili.get("status", "unknown")
         if meili_status in ("available", "healthy"):
-            console.print(f"  Meilisearch: Connected [green]✓[/green]")
+            out.print(f"  Meilisearch: Connected [green]✓[/green]")
         else:
-            console.print(f"  Meilisearch: [yellow]{meili_status}[/yellow]")
+            out.print(f"  Meilisearch: [yellow]{meili_status}[/yellow]")
 
-        console.print()
+        out.print()
+        out.print("[bold]Configuration:[/bold]")
+        out.print(f"  Config file: {config_path}")
+        if config_path.exists():
+            out.print(f"  Config:      [green]Loaded[/green]")
+        else:
+            out.print(f"  Config:      [dim]Using defaults[/dim]")
+        out.print()
 
     except APIError as e:
         err_console.print(f"[red]✗ System Unhealthy[/red]")
         err_console.print(f"\n  Backend: {ctx.url} [red]✗[/red]")
         err_console.print(f"  Error: {e.message}")
+        err_console.print()
+        err_console.print("[bold]Configuration:[/bold]")
+        err_console.print(f"  Config file: {config_path}")
+        if config_path.exists():
+            err_console.print(f"  Config:      [green]Loaded[/green]")
+        else:
+            err_console.print(f"  Config:      [dim]Using defaults[/dim]")
         console.print()
         raise SystemExit(1)
