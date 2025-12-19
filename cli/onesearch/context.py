@@ -3,6 +3,8 @@
 
 """Shared CLI context and utilities."""
 
+import io
+
 import click
 from rich.console import Console
 
@@ -12,8 +14,8 @@ from onesearch.api import OneSearchAPI
 console = Console()
 err_console = Console(stderr=True)
 
-# Quiet console that suppresses output
-_quiet_console = Console(quiet=True)
+# Quiet console that discards output
+_quiet_console = Console(file=io.StringIO(), force_terminal=False)
 
 
 class Context:
