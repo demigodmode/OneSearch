@@ -175,15 +175,15 @@ def health(ctx: Context, as_json: bool):
             console.print(json.dumps(result, indent=2))
             return
 
-        out = ctx.get_console()
-        out.print()
-        # Backend returns status as "healthy" or "degraded"
+        # Essential status always shown (even in quiet mode)
         overall = result.get("status", "unknown")
         if overall == "healthy":
-            out.print("[bold green]✓ System Healthy[/bold green]")
+            console.print("[bold green]✓ System Healthy[/bold green]")
         else:
-            out.print(f"[bold yellow]⚠ System Status: {overall}[/bold yellow]")
+            console.print(f"[bold yellow]⚠ System Status: {overall}[/bold yellow]")
 
+        # Detailed info only in non-quiet mode
+        out = ctx.get_console()
         out.print()
         out.print("[bold]Services:[/bold]")
         out.print(f"  Backend:     {ctx.url} [green]✓[/green]")
