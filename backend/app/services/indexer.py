@@ -106,11 +106,15 @@ class IndexingService:
         stats = IndexingStats()
         total_bytes_processed = 0  # Track bytes for throughput metrics
 
-        # Clear existing documents for this source from Meilisearch
+        # Clear existing documents for this source from both Meilisearch and database
         # This ensures clean reindexing and handles migration from old ID formats
         try:
             await self.search_service.delete_documents_by_filter(f"source_id = '{source_id}'")
-            logger.info(f"Cleared existing documents for source '{source_id}' from Meilisearch")
+            # Also clear indexed_files records so all files are treated as new
+            from sqlalchemy import delete
+            self.db.execute(delete(IndexedFile).where(IndexedFile.source_id == source_id))
+            self.db.commit()
+            logger.info(f"Cleared existing documents for source '{source_id}' from Meilisearch and database")
         except Exception as e:
             logger.warning(f"Failed to clear existing documents for source '{source_id}': {e}")
 
