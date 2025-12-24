@@ -116,8 +116,11 @@ curl -X POST http://localhost:8000/api/sources \
   -H "Content-Type: application/json" \
   -d '{"name": "Documents", "root_path": "/data/docs"}'
 
-# Trigger reindex
+# Trigger incremental reindex (only changed files)
 curl -X POST http://localhost:8000/api/sources/documents/reindex
+
+# Trigger full reindex (rebuild entire index from scratch)
+curl -X POST "http://localhost:8000/api/sources/documents/reindex?full=true"
 
 # Search
 curl -X POST http://localhost:8000/api/search \
