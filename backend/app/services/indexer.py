@@ -77,12 +77,13 @@ class IndexingService:
         self.db = db
         self.search_service = search_service
 
-    async def index_source(self, source_id: str) -> IndexingStats:
+    async def index_source(self, source_id: str, full: bool = False) -> IndexingStats:
         """
         Index or reindex a source
 
         Args:
             source_id: ID of source to index
+            full: If True, clear all existing data and rebuild from scratch
 
         Returns:
             IndexingStats with results
@@ -106,17 +107,17 @@ class IndexingService:
         stats = IndexingStats()
         total_bytes_processed = 0  # Track bytes for throughput metrics
 
-        # Clear existing documents for this source from both Meilisearch and database
-        # This ensures clean reindexing and handles migration from old ID formats
-        try:
-            await self.search_service.delete_documents_by_filter(f"source_id = '{source_id}'")
-            # Also clear indexed_files records so all files are treated as new
-            from sqlalchemy import delete
-            self.db.execute(delete(IndexedFile).where(IndexedFile.source_id == source_id))
-            self.db.commit()
-            logger.info(f"Cleared existing documents for source '{source_id}' from Meilisearch and database")
-        except Exception as e:
-            logger.warning(f"Failed to clear existing documents for source '{source_id}': {e}")
+        # Full reindex: clear existing documents to handle migration or fix corruption
+        if full:
+            try:
+                await self.search_service.delete_documents_by_filter(f"source_id = '{source_id}'")
+                # Also clear indexed_files records so all files are treated as new
+                from sqlalchemy import delete
+                self.db.execute(delete(IndexedFile).where(IndexedFile.source_id == source_id))
+                self.db.commit()
+                logger.info(f"Full reindex: cleared existing documents for source '{source_id}'")
+            except Exception as e:
+                logger.warning(f"Failed to clear existing documents for source '{source_id}': {e}")
 
         try:
             # Parse include/exclude patterns

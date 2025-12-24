@@ -232,7 +232,7 @@ export default function SourcesPage() {
 
   const handleReindex = (id: string) => {
     setReindexingId(id)
-    reindexMutation.mutate(id, {
+    reindexMutation.mutate({ id }, {
       onSettled: () => {
         setReindexingId(null)
       },

@@ -240,17 +240,28 @@ async def delete_source(source_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{source_id}/reindex")
-async def reindex_source(source_id: str, db: Session = Depends(get_db)):
+async def reindex_source(
+    source_id: str,
+    full: bool = False,
+    db: Session = Depends(get_db)
+):
     """
     Manually trigger reindexing for a source
 
-    Performs a full reindex:
-    - Clears existing Meilisearch documents and indexed_files records
-    - Re-scans all files and re-extracts content
-    - Rebuilds the index from scratch
+    By default performs incremental indexing:
+    - Only reindexes changed files (based on mtime/size)
+    - Adds new files
+    - Removes deleted files
+
+    With full=true, performs complete rebuild:
+    - Clears all existing documents from search index
+    - Clears indexed file records from database
+    - Re-indexes all files from scratch
+    - Use for migration or to fix index corruption
 
     Args:
         source_id: Source identifier
+        full: If true, wipe and rebuild entire index (default: false)
 
     Returns:
         Indexing statistics including:
@@ -300,7 +311,7 @@ async def reindex_source(source_id: str, db: Session = Depends(get_db)):
                 try:
                     # Create indexing service with thread-local session
                     indexing_service = IndexingService(thread_db, meili_service)
-                    return loop.run_until_complete(indexing_service.index_source(source_id))
+                    return loop.run_until_complete(indexing_service.index_source(source_id, full=full))
                 finally:
                     loop.close()
             finally:
