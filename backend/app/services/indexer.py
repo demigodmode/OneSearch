@@ -110,7 +110,10 @@ class IndexingService:
         # Full reindex: clear existing documents to handle migration or fix corruption
         if full:
             try:
-                await self.search_service.delete_documents_by_filter(f"source_id = '{source_id}'")
+                # Use json.dumps to escape source_id and prevent filter injection
+                import json
+                escaped_id = json.dumps(source_id)
+                await self.search_service.delete_documents_by_filter(f"source_id = {escaped_id}")
                 # Also clear indexed_files records so all files are treated as new
                 from sqlalchemy import delete
                 self.db.execute(delete(IndexedFile).where(IndexedFile.source_id == source_id))

@@ -225,8 +225,10 @@ async def delete_source(source_id: str, db: Session = Depends(get_db)):
 
     # Delete all documents for this source from Meilisearch using filter
     # This handles any document ID format (old or new) for seamless migration
+    # Use json.dumps to escape source_id and prevent filter injection
     try:
-        await meili_service.delete_documents_by_filter(f"source_id = '{source_id}'")
+        escaped_id = json.dumps(source_id)
+        await meili_service.delete_documents_by_filter(f"source_id = {escaped_id}")
     except Exception as e:
         logger.warning(f"Failed to delete documents from Meilisearch for source {source_id}: {e}")
 

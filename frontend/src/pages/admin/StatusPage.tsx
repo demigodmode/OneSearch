@@ -140,10 +140,10 @@ export default function StatusPage() {
   const isLoading = isLoadingHealth || isLoadingStatus
   const hasError = healthError || statusError
 
-  // Calculate aggregate stats
+  // Calculate aggregate stats (with safe defaults for error entries)
   const sources = statusData?.sources || []
-  const totalDocs = sources.reduce((sum, s) => sum + s.successful, 0)
-  const totalFailed = sources.reduce((sum, s) => sum + s.failed, 0)
+  const totalDocs = sources.reduce((sum, s) => sum + (s.successful ?? 0), 0)
+  const totalFailed = sources.reduce((sum, s) => sum + (s.failed ?? 0), 0)
   const lastIndexed = sources.reduce((latest, s) => {
     if (!s.last_indexed_at) return latest
     if (!latest) return s.last_indexed_at
