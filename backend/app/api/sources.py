@@ -244,11 +244,10 @@ async def reindex_source(source_id: str, db: Session = Depends(get_db)):
     """
     Manually trigger reindexing for a source
 
-    Performs incremental indexing:
-    - Only reindexes changed files (based on mtime/size)
-    - Adds new files
-    - Removes deleted files
-    - Updates Meilisearch index
+    Performs a full reindex:
+    - Clears existing Meilisearch documents and indexed_files records
+    - Re-scans all files and re-extracts content
+    - Rebuilds the index from scratch
 
     Args:
         source_id: Source identifier
