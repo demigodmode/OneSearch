@@ -5,6 +5,7 @@
 Indexing service with incremental logic
 Orchestrates file scanning, extraction, and Meilisearch indexing
 """
+import hashlib
 import logging
 import time
 from pathlib import Path
@@ -431,9 +432,9 @@ class IndexingService:
                 # File was deleted
                 logger.info(f"File deleted: {indexed_path}")
 
-                # Remove from Meilisearch (ID must match the sanitized format)
-                sanitized_path = indexed_path.replace("/", "_").replace("\\", "_").replace(":", "-").replace(".", "_")
-                doc_id = f"{source_id}--{sanitized_path}"
+                # Remove from Meilisearch using hash-based ID
+                path_hash = hashlib.sha256(indexed_path.encode()).hexdigest()[:12]
+                doc_id = f"{source_id}--{path_hash}"
                 await self.search_service.delete_document(doc_id)
 
                 # Remove from database

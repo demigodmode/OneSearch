@@ -190,9 +190,9 @@ class MeilisearchService:
             logger.error(f"Failed to delete document {document_id}: {e}")
             raise
 
-    def delete_documents_by_filter(self, filter_str: str) -> Dict[str, Any]:
+    async def delete_documents_by_filter(self, filter_str: str) -> Dict[str, Any]:
         """
-        Delete documents matching a filter
+        Delete documents matching a filter (runs in thread pool)
 
         Args:
             filter_str: Meilisearch filter string (e.g., "source_id = 'source1'")
@@ -204,7 +204,10 @@ class MeilisearchService:
             raise RuntimeError("Index not initialized")
 
         try:
-            task = self.index.delete_documents_by_filter(filter_str)
+            # Run blocking HTTP call in thread pool
+            task = await asyncio.to_thread(
+                self.index.delete_documents_by_filter, filter_str
+            )
             logger.info(f"Deleted documents with filter: {filter_str}")
             return task.__dict__
 

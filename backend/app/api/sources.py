@@ -219,25 +219,22 @@ async def delete_source(source_id: str, db: Session = Depends(get_db)):
             detail=f"Source '{source_id}' not found"
         )
 
-    # Get all indexed files for cleanup
+    # Count indexed files for logging
     stmt = select(IndexedFile).where(IndexedFile.source_id == source_id)
-    indexed_files = db.execute(stmt).scalars().all()
+    indexed_files_count = len(db.execute(stmt).scalars().all())
 
-    # Delete documents from Meilisearch
-    for indexed_file in indexed_files:
-        # ID must match the sanitized format used during indexing
-        sanitized_path = indexed_file.path.replace("/", "_").replace("\\", "_").replace(":", "-").replace(".", "_")
-        doc_id = f"{source_id}--{sanitized_path}"
-        try:
-            await meili_service.delete_document(doc_id)
-        except Exception as e:
-            logger.warning(f"Failed to delete document from Meilisearch: {doc_id}: {e}")
+    # Delete all documents for this source from Meilisearch using filter
+    # This handles any document ID format (old or new) for seamless migration
+    try:
+        await meili_service.delete_documents_by_filter(f"source_id = '{source_id}'")
+    except Exception as e:
+        logger.warning(f"Failed to delete documents from Meilisearch for source {source_id}: {e}")
 
     # Delete source (cascade will delete indexed_files)
     db.delete(source)
     db.commit()
 
-    logger.info(f"Deleted source: {source_id} ({len(indexed_files)} indexed files removed)")
+    logger.info(f"Deleted source: {source_id} ({indexed_files_count} indexed files removed)")
 
     return None
 
