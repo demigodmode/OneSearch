@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Search, Database, Activity, ArrowLeft } from 'lucide-react'
+import { Search, Database, Activity, ArrowLeft, Terminal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const adminNavItems = [
@@ -14,43 +14,46 @@ export default function AdminLayout() {
   const location = useLocation()
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <div className="flex items-center gap-4">
-              <Link to="/" className="flex items-center gap-2">
-                <Search className="h-6 w-6 text-blue-600" />
-                <span className="text-xl font-bold text-gray-900 dark:text-white">
+            {/* Logo & breadcrumb */}
+            <div className="flex items-center gap-3">
+              <Link to="/" className="flex items-center gap-2.5 group">
+                <div className="p-1.5 rounded-lg bg-cyan/10 group-hover:bg-cyan/20 transition-colors">
+                  <Search className="h-5 w-5 text-cyan" />
+                </div>
+                <span className="text-lg font-semibold text-foreground tracking-tight">
                   OneSearch
                 </span>
               </Link>
-              <span className="text-gray-400">|</span>
-              <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
-                Admin
-              </span>
+              <span className="text-border">/</span>
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <Terminal className="h-4 w-4" />
+                <span className="text-sm font-medium">Admin</span>
+              </div>
             </div>
 
             {/* Back to search */}
             <Link
               to="/"
-              className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
             >
               <ArrowLeft className="h-4 w-4" />
-              Back to Search
+              <span className="hidden sm:inline">Back to Search</span>
             </Link>
           </div>
         </div>
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex gap-8">
+        <div className="flex flex-col md:flex-row gap-8">
           {/* Sidebar */}
-          <aside className="w-48 flex-shrink-0">
+          <aside className="md:w-56 flex-shrink-0">
             <nav className="space-y-1">
-              {adminNavItems.map((item) => {
+              {adminNavItems.map((item, index) => {
                 const Icon = item.icon
                 const isActive = location.pathname === item.path
                 return (
@@ -58,18 +61,33 @@ export default function AdminLayout() {
                     key={item.path}
                     to={item.path}
                     className={cn(
-                      'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md',
+                      'flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200',
+                      'animate-fade-in-up animate-initial',
                       isActive
-                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300'
-                        : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+                        ? 'bg-cyan/10 text-cyan border border-cyan/20'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
                     )}
+                    style={{ animationDelay: `${index * 50}ms`, animationFillMode: 'forwards' }}
                   >
-                    <Icon className="h-4 w-4" />
+                    <Icon className={cn('h-4 w-4', isActive && 'text-cyan')} />
                     {item.label}
+                    {isActive && (
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan shadow-[0_0_8px_2px_rgba(34,211,238,0.4)]" />
+                    )}
                   </Link>
                 )
               })}
             </nav>
+
+            {/* Version info */}
+            <div className="mt-8 px-3 py-3 rounded-lg bg-card border border-border">
+              <p className="text-xs text-muted-foreground font-mono">
+                OneSearch v0.3.0
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Phase 0 • MVP
+              </p>
+            </div>
           </aside>
 
           {/* Main content */}

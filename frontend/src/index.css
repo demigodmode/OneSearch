@@ -1,5 +1,8 @@
 /* Copyright (C) 2025 demigodmode
  * SPDX-License-Identifier: AGPL-3.0-only
+ *
+ * OneSearch - "Obsidian Terminal" Design System
+ * A refined, dark-first interface for developer tools
  */
 
 @tailwind base;
@@ -7,49 +10,84 @@
 @tailwind utilities;
 
 @layer base {
+  /* ═══════════════════════════════════════════════════════════════
+     OBSIDIAN DARK THEME - Primary theme for OneSearch
+     Deep blacks, cyan accents, refined surfaces
+     ═══════════════════════════════════════════════════════════════ */
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    /* Base colors - Deep obsidian */
+    --background: 240 10% 4%;           /* #09090b - near black */
+    --foreground: 0 0% 98%;             /* #fafafa - crisp white */
+
+    /* Surfaces - Layered depth */
+    --card: 240 6% 10%;                 /* #18181b - elevated surface */
+    --card-foreground: 0 0% 98%;
+    --popover: 240 6% 10%;
+    --popover-foreground: 0 0% 98%;
+
+    /* Primary - Cyan accent */
+    --primary: 187 85% 53%;             /* #14b8a6 - teal/cyan */
+    --primary-foreground: 240 10% 4%;
+
+    /* Secondary - Subtle zinc */
+    --secondary: 240 4% 16%;            /* #27272a */
+    --secondary-foreground: 0 0% 98%;
+
+    /* Muted - For secondary text */
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 65%;     /* #a1a1aa */
+
+    /* Accent - Highlight states */
+    --accent: 240 4% 16%;
+    --accent-foreground: 0 0% 98%;
+
+    /* Destructive - Errors */
+    --destructive: 0 84% 60%;           /* #ef4444 */
+    --destructive-foreground: 0 0% 98%;
+
+    /* Borders & inputs */
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
+    --ring: 187 85% 53%;
+
+    /* Radius */
+    --radius: 0.625rem;
+
+    /* ═══════════════════════════════════════════════════════════
+       CUSTOM SEMANTIC COLORS
+       ═══════════════════════════════════════════════════════════ */
+    --cyan: 187 85% 53%;                /* Primary accent */
+    --cyan-foreground: 240 10% 4%;
+    --cyan-glow: 187 85% 53%;           /* For glow effects */
+
+    --success: 142 76% 46%;             /* #22c55e - green */
+    --warning: 38 92% 50%;              /* #f59e0b - amber */
   }
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+  /* Light theme (optional, for future use) */
+  .light {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 4%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 4%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 4%;
+    --primary: 187 85% 43%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 6% 10%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 187 85% 43%;
+    --cyan: 187 85% 43%;
+    --cyan-foreground: 0 0% 100%;
+    --cyan-glow: 187 85% 43%;
   }
 }
 
@@ -58,40 +96,166 @@
     @apply border-border;
   }
 
-  body {
-    @apply bg-background text-foreground;
-    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-synthesis: none;
+  html {
+    @apply antialiased;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
   #root {
     min-height: 100vh;
   }
+
+  /* Refined selection colors */
+  ::selection {
+    @apply bg-cyan/30 text-foreground;
+  }
+
+  /* Focus visible for accessibility */
+  :focus-visible {
+    @apply outline-none ring-2 ring-cyan ring-offset-2 ring-offset-background;
+  }
 }
 
-/* Custom scrollbar for dark mode */
+/* ═══════════════════════════════════════════════════════════════
+   CUSTOM COMPONENT STYLES
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+  /* Search input with glow effect */
+  .search-input {
+    @apply relative w-full bg-card border border-border rounded-lg
+           transition-all duration-300 ease-out;
+  }
+
+  .search-input:focus-within {
+    @apply border-cyan/50;
+    box-shadow: 0 0 0 1px hsl(var(--cyan) / 0.2),
+                0 0 20px -5px hsl(var(--cyan-glow) / 0.4),
+                0 0 40px -10px hsl(var(--cyan-glow) / 0.2);
+  }
+
+  /* Card with subtle hover effect */
+  .card-hover {
+    @apply transition-all duration-200 ease-out;
+  }
+
+  .card-hover:hover {
+    @apply bg-secondary/80 border-border/80;
+    transform: translateY(-1px);
+  }
+
+  /* Accent border left */
+  .accent-border-left {
+    @apply border-l-2 border-l-cyan/60;
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-cyan to-emerald-400;
+  }
+
+  /* Kbd styling for keyboard shortcuts */
+  .kbd {
+    @apply inline-flex items-center gap-1 px-1.5 py-0.5
+           text-xs font-mono font-medium
+           bg-secondary text-muted-foreground
+           border border-border rounded
+           shadow-sm;
+  }
+
+  /* Status indicators */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-dot-success {
+    @apply bg-green-500 shadow-[0_0_8px_2px_rgba(34,197,94,0.4)];
+  }
+
+  .status-dot-warning {
+    @apply bg-amber-500 shadow-[0_0_8px_2px_rgba(245,158,11,0.4)];
+  }
+
+  .status-dot-error {
+    @apply bg-red-500 shadow-[0_0_8px_2px_rgba(239,68,68,0.4)];
+  }
+
+  /* Pulse animation for live status */
+  .status-dot-pulse {
+    @apply animate-pulse;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UTILITY CLASSES
+   ═══════════════════════════════════════════════════════════════ */
+
 @layer utilities {
+  /* Staggered animation delays for page load */
+  .delay-75 { animation-delay: 75ms; }
+  .delay-100 { animation-delay: 100ms; }
+  .delay-150 { animation-delay: 150ms; }
+  .delay-200 { animation-delay: 200ms; }
+  .delay-300 { animation-delay: 300ms; }
+  .delay-400 { animation-delay: 400ms; }
+  .delay-500 { animation-delay: 500ms; }
+
+  /* Initially hidden for animations */
+  .animate-initial {
+    opacity: 0;
+  }
+
+  /* Custom scrollbar */
   .scrollbar-thin {
     scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-track {
-    @apply bg-gray-100 dark:bg-gray-800;
+    @apply bg-transparent;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply bg-gray-300 dark:bg-gray-600 rounded;
+    @apply bg-border rounded-full;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    @apply bg-gray-400 dark:bg-gray-500;
+    @apply bg-muted-foreground/50;
+  }
+
+  /* Noise texture overlay */
+  .noise-overlay {
+    position: relative;
+  }
+
+  .noise-overlay::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%' height='100%' filter='url(%23noise)'/%3E%3C/svg%3E");
+    opacity: 0.03;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Gradient mesh background */
+  .gradient-mesh {
+    background:
+      radial-gradient(at 40% 20%, hsl(var(--cyan) / 0.08) 0px, transparent 50%),
+      radial-gradient(at 80% 0%, hsl(187 85% 53% / 0.05) 0px, transparent 50%),
+      radial-gradient(at 0% 50%, hsl(var(--cyan) / 0.05) 0px, transparent 50%),
+      hsl(var(--background));
   }
 }
