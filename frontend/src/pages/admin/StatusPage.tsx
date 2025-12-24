@@ -59,7 +59,7 @@ function FailedFilesList({ files }: { files: FailedFile[] }) {
 function SourceStatusCard({ source, index }: { source: SourceStatus; index: number }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const healthStatus = getSourceHealthStatus(source)
-  const hasFailedFiles = source.failed_files.length > 0
+  const hasFailedFiles = (source.failed_files?.length ?? 0) > 0
 
   return (
     <div
@@ -123,7 +123,7 @@ function SourceStatusCard({ source, index }: { source: SourceStatus; index: numb
           </div>
         </div>
 
-        {isExpanded && hasFailedFiles && (
+        {isExpanded && hasFailedFiles && source.failed_files && (
           <FailedFilesList files={source.failed_files} />
         )}
       </div>

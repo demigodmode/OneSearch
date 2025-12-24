@@ -225,7 +225,9 @@ async def delete_source(source_id: str, db: Session = Depends(get_db)):
 
     # Delete documents from Meilisearch
     for indexed_file in indexed_files:
-        doc_id = f"{source_id}:{indexed_file.path}"
+        # ID must match the sanitized format used during indexing
+        sanitized_path = indexed_file.path.replace("/", "_").replace("\\", "_").replace(":", "-").replace(".", "_")
+        doc_id = f"{source_id}--{sanitized_path}"
         try:
             await meili_service.delete_document(doc_id)
         except Exception as e:

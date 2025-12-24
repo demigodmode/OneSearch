@@ -168,15 +168,19 @@ class BaseExtractor(ABC):
         """
         Create unique document ID for Meilisearch
 
-        Format: "source_id:/path/to/file"
+        Meilisearch only allows alphanumeric characters, hyphens, and underscores.
+        We sanitize the path by replacing invalid characters.
 
         Args:
             file_path: Path to file
 
         Returns:
-            Unique document ID
+            Unique document ID (sanitized for Meilisearch)
         """
-        return f"{self.source_id}:{file_path}"
+        # Replace characters not allowed in Meilisearch document IDs
+        # Allowed: a-z A-Z 0-9 - _
+        sanitized_path = file_path.replace("/", "_").replace("\\", "_").replace(":", "-").replace(".", "_")
+        return f"{self.source_id}--{sanitized_path}"
 
     def _create_base_document(self, file_path: str, content: str) -> Document:
         """

@@ -132,7 +132,8 @@ export function useReindexSource() {
   return useMutation({
     mutationFn: (id: string) => reindexSource(id),
     onSuccess: () => {
-      // Invalidate status to show updated indexing info
+      // Invalidate both sources (for updated_at) and status (for indexing info)
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources })
       queryClient.invalidateQueries({ queryKey: queryKeys.status })
     },
   })

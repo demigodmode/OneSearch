@@ -431,8 +431,9 @@ class IndexingService:
                 # File was deleted
                 logger.info(f"File deleted: {indexed_path}")
 
-                # Remove from Meilisearch
-                doc_id = f"{source_id}:{indexed_path}"
+                # Remove from Meilisearch (ID must match the sanitized format)
+                sanitized_path = indexed_path.replace("/", "_").replace("\\", "_").replace(":", "-").replace(".", "_")
+                doc_id = f"{source_id}--{sanitized_path}"
                 await self.search_service.delete_document(doc_id)
 
                 # Remove from database

@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Search, Command, FileText, FileCode, File, Loader2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useSearch, useSources } from '@/hooks/useApi'
 import type { SearchResult } from '@/types/api'
-import { cn } from '@/lib/utils'
+import { cn, sanitizeSnippet } from '@/lib/utils'
 
 // Format file size for display
 function formatSize(bytes: number): string {
@@ -59,7 +59,7 @@ function ResultCard({ result, index }: { result: SearchResult; index: number }) 
           {result.snippet && (
             <p
               className="text-sm text-muted-foreground line-clamp-2"
-              dangerouslySetInnerHTML={{ __html: result.snippet }}
+              dangerouslySetInnerHTML={{ __html: sanitizeSnippet(result.snippet) }}
             />
           )}
         </div>

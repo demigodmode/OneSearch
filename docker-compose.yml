@@ -1,7 +1,7 @@
 services:
   # Meilisearch - Fast search engine
   meilisearch:
-    image: getmeili/meilisearch:v1.5
+    image: getmeili/meilisearch:v1.12
     container_name: onesearch-meilisearch
     volumes:
       - meilisearch_data:/meili_data
@@ -35,6 +35,9 @@ services:
       # - /mnt/nas/documents:/data/nas_docs:ro
       # - /home/user/Documents:/data/documents:ro
       # - /path/to/photos:/data/photos:ro
+
+      # Test mount - local_docs folder (remove after testing)
+      - ./local_docs:/data/test_docs:ro
 
     environment:
       - MEILI_URL=http://meilisearch:7700
