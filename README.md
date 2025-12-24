@@ -16,11 +16,11 @@ Search across all your files, documents, and notes from a single, unified interf
 - **Incremental Indexing** - Only reindex changed files, not your entire library
 - **REST API** - Full-featured API for search, source management, and status
 - **CLI Tool** - Command-line interface for scripting and automation
-- **Web UI** - React-based interface (scaffold in Phase 0, full functionality coming in Phase 1)
+- **Web UI** - React-based interface with search, source management, and status monitoring
 - **Privacy First** - All data stays local, no outbound connections
 - **Easy Deployment** - Single Docker Compose command to get started
 
-> **Note:** Phase 0 focuses on backend functionality. The Web UI is a scaffold with mock data—use the CLI or API for full functionality until Phase 1 wiring is complete.
+> **Note:** Phase 0 delivers a fully functional search system. All components (Web UI, CLI, API) are wired up and ready to use.
 
 ---
 
@@ -85,7 +85,7 @@ This repo ships with a ready-to-use `docker-compose.yml` that starts the backend
 
 ## Usage
 
-> **Phase 0:** Use the CLI or API for full functionality. Web UI is a design scaffold.
+> **Tip:** All three interfaces (Web UI, CLI, API) provide full functionality. Choose whichever fits your workflow.
 
 ### Using the CLI (Recommended)
 
@@ -130,14 +130,12 @@ curl -X POST http://localhost:8000/api/search \
 
 API docs available at http://localhost:8000/docs (when running backend directly; not proxied in Docker)
 
-### Web UI (Phase 0 Scaffold)
+### Web UI
 
-The web UI at http://localhost:8000 shows the design direction for Phase 1:
-- **Search page** - Search interface with result previews
-- **Admin → Sources** - Source management UI
-- **Admin → Status** - Indexing status dashboard
-
-Currently displays mock data. Full API integration coming in Phase 1.
+The web UI at http://localhost:8000 provides a complete interface:
+- **Search page** - Full-text search with highlighted snippets and result previews
+- **Admin → Sources** - Create, edit, delete sources and trigger reindexing
+- **Admin → Status** - Real-time indexing status, health monitoring, and error tracking
 
 ---
 
