@@ -93,8 +93,8 @@ This repo ships with a ready-to-use `docker-compose.yml` that starts the backend
 # Install CLI
 cd cli && pip install -e .
 
-# Add a source
-onesearch source add "Documents" /data/docs --include "**/*.pdf,**/*.md"
+# Add a source (use --no-validate for Docker-only paths)
+onesearch source add "Documents" /data/docs --include "**/*.pdf,**/*.md" --no-validate
 
 # Trigger indexing
 onesearch source reindex documents
@@ -125,11 +125,11 @@ curl -X POST http://localhost:8000/api/search \
   -d '{"q": "kubernetes"}'
 ```
 
-API docs available at http://localhost:8000/docs
+API docs available at http://localhost:8000/docs (when running backend directly; not proxied in Docker)
 
 ### Web UI (Phase 0 Scaffold)
 
-The web UI at http://localhost:8080 shows the design direction for Phase 1:
+The web UI at http://localhost:8000 shows the design direction for Phase 1:
 - **Search page** - Search interface with result previews
 - **Admin → Sources** - Source management UI
 - **Admin → Status** - Indexing status dashboard
@@ -187,7 +187,7 @@ uv run uvicorn app.main:app --reload
 # Or using pip
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+pip install -e .
 uvicorn app.main:app --reload
 ```
 
@@ -207,7 +207,7 @@ Dev server: http://localhost:5173 (proxies API to backend)
 
 ```bash
 cd cli
-pip install -e ".[dev]"
+pip install -e .
 onesearch --help
 ```
 
@@ -240,7 +240,7 @@ See `.env.example` for all available configuration options:
 
 ### Source Configuration
 
-Sources are configured via the Web UI and stored in SQLite. Each source supports:
+Sources are configured via the CLI or API and stored in SQLite. Each source supports:
 
 - **Include Patterns**: Comma-separated glob patterns (e.g., `**/*.md,**/*.txt`)
 - **Exclude Patterns**: Files to ignore (e.g., `**/node_modules/**,**/.git/**`)
@@ -269,7 +269,7 @@ Sources are configured via the Web UI and stored in SQLite. Each source supports
 
 ### Search returns no results
 
-1. Verify indexing completed: **Admin → Status**
+1. Verify indexing completed: `onesearch status` or `curl http://localhost:8000/api/status`
 2. Check for errors in failed files list
 3. Verify Meilisearch is running: `docker-compose ps`
 
