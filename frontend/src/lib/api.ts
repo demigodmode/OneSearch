@@ -12,7 +12,7 @@ import type {
   SourceUpdate,
   SearchQuery,
   SearchResponse,
-  SourceStatus,
+  StatusResponse,
   HealthResponse,
   ReindexResponse,
   APIError,
@@ -92,8 +92,8 @@ export async function getHealth(): Promise<HealthResponse> {
 /**
  * Get indexing status for all sources
  */
-export async function getStatus(): Promise<SourceStatus[]> {
-  return apiFetch<SourceStatus[]>('/status')
+export async function getStatus(): Promise<StatusResponse> {
+  return apiFetch<StatusResponse>('/status')
 }
 
 // ============================================================================

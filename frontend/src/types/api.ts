@@ -127,30 +127,55 @@ export interface SourceStatus {
 }
 
 /**
- * Health check response
+ * Health check response from /api/health
  */
 export interface HealthResponse {
-  status: string
-  meilisearch_connected: boolean
-  database_connected: boolean
+  status: 'healthy' | 'degraded'
+  service: string
+  version: string
+  meilisearch: {
+    status: string
+    [key: string]: unknown
+  }
+  config: {
+    database: string
+    meilisearch_url: string
+    log_level: string
+  }
 }
 
 /**
- * Overall status response (array of source statuses)
+ * Overall status response from /api/status
+ * Note: API returns { sources: [...] }, not a bare array
  */
-export type StatusResponse = SourceStatus[]
+export interface StatusResponse {
+  sources: SourceStatus[]
+}
 
 // ============================================================================
 // Reindex Types
 // ============================================================================
 
 /**
- * Reindex response
+ * Indexing statistics from reindex operation
+ */
+export interface IndexingStats {
+  total_scanned: number
+  new_files: number
+  modified_files: number
+  unchanged_files: number
+  deleted_files: number
+  successful: number
+  failed: number
+  skipped: number
+}
+
+/**
+ * Reindex response from /api/sources/{id}/reindex
  */
 export interface ReindexResponse {
   message: string
-  source_id: string
-  status: string
+  stats: IndexingStats
 }
 
 // ============================================================================
