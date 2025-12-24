@@ -106,6 +106,14 @@ class IndexingService:
         stats = IndexingStats()
         total_bytes_processed = 0  # Track bytes for throughput metrics
 
+        # Clear existing documents for this source from Meilisearch
+        # This ensures clean reindexing and handles migration from old ID formats
+        try:
+            await self.search_service.delete_documents_by_filter(f"source_id = '{source_id}'")
+            logger.info(f"Cleared existing documents for source '{source_id}' from Meilisearch")
+        except Exception as e:
+            logger.warning(f"Failed to clear existing documents for source '{source_id}': {e}")
+
         try:
             # Parse include/exclude patterns
             import json

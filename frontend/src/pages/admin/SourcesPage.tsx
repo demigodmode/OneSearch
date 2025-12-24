@@ -62,8 +62,9 @@ function SourceForm({
     const data: SourceCreate | SourceUpdate = {
       name: name.trim(),
       root_path: rootPath.trim(),
-      include_patterns: includePatterns ? includePatterns.split(',').map(p => p.trim()).filter(Boolean) : null,
-      exclude_patterns: excludePatterns ? excludePatterns.split(',').map(p => p.trim()).filter(Boolean) : null,
+      // Send empty array to clear patterns, not null (null means "don't update")
+      include_patterns: includePatterns ? includePatterns.split(',').map(p => p.trim()).filter(Boolean) : [],
+      exclude_patterns: excludePatterns ? excludePatterns.split(',').map(p => p.trim()).filter(Boolean) : [],
     }
 
     onSubmit(data)
