@@ -1,6 +1,7 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import type React from 'react'
 import { useState, useEffect, useRef } from 'react'
 import { Search, Command, FileText, FileCode, File } from 'lucide-react'
 
