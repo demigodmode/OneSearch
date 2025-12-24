@@ -22,10 +22,12 @@ function formatDate(isoString: string | null | undefined): string {
   return date.toLocaleDateString()
 }
 
-// Get source status
+// Get source status (with safe defaults for error entries)
 function getSourceHealthStatus(source: SourceStatus): 'healthy' | 'warning' | 'error' {
-  if (source.failed > 0 && source.failed > source.successful * 0.1) return 'error'
-  if (source.failed > 0) return 'warning'
+  const failed = source.failed ?? 0
+  const successful = source.successful ?? 0
+  if (failed > 0 && failed > successful * 0.1) return 'error'
+  if (failed > 0) return 'warning'
   return 'healthy'
 }
 
@@ -101,20 +103,20 @@ function SourceStatusCard({ source, index }: { source: SourceStatus; index: numb
 
           <div className="flex items-center gap-6 text-sm">
             <div className="text-right">
-              <p className="font-mono text-foreground">{source.total_files.toLocaleString()}</p>
+              <p className="font-mono text-foreground">{(source.total_files ?? 0).toLocaleString()}</p>
               <p className="text-xs text-muted-foreground">total</p>
             </div>
             <div className="text-right">
-              <p className="font-mono text-green-500">{source.successful.toLocaleString()}</p>
+              <p className="font-mono text-green-500">{(source.successful ?? 0).toLocaleString()}</p>
               <p className="text-xs text-muted-foreground">indexed</p>
             </div>
-            {source.skipped > 0 && (
+            {(source.skipped ?? 0) > 0 && (
               <div className="text-right">
                 <p className="font-mono text-muted-foreground">{source.skipped.toLocaleString()}</p>
                 <p className="text-xs text-muted-foreground">skipped</p>
               </div>
             )}
-            {source.failed > 0 && (
+            {(source.failed ?? 0) > 0 && (
               <div className="text-right">
                 <p className="font-mono text-amber-500">{source.failed}</p>
                 <p className="text-xs text-muted-foreground">failed</p>
