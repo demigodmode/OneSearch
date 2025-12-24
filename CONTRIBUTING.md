@@ -19,7 +19,7 @@ uv run uvicorn app.main:app --reload
 
 # Or using pip
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e .
 uvicorn app.main:app --reload
 ```
 API docs: http://localhost:8000/docs

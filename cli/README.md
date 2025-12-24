@@ -185,9 +185,10 @@ onesearch health --json | jq '.status'
 ## Development
 
 ```bash
-# Install with dev dependencies
-pip install -e ".[dev]"
+# Install CLI in development mode
+pip install -e .
 
-# Run tests
+# Run tests (install pytest first)
+pip install pytest
 pytest
 ```
