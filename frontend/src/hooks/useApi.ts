@@ -125,14 +125,17 @@ export function useDeleteSource() {
 
 /**
  * Hook to trigger reindex
+ * @param full - If true, wipe and rebuild entire index
  */
 export function useReindexSource() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (id: string) => reindexSource(id),
+    mutationFn: ({ id, full = false }: { id: string; full?: boolean }) =>
+      reindexSource(id, full),
     onSuccess: () => {
-      // Invalidate status to show updated indexing info
+      // Invalidate both sources (for updated_at) and status (for indexing info)
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources })
       queryClient.invalidateQueries({ queryKey: queryKeys.status })
     },
   })

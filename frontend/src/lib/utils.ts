@@ -11,3 +11,22 @@ import { twMerge } from 'tailwind-merge'
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
+
+/**
+ * Sanitize HTML snippet to prevent XSS attacks
+ * Only allows <mark> tags used by Meilisearch for highlighting search results
+ */
+export function sanitizeSnippet(html: string): string {
+  // First, escape all HTML to prevent XSS
+  const escaped = html
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+
+  // Then restore only the allowed <mark> tags from Meilisearch highlighting
+  return escaped
+    .replace(/&lt;mark&gt;/g, '<mark>')
+    .replace(/&lt;\/mark&gt;/g, '</mark>')
+}

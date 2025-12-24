@@ -5,6 +5,7 @@
 Indexing service with incremental logic
 Orchestrates file scanning, extraction, and Meilisearch indexing
 """
+import hashlib
 import logging
 import time
 from pathlib import Path
@@ -76,12 +77,13 @@ class IndexingService:
         self.db = db
         self.search_service = search_service
 
-    async def index_source(self, source_id: str) -> IndexingStats:
+    async def index_source(self, source_id: str, full: bool = False) -> IndexingStats:
         """
         Index or reindex a source
 
         Args:
             source_id: ID of source to index
+            full: If True, clear all existing data and rebuild from scratch
 
         Returns:
             IndexingStats with results
@@ -104,6 +106,21 @@ class IndexingService:
 
         stats = IndexingStats()
         total_bytes_processed = 0  # Track bytes for throughput metrics
+
+        # Full reindex: clear existing documents to handle migration or fix corruption
+        if full:
+            try:
+                # Use json.dumps to escape source_id and prevent filter injection
+                import json
+                escaped_id = json.dumps(source_id)
+                await self.search_service.delete_documents_by_filter(f"source_id = {escaped_id}")
+                # Also clear indexed_files records so all files are treated as new
+                from sqlalchemy import delete
+                self.db.execute(delete(IndexedFile).where(IndexedFile.source_id == source_id))
+                self.db.commit()
+                logger.info(f"Full reindex: cleared existing documents for source '{source_id}'")
+            except Exception as e:
+                logger.warning(f"Failed to clear existing documents for source '{source_id}': {e}")
 
         try:
             # Parse include/exclude patterns
@@ -431,8 +448,9 @@ class IndexingService:
                 # File was deleted
                 logger.info(f"File deleted: {indexed_path}")
 
-                # Remove from Meilisearch
-                doc_id = f"{source_id}:{indexed_path}"
+                # Remove from Meilisearch using hash-based ID
+                path_hash = hashlib.sha256(indexed_path.encode()).hexdigest()[:12]
+                doc_id = f"{source_id}--{path_hash}"
                 await self.search_service.delete_document(doc_id)
 
                 # Remove from database
