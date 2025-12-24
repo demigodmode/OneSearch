@@ -115,15 +115,26 @@ export interface SearchResponse {
 // ============================================================================
 
 /**
+ * Failed file entry in status response
+ */
+export interface FailedFile {
+  path: string
+  error: string | null
+}
+
+/**
  * Per-source indexing status
+ * Matches backend IndexingService.get_source_status() response
  */
 export interface SourceStatus {
   source_id: string
   source_name: string
   total_files: number
-  indexed_files: number
-  failed_files: number
+  successful: number
+  failed: number
+  skipped: number
   last_indexed_at?: string | null // ISO datetime string
+  failed_files: FailedFile[]
 }
 
 /**
