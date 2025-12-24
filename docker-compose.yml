@@ -12,10 +12,11 @@ services:
       - onesearch_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--spider", "http://localhost:7700/health"]
+      test: ["CMD", "wget", "--no-verbose", "--spider", "http://127.0.0.1:7700/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 10s
 
   # OneSearch Backend - FastAPI application
   onesearch:
@@ -49,10 +50,11 @@ services:
       - onesearch_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 15s
 
   # OneSearch Frontend - React application served by nginx
   frontend:
@@ -68,10 +70,11 @@ services:
       - onesearch_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 5s
 
 volumes:
   # Meilisearch index data
