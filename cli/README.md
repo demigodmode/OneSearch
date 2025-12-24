@@ -35,11 +35,11 @@ onesearch health
 # List configured sources
 onesearch source list
 
-# Add a source
+# Add a source (ID is auto-generated from name as slug, e.g., "documents")
 onesearch source add "Documents" /data/docs --include "**/*.pdf,**/*.md"
 
-# Trigger indexing
-onesearch source reindex 1
+# Trigger indexing (use source ID from 'source list')
+onesearch source reindex documents
 
 # Search
 onesearch search "kubernetes deployment"
@@ -47,6 +47,8 @@ onesearch search "kubernetes deployment"
 # Check indexing status
 onesearch status
 ```
+
+> **Note:** Source IDs are slugified from the name (e.g., "My Documents" → "my-documents").
 
 ## Commands
 
@@ -75,8 +77,8 @@ onesearch source delete <source_id> [--yes]
 # Basic search
 onesearch search "query"
 
-# With filters
-onesearch search "python" --source 1 --type pdf --limit 10
+# With filters (use source ID from 'source list')
+onesearch search "python" --source documents --type pdf --limit 10
 
 # JSON output for scripting
 onesearch search "error" --json | jq '.results[].path'
@@ -140,17 +142,22 @@ onesearch search "test" --json
 ### Add and Index a Source
 
 ```bash
-# Add a documents source
+# Add a documents source (creates ID "my-documents")
 onesearch source add "My Documents" /mnt/nas/documents \
   --include "**/*.pdf,**/*.md,**/*.txt" \
   --exclude "**/archive/**"
 
-# Start indexing
-onesearch source reindex 1
+# Start indexing (use the source ID)
+onesearch source reindex my-documents
 
 # Monitor progress
-onesearch status 1
+onesearch status my-documents
 ```
+
+> **Docker users:** If the path only exists inside the container, use `--no-validate` to skip local path validation:
+> ```bash
+> onesearch source add "NAS Docs" /data/nas --no-validate
+> ```
 
 ### Search with Filters
 
@@ -158,8 +165,8 @@ onesearch status 1
 # Search PDFs only
 onesearch search "quarterly report" --type pdf
 
-# Search specific source
-onesearch search "meeting notes" --source 1
+# Search specific source (use source ID)
+onesearch search "meeting notes" --source my-documents
 
 # Get more results
 onesearch search "python" --limit 50
