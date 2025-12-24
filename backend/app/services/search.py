@@ -48,12 +48,18 @@ class MeilisearchService:
             # Test connection
             self.client.health()
 
-            # Get or create index with primary key
-            # This ensures the index exists before we try to configure it
-            self.index = self.client.get_or_create_index(
-                INDEX_NAME,
-                {"primaryKey": "id"}
-            )
+            # Try to get existing index, or create it if it doesn't exist
+            try:
+                self.index = self.client.get_index(INDEX_NAME)
+                logger.info(f"Found existing index '{INDEX_NAME}'")
+            except Exception:
+                # Index doesn't exist, create it
+                logger.info(f"Creating index '{INDEX_NAME}'...")
+                task = self.client.create_index(INDEX_NAME, {"primaryKey": "id"})
+                # Wait for index creation to complete
+                self.client.wait_for_task(task.task_uid, timeout_in_ms=30000)
+                self.index = self.client.get_index(INDEX_NAME)
+                logger.info(f"Created index '{INDEX_NAME}'")
 
             # Configure index settings
             self._configure_index()
@@ -107,13 +113,22 @@ class MeilisearchService:
                 return {"status": "disconnected", "error": "Client not initialized"}
 
             health = self.client.health()
-            stats = self.index.get_stats() if self.index else {}
+            stats = self.index.get_stats() if self.index else None
+
+            # Handle both dict and object responses from meilisearch client
+            health_status = health.get("status", "unknown") if isinstance(health, dict) else getattr(health, "status", "available")
+
+            doc_count = 0
+            is_indexing = False
+            if stats:
+                doc_count = stats.get("numberOfDocuments", 0) if isinstance(stats, dict) else getattr(stats, "number_of_documents", 0)
+                is_indexing = stats.get("isIndexing", False) if isinstance(stats, dict) else getattr(stats, "is_indexing", False)
 
             return {
-                "status": health.get("status", "unknown"),
+                "status": health_status,
                 "index": INDEX_NAME,
-                "document_count": stats.get("numberOfDocuments", 0),
-                "is_indexing": stats.get("isIndexing", False),
+                "document_count": doc_count,
+                "is_indexing": is_indexing,
             }
 
         except Exception as e:
@@ -175,9 +190,9 @@ class MeilisearchService:
             logger.error(f"Failed to delete document {document_id}: {e}")
             raise
 
-    def delete_documents_by_filter(self, filter_str: str) -> Dict[str, Any]:
+    async def delete_documents_by_filter(self, filter_str: str) -> Dict[str, Any]:
         """
-        Delete documents matching a filter
+        Delete documents matching a filter (runs in thread pool)
 
         Args:
             filter_str: Meilisearch filter string (e.g., "source_id = 'source1'")
@@ -189,7 +204,10 @@ class MeilisearchService:
             raise RuntimeError("Index not initialized")
 
         try:
-            task = self.index.delete_documents_by_filter(filter_str)
+            # Run blocking HTTP call in thread pool
+            task = await asyncio.to_thread(
+                self.index.delete_documents_by_filter, filter_str
+            )
             logger.info(f"Deleted documents with filter: {filter_str}")
             return task.__dict__
 

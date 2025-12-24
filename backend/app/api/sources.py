@@ -219,40 +219,51 @@ async def delete_source(source_id: str, db: Session = Depends(get_db)):
             detail=f"Source '{source_id}' not found"
         )
 
-    # Get all indexed files for cleanup
+    # Count indexed files for logging
     stmt = select(IndexedFile).where(IndexedFile.source_id == source_id)
-    indexed_files = db.execute(stmt).scalars().all()
+    indexed_files_count = len(db.execute(stmt).scalars().all())
 
-    # Delete documents from Meilisearch
-    for indexed_file in indexed_files:
-        doc_id = f"{source_id}:{indexed_file.path}"
-        try:
-            await meili_service.delete_document(doc_id)
-        except Exception as e:
-            logger.warning(f"Failed to delete document from Meilisearch: {doc_id}: {e}")
+    # Delete all documents for this source from Meilisearch using filter
+    # This handles any document ID format (old or new) for seamless migration
+    # Use json.dumps to escape source_id and prevent filter injection
+    try:
+        escaped_id = json.dumps(source_id)
+        await meili_service.delete_documents_by_filter(f"source_id = {escaped_id}")
+    except Exception as e:
+        logger.warning(f"Failed to delete documents from Meilisearch for source {source_id}: {e}")
 
     # Delete source (cascade will delete indexed_files)
     db.delete(source)
     db.commit()
 
-    logger.info(f"Deleted source: {source_id} ({len(indexed_files)} indexed files removed)")
+    logger.info(f"Deleted source: {source_id} ({indexed_files_count} indexed files removed)")
 
     return None
 
 
 @router.post("/{source_id}/reindex")
-async def reindex_source(source_id: str, db: Session = Depends(get_db)):
+async def reindex_source(
+    source_id: str,
+    full: bool = False,
+    db: Session = Depends(get_db)
+):
     """
     Manually trigger reindexing for a source
 
-    Performs incremental indexing:
+    By default performs incremental indexing:
     - Only reindexes changed files (based on mtime/size)
     - Adds new files
     - Removes deleted files
-    - Updates Meilisearch index
+
+    With full=true, performs complete rebuild:
+    - Clears all existing documents from search index
+    - Clears indexed file records from database
+    - Re-indexes all files from scratch
+    - Use for migration or to fix index corruption
 
     Args:
         source_id: Source identifier
+        full: If true, wipe and rebuild entire index (default: false)
 
     Returns:
         Indexing statistics including:
@@ -302,7 +313,7 @@ async def reindex_source(source_id: str, db: Session = Depends(get_db)):
                 try:
                     # Create indexing service with thread-local session
                     indexing_service = IndexingService(thread_db, meili_service)
-                    return loop.run_until_complete(indexing_service.index_source(source_id))
+                    return loop.run_until_complete(indexing_service.index_source(source_id, full=full))
                 finally:
                     loop.close()
             finally:

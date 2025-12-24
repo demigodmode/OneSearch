@@ -148,10 +148,13 @@ export async function deleteSource(id: string): Promise<void> {
 
 /**
  * Trigger reindex for a source
+ * @param id - Source ID
+ * @param full - If true, wipe and rebuild entire index (for migration/corruption)
  */
-export async function reindexSource(id: string): Promise<ReindexResponse> {
+export async function reindexSource(id: string, full: boolean = false): Promise<ReindexResponse> {
+  const params = full ? '?full=true' : ''
   return apiFetch<ReindexResponse>(
-    `/sources/${encodeURIComponent(id)}/reindex`,
+    `/sources/${encodeURIComponent(id)}/reindex${params}`,
     {
       method: 'POST',
     }

@@ -8,7 +8,7 @@ echo "Starting OneSearch backend..."
 
 # Run database migrations
 echo "Running database migrations..."
-uv run alembic upgrade head
+alembic upgrade head
 
 # Start the application
 echo "Starting FastAPI server..."
