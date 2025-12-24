@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import __version__
 from .config import settings
 from .services.search import meili_service
 from .api import sources, search, status
@@ -49,7 +50,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OneSearch API",
     description="Self-hosted, privacy-focused search for your homelab",
-    version="0.2.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -151,7 +152,7 @@ async def health_check():
     return {
         "status": overall_status,
         "service": "onesearch-backend",
-        "version": "0.2.0",
+        "version": __version__,
         "meilisearch": meili_health,
         "config": {
             "database": settings.database_url.split("///")[0],  # Just the protocol
@@ -166,7 +167,7 @@ async def root():
     """Root endpoint - API information"""
     return {
         "message": "OneSearch API",
-        "version": "0.2.0",
+        "version": __version__,
         "docs": "/docs",
         "redoc": "/redoc",
         "health": "/api/health",
