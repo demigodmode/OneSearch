@@ -8,15 +8,19 @@ Search across all your files, documents, and notes from a single, unified interf
 
 ---
 
-## Features (Phase 0)
+## Features (Phase 0 MVP)
 
 - **Fast Full-Text Search** - Powered by Meilisearch with typo tolerance and relevance ranking
 - **Multiple File Types** - Text, Markdown, and PDF support
 - **Multiple Sources** - Index local directories, mounted NAS shares, or external drives
 - **Incremental Indexing** - Only reindex changed files, not your entire library
-- **Clean Web UI** - Search and admin interfaces built with React
+- **REST API** - Full-featured API for search, source management, and status
+- **CLI Tool** - Command-line interface for scripting and automation
+- **Web UI** - React-based interface (scaffold in Phase 0, full functionality coming in Phase 1)
 - **Privacy First** - All data stays local, no outbound connections
 - **Easy Deployment** - Single Docker Compose command to get started
+
+> **Note:** Phase 0 focuses on backend functionality. The Web UI is a scaffold with mock data—use the CLI or API for full functionality until Phase 1 wiring is complete.
 
 ---
 
@@ -81,32 +85,56 @@ This repo ships with a ready-to-use `docker-compose.yml` that starts the backend
 
 ## Usage
 
-### Adding a Source
+> **Phase 0:** Use the CLI or API for full functionality. Web UI is a design scaffold.
 
-1. Navigate to **Admin → Sources**
-2. Click **Add Source**
-3. Fill in the details:
-   - **Name**: Friendly name (e.g., "NAS Documents")
-   - **Root Path**: Container path (e.g., `/data/nas_docs`)
-   - **Include Patterns**: Glob patterns (e.g., `**/*.pdf,**/*.md`)
-   - **Exclude Patterns**: Files to skip (e.g., `**/node_modules/**`)
-4. Click **Save**
+### Using the CLI (Recommended)
 
-### Indexing Files
+```bash
+# Install CLI
+cd cli && pip install -e .
 
-1. Go to **Admin → Sources**
-2. Find your source in the list
-3. Click **Reindex**
-4. Monitor progress in **Admin → Status**
+# Add a source
+onesearch source add "Documents" /data/docs --include "**/*.pdf,**/*.md"
 
-### Searching
+# Trigger indexing
+onesearch source reindex documents
 
-1. Enter your search query in the main search box
-2. Use filters to narrow results:
-   - **Source**: Filter by specific source
-   - **Type**: Filter by file type (text, markdown, pdf)
-   - **Date**: Filter by last modified date
-3. Click on a result to view details
+# Search
+onesearch search "kubernetes deployment"
+
+# Check status
+onesearch status
+```
+
+See [cli/README.md](cli/README.md) for full CLI documentation.
+
+### Using the API
+
+```bash
+# Add a source
+curl -X POST http://localhost:8000/api/sources \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Documents", "root_path": "/data/docs"}'
+
+# Trigger reindex
+curl -X POST http://localhost:8000/api/sources/documents/reindex
+
+# Search
+curl -X POST http://localhost:8000/api/search \
+  -H "Content-Type: application/json" \
+  -d '{"q": "kubernetes"}'
+```
+
+API docs available at http://localhost:8000/docs
+
+### Web UI (Phase 0 Scaffold)
+
+The web UI at http://localhost:8080 shows the design direction for Phase 1:
+- **Search page** - Search interface with result previews
+- **Admin → Sources** - Source management UI
+- **Admin → Status** - Indexing status dashboard
+
+Currently displays mock data. Full API integration coming in Phase 1.
 
 ---
 
@@ -121,13 +149,16 @@ OneSearch/
 │   │   ├── extractors/  # Document parsers
 │   │   └── db/          # Database models
 │   ├── tests/           # Backend tests
-│   └── requirements.txt
+│   └── pyproject.toml   # Python dependencies (uv/pip)
 ├── frontend/            # React application
 │   ├── src/
 │   │   ├── pages/       # Page components
 │   │   ├── components/  # Reusable UI components
 │   │   └── lib/         # Utilities
 │   └── package.json
+├── cli/                 # Command-line interface
+│   ├── onesearch/       # CLI commands
+│   └── pyproject.toml
 ├── docker-compose.yml   # Deployment configuration
 └── .env.example         # Environment template
 ```
@@ -138,53 +169,59 @@ OneSearch/
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow, coding standards, and branching guidelines.
 
+### Prerequisites
+
+- Python 3.11+ with [uv](https://docs.astral.sh/uv/) (recommended) or pip
+- Node.js 18+ with npm
+- Docker + Docker Compose
+
 ### Backend Development
 
-1. **Set up Python virtual environment**
-   ```bash
-   cd backend
-   python -m venv .venv
-   source .venv/bin/activate  # Windows: .venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
+```bash
+cd backend
 
-2. **Run development server**
-   ```bash
-   uvicorn app.main:app --reload
-   ```
+# Using uv (recommended)
+uv sync
+uv run uvicorn app.main:app --reload
 
-3. **Access API docs**
-   - Swagger UI: http://localhost:8000/docs
-   - ReDoc: http://localhost:8000/redoc
+# Or using pip
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+uvicorn app.main:app --reload
+```
+
+API docs: http://localhost:8000/docs
 
 ### Frontend Development
 
-1. **Install dependencies**
-   ```bash
-   cd frontend
-   npm install
-   ```
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-2. **Run development server**
-   ```bash
-   npm run dev
-   ```
+Dev server: http://localhost:5173 (proxies API to backend)
 
-3. **Access dev server**
-   - Frontend: http://localhost:5173
-   - Vite will proxy API requests to backend
+### CLI Development
+
+```bash
+cd cli
+pip install -e ".[dev]"
+onesearch --help
+```
 
 ### Running Tests
 
 ```bash
-# Backend tests
-cd backend
-docker-compose up -d meilisearch  # required for API/search tests
-pytest
+# Start Meilisearch (required for API tests)
+docker-compose up -d meilisearch
 
-# Frontend tests (coming soon)
-cd frontend
-npm test
+# Backend tests
+cd backend && uv run pytest
+
+# Frontend lint/build check
+cd frontend && npm run lint && npm run build
 ```
 
 ---
@@ -298,8 +335,8 @@ All components run in Docker containers and communicate over a private network.
 - **No outbound connections** - All data stays local
 - **No telemetry** - Zero tracking or analytics
 - **Read-only mounts** - Source directories mounted read-only by default
-- **Non-root containers** - Services run as unprivileged users
 - **Network isolation** - Meilisearch only accessible via private Docker network
+- **Minimal attack surface** - Backend runs as non-root, frontend uses nginx:alpine
 
 ---
 

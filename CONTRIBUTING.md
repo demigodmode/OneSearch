@@ -3,18 +3,26 @@
 Thanks for your interest in OneSearch! This project protects `main` with branch rules—please work in feature branches and open pull requests for review.
 
 ## Prerequisites
-- Python 3.13+
+- Python 3.11+ with [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - Node 18+ with npm
 - Docker + Docker Compose (for Meilisearch and containerized dev)
 
 ## Local Development
 
 ### Backend
-1. `cd backend`
-2. Create a virtualenv: `python -m venv .venv && source .venv/bin/activate`
-3. Install deps (including test extras): `pip install -e .[dev]`
-4. Run the API: `uvicorn app.main:app --reload`
-   - API docs: http://localhost:8000/docs
+```bash
+cd backend
+
+# Using uv (recommended)
+uv sync
+uv run uvicorn app.main:app --reload
+
+# Or using pip
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+uvicorn app.main:app --reload
+```
+API docs: http://localhost:8000/docs
 
 ### Frontend
 1. `cd frontend`
