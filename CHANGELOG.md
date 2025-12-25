@@ -5,6 +5,36 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Unified Docker Image** - Single `onesearch` image containing frontend, backend, and CLI
+  - Multi-stage Dockerfile for optimized builds (~410MB)
+  - Supervisord manages nginx + uvicorn processes
+  - Pre-built images available on GHCR and Docker Hub
+
+- **GitHub Actions CI/CD** - Automated Docker image builds on release
+  - Publishes to `ghcr.io/demigodmode/onesearch`
+  - Publishes to `docker.io/demigodmode/onesearch`
+  - Multi-platform builds (linux/amd64, linux/arm64)
+  - Semantic versioning tags (e.g., `0.5.0`, `0.5`, `latest`)
+
+### Changed
+
+- Simplified docker-compose.yml to use single unified image
+- Updated README with pre-built image installation instructions
+
+### Closes
+
+- #47 - Unified Docker image with GitHub Actions CI/CD
+
+### Pull Requests
+
+- #48 - feat: Unified Docker image with GitHub Actions CI/CD
+
+---
+
 ## [0.4.0] - 2025-12-24
 
 ### Added
@@ -109,6 +139,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[Unreleased]: https://github.com/demigodmode/OneSearch/compare/v0.4.0...HEAD
 [0.4.0]: https://github.com/demigodmode/OneSearch/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/demigodmode/OneSearch/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/demigodmode/OneSearch/releases/tag/v0.2.0
