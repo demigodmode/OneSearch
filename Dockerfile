@@ -82,11 +82,12 @@ COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-# Fix nginx permissions
-RUN chown -R nginx:nginx /var/cache/nginx && \
-    chown -R nginx:nginx /var/log/nginx && \
+# Fix nginx permissions (Debian uses www-data, not nginx)
+RUN mkdir -p /var/cache/nginx /var/log/nginx && \
+    chown -R www-data:www-data /var/cache/nginx && \
+    chown -R www-data:www-data /var/log/nginx && \
     touch /var/run/nginx.pid && \
-    chown -R nginx:nginx /var/run/nginx.pid
+    chown -R www-data:www-data /var/run/nginx.pid
 
 # Create data directory with correct permissions
 RUN mkdir -p /app/data && chown -R onesearch:onesearch /app/data
