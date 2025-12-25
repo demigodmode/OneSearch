@@ -36,6 +36,33 @@ This repo ships with a ready-to-use `docker-compose.yml` that starts the backend
 
 ### Installation
 
+#### Option 1: Using Pre-built Images (Recommended)
+
+1. **Create a project directory**
+   ```bash
+   mkdir onesearch && cd onesearch
+   ```
+
+2. **Download docker-compose.yml**
+   ```bash
+   curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/docker-compose.yml
+   ```
+
+3. **Create environment file**
+   ```bash
+   curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/.env.example
+   cp .env.example .env
+   ```
+
+4. **Edit docker-compose.yml** to use pre-built image:
+   ```yaml
+   onesearch:
+     image: ghcr.io/demigodmode/onesearch:latest
+     # comment out: build: ...
+   ```
+
+#### Option 2: Build from Source
+
 1. **Clone the repository**
    ```bash
    git clone https://github.com/demigodmode/OneSearch.git
@@ -160,7 +187,11 @@ OneSearch/
 ├── cli/                 # Command-line interface
 │   ├── onesearch/       # CLI commands
 │   └── pyproject.toml
+├── Dockerfile           # Unified multi-stage build
 ├── docker-compose.yml   # Deployment configuration
+├── nginx.conf           # Nginx config for container
+├── supervisord.conf     # Process manager config
+├── entrypoint.sh        # Container entrypoint
 └── .env.example         # Environment template
 ```
 
@@ -315,6 +346,30 @@ OneSearch consists of:
 2. **Meilisearch** - Fast search engine with typo tolerance
 3. **SQLite** - Metadata and source configuration storage
 4. **React Frontend** - Search and admin UI
+5. **CLI** - Command-line interface for scripting and automation
+
+### Container Architecture
+
+```
+┌─────────────────────────────────────┐
+│       onesearch container           │
+│  ┌─────────────────────────────────┐│
+│  │         supervisord             ││
+│  │  ┌──────────┐  ┌─────────────┐  ││
+│  │  │  nginx   │  │   uvicorn   │  ││
+│  │  │  :8000   │  │   :8001     │  ││
+│  │  │ frontend │  │   backend   │  ││
+│  │  │ + proxy  │  │   + cli     │  ││
+│  │  └──────────┘  └─────────────┘  ││
+│  └─────────────────────────────────┘│
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│      meilisearch container          │
+│              :7700                  │
+└─────────────────────────────────────┘
+```
 
 All components run in Docker containers and communicate over a private network.
 
