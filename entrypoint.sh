@@ -9,7 +9,7 @@ echo "Starting OneSearch..."
 # Run database migrations as onesearch user
 echo "Running database migrations..."
 cd /app/backend
-su -s /bin/bash onesearch -c "alembic upgrade head"
+su -s /bin/bash -p onesearch -c "alembic upgrade head"
 
 # Start supervisord (manages nginx + uvicorn)
 echo "Starting services..."
