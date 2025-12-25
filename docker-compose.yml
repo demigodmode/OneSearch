@@ -18,12 +18,17 @@ services:
       retries: 3
       start_period: 10s
 
-  # OneSearch Backend - FastAPI application
+  # OneSearch - Unified application (frontend + backend + CLI)
   onesearch:
+    # For local development, build from source:
     build:
-      context: ./backend
+      context: .
       dockerfile: Dockerfile
-    container_name: onesearch-backend
+
+    # For production, use the pre-built image instead:
+    # image: ghcr.io/demigodmode/onesearch:latest
+
+    container_name: onesearch-app
     volumes:
       # Persistent data (SQLite database)
       - onesearch_data:/app/data
@@ -44,8 +49,8 @@ services:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       - DATABASE_URL=sqlite:///data/onesearch.db
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    expose:
-      - "8000"
+    ports:
+      - "8000:8000"
     depends_on:
       meilisearch:
         condition: service_healthy
@@ -57,27 +62,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
-
-  # OneSearch Frontend - React application served by nginx
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: onesearch-frontend
-    ports:
-      - "8000:80"
-    depends_on:
-      - onesearch
-    networks:
-      - onesearch_network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
+      start_period: 30s
 
 volumes:
   # Meilisearch index data
