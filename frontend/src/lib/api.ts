@@ -7,6 +7,7 @@
  */
 
 import type {
+  Document,
   Source,
   SourceCreate,
   SourceUpdate,
@@ -177,6 +178,13 @@ export async function searchDocuments(
   })
 }
 
+/**
+ * Get a single document by ID
+ */
+export async function getDocument(id: string): Promise<Document> {
+  return apiFetch<Document>(`/documents/${encodeURIComponent(id)}`)
+}
+
 // ============================================================================
 // Query Keys for TanStack Query
 // ============================================================================
@@ -190,4 +198,5 @@ export const queryKeys = {
   sources: ['sources'] as const,
   source: (id: string) => ['sources', id] as const,
   search: (query: SearchQuery) => ['search', query] as const,
+  document: (id: string) => ['documents', id] as const,
 }

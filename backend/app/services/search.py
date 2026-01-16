@@ -215,6 +215,31 @@ class MeilisearchService:
             logger.error(f"Failed to delete documents: {e}")
             raise
 
+    async def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a single document by ID (runs in thread pool)
+
+        Args:
+            document_id: Document ID to retrieve
+
+        Returns:
+            dict: Document data or None if not found
+        """
+        if not self.index:
+            raise RuntimeError("Index not initialized")
+
+        try:
+            # Run blocking HTTP call in thread pool
+            document = await asyncio.to_thread(self.index.get_document, document_id)
+            return document
+        except meilisearch.errors.MeilisearchApiError as e:
+            if "document_not_found" in str(e).lower() or e.code == "document_not_found":
+                return None
+            raise
+        except Exception as e:
+            logger.error(f"Failed to get document {document_id}: {e}")
+            raise
+
     async def search(
         self,
         query: str,

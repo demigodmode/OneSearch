@@ -444,6 +444,71 @@ class TestSearchEndpoint:
         assert response.status_code == 422
 
 
+class TestDocumentEndpoint:
+    """Tests for /api/documents/{document_id} endpoint"""
+
+    @pytest.mark.asyncio
+    async def test_get_document_not_found(self, client, meili_available):
+        """Test getting non-existent document returns 404
+
+        Requires Meilisearch to be running. Will skip if unavailable.
+        """
+        if not meili_available:
+            pytest.skip("Meilisearch not available - start with: docker run -p 7700:7700 getmeili/meilisearch:latest")
+
+        response = client.get("/api/documents/nonexistent-doc-id")
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_get_document_success(self, client, meili_available):
+        """Test getting an existing document
+
+        Requires Meilisearch to be running with indexed content.
+        Will skip if unavailable.
+        """
+        if not meili_available:
+            pytest.skip("Meilisearch not available - start with: docker run -p 7700:7700 getmeili/meilisearch:latest")
+
+        # First, index a test document
+        import asyncio
+        test_doc = {
+            "id": "test-source--abc123",
+            "source_id": "test-source",
+            "source_name": "Test Source",
+            "path": "/tmp/test.txt",
+            "basename": "test.txt",
+            "extension": "txt",
+            "type": "text",
+            "size_bytes": 100,
+            "modified_at": 1700000000,
+            "indexed_at": 1700000000,
+            "content": "This is test content for the document endpoint test.",
+            "title": "Test Document",
+            "metadata": {}
+        }
+
+        # Index the document
+        await meili_service.index_documents([test_doc])
+
+        # Wait for indexing to complete
+        await asyncio.sleep(0.5)
+
+        # Retrieve the document
+        response = client.get(f"/api/documents/{test_doc['id']}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == test_doc["id"]
+        assert data["content"] == test_doc["content"]
+        assert data["path"] == test_doc["path"]
+        assert data["type"] == test_doc["type"]
+
+        # Clean up
+        await meili_service.delete_document(test_doc["id"])
+
+
 class TestStatusEndpoint:
     """Tests for /api/status endpoints"""
 

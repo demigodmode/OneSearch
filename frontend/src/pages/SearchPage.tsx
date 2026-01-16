@@ -3,7 +3,8 @@
 
 import type React from 'react'
 import { useState, useEffect, useRef } from 'react'
-import { Search, Command, FileText, FileCode, File, Loader2, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Search, Command, FileText, FileCode, File, Loader2, AlertCircle, ChevronLeft, ChevronRight, Eye } from 'lucide-react'
 import { useSearch, useSources } from '@/hooks/useApi'
 import type { SearchResult } from '@/types/api'
 import { cn, sanitizeSnippet } from '@/lib/utils'
@@ -42,17 +43,29 @@ function FileTypeIcon({ type }: { type: string }) {
 }
 
 // Result card component
-function ResultCard({ result, index }: { result: SearchResult; index: number }) {
+function ResultCard({
+  result,
+  index,
+  onClick,
+}: {
+  result: SearchResult
+  index: number
+  onClick: () => void
+}) {
   return (
     <div
-      className="bg-card border border-border rounded-lg p-4 card-hover accent-border-left animate-fade-in-up animate-initial"
+      onClick={onClick}
+      className="bg-card border border-border rounded-lg p-4 card-hover accent-border-left animate-fade-in-up animate-initial cursor-pointer group"
       style={{ animationDelay: `${100 + index * 50}ms`, animationFillMode: 'forwards' }}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          <h3 className="font-medium text-foreground truncate mb-1">
-            {result.basename}
-          </h3>
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="font-medium text-foreground truncate group-hover:text-cyan transition-colors">
+              {result.basename}
+            </h3>
+            <Eye className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+          </div>
           <p className="text-sm text-muted-foreground font-mono truncate mb-2">
             {result.path}
           </p>
@@ -78,6 +91,7 @@ function ResultCard({ result, index }: { result: SearchResult; index: number }) 
 }
 
 export default function SearchPage() {
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [sourceFilter, setSourceFilter] = useState<string>('')
@@ -87,6 +101,16 @@ export default function SearchPage() {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const limit = 20
+
+  // Navigate to document detail page with search context
+  const handleViewDocument = (documentId: string) => {
+    const params = new URLSearchParams()
+    if (debouncedQuery) params.set('q', debouncedQuery)
+    if (sourceFilter) params.set('source', sourceFilter)
+    if (typeFilter) params.set('type', typeFilter)
+    const queryString = params.toString()
+    navigate(`/document/${encodeURIComponent(documentId)}${queryString ? `?${queryString}` : ''}`)
+  }
 
   // Debounce search query
   useEffect(() => {
@@ -209,6 +233,9 @@ export default function SearchPage() {
               <option value="text">Text</option>
               <option value="markdown">Markdown</option>
               <option value="pdf">PDF</option>
+              <option value="docx">Word (.docx)</option>
+              <option value="xlsx">Excel (.xlsx)</option>
+              <option value="pptx">PowerPoint (.pptx)</option>
             </select>
 
             {(sourceFilter || typeFilter) && (
@@ -286,7 +313,12 @@ export default function SearchPage() {
               </div>
 
               {searchData.results.map((result, index) => (
-                <ResultCard key={result.id} result={result} index={index} />
+                <ResultCard
+                  key={result.id}
+                  result={result}
+                  index={index}
+                  onClick={() => handleViewDocument(result.id)}
+                />
               ))}
 
               {/* Pagination */}

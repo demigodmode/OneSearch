@@ -28,10 +28,12 @@ class Settings(BaseSettings):
     # File size limits (in MB)
     max_text_file_size_mb: int = Field(default=10, env="MAX_TEXT_FILE_SIZE_MB")
     max_pdf_file_size_mb: int = Field(default=50, env="MAX_PDF_FILE_SIZE_MB")
+    max_office_file_size_mb: int = Field(default=50, env="MAX_OFFICE_FILE_SIZE_MB")
 
     # Extraction timeouts (in seconds)
     text_extraction_timeout: int = Field(default=5, env="TEXT_EXTRACTION_TIMEOUT")
     pdf_extraction_timeout: int = Field(default=30, env="PDF_EXTRACTION_TIMEOUT")
+    office_extraction_timeout: int = Field(default=30, env="OFFICE_EXTRACTION_TIMEOUT")
 
     # Indexing configuration
     meilisearch_batch_size: int = Field(default=100, env="MEILISEARCH_BATCH_SIZE")

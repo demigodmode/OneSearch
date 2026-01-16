@@ -10,6 +10,7 @@ from .base import BaseExtractor, ExtractorRegistry, extractor_registry
 from .text import TextExtractor
 from .markdown import MarkdownExtractor
 from .pdf import PDFExtractor
+from .office import DocxExtractor, XlsxExtractor, PptxExtractor
 
 __all__ = [
     "BaseExtractor",
@@ -18,4 +19,7 @@ __all__ = [
     "TextExtractor",
     "MarkdownExtractor",
     "PDFExtractor",
+    "DocxExtractor",
+    "XlsxExtractor",
+    "PptxExtractor",
 ]
