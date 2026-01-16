@@ -14,6 +14,9 @@ from app.extractors import (
     TextExtractor,
     MarkdownExtractor,
     PDFExtractor,
+    DocxExtractor,
+    XlsxExtractor,
+    PptxExtractor,
     extractor_registry,
 )
 
@@ -298,7 +301,7 @@ class TestExtractorRegistry:
 
     def test_get_extractor_unsupported(self, temp_dir):
         """Test getting extractor for unsupported file type"""
-        file_path = temp_dir / "test.docx"
+        file_path = temp_dir / "test.xyz"
         extractor = extractor_registry.get_extractor(
             str(file_path), "source1", "Source 1"
         )
@@ -312,4 +315,274 @@ class TestExtractorRegistry:
         assert ".txt" in extensions
         assert ".md" in extensions
         assert ".pdf" in extensions
+        assert ".docx" in extensions
+        assert ".xlsx" in extensions
+        assert ".pptx" in extensions
         assert len(extensions) > 10  # Should have many supported types
+
+
+# Fixtures for Office files
+@pytest.fixture
+def sample_docx_file(temp_dir):
+    """Create sample DOCX file"""
+    from docx import Document as DocxDocument
+
+    file_path = temp_dir / "sample.docx"
+    doc = DocxDocument()
+
+    # Set core properties
+    doc.core_properties.title = "Test Word Document"
+    doc.core_properties.author = "Test Author"
+
+    # Add content
+    doc.add_heading("Main Heading", level=1)
+    doc.add_paragraph("This is the first paragraph of the document.")
+    doc.add_paragraph("This is the second paragraph with more content.")
+
+    # Add a table
+    table = doc.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "Cell A1"
+    table.cell(0, 1).text = "Cell B1"
+    table.cell(1, 0).text = "Cell A2"
+    table.cell(1, 1).text = "Cell B2"
+
+    doc.save(file_path)
+    return str(file_path)
+
+
+@pytest.fixture
+def sample_xlsx_file(temp_dir):
+    """Create sample XLSX file"""
+    from openpyxl import Workbook
+
+    file_path = temp_dir / "sample.xlsx"
+    wb = Workbook()
+
+    # First sheet
+    ws1 = wb.active
+    ws1.title = "Data Sheet"
+    ws1["A1"] = "Name"
+    ws1["B1"] = "Value"
+    ws1["A2"] = "Item One"
+    ws1["B2"] = 100
+    ws1["A3"] = "Item Two"
+    ws1["B3"] = 200
+
+    # Second sheet
+    ws2 = wb.create_sheet("Summary")
+    ws2["A1"] = "Total Items"
+    ws2["B1"] = 2
+
+    wb.save(file_path)
+    return str(file_path)
+
+
+@pytest.fixture
+def sample_pptx_file(temp_dir):
+    """Create sample PPTX file"""
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    file_path = temp_dir / "sample.pptx"
+    prs = Presentation()
+
+    # Set core properties
+    prs.core_properties.title = "Test Presentation"
+    prs.core_properties.author = "Test Author"
+
+    # Add title slide
+    title_slide_layout = prs.slide_layouts[0]
+    slide1 = prs.slides.add_slide(title_slide_layout)
+    title = slide1.shapes.title
+    subtitle = slide1.placeholders[1]
+    title.text = "Presentation Title"
+    subtitle.text = "Subtitle text here"
+
+    # Add content slide
+    bullet_slide_layout = prs.slide_layouts[1]
+    slide2 = prs.slides.add_slide(bullet_slide_layout)
+    shapes = slide2.shapes
+    title_shape = shapes.title
+    body_shape = shapes.placeholders[1]
+    title_shape.text = "Slide Two Title"
+    tf = body_shape.text_frame
+    tf.text = "First bullet point"
+    p = tf.add_paragraph()
+    p.text = "Second bullet point"
+
+    prs.save(file_path)
+    return str(file_path)
+
+
+class TestDocxExtractor:
+    """Tests for DocxExtractor"""
+
+    @pytest.mark.asyncio
+    async def test_extract_docx(self, sample_docx_file):
+        """Test extracting from DOCX file"""
+        extractor = DocxExtractor("test_source", "Test Source")
+        doc = await extractor.extract_with_timeout(sample_docx_file)
+
+        assert doc.source_id == "test_source"
+        assert doc.type == "docx"
+        assert doc.basename == "sample.docx"
+        assert doc.extension == "docx"
+        assert doc.title == "Test Word Document"
+        assert "first paragraph" in doc.content
+        assert "second paragraph" in doc.content
+        assert "Cell A1" in doc.content
+        assert doc.metadata.get("author") == "Test Author"
+        assert doc.metadata.get("extraction_failed") is False
+
+    @pytest.mark.asyncio
+    async def test_supports_file(self, temp_dir):
+        """Test file extension support"""
+        assert DocxExtractor.supports_file(str(temp_dir / "test.docx"))
+        assert not DocxExtractor.supports_file(str(temp_dir / "test.doc"))
+        assert not DocxExtractor.supports_file(str(temp_dir / "test.txt"))
+
+    @pytest.mark.asyncio
+    async def test_corrupted_docx_fallback(self, temp_dir):
+        """Test fallback behavior on corrupted DOCX"""
+        corrupted_docx = temp_dir / "corrupted.docx"
+        corrupted_docx.write_text("This is not a DOCX file")
+
+        extractor = DocxExtractor("test_source", "Test Source")
+        doc = await extractor.extract_with_timeout(str(corrupted_docx))
+
+        assert doc is not None
+        assert doc.content == ""
+        assert doc.metadata.get("extraction_failed") is True
+        assert "extraction_error" in doc.metadata
+
+    @pytest.mark.asyncio
+    async def test_docx_without_title(self, temp_dir):
+        """Test DOCX without title falls back to filename"""
+        from docx import Document as DocxDocument
+
+        file_path = temp_dir / "no_title.docx"
+        doc = DocxDocument()
+        doc.add_paragraph("Just some content")
+        doc.save(file_path)
+
+        extractor = DocxExtractor("test_source", "Test Source")
+        result = await extractor.extract_with_timeout(str(file_path))
+
+        assert result.title == "no_title"
+
+
+class TestXlsxExtractor:
+    """Tests for XlsxExtractor"""
+
+    @pytest.mark.asyncio
+    async def test_extract_xlsx(self, sample_xlsx_file):
+        """Test extracting from XLSX file"""
+        extractor = XlsxExtractor("test_source", "Test Source")
+        doc = await extractor.extract_with_timeout(sample_xlsx_file)
+
+        assert doc.source_id == "test_source"
+        assert doc.type == "xlsx"
+        assert doc.basename == "sample.xlsx"
+        assert doc.extension == "xlsx"
+        assert "Name" in doc.content
+        assert "Item One" in doc.content
+        assert "100" in doc.content
+        assert "Data Sheet" in doc.content
+        assert "Summary" in doc.content
+        assert doc.metadata.get("sheet_count") == 2
+        assert doc.metadata.get("extraction_failed") is False
+
+    @pytest.mark.asyncio
+    async def test_supports_file(self, temp_dir):
+        """Test file extension support"""
+        assert XlsxExtractor.supports_file(str(temp_dir / "test.xlsx"))
+        assert not XlsxExtractor.supports_file(str(temp_dir / "test.xls"))
+        assert not XlsxExtractor.supports_file(str(temp_dir / "test.csv"))
+
+    @pytest.mark.asyncio
+    async def test_corrupted_xlsx_fallback(self, temp_dir):
+        """Test fallback behavior on corrupted XLSX"""
+        corrupted_xlsx = temp_dir / "corrupted.xlsx"
+        corrupted_xlsx.write_text("This is not an XLSX file")
+
+        extractor = XlsxExtractor("test_source", "Test Source")
+        doc = await extractor.extract_with_timeout(str(corrupted_xlsx))
+
+        assert doc is not None
+        assert doc.content == ""
+        assert doc.metadata.get("extraction_failed") is True
+        assert "extraction_error" in doc.metadata
+
+    @pytest.mark.asyncio
+    async def test_empty_xlsx(self, temp_dir):
+        """Test XLSX with no data"""
+        from openpyxl import Workbook
+
+        file_path = temp_dir / "empty.xlsx"
+        wb = Workbook()
+        wb.save(file_path)
+
+        extractor = XlsxExtractor("test_source", "Test Source")
+        doc = await extractor.extract_with_timeout(str(file_path))
+
+        assert doc is not None
+        assert doc.metadata.get("total_cells_extracted") == 0
+        assert "extraction_warning" in doc.metadata
+
+
+class TestPptxExtractor:
+    """Tests for PptxExtractor"""
+
+    @pytest.mark.asyncio
+    async def test_extract_pptx(self, sample_pptx_file):
+        """Test extracting from PPTX file"""
+        extractor = PptxExtractor("test_source", "Test Source")
+        doc = await extractor.extract_with_timeout(sample_pptx_file)
+
+        assert doc.source_id == "test_source"
+        assert doc.type == "pptx"
+        assert doc.basename == "sample.pptx"
+        assert doc.extension == "pptx"
+        assert doc.title == "Test Presentation"
+        assert "Presentation Title" in doc.content
+        assert "Slide Two Title" in doc.content
+        assert "First bullet point" in doc.content
+        assert doc.metadata.get("slide_count") == 2
+        assert doc.metadata.get("author") == "Test Author"
+        assert doc.metadata.get("extraction_failed") is False
+
+    @pytest.mark.asyncio
+    async def test_supports_file(self, temp_dir):
+        """Test file extension support"""
+        assert PptxExtractor.supports_file(str(temp_dir / "test.pptx"))
+        assert not PptxExtractor.supports_file(str(temp_dir / "test.ppt"))
+        assert not PptxExtractor.supports_file(str(temp_dir / "test.pdf"))
+
+    @pytest.mark.asyncio
+    async def test_corrupted_pptx_fallback(self, temp_dir):
+        """Test fallback behavior on corrupted PPTX"""
+        corrupted_pptx = temp_dir / "corrupted.pptx"
+        corrupted_pptx.write_text("This is not a PPTX file")
+
+        extractor = PptxExtractor("test_source", "Test Source")
+        doc = await extractor.extract_with_timeout(str(corrupted_pptx))
+
+        assert doc is not None
+        assert doc.content == ""
+        assert doc.metadata.get("extraction_failed") is True
+        assert "extraction_error" in doc.metadata
+
+    @pytest.mark.asyncio
+    async def test_pptx_without_title(self, temp_dir):
+        """Test PPTX without title falls back to filename"""
+        from pptx import Presentation
+
+        file_path = temp_dir / "no_title.pptx"
+        prs = Presentation()
+        prs.slides.add_slide(prs.slide_layouts[6])  # Blank slide
+        prs.save(file_path)
+
+        extractor = PptxExtractor("test_source", "Test Source")
+        result = await extractor.extract_with_timeout(str(file_path))
+
+        assert result.title == "no_title"

@@ -14,6 +14,7 @@ import {
   deleteSource,
   reindexSource,
   searchDocuments,
+  getDocument,
   getStatus,
   getHealth,
   queryKeys,
@@ -155,5 +156,21 @@ export function useSearch(query: SearchQuery) {
     queryFn: () => searchDocuments(query),
     enabled: query.q.length > 0,
     staleTime: 60000, // Cache search results for 1 minute
+  })
+}
+
+// ============================================================================
+// Document Hook
+// ============================================================================
+
+/**
+ * Hook to fetch a single document by ID
+ */
+export function useDocument(id: string) {
+  return useQuery({
+    queryKey: queryKeys.document(id),
+    queryFn: () => getDocument(id),
+    enabled: !!id,
+    staleTime: 300000, // Cache document for 5 minutes
   })
 }

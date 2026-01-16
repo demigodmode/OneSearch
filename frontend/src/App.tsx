@@ -5,6 +5,7 @@ import { Routes, Route } from 'react-router-dom'
 import MainLayout from './components/MainLayout'
 import AdminLayout from './components/AdminLayout'
 import SearchPage from './pages/SearchPage'
+import DocumentPage from './pages/DocumentPage'
 import SourcesPage from './pages/admin/SourcesPage'
 import StatusPage from './pages/admin/StatusPage'
 
@@ -14,6 +15,7 @@ function App() {
       {/* Main search route */}
       <Route path="/" element={<MainLayout />}>
         <Route index element={<SearchPage />} />
+        <Route path="document/:id" element={<DocumentPage />} />
       </Route>
 
       {/* Admin routes */}

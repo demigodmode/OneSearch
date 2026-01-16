@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status
 
-from ..schemas import SearchQuery, SearchResponse, SearchResult
+from ..schemas import SearchQuery, SearchResponse, SearchResult, Document
 from ..services.search import SearchService, meili_service
 
 logger = logging.getLogger(__name__)
@@ -125,8 +125,48 @@ async def search(query: SearchQuery):
         return response
 
     except Exception as e:
-        logger.error(f"Search failed for query '{query.q}': {e}")
+        logger.error(f"Search failed for query '{query.q}': {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Search failed: {str(e)}"
+            detail="An internal error occurred while processing your search"
+        )
+
+
+@router.get("/documents/{document_id}", response_model=Document)
+async def get_document(document_id: str):
+    """
+    Get a single document by ID
+
+    Retrieves the full document content and metadata from the search index.
+    Document IDs have the format: {source_id}--{path_hash}
+
+    Args:
+        document_id: Unique document identifier
+
+    Returns:
+        Full document with content and metadata
+
+    Raises:
+        404: Document not found
+        500: Failed to retrieve document
+    """
+    try:
+        document = await meili_service.get_document(document_id)
+
+        if document is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Document not found: {document_id}"
+            )
+
+        logger.info(f"Retrieved document: {document_id}")
+        return document
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get document {document_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An internal error occurred while retrieving the document"
         )
