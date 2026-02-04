@@ -5,7 +5,7 @@
 SQLAlchemy ORM models for OneSearch
 """
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -55,3 +55,21 @@ class IndexedFile(Base):
 
     def __repr__(self):
         return f"<IndexedFile(id={self.id}, source={self.source_id}, path={self.path}, status={self.status})>"
+
+
+class User(Base):
+    """
+    User authentication table
+    Stores admin credentials for OneSearch
+    """
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(50), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<User(id={self.id}, username={self.username})>"

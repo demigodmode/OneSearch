@@ -9,13 +9,15 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
 from . import __version__
+from .db.database import get_db
 from .config import settings
 from .services.search import meili_service
-from .api import sources, search, status
+from .api import sources, search, status, auth
 
 # Configure logging
 logging.basicConfig(
@@ -131,20 +133,26 @@ async def log_requests(request: Request, call_next):
 
 
 # Include API routers
+app.include_router(auth.router)
 app.include_router(sources.router)
 app.include_router(search.router)
 app.include_router(status.router)
 
 
 @app.get("/api/health")
-async def health_check():
+async def health_check(db: Session = Depends(get_db)):
     """
     Health check endpoint for container healthcheck
 
     Returns service status and basic configuration info
     """
+    from .api.auth import is_setup_required
+
     # Check Meilisearch health
     meili_health = meili_service.health_check()
+
+    # Check if initial setup is required
+    setup_required = is_setup_required(db)
 
     # Overall status is healthy if Meilisearch is connected
     overall_status = "healthy" if meili_health.get("status") in ["available", "unknown"] else "degraded"
@@ -153,6 +161,7 @@ async def health_check():
         "status": overall_status,
         "service": "onesearch-backend",
         "version": __version__,
+        "setup_required": setup_required,
         "meilisearch": meili_health,
         "config": {
             "database": settings.database_url.split("///")[0],  # Just the protocol

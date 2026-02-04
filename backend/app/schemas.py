@@ -120,3 +120,40 @@ class HealthResponse(BaseModel):
     status: str
     meilisearch_connected: bool
     database_connected: bool
+    setup_required: bool = False
+
+
+# Authentication schemas
+class SetupRequest(BaseModel):
+    """Schema for initial setup request"""
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=8)
+
+
+class LoginRequest(BaseModel):
+    """Schema for login request"""
+    username: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    """Schema for user info response"""
+    id: int
+    username: str
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuthResponse(BaseModel):
+    """Schema for authentication response"""
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int  # seconds
+
+
+class MessageResponse(BaseModel):
+    """Generic message response"""
+    message: str
