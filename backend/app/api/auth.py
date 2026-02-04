@@ -16,7 +16,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 import bcrypt
-from jose import jwt, JWTError
+import jwt
 
 from ..db.database import get_db
 from ..models import User
@@ -90,7 +90,7 @@ def decode_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
         return payload
-    except JWTError:
+    except jwt.exceptions.InvalidTokenError:
         return None
 
 
