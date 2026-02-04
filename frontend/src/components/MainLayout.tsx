@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Outlet, Link } from 'react-router-dom'
-import { Search, Settings, Github } from 'lucide-react'
+import { Search, Settings, Github, LogOut, User } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
+import { Button } from '@/components/ui/button'
 
 export default function MainLayout() {
+  const { user, logout } = useAuth()
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -39,6 +43,23 @@ export default function MainLayout() {
                 <Settings className="h-4 w-4" />
                 <span className="hidden sm:inline">Admin</span>
               </Link>
+              {user && (
+                <>
+                  <span className="hidden md:flex items-center gap-1.5 px-2 text-sm text-muted-foreground">
+                    <User className="h-4 w-4" />
+                    {user.username}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={logout}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span className="hidden sm:inline ml-2">Logout</span>
+                  </Button>
+                </>
+              )}
             </nav>
           </div>
         </div>

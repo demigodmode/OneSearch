@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     meilisearch_batch_size: int = Field(default=100, env="MEILISEARCH_BATCH_SIZE")
     indexing_progress_interval: int = Field(default=100, env="INDEXING_PROGRESS_INTERVAL")
 
+    # Authentication settings
+    session_secret: str = Field(default="", env="SESSION_SECRET")  # Required in production
+    session_expire_hours: int = Field(default=24, env="SESSION_EXPIRE_HOURS")
+    auth_rate_limit: int = Field(default=5, env="AUTH_RATE_LIMIT")  # Max attempts per minute
+
     class Config:
         env_file = ".env"
         case_sensitive = False

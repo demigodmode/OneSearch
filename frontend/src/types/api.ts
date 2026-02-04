@@ -144,6 +144,7 @@ export interface HealthResponse {
   status: 'healthy' | 'degraded'
   service: string
   version: string
+  setup_required: boolean
   meilisearch: {
     status: string
     [key: string]: unknown
@@ -198,6 +199,52 @@ export interface ReindexResponse {
  */
 export interface APIError {
   detail: string
+}
+
+// ============================================================================
+// Auth Types
+// ============================================================================
+
+/**
+ * Auth status response from /api/auth/status
+ */
+export interface AuthStatusResponse {
+  setup_required: boolean
+}
+
+/**
+ * Request body for initial setup
+ */
+export interface SetupRequest {
+  username: string
+  password: string
+}
+
+/**
+ * Request body for login
+ */
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+/**
+ * Auth response with JWT token
+ */
+export interface AuthResponse {
+  access_token: string
+  token_type: string
+  expires_in: number
+}
+
+/**
+ * User info response from /api/auth/me
+ */
+export interface User {
+  id: number
+  username: string
+  is_active: boolean
+  created_at: string
 }
 
 /**

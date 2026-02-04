@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Search, Database, Activity, ArrowLeft, Terminal } from 'lucide-react'
+import { Search, Database, Activity, ArrowLeft, Terminal, LogOut, User } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/contexts/AuthContext'
+import { Button } from '@/components/ui/button'
 
 const adminNavItems = [
   { path: '/admin/sources', label: 'Sources', icon: Database },
@@ -12,6 +14,7 @@ const adminNavItems = [
 
 export default function AdminLayout() {
   const location = useLocation()
+  const { user, logout } = useAuth()
 
   return (
     <div className="min-h-screen bg-background">
@@ -36,14 +39,33 @@ export default function AdminLayout() {
               </div>
             </div>
 
-            {/* Back to search */}
-            <Link
-              to="/"
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span className="hidden sm:inline">Back to Search</span>
-            </Link>
+            {/* Right side actions */}
+            <div className="flex items-center gap-2">
+              <Link
+                to="/"
+                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span className="hidden sm:inline">Back to Search</span>
+              </Link>
+              {user && (
+                <>
+                  <span className="hidden md:flex items-center gap-1.5 px-2 text-sm text-muted-foreground">
+                    <User className="h-4 w-4" />
+                    {user.username}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={logout}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    <span className="hidden sm:inline ml-2">Logout</span>
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </header>
