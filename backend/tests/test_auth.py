@@ -280,6 +280,49 @@ class TestLoginEndpoint:
         assert "disabled" in response.json()["detail"].lower()
 
 
+class TestRateLimiting:
+    """Tests for rate limiting on auth endpoints"""
+
+    def test_login_rate_limit_exceeded(self, client, sample_user):
+        """Test that rate limiting blocks requests after exceeding limit"""
+        login_data = {
+            "username": "testuser",
+            "password": "wrongpassword"
+        }
+
+        # Make AUTH_RATE_LIMIT requests (default is 5)
+        for i in range(5):
+            response = client.post("/api/auth/login", json=login_data)
+            # Should be 401 (invalid password), not 429 yet
+            assert response.status_code == 401, f"Request {i+1} should return 401"
+
+        # The next request should be rate limited
+        response = client.post("/api/auth/login", json=login_data)
+        assert response.status_code == 429
+        assert "too many" in response.json()["detail"].lower()
+
+    def test_setup_rate_limit_exceeded(self, client):
+        """Test that rate limiting also applies to setup endpoint"""
+        setup_data = {
+            "username": "admin",
+            "password": "securepassword123"
+        }
+
+        # First request succeeds (creates user)
+        response = client.post("/api/auth/setup", json=setup_data)
+        assert response.status_code == 200
+
+        # Next requests get 403 (setup already completed) until rate limit
+        for i in range(4):
+            response = client.post("/api/auth/setup", json=setup_data)
+            assert response.status_code == 403, f"Request {i+2} should return 403"
+
+        # The next request should be rate limited
+        response = client.post("/api/auth/setup", json=setup_data)
+        assert response.status_code == 429
+        assert "too many" in response.json()["detail"].lower()
+
+
 class TestLogoutEndpoint:
     """Tests for /api/auth/logout endpoint"""
 

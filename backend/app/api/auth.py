@@ -6,7 +6,6 @@ Authentication API endpoints
 Handles user setup, login, logout, and session management
 """
 import logging
-import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from collections import defaultdict
@@ -301,7 +300,7 @@ async def login(
     stmt = select(User).where(User.username == login_data.username)
     user = db.execute(stmt).scalar_one_or_none()
 
-    # Verify credentials (use constant-time comparison via passlib)
+    # Verify credentials (bcrypt uses constant-time comparison internally)
     if not user or not verify_password(login_data.password, user.password_hash):
         logger.warning(f"Failed login attempt for user: {login_data.username}")
         raise HTTPException(
