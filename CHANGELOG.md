@@ -5,6 +5,60 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Office Document Support** - Added extractors for Microsoft Office formats
+  - `.docx` (Word) - extracts paragraphs, tables, and metadata
+  - `.xlsx` (Excel) - extracts all cell values across sheets
+  - `.pptx` (PowerPoint) - extracts slide text and speaker notes
+  - New config options: `MAX_OFFICE_FILE_SIZE_MB`, `OFFICE_EXTRACTION_TIMEOUT`
+  - Better error handling for password-protected and corrupted files
+
+- **Document Preview Page** - Click any search result to view full content
+  - Syntax highlighting for code files via Prism.js
+  - Markdown rendering with code block support
+  - Keyboard shortcut: Escape to return to search
+  - Clickable search result cards
+
+### Fixed
+
+- **Security Vulnerabilities** (PR #49)
+  - Updated `pypdf` to >=6.6.0 (fixes 5 CVEs: LZWDecode/FlateDecode RAM exhaustion, DCT infinite loop, malformed startxref issues)
+  - Updated `react-router-dom` to ^6.30.3 (fixes HIGH severity XSS via open redirects in @remix-run/router)
+
+- **Dependabot Security Alerts** (PR #56)
+  - Updated `urllib3` to 2.6.3 (fixes CVE: decompression bomb safeguards bypass)
+  - Override `prismjs` to 1.30.0 (fixes DOM Clobbering vulnerability)
+
+- Memory leak in keyboard event listener cleanup
+- Error messages that leaked internal implementation details
+- Resource cleanup for Excel file extraction
+
+### Changed
+
+- Search results are now clickable cards instead of static displays
+- Added Office file types (docx, xlsx, pptx) to the search filter dropdown
+
+### Dependencies
+
+- python-docx, openpyxl, python-pptx (backend)
+- react-markdown, react-syntax-highlighter (frontend)
+
+### Issues Closed
+
+- #51 - Office document extractors
+- #52 - Document detail/preview page
+
+### Pull Requests
+
+- #49 - fix: Update dependencies to address security vulnerabilities
+- #55 - Office doc support + document preview page
+- #56 - fix: Address Dependabot security alerts
+
+---
+
 ## [0.5.0] - 2025-12-25
 
 ### Added
@@ -139,6 +193,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[Unreleased]: https://github.com/demigodmode/OneSearch/compare/v0.5.0...HEAD
 [0.5.0]: https://github.com/demigodmode/OneSearch/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/demigodmode/OneSearch/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/demigodmode/OneSearch/compare/v0.2.0...v0.3.0

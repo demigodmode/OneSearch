@@ -1,0 +1,126 @@
+site_name: OneSearch Documentation
+site_url: https://onesearch.readthedocs.io
+site_description: Self-hosted, privacy-focused search for your homelab
+site_author: OneSearch Contributors
+repo_url: https://github.com/demigodmode/OneSearch
+repo_name: demigodmode/OneSearch
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - git-revision-date-localized:
+      enable_creation_date: true
+      fallback_to_build_date: true
+      enable_git_follow: false
+
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/demigodmode/OneSearch
+  generator: false
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Overview: getting-started/index.md
+    - Installation: getting-started/installation.md
+    - First-Time Setup: getting-started/first-time-setup.md
+    - Upgrading: getting-started/upgrading.md
+  - User Guide:
+    - Overview: user-guide/index.md
+    - Adding Sources: user-guide/adding-sources.md
+    - Understanding Indexing: user-guide/indexing.md
+    - Searching: user-guide/searching.md
+    - Web Interface: user-guide/web-interface.md
+    - Document Preview: user-guide/document-preview.md
+  - CLI:
+    - Overview: cli/index.md
+    - Installation: cli/installation.md
+    - Configuration: cli/configuration.md
+    - Command Reference: cli/commands.md
+    - Examples & Workflows: cli/examples.md
+  - API:
+    - Overview: api/index.md
+    - Sources: api/sources.md
+    - Search: api/search.md
+    - Status & Health: api/status.md
+  - Configuration:
+    - Environment Variables: configuration/environment-variables.md
+    - Docker Compose: configuration/docker-compose.md
+    - Volume Mounts: configuration/volume-mounts.md
+    - Performance Tuning: configuration/performance-tuning.md
+  - Administration:
+    - Backup & Restore: administration/backup-restore.md
+    - Monitoring: administration/monitoring.md
+    - Troubleshooting: administration/troubleshooting.md
+  - Supported Formats:
+    - Overview: supported-formats/index.md
+    - Text Files: supported-formats/text-files.md
+    - Markdown: supported-formats/markdown.md
+    - PDF Documents: supported-formats/pdf.md
+    - Office Documents: supported-formats/office-documents.md
+  - Development:
+    - Overview: development/index.md
+    - Contributing: development/contributing.md
+    - Architecture: development/architecture.md
+    - Backend Development: development/backend-dev.md
+    - Frontend Development: development/frontend-dev.md
+    - Adding File Extractors: development/adding-extractors.md
+    - Testing: development/testing.md
+  - About:
+    - Changelog: about/changelog.md
+    - Roadmap: about/roadmap.md
+    - Privacy & Security: about/privacy-security.md
+    - License: about/license.md

@@ -72,3 +72,6 @@ alembic/versions/*.pyc
 
 # Local documentation (not pushed to GitHub)
 local_docs/
+
+# MkDocs build output
+site/
