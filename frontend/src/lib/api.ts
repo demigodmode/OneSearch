@@ -17,6 +17,11 @@ import type {
   HealthResponse,
   ReindexResponse,
   APIError,
+  AuthStatusResponse,
+  SetupRequest,
+  LoginRequest,
+  AuthResponse,
+  User,
 } from '@/types/api'
 
 // ============================================================================
@@ -24,6 +29,30 @@ import type {
 // ============================================================================
 
 const API_BASE = '/api'
+
+// Token storage key
+const TOKEN_KEY = 'onesearch_token'
+
+/**
+ * Get stored auth token
+ */
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+/**
+ * Store auth token
+ */
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token)
+}
+
+/**
+ * Clear auth token
+ */
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY)
+}
 
 /**
  * Custom error class for API errors
@@ -44,16 +73,27 @@ export class ApiError extends Error {
  */
 async function apiFetch<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  includeAuth: boolean = true
 ): Promise<T> {
   const url = `${API_BASE}${endpoint}`
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  }
+
+  // Add auth header if token exists and includeAuth is true
+  if (includeAuth) {
+    const token = getToken()
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+    }
+  }
+
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers,
   })
 
   if (!response.ok) {
@@ -186,6 +226,54 @@ export async function getDocument(id: string): Promise<Document> {
 }
 
 // ============================================================================
+// Authentication
+// ============================================================================
+
+/**
+ * Check if setup is required (no users exist)
+ */
+export async function getAuthStatus(): Promise<AuthStatusResponse> {
+  return apiFetch<AuthStatusResponse>('/auth/status', {}, false)
+}
+
+/**
+ * Initial setup - create first admin user
+ */
+export async function setup(data: SetupRequest): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>('/auth/setup', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }, false)
+}
+
+/**
+ * Login with username and password
+ */
+export async function login(data: LoginRequest): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }, false)
+}
+
+/**
+ * Logout current user
+ */
+export async function logout(): Promise<void> {
+  await apiFetch<{ message: string }>('/auth/logout', {
+    method: 'POST',
+  })
+  clearToken()
+}
+
+/**
+ * Get current user info
+ */
+export async function getCurrentUser(): Promise<User> {
+  return apiFetch<User>('/auth/me')
+}
+
+// ============================================================================
 // Query Keys for TanStack Query
 // ============================================================================
 
@@ -199,4 +287,6 @@ export const queryKeys = {
   source: (id: string) => ['sources', id] as const,
   search: (query: SearchQuery) => ['search', query] as const,
   document: (id: string) => ['documents', id] as const,
+  authStatus: ['authStatus'] as const,
+  currentUser: ['currentUser'] as const,
 }
