@@ -5,7 +5,7 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-02-04
 
 ### Added
 
@@ -25,7 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Security Vulnerabilities** (PR #49)
-  - Updated `pypdf` to >=6.6.0 (fixes 5 CVEs: LZWDecode/FlateDecode RAM exhaustion, DCT infinite loop, malformed startxref issues)
+  - Updated `pypdf` to >=6.6.2 (fixes CVE-2026-24688: infinite loop in bookmarks)
+  - Updated `python-multipart` to >=0.0.22 (fixes CVE-2026-24486: path traversal vulnerability)
   - Updated `react-router-dom` to ^6.30.3 (fixes HIGH severity XSS via open redirects in @remix-run/router)
 
 - **Dependabot Security Alerts** (PR #56)
@@ -56,6 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - #49 - fix: Update dependencies to address security vulnerabilities
 - #55 - Office doc support + document preview page
 - #56 - fix: Address Dependabot security alerts
+
+### Notes
+
+Phase 1 features in progress. Authentication and scheduled indexing planned for v0.7.0.
 
 ---
 
@@ -193,7 +198,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/demigodmode/OneSearch/compare/v0.5.0...HEAD
+[0.6.0]: https://github.com/demigodmode/OneSearch/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/demigodmode/OneSearch/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/demigodmode/OneSearch/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/demigodmode/OneSearch/compare/v0.2.0...v0.3.0

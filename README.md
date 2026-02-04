@@ -12,9 +12,10 @@ Search across all your files, documents, and notes from a single interface. No c
 ## Features
 
 - Fast full-text search powered by Meilisearch
-- Multiple file types: text, markdown, PDF, Office documents (Word, Excel, PowerPoint)
+- Multiple file types: text, markdown, PDF, and Office documents (Word, Excel, PowerPoint)
 - Index local directories, NAS shares, or external drives
 - Incremental indexing (only changed files get reindexed)
+- Document preview with syntax highlighting
 - Web UI, REST API, and CLI
 - Privacy first - all data stays local
 
