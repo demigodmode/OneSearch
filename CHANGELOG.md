@@ -17,9 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Rate limiting on auth endpoints (5 attempts per minute per IP)
   - New config options: `SESSION_SECRET`, `SESSION_EXPIRE_HOURS`, `AUTH_RATE_LIMIT`
 
+### Fixed
+
+- **Security: Replaced python-jose with PyJWT** - python-jose depends on ecdsa which has an unfixed timing attack vulnerability (CVE-2024-23342). PyJWT does not have this dependency.
+
 ### Dependencies
 
-- bcrypt, python-jose (backend authentication)
+- bcrypt, PyJWT (backend authentication)
 
 ### Issues Closed
 
