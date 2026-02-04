@@ -5,6 +5,32 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Basic Authentication** - JWT-based authentication requiring login to access the application
+  - Setup wizard for first-run admin account creation
+  - Login page with username/password authentication
+  - Protected routes redirect unauthenticated users to login
+  - Logout button with username display in header
+  - Rate limiting on auth endpoints (5 attempts per minute per IP)
+  - New config options: `SESSION_SECRET`, `SESSION_EXPIRE_HOURS`, `AUTH_RATE_LIMIT`
+
+### Dependencies
+
+- bcrypt, python-jose (backend authentication)
+
+### Issues Closed
+
+- #53 - Basic authentication
+
+### Pull Requests
+
+- #57 - Add basic authentication
+
+---
+
 ## [0.6.0] - 2026-02-04
 
 ### Added
@@ -60,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 
-Phase 1 features in progress. Authentication and scheduled indexing planned for v0.7.0.
+Phase 1 features in progress. Scheduled indexing planned for v0.7.0.
 
 ---
 
