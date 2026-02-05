@@ -8,9 +8,9 @@ Provides CRUD operations for search sources
 import json
 import logging
 from typing import List
-from datetime import datetime
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
@@ -19,6 +19,7 @@ from ..models import Source, IndexedFile
 from ..schemas import SourceCreate, SourceUpdate, SourceResponse
 from ..services.search import SearchService, meili_service
 from ..services.indexer import IndexingService
+from ..services.scheduler import validate_schedule, get_source_lock
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ async def get_source(source_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
-async def create_source(source_data: SourceCreate, db: Session = Depends(get_db)):
+async def create_source(request: Request, source_data: SourceCreate, db: Session = Depends(get_db)):
     """
     Create a new search source
 
@@ -109,6 +110,13 @@ async def create_source(source_data: SourceCreate, db: Session = Depends(get_db)
             detail=f"Root path is not a directory: {source_data.root_path}"
         )
 
+    # Validate schedule if provided
+    if source_data.scan_schedule and not validate_schedule(source_data.scan_schedule):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid scan schedule: {source_data.scan_schedule}"
+        )
+
     # Serialize patterns to JSON
     include_patterns = json.dumps(source_data.include_patterns) if source_data.include_patterns else None
     exclude_patterns = json.dumps(source_data.exclude_patterns) if source_data.exclude_patterns else None
@@ -120,6 +128,7 @@ async def create_source(source_data: SourceCreate, db: Session = Depends(get_db)
         root_path=str(root_path.resolve()),  # Store absolute path
         include_patterns=include_patterns,
         exclude_patterns=exclude_patterns,
+        scan_schedule=source_data.scan_schedule or None,
     )
 
     db.add(source)
@@ -128,11 +137,17 @@ async def create_source(source_data: SourceCreate, db: Session = Depends(get_db)
 
     logger.info(f"Created source: {source_id} at {source.root_path}")
 
+    # Register schedule with the scheduler
+    if source.scan_schedule and hasattr(request.app.state, "scheduler"):
+        request.app.state.scheduler.update_source_schedule(source_id, source.scan_schedule)
+        db.refresh(source)  # pick up next_scan_at
+
     return SourceResponse.from_orm_model(source)
 
 
 @router.put("/{source_id}", response_model=SourceResponse)
 async def update_source(
+    request: Request,
     source_id: str,
     source_data: SourceUpdate,
     db: Session = Depends(get_db)
@@ -184,11 +199,26 @@ async def update_source(
     if source_data.exclude_patterns is not None:
         source.exclude_patterns = json.dumps(source_data.exclude_patterns)
 
+    # Handle schedule updates
+    if "scan_schedule" in source_data.model_fields_set:
+        new_schedule = source_data.scan_schedule or None
+        if new_schedule and not validate_schedule(new_schedule):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid scan schedule: {new_schedule}"
+            )
+        source.scan_schedule = new_schedule
+
     # Update timestamp
-    source.updated_at = datetime.utcnow()
+    source.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     db.commit()
     db.refresh(source)
+
+    # Sync schedule with scheduler
+    if "scan_schedule" in source_data.model_fields_set and hasattr(request.app.state, "scheduler"):
+        request.app.state.scheduler.update_source_schedule(source_id, source.scan_schedule)
+        db.refresh(source)
 
     logger.info(f"Updated source: {source_id}")
 
@@ -196,7 +226,7 @@ async def update_source(
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_source(source_id: str, db: Session = Depends(get_db)):
+async def delete_source(request: Request, source_id: str, db: Session = Depends(get_db)):
     """
     Delete a source and all its indexed files
 
@@ -232,6 +262,10 @@ async def delete_source(source_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         logger.warning(f"Failed to delete documents from Meilisearch for source {source_id}: {e}")
 
+    # Remove scheduled job if any
+    if hasattr(request.app.state, "scheduler"):
+        request.app.state.scheduler.remove_source(source_id)
+
     # Delete source (cascade will delete indexed_files)
     db.delete(source)
     db.commit()
@@ -260,25 +294,6 @@ async def reindex_source(
     - Clears indexed file records from database
     - Re-indexes all files from scratch
     - Use for migration or to fix index corruption
-
-    Args:
-        source_id: Source identifier
-        full: If true, wipe and rebuild entire index (default: false)
-
-    Returns:
-        Indexing statistics including:
-        - total_scanned: Total files scanned
-        - new_files: Newly indexed files
-        - modified_files: Re-indexed modified files
-        - unchanged_files: Skipped unchanged files
-        - deleted_files: Removed deleted files
-        - successful: Successfully indexed count
-        - failed: Failed indexing count
-        - skipped: Unsupported file types
-
-    Raises:
-        404: Source not found
-        500: Indexing failed
     """
     # Get source
     source = db.get(Source, source_id)
@@ -288,32 +303,42 @@ async def reindex_source(
             detail=f"Source '{source_id}' not found"
         )
 
+    # Acquire lock (non-blocking) to prevent concurrent indexing
+    lock = get_source_lock(source_id)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Indexing already in progress for source '{source_id}'"
+        )
+
     logger.info(f"Starting reindex for source: {source_id}")
 
     try:
-        # Run indexing in thread pool to prevent blocking the event loop
-        # index_source performs blocking file I/O and synchronous DB operations
         from starlette.concurrency import run_in_threadpool
         from sqlalchemy.orm import sessionmaker
         from ..db.database import engine
 
-        # Create a thread-safe wrapper that creates its own DB session
         def sync_index_wrapper():
             import asyncio
 
-            # Create a new DB session for this thread (thread-safe)
             SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
             thread_db = SessionLocal()
 
             try:
-                # Create new event loop for this thread
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
                 try:
-                    # Create indexing service with thread-local session
                     indexing_service = IndexingService(thread_db, meili_service)
-                    return loop.run_until_complete(indexing_service.index_source(source_id, full=full))
+                    stats = loop.run_until_complete(indexing_service.index_source(source_id, full=full))
+
+                    # Update last_scan_at
+                    source_record = thread_db.get(Source, source_id)
+                    if source_record:
+                        source_record.last_scan_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                        thread_db.commit()
+
+                    return stats
                 finally:
                     loop.close()
             finally:
@@ -331,9 +356,13 @@ async def reindex_source(
             "stats": stats.to_dict()
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Reindexing failed for source '{source_id}': {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Reindexing failed: {str(e)}"
         )
+    finally:
+        lock.release()

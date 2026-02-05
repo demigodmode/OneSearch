@@ -17,6 +17,8 @@ from . import __version__
 from .db.database import get_db
 from .config import settings
 from .services.search import meili_service
+from .services.scheduler import SchedulerService
+from .db.database import engine
 from .api import sources, search, status, auth
 
 # Configure logging
@@ -42,9 +44,15 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("Failed to connect to Meilisearch - some features may not work")
 
+    # Start scheduler
+    scheduler = SchedulerService(engine)
+    scheduler.start()
+    app.state.scheduler = scheduler
+
     yield
 
     # Shutdown
+    scheduler.shutdown()
     logger.info("Shutting down OneSearch API...")
 
 

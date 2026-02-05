@@ -41,6 +41,7 @@ export interface SourceBase {
   root_path: string
   include_patterns?: string[] | null
   exclude_patterns?: string[] | null
+  scan_schedule?: string | null
 }
 
 /**
@@ -58,6 +59,7 @@ export interface SourceUpdate {
   root_path?: string
   include_patterns?: string[] | null
   exclude_patterns?: string[] | null
+  scan_schedule?: string | null
 }
 
 /**
@@ -67,6 +69,8 @@ export interface Source extends SourceBase {
   id: string
   created_at: string // ISO datetime string
   updated_at: string // ISO datetime string
+  last_scan_at?: string | null
+  next_scan_at?: string | null
 }
 
 // ============================================================================
@@ -134,6 +138,9 @@ export interface SourceStatus {
   failed: number
   skipped: number
   last_indexed_at?: string | null // ISO datetime string
+  scan_schedule?: string | null
+  last_scan_at?: string | null
+  next_scan_at?: string | null
   failed_files: FailedFile[]
 }
 

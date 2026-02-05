@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     session_expire_hours: int = Field(default=24, env="SESSION_EXPIRE_HOURS")
     auth_rate_limit: int = Field(default=5, env="AUTH_RATE_LIMIT")  # Max attempts per minute
 
+    # Scheduler settings
+    scheduler_enabled: bool = Field(default=True, env="SCHEDULER_ENABLED")
+    schedule_timezone: str = Field(default="UTC", env="SCHEDULE_TIMEZONE")
+
     class Config:
         env_file = ".env"
         case_sensitive = False

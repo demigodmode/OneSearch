@@ -503,5 +503,8 @@ class IndexingService:
             "failed": failed,
             "skipped": skipped,
             "last_indexed_at": last_indexed,
+            "scan_schedule": source.scan_schedule,
+            "last_scan_at": source.last_scan_at,
+            "next_scan_at": source.next_scan_at,
             "failed_files": failed_files[:50],  # Limit to 50
         }
