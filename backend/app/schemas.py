@@ -35,6 +35,7 @@ class SourceBase(BaseModel):
     root_path: str
     include_patterns: Optional[List[str]] = None
     exclude_patterns: Optional[List[str]] = None
+    scan_schedule: Optional[str] = Field(default=None, max_length=100)
 
 
 class SourceCreate(SourceBase):
@@ -48,6 +49,7 @@ class SourceUpdate(BaseModel):
     root_path: Optional[str] = None
     include_patterns: Optional[List[str]] = None
     exclude_patterns: Optional[List[str]] = None
+    scan_schedule: Optional[str] = Field(default=None, max_length=100)
 
 
 class SourceResponse(SourceBase):
@@ -55,6 +57,8 @@ class SourceResponse(SourceBase):
     id: str
     created_at: datetime
     updated_at: datetime
+    last_scan_at: Optional[datetime] = None
+    next_scan_at: Optional[datetime] = None
 
     @classmethod
     def from_orm_model(cls, source):
@@ -66,8 +70,11 @@ class SourceResponse(SourceBase):
             root_path=source.root_path,
             include_patterns=json.loads(source.include_patterns) if source.include_patterns else None,
             exclude_patterns=json.loads(source.exclude_patterns) if source.exclude_patterns else None,
+            scan_schedule=source.scan_schedule,
             created_at=source.created_at,
             updated_at=source.updated_at,
+            last_scan_at=source.last_scan_at,
+            next_scan_at=source.next_scan_at,
         )
 
     class Config:
@@ -113,6 +120,8 @@ class SourceStatus(BaseModel):
     indexed_files: int
     failed_files: int
     last_indexed_at: Optional[datetime] = None
+    scan_schedule: Optional[str] = None
+    next_scan_at: Optional[datetime] = None
 
 
 class HealthResponse(BaseModel):

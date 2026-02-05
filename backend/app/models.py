@@ -23,6 +23,9 @@ class Source(Base):
     root_path = Column(String, nullable=False)
     include_patterns = Column(Text, nullable=True)  # JSON array as text
     exclude_patterns = Column(Text, nullable=True)  # JSON array as text
+    scan_schedule = Column(String, nullable=True)  # Cron expression or preset (@hourly, @daily, @weekly)
+    last_scan_at = Column(DateTime, nullable=True)
+    next_scan_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

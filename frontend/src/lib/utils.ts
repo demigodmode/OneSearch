@@ -16,6 +16,23 @@ export function cn(...inputs: ClassValue[]) {
  * Sanitize HTML snippet to prevent XSS attacks
  * Only allows <mark> tags used by Meilisearch for highlighting search results
  */
+/**
+ * Format a future ISO date as relative time (e.g., "in 3h", "in 2d")
+ */
+export function formatRelativeTime(isoString?: string | null): string | null {
+  if (!isoString) return null
+  const date = new Date(isoString)
+  const now = new Date()
+  const diffMs = date.getTime() - now.getTime()
+  if (diffMs < 0) return 'overdue'
+  const diffMins = Math.floor(diffMs / (1000 * 60))
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+  if (diffMins < 60) return `in ${diffMins}m`
+  if (diffHours < 24) return `in ${diffHours}h`
+  const diffDays = Math.floor(diffHours / 24)
+  return `in ${diffDays}d`
+}
+
 export function sanitizeSnippet(html: string): string {
   // First, escape all HTML to prevent XSS
   const escaped = html

@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { CheckCircle, AlertCircle, Database, Clock, FileText, AlertTriangle, ChevronDown, ChevronRight, Server, Loader2 } from 'lucide-react'
 import { useHealth, useStatus } from '@/hooks/useApi'
 import type { SourceStatus, FailedFile } from '@/types/api'
-import { cn } from '@/lib/utils'
+import { cn, formatRelativeTime } from '@/lib/utils'
 
 // Format date for display
 function formatDate(isoString: string | null | undefined): string {
@@ -97,6 +97,11 @@ function SourceStatusCard({ source, index }: { source: SourceStatus; index: numb
               <p className="font-medium text-foreground">{source.source_name}</p>
               <p className="text-xs text-muted-foreground">
                 Last indexed {formatDate(source.last_indexed_at)}
+                {source.scan_schedule && source.next_scan_at && (
+                  <span className="ml-2">
+                    &middot; Next scan {formatRelativeTime(source.next_scan_at)}
+                  </span>
+                )}
               </p>
             </div>
           </div>

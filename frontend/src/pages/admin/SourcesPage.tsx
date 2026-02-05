@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useState } from 'react'
-import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle } from 'lucide-react'
+import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock } from 'lucide-react'
 import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource } from '@/hooks/useApi'
 import type { Source, SourceCreate, SourceUpdate } from '@/types/api'
-import { cn } from '@/lib/utils'
+import { cn, formatRelativeTime } from '@/lib/utils'
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,17 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+
+// Human-readable schedule labels
+function formatSchedule(schedule?: string | null): string {
+  if (!schedule) return 'Manual'
+  switch (schedule) {
+    case '@hourly': return 'Hourly'
+    case '@daily': return 'Daily'
+    case '@weekly': return 'Weekly'
+    default: return schedule
+  }
+}
 
 // Format date for display
 function formatDate(isoString: string): string {
@@ -56,15 +67,36 @@ function SourceForm({
     source?.exclude_patterns?.join(', ') || ''
   )
 
+  // Schedule state
+  const getInitialScheduleMode = () => {
+    const s = source?.scan_schedule
+    if (!s) return 'manual'
+    if (['@hourly', '@daily', '@weekly'].includes(s)) return s
+    return 'custom'
+  }
+  const [scheduleMode, setScheduleMode] = useState(getInitialScheduleMode)
+  const [customCron, setCustomCron] = useState(
+    source?.scan_schedule && !['@hourly', '@daily', '@weekly'].includes(source.scan_schedule)
+      ? source.scan_schedule
+      : ''
+  )
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+
+    let scan_schedule: string | null = null
+    if (scheduleMode === 'custom') {
+      scan_schedule = customCron.trim() || null
+    } else if (scheduleMode !== 'manual') {
+      scan_schedule = scheduleMode // @hourly, @daily, @weekly
+    }
 
     const data: SourceCreate | SourceUpdate = {
       name: name.trim(),
       root_path: rootPath.trim(),
-      // Send empty array to clear patterns, not null (null means "don't update")
       include_patterns: includePatterns ? includePatterns.split(',').map(p => p.trim()).filter(Boolean) : [],
       exclude_patterns: excludePatterns ? excludePatterns.split(',').map(p => p.trim()).filter(Boolean) : [],
+      scan_schedule,
     }
 
     onSubmit(data)
@@ -134,6 +166,33 @@ function SourceForm({
         />
         <p className="text-xs text-muted-foreground">
           Comma-separated glob patterns
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="scan_schedule">Scan Schedule</Label>
+        <select
+          id="scan_schedule"
+          value={scheduleMode}
+          onChange={(e) => setScheduleMode(e.target.value)}
+          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <option value="manual">Manual only</option>
+          <option value="@hourly">Every hour</option>
+          <option value="@daily">Daily (2:00 AM)</option>
+          <option value="@weekly">Weekly (Sunday 2:00 AM)</option>
+          <option value="custom">Custom cron...</option>
+        </select>
+        {scheduleMode === 'custom' && (
+          <Input
+            value={customCron}
+            onChange={(e) => setCustomCron(e.target.value)}
+            placeholder="0 */6 * * *"
+            className="font-mono text-sm"
+          />
+        )}
+        <p className="text-xs text-muted-foreground">
+          How often to automatically re-scan this source
         </p>
       </div>
 
@@ -308,6 +367,9 @@ export default function SourcesPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">
                   Path
                 </th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">
+                  Schedule
+                </th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">
                   Last Updated
                 </th>
@@ -338,6 +400,17 @@ export default function SourcesPage() {
                   </td>
                   <td className="px-4 py-4 hidden md:table-cell">
                     <code className="text-sm text-muted-foreground font-mono">{source.root_path}</code>
+                  </td>
+                  <td className="px-4 py-4 hidden lg:table-cell">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">{formatSchedule(source.scan_schedule)}</span>
+                    </div>
+                    {source.next_scan_at && (
+                      <span className="text-xs text-muted-foreground/70 ml-5">
+                        Next: {formatRelativeTime(source.next_scan_at)}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-4 text-right hidden sm:table-cell">
                     <span className="text-sm text-muted-foreground">{formatDate(source.updated_at)}</span>
