@@ -73,18 +73,22 @@ class SchedulerService:
             logger.info("Scheduler disabled via SCHEDULER_ENABLED=false")
             return
 
-        jobstores = {
-            "default": SQLAlchemyJobStore(engine=self.engine)
-        }
+        try:
+            jobstores = {
+                "default": SQLAlchemyJobStore(engine=self.engine)
+            }
 
-        self.scheduler = BackgroundScheduler(
-            jobstores=jobstores,
-            timezone=settings.schedule_timezone,
-        )
-        self.scheduler.start()
-        logger.info(f"Scheduler started (timezone={settings.schedule_timezone})")
+            self.scheduler = BackgroundScheduler(
+                jobstores=jobstores,
+                timezone=settings.schedule_timezone,
+            )
+            self.scheduler.start()
+            logger.info(f"Scheduler started (timezone={settings.schedule_timezone})")
 
-        self._sync_all_jobs()
+            self._sync_all_jobs()
+        except Exception as e:
+            logger.warning(f"Failed to start scheduler: {e}")
+            self.scheduler = None
 
     def shutdown(self):
         if self.scheduler and self.scheduler.running:
