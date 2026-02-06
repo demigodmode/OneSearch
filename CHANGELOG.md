@@ -5,17 +5,18 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-02-05
+
+Phase 1 complete. All core features are in — search, indexing, auth, scheduling, document preview.
 
 ### Added
 
-- **Basic Authentication** - JWT-based authentication requiring login to access the application
-  - Setup wizard for first-run admin account creation
-  - Login page with username/password authentication
-  - Protected routes redirect unauthenticated users to login
-  - Logout button with username display in header
-  - Rate limiting on auth endpoints (5 attempts per minute per IP)
-  - New config options: `SESSION_SECRET`, `SESSION_EXPIRE_HOURS`, `AUTH_RATE_LIMIT`
+- **Basic Authentication** - JWT-based auth with setup wizard, login page, protected routes, rate limiting. Config: `SESSION_SECRET`, `SESSION_EXPIRE_HOURS`, `AUTH_RATE_LIMIT`.
+
+- **Scheduled Indexing** - APScheduler-based background indexing with per-source cron schedules. Presets (@hourly, @daily, @weekly) or custom cron expressions. Jobs persist across restarts via SQLAlchemy job store. Per-source locking prevents concurrent indexing (409 on conflict). Config: `SCHEDULER_ENABLED`, `SCHEDULE_TIMEZONE`.
+  - Schedule picker in source add/edit form
+  - Schedule column and next scan time in sources table
+  - Next scan info on status page
 
 ### Fixed
 
@@ -23,15 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Dependencies
 
-- bcrypt, PyJWT (backend authentication)
+- bcrypt, PyJWT (authentication)
+- APScheduler (scheduled indexing)
 
 ### Issues Closed
 
+- #50 - Scheduled indexing
 - #53 - Basic authentication
 
 ### Pull Requests
 
 - #57 - Add basic authentication
+- #60 - Scheduled indexing with APScheduler
 
 ---
 
@@ -87,10 +91,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - #49 - fix: Update dependencies to address security vulnerabilities
 - #55 - Office doc support + document preview page
 - #56 - fix: Address Dependabot security alerts
-
-### Notes
-
-Phase 1 features in progress. Scheduled indexing planned for v0.7.0.
 
 ---
 
@@ -228,6 +228,7 @@ Phase 1 features in progress. Scheduled indexing planned for v0.7.0.
 
 ---
 
+[0.7.0]: https://github.com/demigodmode/OneSearch/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/demigodmode/OneSearch/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/demigodmode/OneSearch/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/demigodmode/OneSearch/compare/v0.3.0...v0.4.0
