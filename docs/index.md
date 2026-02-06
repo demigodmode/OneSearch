@@ -16,6 +16,10 @@ Search across all your files, documents, and notes from a single interface. No c
 
 **Incremental indexing**: Only changed files get reindexed, so updates are fast. Full reindex available when you need it.
 
+**Scheduled indexing**: Set per-source cron schedules (hourly, daily, weekly, or custom) so sources stay up to date automatically.
+
+**Authentication**: JWT-based login with a setup wizard. Rate-limited to prevent brute force.
+
 **Three ways to use it**: Web UI for browsing and searching, REST API for integrations, and CLI for automation.
 
 **Privacy first**: Everything runs locally. No outbound connections, no telemetry, no cloud services. Your data never leaves your network.
@@ -42,7 +46,7 @@ cp .env.example .env
 docker-compose up -d
 ```
 
-Open http://localhost:8000 and you're ready to add sources and start searching.
+Open http://localhost:8000, create your admin account in the setup wizard, and you're ready to go.
 
 For detailed setup instructions, see the [Installation Guide](getting-started/installation.md).
 
@@ -50,7 +54,7 @@ For detailed setup instructions, see the [Installation Guide](getting-started/in
 
 ## What's New
 
-Recent additions include Office document support (Word, Excel, PowerPoint), a document preview page with syntax highlighting, and several security updates.
+v0.7.0 wraps up Phase 1 with authentication (setup wizard, JWT login, rate limiting) and scheduled indexing (per-source cron schedules with presets). Also includes Office document support, document preview with syntax highlighting, and security updates.
 
 Check the [Changelog](about/changelog.md) for details.
 

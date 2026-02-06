@@ -46,13 +46,13 @@ OneSearch can't modify your files, which prevents accidental corruption and redu
 
 The OneSearch container runs as a non-root user (UID 1000) by default, limiting permissions and following security best practices.
 
-### No Authentication (By Design)
+### Built-in Authentication
 
-OneSearch currently doesn't include authentication. It's designed for trusted networks like homelabs and private LANs, where you control network access via VPN, firewall, or reverse proxy.
+OneSearch includes JWT-based authentication with bcrypt password hashing. A setup wizard creates the initial admin account on first launch. Login is rate-limited to prevent brute force attacks.
 
-Basic authentication is planned for Phase 2.
+For additional security layers (especially if exposing to the internet), consider pairing with a reverse proxy, VPN, or firewall rules.
 
-**Important**: Don't expose OneSearch directly to the internet without additional security measures.
+See the [Authentication Guide](../administration/authentication.md) for details.
 
 ---
 
@@ -212,7 +212,7 @@ Deploy on private networks only. Use VPN for remote access. Don't expose to publ
 
 ### For Security
 
-Use strong Meilisearch master key. Mount sources read-only. Keep dependencies updated. Use reverse proxy with authentication if needed. Implement network-level access controls. Regular backups.
+Use strong Meilisearch master key and SESSION_SECRET. Mount sources read-only. Keep dependencies updated. Use reverse proxy for additional security if needed. Implement network-level access controls. Regular backups.
 
 ### For Production
 

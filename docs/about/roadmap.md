@@ -2,34 +2,36 @@
 
 OneSearch is under active development. Here's what's planned for future releases.
 
-**Current status**: Phase 0 (MVP) is complete and released as v0.5.0. Phase 1 development is in progress.
+**Current status**: Phase 1 is complete (v0.7.0). Phase 2 is next — UI redesign, theme system, and E2E testing.
 
 ---
 
-## Phase 1 (In Progress)
+## Phase 1 (Complete)
 
-Target: v0.6.0
-
-### Completed
+Released as v0.6.0 and v0.7.0.
 
 - Office document support (Word, Excel, PowerPoint)
 - Document preview page with syntax highlighting
-
-### In Progress
-
-- Automated scheduled indexing
-- Basic authentication
-
-### Planned
-
-- Real-time indexing (watch for file changes)
-- Improved error reporting
+- JWT authentication with setup wizard and rate limiting
+- Scheduled indexing with APScheduler (per-source cron schedules)
+- Security fixes (PyJWT migration, dependency updates)
 
 ---
 
-## Phase 2
+## Phase 2 (Next)
 
-Target: v0.7.0
+UI overhaul and polish.
+
+### UI Redesign
+
+- New search page layout (#61)
+- Admin dashboard redesign (#62)
+- Source management improvements (#63)
+- Status page overhaul (#64)
+- Document preview redesign (#65)
+- Mobile-responsive layout (#66)
+- Theme system with light/dark modes (#38, #67)
+- E2E test coverage (#20)
 
 ### Search Enhancements
 
@@ -37,12 +39,6 @@ Target: v0.7.0
 - Search history
 - Advanced filters (date range, file size, metadata)
 - Export results (CSV/JSON)
-
-### Multi-User Support
-
-- User accounts with personal settings
-- Per-source access control
-- Audit logs
 
 ### Additional File Types
 
@@ -143,7 +139,7 @@ All releases follow [Semantic Versioning](https://semver.org/).
 
 ## Stability & Backwards Compatibility
 
-### Phase 0 (Current)
+### Phase 1 (Current)
 
 Core features are stable and production-ready. The API may change in minor releases (v0.x.0). Database migrations are handled automatically.
 

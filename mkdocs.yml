@@ -83,6 +83,7 @@ nav:
     - Adding Sources: user-guide/adding-sources.md
     - Understanding Indexing: user-guide/indexing.md
     - Searching: user-guide/searching.md
+    - Scheduling: user-guide/scheduling.md
     - Web Interface: user-guide/web-interface.md
     - Document Preview: user-guide/document-preview.md
   - CLI:
@@ -102,6 +103,7 @@ nav:
     - Volume Mounts: configuration/volume-mounts.md
     - Performance Tuning: configuration/performance-tuning.md
   - Administration:
+    - Authentication: administration/authentication.md
     - Backup & Restore: administration/backup-restore.md
     - Monitoring: administration/monitoring.md
     - Troubleshooting: administration/troubleshooting.md

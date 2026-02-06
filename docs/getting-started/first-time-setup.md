@@ -1,6 +1,12 @@
 # First-Time Setup
 
-After installing OneSearch, let's add your first source and run a search.
+After installing OneSearch, you'll go through a quick setup wizard, then you can add sources and start searching.
+
+## Setup Wizard
+
+When you first open OneSearch at http://localhost:8000, you'll be greeted by a setup wizard that asks you to create an admin account. Pick a username and password — this is what you'll use to log in going forward.
+
+Once that's done, you're taken to the login page. Log in with the credentials you just created.
 
 ## Add a Source
 
@@ -8,7 +14,7 @@ A source is a directory that OneSearch will index. You can have multiple sources
 
 ### Using the Web UI
 
-Navigate to http://localhost:8000 and click **Admin** in the top nav, then **Sources**.
+After logging in, click **Admin** in the top nav, then **Sources**.
 
 Click **Add Source** and fill in:
 
@@ -33,9 +39,12 @@ Add `--no-validate` if the path only exists inside the Docker container.
 
 ### Using the API
 
+First grab a token (see [Authentication](../administration/authentication.md)), then:
+
 ```bash
 curl -X POST http://localhost:8000/api/sources \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "name": "Documents",
     "root_path": "/data/documents",
@@ -47,7 +56,7 @@ curl -X POST http://localhost:8000/api/sources \
 
 ## Index Your Files
 
-Adding a source doesn't automatically index it. You need to trigger indexing manually (automated scheduling is coming in Phase 1).
+Adding a source doesn't automatically index it unless you set up a schedule. You can trigger indexing manually or configure automatic scheduling.
 
 ### Web UI
 
@@ -62,7 +71,8 @@ onesearch source reindex documents
 ### API
 
 ```bash
-curl -X POST http://localhost:8000/api/sources/documents/reindex
+curl -X POST http://localhost:8000/api/sources/documents/reindex \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
@@ -96,7 +106,8 @@ onesearch status documents
 ### API
 
 ```bash
-curl http://localhost:8000/api/status
+curl http://localhost:8000/api/status \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
@@ -136,6 +147,7 @@ onesearch search "readme" --type md
 ```bash
 curl -X POST http://localhost:8000/api/search \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{"q": "kubernetes", "limit": 10}'
 ```
 
@@ -188,7 +200,8 @@ onesearch source reindex documents --full
 **API**: Add `?full=true`:
 
 ```bash
-curl -X POST "http://localhost:8000/api/sources/documents/reindex?full=true"
+curl -X POST "http://localhost:8000/api/sources/documents/reindex?full=true" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
@@ -230,6 +243,14 @@ docker-compose logs -f onesearch
 
 ---
 
+## Set Up a Schedule (Optional)
+
+Instead of manually triggering reindex every time, you can set up automatic schedules. When adding or editing a source, pick a preset (Hourly, Daily, Weekly) or enter a custom cron expression.
+
+See [Scheduling](../user-guide/scheduling.md) for more details.
+
+---
+
 ## Next Steps
 
 Now that you have OneSearch running:
@@ -237,6 +258,7 @@ Now that you have OneSearch running:
 - [Learn more about searching](../user-guide/searching.md)
 - [Explore the web interface](../user-guide/web-interface.md)
 - [Add more sources](../user-guide/adding-sources.md)
+- [Set up scan schedules](../user-guide/scheduling.md)
 - [Install the CLI](../cli/installation.md)
 - [Explore the API](../api/index.md)
 

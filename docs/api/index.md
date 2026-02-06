@@ -40,9 +40,45 @@ Clean, readable documentation better suited for browsing and reference.
 
 ## Authentication
 
-OneSearch currently has **no authentication**. It's designed for trusted networks like homelabs and private LANs.
+OneSearch uses JWT-based authentication. All API endpoints (except setup and login) require a valid token.
 
-Don't expose it directly to the internet without additional security (VPN, reverse proxy with auth, firewall rules). Basic authentication is planned for Phase 1.
+### Getting a Token
+
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "your-password"}'
+```
+
+Response:
+
+```json
+{
+  "access_token": "eyJhbGciOi...",
+  "token_type": "bearer"
+}
+```
+
+### Using the Token
+
+Pass it in the `Authorization` header:
+
+```bash
+curl http://localhost:8000/api/status \
+  -H "Authorization: Bearer eyJhbGciOi..."
+```
+
+### Auth Endpoints
+
+```http
+POST /api/auth/setup    # Create initial admin account (first run only)
+POST /api/auth/login    # Get a token
+GET  /api/auth/me       # Check current user
+```
+
+Tokens expire after 24 hours by default (configurable via `SESSION_EXPIRE_HOURS`). Login is rate-limited to 5 attempts per minute by default (`AUTH_RATE_LIMIT`).
+
+See [Authentication Guide](../administration/authentication.md) for more details.
 
 ---
 
@@ -65,6 +101,14 @@ GET    /api/sources/{id}         # Get details
 PUT    /api/sources/{id}         # Update
 DELETE /api/sources/{id}         # Delete
 POST   /api/sources/{id}/reindex # Trigger reindex
+```
+
+### Authentication
+
+```http
+POST /api/auth/setup          # Initial account creation
+POST /api/auth/login          # Login, get JWT
+GET  /api/auth/me             # Current user info
 ```
 
 ### Status & Health
@@ -109,7 +153,10 @@ HTTP status codes follow REST conventions:
 - `200 OK` - Success
 - `201 Created` - Resource created
 - `400 Bad Request` - Invalid input
+- `401 Unauthorized` - Missing or invalid auth token
 - `404 Not Found` - Resource not found
+- `409 Conflict` - Resource busy (e.g., source is already indexing)
+- `429 Too Many Requests` - Rate limit exceeded (login endpoint)
 - `500 Internal Server Error` - Server error
 
 ---
@@ -121,6 +168,7 @@ HTTP status codes follow REST conventions:
 ```bash
 curl -X POST http://localhost:8000/api/search \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "q": "kubernetes",
     "limit": 10
@@ -132,23 +180,27 @@ curl -X POST http://localhost:8000/api/search \
 ```bash
 curl -X POST http://localhost:8000/api/sources \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
     "name": "Documents",
     "root_path": "/data/documents",
-    "include_patterns": "**/*.pdf,**/*.md"
+    "include_patterns": "**/*.pdf,**/*.md",
+    "scan_schedule": "@daily"
   }'
 ```
 
 ### Trigger Reindex
 
 ```bash
-curl -X POST http://localhost:8000/api/sources/documents/reindex
+curl -X POST http://localhost:8000/api/sources/documents/reindex \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Get Status
 
 ```bash
-curl http://localhost:8000/api/status
+curl http://localhost:8000/api/status \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
@@ -202,8 +254,11 @@ curl http://localhost:8000/api/status
   "root_path": "/data/documents",
   "include_patterns": "**/*.pdf,**/*.md,**/*.txt",
   "exclude_patterns": "**/node_modules/**,**/.git/**",
+  "scan_schedule": "@daily",
   "total_files": 1234,
-  "last_indexed_at": "2026-01-15T10:30:00Z"
+  "last_indexed_at": "2026-01-15T10:30:00Z",
+  "last_scan_at": "2026-01-15T02:00:00Z",
+  "next_scan_at": "2026-01-16T02:00:00Z"
 }
 ```
 
@@ -211,7 +266,7 @@ curl http://localhost:8000/api/status
 
 ## Rate Limiting
 
-OneSearch doesn't implement rate limiting yet. Use reasonable request rates and add delays for bulk operations.
+The login endpoint (`POST /api/auth/login`) is rate-limited to prevent brute force attacks. Default is 5 attempts per minute, configurable via `AUTH_RATE_LIMIT`. Other endpoints don't have rate limiting — use reasonable request rates for bulk operations.
 
 ---
 
@@ -270,9 +325,11 @@ Use `requests`:
 ```python
 import requests
 
+TOKEN = "your-jwt-token"
 response = requests.post(
     "http://localhost:8000/api/search",
-    json={"q": "kubernetes", "limit": 10}
+    json={"q": "kubernetes", "limit": 10},
+    headers={"Authorization": f"Bearer {TOKEN}"}
 )
 results = response.json()
 ```
@@ -282,9 +339,13 @@ results = response.json()
 Use `fetch`:
 
 ```typescript
+const TOKEN = "your-jwt-token";
 const response = await fetch("http://localhost:8000/api/search", {
   method: "POST",
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${TOKEN}`
+  },
   body: JSON.stringify({ q: "kubernetes", limit: 10 })
 });
 const results = await response.json();

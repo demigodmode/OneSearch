@@ -12,6 +12,8 @@ This guide covers everything you need to know about using OneSearch effectively.
 
 **[Document Preview](document-preview.md)** - View full document content with syntax highlighting.
 
+**[Scheduling](scheduling.md)** - Set up automatic scan schedules for your sources.
+
 **[Understanding Indexing](indexing.md)** - How indexing works and how to optimize it.
 
 ---
@@ -101,4 +103,5 @@ For questions or discussions, use [GitHub Discussions](https://github.com/demigo
 - **[Searching](searching.md)** - Master search features
 - **[Web Interface](web-interface.md)** - Navigate the UI
 - **[Document Preview](document-preview.md)** - View full content
+- **[Scheduling](scheduling.md)** - Automatic scan schedules
 - **[Understanding Indexing](indexing.md)** - How it works

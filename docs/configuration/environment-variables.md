@@ -93,6 +93,53 @@ Maximum size for Office files (docx, xlsx, pptx).
 - Default: `50`
 - Unit: Megabytes
 
+### Authentication
+
+**SESSION_SECRET**
+
+Secret key used for signing JWT tokens. If not set, a hardcoded fallback is used (fine for dev, but you'll want to set this in production).
+
+- Default: hardcoded fallback (logs a warning)
+- Example: `SESSION_SECRET=your-random-secret-here`
+
+Generate one:
+
+```bash
+openssl rand -base64 32
+```
+
+**SESSION_EXPIRE_HOURS**
+
+How long auth tokens stay valid.
+
+- Default: `24`
+- Unit: Hours
+
+**AUTH_RATE_LIMIT**
+
+Maximum failed login attempts per minute before requests get rejected.
+
+- Default: `5`
+- Unit: Attempts per minute
+
+### Scheduling
+
+**SCHEDULER_ENABLED**
+
+Whether the background scheduler runs. Disable this if you only want manual indexing.
+
+- Default: `true`
+- Options: `true`, `false`
+
+**SCHEDULE_TIMEZONE**
+
+Timezone for cron schedule calculations.
+
+- Default: `UTC`
+- Example: `America/New_York`, `Europe/London`
+
+Uses standard IANA timezone names.
+
 ### Extraction Timeouts
 
 These prevent indexing from hanging on corrupt or problematic files.
@@ -142,6 +189,15 @@ MAX_OFFICE_FILE_SIZE_MB=50
 TEXT_EXTRACTION_TIMEOUT=5
 PDF_EXTRACTION_TIMEOUT=30
 OFFICE_EXTRACTION_TIMEOUT=30
+
+# Authentication
+SESSION_SECRET=YourSecureRandomSecretHere
+SESSION_EXPIRE_HOURS=24
+AUTH_RATE_LIMIT=5
+
+# Scheduling
+SCHEDULER_ENABLED=true
+SCHEDULE_TIMEZONE=UTC
 ```
 
 ---
