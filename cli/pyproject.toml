@@ -1,6 +1,6 @@
 [project]
 name = "onesearch-cli"
-version = "0.5.0"
+version = "0.7.0"
 description = "CLI for OneSearch - Self-hosted, privacy-focused search"
 license = {text = "AGPL-3.0-only"}
 requires-python = ">=3.10"
