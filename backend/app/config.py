@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # Database configuration
     database_url: str = Field(
-        default="sqlite:///data/onesearch.db",
+        default="sqlite:////app/data/onesearch.db",
         env="DATABASE_URL"
     )
 

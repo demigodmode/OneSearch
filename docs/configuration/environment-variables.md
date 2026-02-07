@@ -37,8 +37,8 @@ MEILI_MASTER_KEY=your-generated-key-here
 
 SQLite database path.
 
-- Default: `sqlite:///data/onesearch.db`
-- Example: `sqlite:///data/onesearch.db`
+- Default: `sqlite:////app/data/onesearch.db`
+- Example: `sqlite:////app/data/onesearch.db`
 
 The database stores source configurations and file metadata for incremental indexing.
 
@@ -176,7 +176,7 @@ Timeout for Office document extraction.
 MEILI_MASTER_KEY=YourSecureRandomKeyHere123456789
 
 # Optional - these show the defaults
-DATABASE_URL=sqlite:///data/onesearch.db
+DATABASE_URL=sqlite:////app/data/onesearch.db
 MEILI_URL=http://meilisearch:7700
 LOG_LEVEL=INFO
 
@@ -238,7 +238,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     meili_master_key: str
-    database_url: str = "sqlite:///data/onesearch.db"
+    database_url: str = "sqlite:////app/data/onesearch.db"
     log_level: str = "INFO"
     # ... etc
 ```

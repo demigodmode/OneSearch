@@ -47,7 +47,7 @@ services:
     environment:
       - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
-      - DATABASE_URL=sqlite:///data/onesearch.db
+      - DATABASE_URL=sqlite:////app/data/onesearch.db
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
       - "8000:8000"

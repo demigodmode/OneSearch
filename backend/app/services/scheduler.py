@@ -13,7 +13,6 @@ from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from sqlalchemy.orm import sessionmaker, Session
 
 from ..config import settings
@@ -60,7 +59,8 @@ def validate_schedule(schedule: str) -> bool:
 class SchedulerService:
     """
     Manages APScheduler for background source indexing.
-    Uses BackgroundScheduler (daemon thread) with SQLAlchemy job store.
+    Uses BackgroundScheduler (daemon thread) with in-memory job store.
+    Jobs are rebuilt from the Source table on every startup via _sync_all_jobs.
     """
 
     def __init__(self, engine):
@@ -74,12 +74,7 @@ class SchedulerService:
             return
 
         try:
-            jobstores = {
-                "default": SQLAlchemyJobStore(engine=self.engine)
-            }
-
             self.scheduler = BackgroundScheduler(
-                jobstores=jobstores,
                 timezone=settings.schedule_timezone,
             )
             self.scheduler.start()
