@@ -5,6 +5,24 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-02-07
+
+Hotfix for critical deployment bugs found during first real Proxmox CT install. The app basically couldn't start in Docker.
+
+### Fixed
+
+- **SQLite URL path format** — default DATABASE_URL used 3 slashes (relative path) instead of 4 (absolute path), so SQLAlchemy couldn't find `/data/onesearch.db`. Fixed everywhere: config.py, docker-compose.yml, .env.example, docs. Also fixed the path itself from `/data/` to `/app/data/` to match the Dockerfile. (#69)
+
+- **Alembic hardcoded database path** — alembic.ini had a hardcoded `sqlalchemy.url` that could conflict with the DATABASE_URL env var. Removed it — env.py already sets the URL programmatically from app settings. (#68)
+
+- **APScheduler pickle crash when adding sources** — the SQLAlchemy job store tried to pickle scheduled jobs, but bound methods referencing the engine can't be pickled. Switched to in-memory job store since `_sync_all_jobs` already rebuilds everything from the Source table on startup. (#70)
+
+### Issues Closed
+
+- #68, #69, #70
+
+---
+
 ## [0.7.0] - 2026-02-05
 
 Phase 1 complete. All core features are in — search, indexing, auth, scheduling, document preview.
@@ -13,7 +31,7 @@ Phase 1 complete. All core features are in — search, indexing, auth, schedulin
 
 - **Basic Authentication** - JWT-based auth with setup wizard, login page, protected routes, rate limiting. Config: `SESSION_SECRET`, `SESSION_EXPIRE_HOURS`, `AUTH_RATE_LIMIT`.
 
-- **Scheduled Indexing** - APScheduler-based background indexing with per-source cron schedules. Presets (@hourly, @daily, @weekly) or custom cron expressions. Jobs persist across restarts via SQLAlchemy job store. Per-source locking prevents concurrent indexing (409 on conflict). Config: `SCHEDULER_ENABLED`, `SCHEDULE_TIMEZONE`.
+- **Scheduled Indexing** - APScheduler-based background indexing with per-source cron schedules. Presets (@hourly, @daily, @weekly) or custom cron expressions. Per-source locking prevents concurrent indexing (409 on conflict). Config: `SCHEDULER_ENABLED`, `SCHEDULE_TIMEZONE`.
   - Schedule picker in source add/edit form
   - Schedule column and next scan time in sources table
   - Next scan info on status page
@@ -228,6 +246,7 @@ Phase 1 complete. All core features are in — search, indexing, auth, schedulin
 
 ---
 
+[0.7.1]: https://github.com/demigodmode/OneSearch/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/demigodmode/OneSearch/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/demigodmode/OneSearch/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/demigodmode/OneSearch/compare/v0.4.0...v0.5.0
