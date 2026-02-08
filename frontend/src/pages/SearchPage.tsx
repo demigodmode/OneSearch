@@ -3,7 +3,7 @@
 
 import type React from 'react'
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Search, Command, FileText, FileCode, File, Loader2, AlertCircle, ChevronLeft, ChevronRight, Eye } from 'lucide-react'
 import { useSearch, useSources } from '@/hooks/useApi'
 import type { SearchResult } from '@/types/api'
@@ -92,10 +92,11 @@ function ResultCard({
 
 export default function SearchPage() {
   const navigate = useNavigate()
-  const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [sourceFilter, setSourceFilter] = useState<string>('')
-  const [typeFilter, setTypeFilter] = useState<string>('')
+  const [searchParams] = useSearchParams()
+  const [query, setQuery] = useState(searchParams.get('q') || '')
+  const [debouncedQuery, setDebouncedQuery] = useState(searchParams.get('q') || '')
+  const [sourceFilter, setSourceFilter] = useState<string>(searchParams.get('source') || '')
+  const [typeFilter, setTypeFilter] = useState<string>(searchParams.get('type') || '')
   const [page, setPage] = useState(0)
   const [isFocused, setIsFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)

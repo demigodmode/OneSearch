@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     session_expire_hours: int = Field(default=24, env="SESSION_EXPIRE_HOURS")
     auth_rate_limit: int = Field(default=5, env="AUTH_RATE_LIMIT")  # Max attempts per minute
 
+    # CORS settings (comma-separated origins, empty = localhost defaults)
+    cors_origins: str = Field(default="", env="CORS_ORIGINS")
+
+    # Source path restrictions (comma-separated allowed parent dirs)
+    allowed_source_paths: str = Field(default="/data", env="ALLOWED_SOURCE_PATHS")
+
     # Scheduler settings
     scheduler_enabled: bool = Field(default=True, env="SCHEDULER_ENABLED")
     schedule_timezone: str = Field(default="UTC", env="SCHEDULE_TIMEZONE")

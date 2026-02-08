@@ -6,23 +6,25 @@ Database configuration and session management
 """
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.engine import Engine
 
 from ..config import settings
 
-# Create engine with SQLite optimizations
+# Create engine
+connect_args = {}
+if settings.database_url.startswith("sqlite"):
+    connect_args["check_same_thread"] = False
+
 engine = create_engine(
     settings.database_url,
-    connect_args={"check_same_thread": False},  # SQLite specific
+    connect_args=connect_args,
     echo=False,  # Set to True for SQL query logging
 )
 
 
-# Enable WAL mode for better concurrency (SQLite)
-@event.listens_for(Engine, "connect")
-def set_sqlite_pragma(dbapi_conn, connection_record):
-    """Set SQLite PRAGMAs for better performance"""
-    if "sqlite" in settings.database_url:
+# Enable WAL mode for better concurrency (SQLite only)
+if settings.database_url.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")

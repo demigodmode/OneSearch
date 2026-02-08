@@ -8,10 +8,12 @@ Provides full-text search across indexed documents
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..schemas import SearchQuery, SearchResponse, SearchResult, Document
 from ..services.search import SearchService, meili_service
+from ..models import User
+from .auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +21,7 @@ router = APIRouter(prefix="/api", tags=["search"])
 
 
 @router.post("/search", response_model=SearchResponse)
-async def search(query: SearchQuery):
+async def search(query: SearchQuery, current_user: User = Depends(get_current_user)):
     """
     Search indexed documents with filters
 
@@ -133,7 +135,7 @@ async def search(query: SearchQuery):
 
 
 @router.get("/documents/{document_id}", response_model=Document)
-async def get_document(document_id: str):
+async def get_document(document_id: str, current_user: User = Depends(get_current_user)):
     """
     Get a single document by ID
 
