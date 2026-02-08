@@ -295,9 +295,6 @@ Phase 1 complete. All core features are in — search, indexing, auth, schedulin
 
 ---
 
-[0.7.2]: https://github.com/demigodmode/OneSearch/compare/v0.7.1...v0.7.2
-[0.7.1]: https://github.com/demigodmode/OneSearch/compare/v0.7.0...v0.7.1
-[0.7.0]: https://github.com/demigodmode/OneSearch/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/demigodmode/OneSearch/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/demigodmode/OneSearch/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/demigodmode/OneSearch/compare/v0.3.0...v0.4.0
