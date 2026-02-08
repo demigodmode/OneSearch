@@ -1,7 +1,7 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import MainLayout from './components/MainLayout'
@@ -43,9 +43,13 @@ function App() {
             </ProtectedRoute>
           }
         >
+          <Route index element={<Navigate to="/admin/sources" replace />} />
           <Route path="sources" element={<SourcesPage />} />
           <Route path="status" element={<StatusPage />} />
         </Route>
+
+        {/* Catch-all 404 */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthProvider>
   )

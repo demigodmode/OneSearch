@@ -41,9 +41,6 @@ services:
       # - /home/user/Documents:/data/documents:ro
       # - /path/to/photos:/data/photos:ro
 
-      # Test mount - local_docs folder (remove after testing)
-      - ./local_docs:/data/test_docs:ro
-
     environment:
       - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}

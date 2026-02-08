@@ -12,7 +12,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, func, case
 
 from ..models import Source, IndexedFile
 from ..schemas import Document
@@ -475,24 +475,30 @@ class IndexingService:
         if not source:
             raise ValueError(f"Source not found: {source_id}")
 
-        # Get indexed files stats
-        stmt = select(IndexedFile).where(IndexedFile.source_id == source_id)
-        indexed_files = self.db.execute(stmt).scalars().all()
+        # Get indexed files stats via SQL aggregation
+        stats_stmt = select(
+            func.count().label('total'),
+            func.sum(case((IndexedFile.status == 'success', 1), else_=0)).label('successful'),
+            func.sum(case((IndexedFile.status == 'failed', 1), else_=0)).label('failed'),
+            func.sum(case((IndexedFile.status == 'skipped', 1), else_=0)).label('skipped'),
+            func.max(IndexedFile.indexed_at).label('last_indexed'),
+        ).where(IndexedFile.source_id == source_id)
+        row = self.db.execute(stats_stmt).one()
 
-        total_files = len(indexed_files)
-        successful = sum(1 for f in indexed_files if f.status == "success")
-        failed = sum(1 for f in indexed_files if f.status == "failed")
-        skipped = sum(1 for f in indexed_files if f.status == "skipped")
+        total_files = row.total or 0
+        successful = row.successful or 0
+        failed = row.failed or 0
+        skipped = row.skipped or 0
+        last_indexed = row.last_indexed
 
-        # Get last indexed time
-        last_indexed = None
-        if indexed_files:
-            last_indexed = max(f.indexed_at for f in indexed_files)
-
-        # Get failed files
+        # Get failed files (only fetch the rows we actually need)
+        failed_stmt = select(IndexedFile.path, IndexedFile.error_message).where(
+            IndexedFile.source_id == source_id,
+            IndexedFile.status == "failed",
+        ).limit(50)
         failed_files = [
-            {"path": f.path, "error": f.error_message}
-            for f in indexed_files if f.status == "failed"
+            {"path": r.path, "error": r.error_message}
+            for r in self.db.execute(failed_stmt).all()
         ]
 
         return {
@@ -506,5 +512,5 @@ class IndexingService:
             "scan_schedule": source.scan_schedule,
             "last_scan_at": source.last_scan_at,
             "next_scan_at": source.next_scan_at,
-            "failed_files": failed_files[:50],  # Limit to 50
+            "failed_files": failed_files,
         }

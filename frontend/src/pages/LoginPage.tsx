@@ -18,6 +18,15 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  // Show loading while checking auth status
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-pulse text-muted-foreground">Loading...</div>
+      </div>
+    )
+  }
+
   // Redirect if setup is required
   if (setupRequired) {
     return <Navigate to="/setup" replace />
@@ -26,15 +35,6 @@ export default function LoginPage() {
   // Redirect if already authenticated
   if (isAuthenticated) {
     return <Navigate to="/" replace />
-  }
-
-  // Show loading while checking auth status
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-pulse text-muted-foreground">Loading...</div>
-      </div>
-    )
   }
 
   const handleSubmit = async (e: React.FormEvent) => {

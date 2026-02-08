@@ -12,18 +12,45 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, func
 
+from pathlib import Path
+
+from ..config import settings
 from ..db.database import get_db
-from ..models import Source, IndexedFile
+from ..models import Source, IndexedFile, User
 from ..schemas import SourceCreate, SourceUpdate, SourceResponse
 from ..services.search import SearchService, meili_service
 from ..services.indexer import IndexingService
 from ..services.scheduler import validate_schedule, get_source_lock
+from .auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
+
+
+def validate_root_path(root_path: Path) -> Path:
+    """Validate that root_path exists, is a directory, and is within allowed paths."""
+    if not root_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Root path does not exist: {root_path}"
+        )
+    if not root_path.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Root path is not a directory: {root_path}"
+        )
+
+    resolved = root_path.resolve()
+    allowed = [Path(p.strip()).resolve() for p in settings.allowed_source_paths.split(",") if p.strip()]
+    if allowed and not any(resolved == a or a in resolved.parents for a in allowed):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Root path is outside allowed directories ({settings.allowed_source_paths})"
+        )
+    return resolved
 
 
 def generate_source_id(name: str) -> str:
@@ -37,7 +64,7 @@ def generate_source_id(name: str) -> str:
 
 
 @router.get("", response_model=List[SourceResponse])
-async def list_sources(db: Session = Depends(get_db)):
+async def list_sources(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     List all configured sources
 
@@ -49,7 +76,7 @@ async def list_sources(db: Session = Depends(get_db)):
 
 
 @router.get("/{source_id}", response_model=SourceResponse)
-async def get_source(source_id: str, db: Session = Depends(get_db)):
+async def get_source(source_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Get a specific source by ID
 
@@ -72,7 +99,7 @@ async def get_source(source_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
-async def create_source(request: Request, source_data: SourceCreate, db: Session = Depends(get_db)):
+async def create_source(request: Request, source_data: SourceCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Create a new search source
 
@@ -96,19 +123,8 @@ async def create_source(request: Request, source_data: SourceCreate, db: Session
             detail=f"Source with ID '{source_id}' already exists"
         )
 
-    # Validate root_path exists
-    from pathlib import Path
-    root_path = Path(source_data.root_path)
-    if not root_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Root path does not exist: {source_data.root_path}"
-        )
-    if not root_path.is_dir():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Root path is not a directory: {source_data.root_path}"
-        )
+    # Validate root_path exists and is within allowed directories
+    root_path = validate_root_path(Path(source_data.root_path))
 
     # Validate schedule if provided
     if source_data.scan_schedule and not validate_schedule(source_data.scan_schedule):
@@ -125,7 +141,7 @@ async def create_source(request: Request, source_data: SourceCreate, db: Session
     source = Source(
         id=source_id,
         name=source_data.name,
-        root_path=str(root_path.resolve()),  # Store absolute path
+        root_path=str(root_path),  # Already resolved by validate_root_path
         include_patterns=include_patterns,
         exclude_patterns=exclude_patterns,
         scan_schedule=source_data.scan_schedule or None,
@@ -150,7 +166,8 @@ async def update_source(
     request: Request,
     source_id: str,
     source_data: SourceUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Update an existing source configuration
@@ -179,19 +196,8 @@ async def update_source(
         source.name = source_data.name
 
     if source_data.root_path is not None:
-        from pathlib import Path
-        root_path = Path(source_data.root_path)
-        if not root_path.exists():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Root path does not exist: {source_data.root_path}"
-            )
-        if not root_path.is_dir():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Root path is not a directory: {source_data.root_path}"
-            )
-        source.root_path = str(root_path.resolve())
+        resolved = validate_root_path(Path(source_data.root_path))
+        source.root_path = str(resolved)
 
     if source_data.include_patterns is not None:
         source.include_patterns = json.dumps(source_data.include_patterns)
@@ -226,7 +232,7 @@ async def update_source(
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_source(request: Request, source_id: str, db: Session = Depends(get_db)):
+async def delete_source(request: Request, source_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """
     Delete a source and all its indexed files
 
@@ -250,8 +256,8 @@ async def delete_source(request: Request, source_id: str, db: Session = Depends(
         )
 
     # Count indexed files for logging
-    stmt = select(IndexedFile).where(IndexedFile.source_id == source_id)
-    indexed_files_count = len(db.execute(stmt).scalars().all())
+    stmt = select(func.count()).where(IndexedFile.source_id == source_id)
+    indexed_files_count = db.execute(stmt).scalar() or 0
 
     # Delete all documents for this source from Meilisearch using filter
     # This handles any document ID format (old or new) for seamless migration
@@ -279,7 +285,8 @@ async def delete_source(request: Request, source_id: str, db: Session = Depends(
 async def reindex_source(
     source_id: str,
     full: bool = False,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Manually trigger reindexing for a source
@@ -326,8 +333,6 @@ async def reindex_source(
 
             try:
                 loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
                 try:
                     indexing_service = IndexingService(thread_db, meili_service)
                     stats = loop.run_until_complete(indexing_service.index_source(source_id, full=full))
@@ -359,10 +364,10 @@ async def reindex_source(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Reindexing failed for source '{source_id}': {e}")
+        logger.error(f"Reindexing failed for source '{source_id}': {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Reindexing failed: {str(e)}"
+            detail="Reindexing failed due to an internal error"
         )
     finally:
         lock.release()

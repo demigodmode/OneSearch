@@ -199,9 +199,13 @@ export default function DocumentPage() {
 
   const handleCopyPath = async () => {
     if (document?.path) {
-      await navigator.clipboard.writeText(document.path)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      try {
+        await navigator.clipboard.writeText(document.path)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        // Clipboard API not available (e.g. non-HTTPS context)
+      }
     }
   }
 

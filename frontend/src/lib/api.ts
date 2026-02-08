@@ -97,6 +97,13 @@ async function apiFetch<T>(
   })
 
   if (!response.ok) {
+    // Expired or invalid token — clear and redirect to login
+    if (response.status === 401 && includeAuth) {
+      clearToken()
+      window.location.href = '/login'
+      throw new ApiError('Session expired', 401)
+    }
+
     let detail: string | undefined
     try {
       const errorData = (await response.json()) as APIError

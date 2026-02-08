@@ -378,7 +378,7 @@ class TestHealthWithSetupRequired:
         """Test health endpoint shows setup_required when no users"""
         response = client.get("/api/health")
 
-        assert response.status_code == 200
+        assert response.status_code in (200, 503)
         data = response.json()
 
         assert "setup_required" in data
@@ -388,7 +388,7 @@ class TestHealthWithSetupRequired:
         """Test health endpoint shows setup_required=false when users exist"""
         response = client.get("/api/health")
 
-        assert response.status_code == 200
+        assert response.status_code in (200, 503)
         data = response.json()
 
         assert "setup_required" in data

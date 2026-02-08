@@ -10,6 +10,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Depends
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
@@ -35,7 +36,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting OneSearch API...")
     logger.info(f"Log level: {settings.log_level}")
-    logger.info(f"Database: {settings.database_url}")
+    logger.info(f"Database: {settings.database_url.split('://')[0]}")
     logger.info(f"Meilisearch: {settings.meili_url}")
 
     # Initialize Meilisearch connection
@@ -65,12 +66,14 @@ app = FastAPI(
 )
 
 # Configure CORS
+cors_origins = (
+    [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+    if settings.cors_origins
+    else ["http://localhost:5173", "http://localhost:8000"]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:8000",  # Production (nginx)
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -162,21 +165,28 @@ async def health_check(db: Session = Depends(get_db)):
     # Check if initial setup is required
     setup_required = is_setup_required(db)
 
-    # Overall status is healthy if Meilisearch is connected
-    overall_status = "healthy" if meili_health.get("status") in ["available", "unknown"] else "degraded"
+    # Overall status — "unknown" means Meilisearch couldn't be reached
+    meili_status = meili_health.get("status")
+    if meili_status == "available":
+        overall_status = "healthy"
+    else:
+        overall_status = "degraded"
 
-    return {
+    response_data = {
         "status": overall_status,
         "service": "onesearch-backend",
         "version": __version__,
         "setup_required": setup_required,
         "meilisearch": meili_health,
         "config": {
-            "database": settings.database_url.split("///")[0],  # Just the protocol
+            "database": settings.database_url.split("://")[0],  # Just the scheme
             "meilisearch_url": settings.meili_url,
             "log_level": settings.log_level,
         },
     }
+
+    status_code = 200 if overall_status == "healthy" else 503
+    return JSONResponse(content=response_data, status_code=status_code)
 
 
 @app.get("/")

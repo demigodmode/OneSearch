@@ -5,6 +5,55 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-07
+
+Big hardening pass based on a thorough code review. Auth actually works now, endpoints are protected, and a bunch of security/performance/UX issues are cleaned up.
+
+### Security
+
+- **Enforce auth on all API endpoints** — search, sources, status endpoints now require a valid JWT. Previously auth was decorative — JWT existed but nothing checked it. (#71)
+- **CORS is now configurable** — set `CORS_ORIGINS` env var instead of allowing all origins. Empty = same-origin only (the default for Docker deployments). (#73)
+- **Source path restriction** — new `ALLOWED_SOURCE_PATHS` env var (default: `/data`) prevents adding sources from arbitrary filesystem paths. (#75)
+- **Don't leak error details** — reindex errors now return a generic message instead of internal stack traces. (#76)
+- **Don't log database URL** — health endpoint and startup logs no longer expose the full DB connection string. (#77, #88)
+
+### Fixed
+
+- **SQLite check_same_thread** — only applied when actually using SQLite, so Postgres/MySQL work too. (#72)
+- **SQLite WAL pragma** — now attached to the engine instance instead of globally, so it works correctly with connection pooling. (#87)
+- **Rate limiter memory leak** — stale IPs are now pruned every 5 minutes instead of accumulating forever. (#81)
+- **Health endpoint returns 503** — when Meilisearch is unreachable, health now returns 503 instead of 200 with errors buried in the response body. (#86)
+- **chown /app/data on startup** — entrypoint.sh now fixes ownership before running migrations, preventing permission errors on mounted volumes. (#74)
+- **Remove stale Dockerfiles** — backend/Dockerfile and frontend/Dockerfile were leftover from before the unified build. Removed. (#91)
+- **Remove test bind mount** — docker-compose.yml had an uncommented `./local_docs` mount that would fail on fresh installs. (#90)
+
+### Performance
+
+- **SQL aggregation for source status** — replaced Python-side counting of all IndexedFile rows with proper SQL COUNT/CASE queries. (#78)
+- **SQL count for source deletion** — replaced loading all indexed files into memory just to count them. (#79)
+
+### Frontend
+
+- **401 auto-redirect** — expired tokens now clear auth state and redirect to login instead of showing a broken page. (#82)
+- **Search state restoration** — back-navigation from document view restores your search query and filters via URL params. (#83)
+- **Mutation error reset** — stale error banners in source add/edit dialogs now clear when reopening. (#84)
+- **Login page loading order** — loading spinner now shows before checking auth state, preventing a flash of the login form. (#85)
+- **Admin index redirect** — `/admin` now redirects to `/admin/sources` instead of showing a blank page. (#93)
+- **404 catch-all** — unknown routes redirect to home instead of showing a blank page. (#94)
+- **Clipboard error handling** — copy-path button no longer throws on non-HTTPS contexts. (#95)
+- **Dynamic version display** — admin sidebar now shows version from package.json instead of hardcoded v0.3.0. (#92)
+- **Removed asyncio.set_event_loop** — was unnecessary and could cause issues with concurrent requests. (#80)
+
+### Nginx
+
+- **Proxy API docs** — `/docs`, `/redoc`, `/openapi.json` are now proxied to the backend. (#89)
+
+### Issues Closed
+
+- #71 through #95
+
+---
+
 ## [0.7.1] - 2026-02-07
 
 Hotfix for critical deployment bugs found during first real Proxmox CT install. The app basically couldn't start in Docker.

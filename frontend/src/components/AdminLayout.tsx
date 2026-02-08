@@ -104,10 +104,7 @@ export default function AdminLayout() {
             {/* Version info */}
             <div className="mt-8 px-3 py-3 rounded-lg bg-card border border-border">
               <p className="text-xs text-muted-foreground font-mono">
-                OneSearch v0.3.0
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Phase 0 • MVP
+                OneSearch v{__APP_VERSION__}
               </p>
             </div>
           </aside>

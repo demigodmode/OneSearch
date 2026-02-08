@@ -348,7 +348,7 @@ export default function SourcesPage() {
         </div>
         <button
           className="flex items-center gap-2 px-4 py-2.5 bg-cyan text-cyan-foreground font-medium rounded-lg hover:bg-cyan/90 transition-colors shadow-glow-sm hover:shadow-glow"
-          onClick={() => setIsAddDialogOpen(true)}
+          onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}
         >
           <Plus className="h-4 w-4" />
           Add Source
@@ -433,7 +433,7 @@ export default function SourcesPage() {
                       <button
                         className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
                         title="Edit"
-                        onClick={() => setEditingSource(source)}
+                        onClick={() => { updateMutation.reset(); setEditingSource(source) }}
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
@@ -466,7 +466,7 @@ export default function SourcesPage() {
             </p>
             <button
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-cyan text-cyan-foreground font-medium rounded-lg hover:bg-cyan/90 transition-colors shadow-glow-sm hover:shadow-glow"
-              onClick={() => setIsAddDialogOpen(true)}
+              onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}
             >
               <Plus className="h-4 w-4" />
               Add Your First Source

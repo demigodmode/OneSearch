@@ -94,13 +94,24 @@ def decode_token(token: str) -> Optional[dict]:
         return None
 
 
+_last_prune = 0.0
+
+
 def check_rate_limit(client_ip: str) -> bool:
     """Check if client has exceeded rate limit"""
+    global _last_prune
     now = time.time()
     window = 60  # 1 minute window
     max_attempts = settings.auth_rate_limit
 
-    # Clean old entries
+    # Periodically prune stale IPs (every 5 minutes)
+    if now - _last_prune > 300:
+        stale = [ip for ip, ts in rate_limit_store.items() if all(now - t >= window for t in ts)]
+        for ip in stale:
+            del rate_limit_store[ip]
+        _last_prune = now
+
+    # Clean old entries for this IP
     rate_limit_store[client_ip] = [
         t for t in rate_limit_store[client_ip] if now - t < window
     ]
