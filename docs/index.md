@@ -54,7 +54,7 @@ For detailed setup instructions, see the [Installation Guide](getting-started/in
 
 ## What's New
 
-v0.7.0 wraps up Phase 1 with authentication (setup wizard, JWT login, rate limiting) and scheduled indexing (per-source cron schedules with presets). Also includes Office document support, document preview with syntax highlighting, and security updates.
+v0.7.2 is the current stable release with Phase 1 complete — authentication, scheduled indexing, Office document support, and comprehensive security hardening. This release enforces JWT auth on all API endpoints, adds CORS configuration, improves performance with SQL optimizations, and fixes a bunch of deployment bugs found during real-world testing.
 
 Check the [Changelog](about/changelog.md) for details.
 
