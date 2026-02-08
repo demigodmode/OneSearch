@@ -14,7 +14,7 @@ import pytest
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -341,7 +341,7 @@ class TestSourceEndpoints:
             source_id=sample_source.id,
             path="/test/file.txt",
             size_bytes=100,
-            modified_at=datetime.utcnow(),
+            modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
             status="success",
         )
         db_session.add(indexed_file)
@@ -595,14 +595,14 @@ class TestStatusEndpoint:
                 source_id=sample_source.id,
                 path="/test/success.txt",
                 size_bytes=100,
-                modified_at=datetime.utcnow(),
+                modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 status="success",
             ),
             IndexedFile(
                 source_id=sample_source.id,
                 path="/test/failed.txt",
                 size_bytes=200,
-                modified_at=datetime.utcnow(),
+                modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 status="failed",
                 error_message="Test error",
             ),
@@ -610,7 +610,7 @@ class TestStatusEndpoint:
                 source_id=sample_source.id,
                 path="/test/skipped.txt",
                 size_bytes=150,
-                modified_at=datetime.utcnow(),
+                modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 status="skipped",
             ),
         ]

@@ -14,7 +14,7 @@
  * Normalized document structure from Meilisearch
  */
 export interface Document {
-  id: string // Format: "source_id:/path/to/file"
+  id: string // Format: "{source_id}--{path_hash}" (SHA256 truncated to 12 chars)
   source_id: string
   source_name: string
   path: string

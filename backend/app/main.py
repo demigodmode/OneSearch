@@ -155,7 +155,8 @@ async def health_check(db: Session = Depends(get_db)):
     """
     Health check endpoint for container healthcheck
 
-    Returns service status and basic configuration info
+    Returns minimal status info publicly. Detailed config is omitted
+    to avoid leaking infrastructure details to unauthenticated requests.
     """
     from .api.auth import is_setup_required
 
@@ -177,11 +178,8 @@ async def health_check(db: Session = Depends(get_db)):
         "service": "onesearch-backend",
         "version": __version__,
         "setup_required": setup_required,
-        "meilisearch": meili_health,
-        "config": {
-            "database": settings.database_url.split("://")[0],  # Just the scheme
-            "meilisearch_url": settings.meili_url,
-            "log_level": settings.log_level,
+        "meilisearch": {
+            "status": meili_health.get("status", "unknown"),
         },
     }
 

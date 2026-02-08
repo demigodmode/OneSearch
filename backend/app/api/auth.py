@@ -97,6 +97,28 @@ def decode_token(token: str) -> Optional[dict]:
 _last_prune = 0.0
 
 
+def get_client_ip(request: Request) -> str:
+    """
+    Extract real client IP from proxy headers.
+
+    Checks X-Forwarded-For and X-Real-IP headers (set by nginx/reverse proxies)
+    before falling back to request.client.host. Without this, all requests
+    behind a proxy share the same rate limit bucket (127.0.0.1).
+    """
+    # X-Forwarded-For can contain a chain: "client, proxy1, proxy2"
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        # The leftmost IP is the original client
+        return forwarded_for.split(",")[0].strip()
+
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+
+    return request.client.host if request.client else "unknown"
+
+
+
 def check_rate_limit(client_ip: str) -> bool:
     """Check if client has exceeded rate limit"""
     global _last_prune
@@ -234,7 +256,7 @@ async def setup_admin(
         429: Rate limit exceeded
     """
     # Rate limiting
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     if not check_rate_limit(client_ip):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -300,7 +322,7 @@ async def login(
         429: Rate limit exceeded
     """
     # Rate limiting
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     if not check_rate_limit(client_ip):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

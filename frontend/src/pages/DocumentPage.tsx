@@ -20,6 +20,7 @@ import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { useState, useEffect, useCallback } from 'react'
+import { formatSize, formatFullDate } from '@/lib/utils'
 
 // Map file extensions to syntax highlighter languages
 const extensionToLanguage: Record<string, string> = {
@@ -71,18 +72,6 @@ const extensionToLanguage: Record<string, string> = {
 
 // Code file extensions that should use syntax highlighting
 const codeExtensions = new Set(Object.keys(extensionToLanguage))
-
-// Format file size for display
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-// Format timestamp for display
-function formatDate(timestamp: number): string {
-  return new Date(timestamp * 1000).toLocaleString()
-}
 
 // Get file type icon
 function FileTypeIcon({ type, className }: { type: string; className?: string }) {
@@ -331,11 +320,11 @@ export default function DocumentPage() {
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Calendar className="h-4 w-4" />
-                  <span>Modified: {formatDate(document.modified_at)}</span>
+                  <span>Modified: {formatFullDate(document.modified_at)}</span>
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Clock className="h-4 w-4" />
-                  <span>Indexed: {formatDate(document.indexed_at)}</span>
+                  <span>Indexed: {formatFullDate(document.indexed_at)}</span>
                 </div>
               </div>
             </div>

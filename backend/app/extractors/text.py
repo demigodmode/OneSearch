@@ -76,7 +76,7 @@ class TextExtractor(BaseExtractor):
         # Try extraction with graceful fallback on encoding errors
         try:
             # Read file content with encoding detection
-            content = self._read_with_encoding_detection(file_path)
+            content, detected_encoding = self._read_with_encoding_detection(file_path)
 
             # Create base document
             doc = self._create_base_document(file_path, content)
@@ -86,7 +86,7 @@ class TextExtractor(BaseExtractor):
 
             # Add metadata
             doc.metadata = {
-                "detected_encoding": self._detect_encoding(file_path),
+                "detected_encoding": detected_encoding,
                 "line_count": content.count('\n') + 1,
                 "extraction_failed": False,
             }
@@ -124,7 +124,7 @@ class TextExtractor(BaseExtractor):
             }
             return doc
 
-    def _read_with_encoding_detection(self, file_path: str) -> str:
+    def _read_with_encoding_detection(self, file_path: str) -> tuple[str, str]:
         """
         Read file content with automatic encoding detection
 
@@ -132,7 +132,7 @@ class TextExtractor(BaseExtractor):
             file_path: Path to file
 
         Returns:
-            Decoded text content
+            Tuple of (decoded text content, detected encoding name)
 
         Raises:
             UnicodeDecodeError: If file cannot be decoded
@@ -140,7 +140,7 @@ class TextExtractor(BaseExtractor):
         # Try UTF-8 first (most common)
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
-                return f.read()
+                return f.read(), 'utf-8'
         except UnicodeDecodeError:
             pass
 
@@ -150,11 +150,11 @@ class TextExtractor(BaseExtractor):
         # Try detected encoding
         try:
             with open(file_path, 'r', encoding=detected_encoding) as f:
-                return f.read()
+                return f.read(), detected_encoding
         except (UnicodeDecodeError, TypeError):
             # Fallback to latin-1 (never fails but may produce garbage)
             with open(file_path, 'r', encoding='latin-1') as f:
-                return f.read()
+                return f.read(), 'latin-1'
 
     def _detect_encoding(self, file_path: str) -> str:
         """

@@ -9,7 +9,6 @@ import logging
 from pathlib import Path
 from typing import Optional
 from pypdf import PdfReader
-import io
 
 from .base import BaseExtractor, extractor_registry
 from ..schemas import Document

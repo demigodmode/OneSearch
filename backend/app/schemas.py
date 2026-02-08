@@ -6,7 +6,7 @@ Pydantic schemas for request/response validation
 """
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Document(BaseModel):
@@ -14,7 +14,7 @@ class Document(BaseModel):
     Normalized document structure returned by extractors
     and sent to Meilisearch for indexing
     """
-    id: str  # Format: "source_id:/path/to/file"
+    id: str  # Format: "{source_id}--{path_hash}" (SHA256 truncated to 12 chars)
     source_id: str
     source_name: str
     path: str
@@ -54,6 +54,8 @@ class SourceUpdate(BaseModel):
 
 class SourceResponse(SourceBase):
     """Schema for source response"""
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     created_at: datetime
     updated_at: datetime
@@ -76,9 +78,6 @@ class SourceResponse(SourceBase):
             last_scan_at=source.last_scan_at,
             next_scan_at=source.next_scan_at,
         )
-
-    class Config:
-        from_attributes = True
 
 
 class SearchQuery(BaseModel):
@@ -147,13 +146,12 @@ class LoginRequest(BaseModel):
 
 class UserResponse(BaseModel):
     """Schema for user info response"""
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     username: str
     is_active: bool
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class AuthResponse(BaseModel):

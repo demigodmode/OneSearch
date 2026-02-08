@@ -4,9 +4,14 @@
 """
 SQLAlchemy ORM models for OneSearch
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import declarative_base, relationship
+
+
+def _utcnow():
+    """Return current UTC time as naive datetime (for SQLite Column defaults)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 Base = declarative_base()
 
@@ -26,8 +31,8 @@ class Source(Base):
     scan_schedule = Column(String, nullable=True)  # Cron expression or preset (@hourly, @daily, @weekly)
     last_scan_at = Column(DateTime, nullable=True)
     next_scan_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow, nullable=False)
 
     # Relationship to indexed files
     indexed_files = relationship("IndexedFile", back_populates="source", cascade="all, delete-orphan")
@@ -48,7 +53,7 @@ class IndexedFile(Base):
     path = Column(String, nullable=False, index=True)
     size_bytes = Column(Integer, nullable=True)
     modified_at = Column(DateTime, nullable=True)
-    indexed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    indexed_at = Column(DateTime, nullable=False, default=_utcnow)
     hash = Column(String, nullable=True)  # File content hash for change detection
     status = Column(String, default="success", nullable=False)  # success, failed, skipped
     error_message = Column(Text, nullable=True)
@@ -71,8 +76,8 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow, nullable=False)
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username})>"

@@ -10,7 +10,7 @@ import hashlib
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from ..schemas import Document
 
@@ -205,7 +205,7 @@ class BaseExtractor(ABC):
             type=self._get_document_type(),
             size_bytes=metadata["size_bytes"],
             modified_at=metadata["modified_at"],
-            indexed_at=int(datetime.utcnow().timestamp()),
+            indexed_at=int(datetime.now(timezone.utc).timestamp()),
             content=content,
             title=None,
             metadata={}

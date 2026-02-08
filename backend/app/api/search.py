@@ -5,6 +5,7 @@
 Search API endpoint
 Provides full-text search across indexed documents
 """
+import json
 import logging
 from typing import Optional
 
@@ -62,8 +63,6 @@ async def search(query: SearchQuery, current_user: User = Depends(get_current_us
         # Build filter conditions using array-based filters with proper escaping
         # Meilisearch automatically ANDs array elements
         # Use json.dumps() to safely escape string values and prevent filter injection
-        import json
-
         filters_list = []
         if query.source_id:
             # json.dumps ensures proper escaping of quotes and special characters

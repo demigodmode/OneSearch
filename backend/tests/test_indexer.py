@@ -8,7 +8,7 @@ import pytest
 import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import Mock, AsyncMock, patch
 import json
 
@@ -136,7 +136,7 @@ class TestIndexingService:
             path=file_path,
             size_bytes=stat.st_size,
             modified_at=datetime.fromtimestamp(stat.st_mtime),
-            indexed_at=datetime.utcnow(),
+            indexed_at=datetime.now(timezone.utc).replace(tzinfo=None),
             status="success"
         )
 
@@ -161,7 +161,7 @@ class TestIndexingService:
             path=file_path,
             size_bytes=999,  # Different from actual size
             modified_at=datetime.fromtimestamp(0),
-            indexed_at=datetime.utcnow(),
+            indexed_at=datetime.now(timezone.utc).replace(tzinfo=None),
             status="success"
         )
 
@@ -208,8 +208,8 @@ class TestIndexingService:
                 source_id="test_source",
                 path=str(file_path),
                 size_bytes=100,
-                modified_at=datetime.utcnow(),
-                indexed_at=datetime.utcnow(),
+                modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                indexed_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 status="success"
             )
             db_session.add(indexed_file)
@@ -242,16 +242,16 @@ class TestIndexingService:
             source_id="test_source",
             path="/tmp/file1.txt",
             size_bytes=100,
-            modified_at=datetime.utcnow(),
-            indexed_at=datetime.utcnow(),
+            modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            indexed_at=datetime.now(timezone.utc).replace(tzinfo=None),
             status="success"
         )
         indexed_file2 = IndexedFile(
             source_id="test_source",
             path="/tmp/file2.txt",
             size_bytes=200,
-            modified_at=datetime.utcnow(),
-            indexed_at=datetime.utcnow(),
+            modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            indexed_at=datetime.now(timezone.utc).replace(tzinfo=None),
             status="failed",
             error_message="Test error"
         )

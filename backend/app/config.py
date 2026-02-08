@@ -5,58 +5,55 @@
 Application configuration using pydantic-settings
 Loads settings from environment variables
 """
-from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment"""
 
-    # Meilisearch configuration
-    meili_url: str = Field(default="http://localhost:7700", env="MEILI_URL")
-    meili_master_key: str = Field(default="", env="MEILI_MASTER_KEY")  # Required in production
-
-    # Database configuration
-    database_url: str = Field(
-        default="sqlite:////app/data/onesearch.db",
-        env="DATABASE_URL"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
     )
 
+    # Meilisearch configuration
+    meili_url: str = "http://localhost:7700"
+    meili_master_key: str = ""  # Required in production
+
+    # Database configuration
+    database_url: str = "sqlite:////app/data/onesearch.db"
+
     # Application settings
-    log_level: str = Field(default="INFO", env="LOG_LEVEL")
+    log_level: str = "INFO"
 
     # File size limits (in MB)
-    max_text_file_size_mb: int = Field(default=10, env="MAX_TEXT_FILE_SIZE_MB")
-    max_pdf_file_size_mb: int = Field(default=50, env="MAX_PDF_FILE_SIZE_MB")
-    max_office_file_size_mb: int = Field(default=50, env="MAX_OFFICE_FILE_SIZE_MB")
+    max_text_file_size_mb: int = 10
+    max_pdf_file_size_mb: int = 50
+    max_office_file_size_mb: int = 50
 
     # Extraction timeouts (in seconds)
-    text_extraction_timeout: int = Field(default=5, env="TEXT_EXTRACTION_TIMEOUT")
-    pdf_extraction_timeout: int = Field(default=30, env="PDF_EXTRACTION_TIMEOUT")
-    office_extraction_timeout: int = Field(default=30, env="OFFICE_EXTRACTION_TIMEOUT")
+    text_extraction_timeout: int = 5
+    pdf_extraction_timeout: int = 30
+    office_extraction_timeout: int = 30
 
     # Indexing configuration
-    meilisearch_batch_size: int = Field(default=100, env="MEILISEARCH_BATCH_SIZE")
-    indexing_progress_interval: int = Field(default=100, env="INDEXING_PROGRESS_INTERVAL")
+    meilisearch_batch_size: int = 100
+    indexing_progress_interval: int = 100
 
     # Authentication settings
-    session_secret: str = Field(default="", env="SESSION_SECRET")  # Required in production
-    session_expire_hours: int = Field(default=24, env="SESSION_EXPIRE_HOURS")
-    auth_rate_limit: int = Field(default=5, env="AUTH_RATE_LIMIT")  # Max attempts per minute
+    session_secret: str = ""  # Required in production
+    session_expire_hours: int = 24
+    auth_rate_limit: int = 5  # Max attempts per minute
 
     # CORS settings (comma-separated origins, empty = localhost defaults)
-    cors_origins: str = Field(default="", env="CORS_ORIGINS")
+    cors_origins: str = ""
 
     # Source path restrictions (comma-separated allowed parent dirs)
-    allowed_source_paths: str = Field(default="/data", env="ALLOWED_SOURCE_PATHS")
+    allowed_source_paths: str = "/data"
 
     # Scheduler settings
-    scheduler_enabled: bool = Field(default=True, env="SCHEDULER_ENABLED")
-    schedule_timezone: str = Field(default="UTC", env="SCHEDULE_TIMEZONE")
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    scheduler_enabled: bool = True
+    schedule_timezone: str = "UTC"
 
 
 # Global settings instance

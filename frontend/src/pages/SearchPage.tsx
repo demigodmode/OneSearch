@@ -7,28 +7,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Search, Command, FileText, FileCode, File, Loader2, AlertCircle, ChevronLeft, ChevronRight, Eye } from 'lucide-react'
 import { useSearch, useSources } from '@/hooks/useApi'
 import type { SearchResult } from '@/types/api'
-import { cn, sanitizeSnippet } from '@/lib/utils'
-
-// Format file size for display
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-// Format timestamp for display
-function formatDate(timestamp: number): string {
-  const date = new Date(timestamp * 1000)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-  if (diffDays === 0) return 'Today'
-  if (diffDays === 1) return 'Yesterday'
-  if (diffDays < 7) return `${diffDays} days ago`
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
-  return date.toLocaleDateString()
-}
+import { cn, sanitizeSnippet, formatSize, formatTimestamp } from '@/lib/utils'
 
 // Get file type icon
 function FileTypeIcon({ type }: { type: string }) {
@@ -82,7 +61,7 @@ function ResultCard({
             <span className="font-mono uppercase">{result.type}</span>
           </div>
           <span>{formatSize(result.size_bytes)}</span>
-          <span>{formatDate(result.modified_at)}</span>
+          <span>{formatTimestamp(result.modified_at)}</span>
           <span className="text-cyan text-xs">{result.source_name}</span>
         </div>
       </div>

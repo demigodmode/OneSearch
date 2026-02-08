@@ -101,8 +101,8 @@ async def get_source_status(source_id: str, db: Session = Depends(get_db), curre
             detail=str(e)
         )
     except Exception as e:
-        logger.error(f"Failed to get status for source {source_id}: {e}")
+        logger.error(f"Failed to get status for source {source_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get source status: {str(e)}"
+            detail="An internal error occurred while retrieving source status"
         )

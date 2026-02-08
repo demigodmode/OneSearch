@@ -6,10 +6,11 @@ Indexing service with incremental logic
 Orchestrates file scanning, extraction, and Meilisearch indexing
 """
 import hashlib
+import json
 import logging
 import time
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, case
@@ -111,7 +112,6 @@ class IndexingService:
         if full:
             try:
                 # Use json.dumps to escape source_id and prevent filter injection
-                import json
                 escaped_id = json.dumps(source_id)
                 await self.search_service.delete_documents_by_filter(f"source_id = {escaped_id}")
                 # Also clear indexed_files records so all files are treated as new
@@ -124,7 +124,6 @@ class IndexingService:
 
         try:
             # Parse include/exclude patterns
-            import json
             include_patterns = json.loads(source.include_patterns) if source.include_patterns else None
             exclude_patterns = json.loads(source.exclude_patterns) if source.exclude_patterns else None
 
@@ -386,14 +385,14 @@ class IndexingService:
             # Mark as failed so we can track it was attempted
             logger.warning(f"File disappeared before updating record: {file_path}")
             size_bytes = 0
-            modified_at = datetime.utcnow()
+            modified_at = datetime.now(timezone.utc).replace(tzinfo=None)
             status = "failed"
             error = error or "File not found during index update"
         except (OSError, PermissionError) as e:
             # Other file access errors
             logger.warning(f"Error accessing file during update: {file_path}: {e}")
             size_bytes = 0
-            modified_at = datetime.utcnow()
+            modified_at = datetime.now(timezone.utc).replace(tzinfo=None)
             status = "failed"
             error = error or f"File access error: {str(e)}"
 
@@ -408,7 +407,7 @@ class IndexingService:
             # Update existing record
             indexed_file.size_bytes = size_bytes
             indexed_file.modified_at = modified_at
-            indexed_file.indexed_at = datetime.utcnow()
+            indexed_file.indexed_at = datetime.now(timezone.utc).replace(tzinfo=None)
             indexed_file.status = status
             indexed_file.error_message = error
         else:
@@ -418,7 +417,7 @@ class IndexingService:
                 path=file_path,
                 size_bytes=size_bytes,
                 modified_at=modified_at,
-                indexed_at=datetime.utcnow(),
+                indexed_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 status=status,
                 error_message=error
             )
