@@ -5,6 +5,26 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-02-13
+
+Small fixes and better test coverage.
+
+### Fixed
+
+- **Schedule display updates immediately** — changing a source's scan schedule (e.g. daily → hourly) now updates the "Next: in Xh" text right away instead of requiring a page refresh. (#101)
+
+### Added
+
+- **Custom favicon** — replaced the default Vite logo with a proper OneSearch icon (cyan search icon). (#103)
+- **Scheduler tests** — 24 new tests covering `validate_schedule`, `resolve_cron`, `calculate_next_run_time`
+- **Source scheduling API tests** — 8 new tests for `next_scan_at` behavior on create/update
+
+### Issues Closed
+
+- #101, #103
+
+---
+
 ## [0.7.2] - 2026-02-07
 
 Big hardening pass based on a thorough code review. Auth actually works now, endpoints are protected, and a bunch of security/performance/UX issues are cleaned up.

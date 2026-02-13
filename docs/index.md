@@ -54,7 +54,7 @@ For detailed setup instructions, see the [Installation Guide](getting-started/in
 
 ## What's New
 
-v0.7.2 is the current stable release with Phase 1 complete — authentication, scheduled indexing, Office document support, and comprehensive security hardening. This release enforces JWT auth on all API endpoints, adds CORS configuration, improves performance with SQL optimizations, and fixes a bunch of deployment bugs found during real-world testing.
+v0.7.3 is the current stable release. This version fixes the schedule display bug (next scan time now updates immediately when you change the schedule) and adds a proper favicon. Also includes 32 new tests for better coverage on the scheduler code.
 
 Check the [Changelog](about/changelog.md) for details.
 

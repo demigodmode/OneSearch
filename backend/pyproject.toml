@@ -1,6 +1,6 @@
 [project]
 name = "onesearch-backend"
-version = "0.7.2"
+version = "0.7.3"
 description = "OneSearch backend API server"
 license = {text = "AGPL-3.0-only"}
 requires-python = ">=3.10"

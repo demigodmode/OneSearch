@@ -8,17 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## Latest Release
 
-**v0.7.2** - 2026-02-07
+**v0.7.3** - 2026-02-13
 
-Phase 1 complete — authentication, scheduled indexing, Office document support, and comprehensive security hardening.
+Bug fix and polish release.
 
 Highlights:
-- JWT authentication with setup wizard and rate limiting
-- Scheduled background indexing with APScheduler
-- Office document support (Word, Excel, PowerPoint)
-- Document preview with syntax highlighting
-- Security hardening (enforced auth on all endpoints, CORS config, path restrictions)
-- Performance improvements (SQL optimizations, rate limiter cleanup)
+- Schedule display now updates immediately when changed (no refresh needed)
+- Custom favicon with OneSearch branding
+- 32 new tests for scheduler and source scheduling API
 
 ---
 

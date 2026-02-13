@@ -2,13 +2,13 @@
 
 OneSearch is under active development. Here's what's planned for future releases.
 
-**Current status**: Phase 1 is complete (v0.7.2). Phase 2 is next — UI redesign, theme system, and E2E testing.
+**Current status**: Phase 1 is complete (v0.7.3). Phase 2 is next — UI redesign, theme system, and E2E testing.
 
 ---
 
 ## Phase 1 (Complete)
 
-Released as v0.7.2.
+Released as v0.7.3.
 
 - Office document support (Word, Excel, PowerPoint)
 - Document preview page with syntax highlighting
