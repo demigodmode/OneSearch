@@ -358,6 +358,153 @@ class TestSourceEndpoints:
         assert len(result) == 0
 
 
+class TestSourceScheduling:
+    """Tests for source scan scheduling"""
+
+    def test_create_source_with_schedule_sets_next_scan(self, client, temp_source_dir):
+        """Creating a source with a schedule should set next_scan_at"""
+        source_data = {
+            "name": "Scheduled Source",
+            "root_path": temp_source_dir,
+            "scan_schedule": "@hourly",
+        }
+
+        response = client.post("/api/sources", json=source_data)
+
+        assert response.status_code == 201
+        data = response.json()
+
+        assert data["scan_schedule"] == "@hourly"
+        assert data["next_scan_at"] is not None
+        # Verify it's a valid ISO datetime in the future
+        next_scan_str = data["next_scan_at"].replace("Z", "").replace("+00:00", "")
+        next_scan = datetime.fromisoformat(next_scan_str)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        assert next_scan > now
+
+    def test_create_source_without_schedule_no_next_scan(self, client, temp_source_dir):
+        """Creating a source without a schedule should not set next_scan_at"""
+        source_data = {
+            "name": "Manual Source",
+            "root_path": temp_source_dir,
+        }
+
+        response = client.post("/api/sources", json=source_data)
+
+        assert response.status_code == 201
+        data = response.json()
+
+        assert data["scan_schedule"] is None
+        assert data["next_scan_at"] is None
+
+    def test_update_source_schedule_updates_next_scan(self, client, sample_source):
+        """Updating a source's schedule should update next_scan_at immediately"""
+        # First verify no schedule
+        response = client.get(f"/api/sources/{sample_source.id}")
+        assert response.status_code == 200
+        assert response.json()["next_scan_at"] is None
+
+        # Add a schedule
+        update_data = {"scan_schedule": "@hourly"}
+        response = client.put(f"/api/sources/{sample_source.id}", json=update_data)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["scan_schedule"] == "@hourly"
+        assert data["next_scan_at"] is not None
+
+    def test_update_source_clear_schedule_clears_next_scan(self, client, temp_source_dir):
+        """Clearing a source's schedule should clear next_scan_at"""
+        # Create source with schedule
+        source_data = {
+            "name": "Scheduled Then Manual",
+            "root_path": temp_source_dir,
+            "scan_schedule": "@daily",
+        }
+        response = client.post("/api/sources", json=source_data)
+        assert response.status_code == 201
+        source_id = response.json()["id"]
+        assert response.json()["next_scan_at"] is not None
+
+        # Clear the schedule
+        update_data = {"scan_schedule": None}
+        response = client.put(f"/api/sources/{source_id}", json=update_data)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["scan_schedule"] is None
+        assert data["next_scan_at"] is None
+
+    def test_update_source_change_schedule_updates_next_scan(self, client, temp_source_dir):
+        """Changing schedule from daily to hourly should update next_scan_at"""
+        # Create with daily schedule
+        source_data = {
+            "name": "Schedule Change Test",
+            "root_path": temp_source_dir,
+            "scan_schedule": "@daily",
+        }
+        response = client.post("/api/sources", json=source_data)
+        assert response.status_code == 201
+        source_id = response.json()["id"]
+        daily_next = response.json()["next_scan_at"]
+
+        # Change to hourly
+        update_data = {"scan_schedule": "@hourly"}
+        response = client.put(f"/api/sources/{source_id}", json=update_data)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["scan_schedule"] == "@hourly"
+        hourly_next = data["next_scan_at"]
+
+        # Hourly should be sooner than daily (within an hour vs up to 24 hours)
+        hourly_dt = datetime.fromisoformat(hourly_next.replace("Z", "").replace("+00:00", ""))
+        daily_dt = datetime.fromisoformat(daily_next.replace("Z", "").replace("+00:00", ""))
+        # Hourly next run should be before or equal to daily
+        assert hourly_dt <= daily_dt
+
+    def test_create_source_invalid_schedule(self, client, temp_source_dir):
+        """Creating a source with invalid schedule should fail"""
+        source_data = {
+            "name": "Bad Schedule",
+            "root_path": temp_source_dir,
+            "scan_schedule": "not a valid cron",
+        }
+
+        response = client.post("/api/sources", json=source_data)
+
+        assert response.status_code == 400
+        assert "invalid" in response.json()["detail"].lower()
+
+    def test_update_source_invalid_schedule(self, client, sample_source):
+        """Updating source with invalid schedule should fail"""
+        update_data = {"scan_schedule": "bad cron expression"}
+
+        response = client.put(f"/api/sources/{sample_source.id}", json=update_data)
+
+        assert response.status_code == 400
+        assert "invalid" in response.json()["detail"].lower()
+
+    def test_create_source_custom_cron_schedule(self, client, temp_source_dir):
+        """Creating a source with custom cron should work"""
+        source_data = {
+            "name": "Custom Cron Source",
+            "root_path": temp_source_dir,
+            "scan_schedule": "0 */6 * * *",  # Every 6 hours
+        }
+
+        response = client.post("/api/sources", json=source_data)
+
+        assert response.status_code == 201
+        data = response.json()
+
+        assert data["scan_schedule"] == "0 */6 * * *"
+        assert data["next_scan_at"] is not None
+
+
 class TestReindexEndpoint:
     """Tests for /api/sources/{id}/reindex endpoint"""
 

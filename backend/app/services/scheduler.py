@@ -56,6 +56,19 @@ def validate_schedule(schedule: str) -> bool:
         return False
 
 
+def calculate_next_run_time(schedule: str) -> Optional[datetime]:
+    """Calculate the next run time for a schedule, returns naive UTC datetime."""
+    cron_expr = resolve_cron(schedule)
+    try:
+        trigger = CronTrigger.from_crontab(cron_expr, timezone=settings.schedule_timezone)
+        next_time = trigger.get_next_fire_time(None, datetime.now(timezone.utc))
+        if next_time:
+            return next_time.replace(tzinfo=None)
+        return None
+    except (ValueError, KeyError):
+        return None
+
+
 class SchedulerService:
     """
     Manages APScheduler for background source indexing.

@@ -22,7 +22,7 @@ from ..models import Source, IndexedFile, User
 from ..schemas import SourceCreate, SourceUpdate, SourceResponse
 from ..services.search import SearchService, meili_service
 from ..services.indexer import IndexingService
-from ..services.scheduler import validate_schedule, get_source_lock
+from ..services.scheduler import validate_schedule, get_source_lock, calculate_next_run_time
 from .auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -137,6 +137,11 @@ async def create_source(request: Request, source_data: SourceCreate, db: Session
     include_patterns = json.dumps(source_data.include_patterns) if source_data.include_patterns else None
     exclude_patterns = json.dumps(source_data.exclude_patterns) if source_data.exclude_patterns else None
 
+    # Calculate next_scan_at if schedule provided
+    next_scan_at = None
+    if source_data.scan_schedule:
+        next_scan_at = calculate_next_run_time(source_data.scan_schedule)
+
     # Create source
     source = Source(
         id=source_id,
@@ -145,6 +150,7 @@ async def create_source(request: Request, source_data: SourceCreate, db: Session
         include_patterns=include_patterns,
         exclude_patterns=exclude_patterns,
         scan_schedule=source_data.scan_schedule or None,
+        next_scan_at=next_scan_at,
     )
 
     db.add(source)
@@ -153,10 +159,9 @@ async def create_source(request: Request, source_data: SourceCreate, db: Session
 
     logger.info(f"Created source: {source_id} at {source.root_path}")
 
-    # Register schedule with the scheduler
+    # Register schedule with the scheduler (keeps APScheduler in sync)
     if source.scan_schedule and hasattr(request.app.state, "scheduler"):
         request.app.state.scheduler.update_source_schedule(source_id, source.scan_schedule)
-        db.refresh(source)  # pick up next_scan_at
 
     return SourceResponse.from_orm_model(source)
 
@@ -214,6 +219,8 @@ async def update_source(
                 detail=f"Invalid scan schedule: {new_schedule}"
             )
         source.scan_schedule = new_schedule
+        # Calculate next_scan_at directly so response is always accurate
+        source.next_scan_at = calculate_next_run_time(new_schedule) if new_schedule else None
 
     # Update timestamp
     source.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -221,10 +228,9 @@ async def update_source(
     db.commit()
     db.refresh(source)
 
-    # Sync schedule with scheduler
+    # Sync schedule with scheduler (keeps APScheduler in sync)
     if "scan_schedule" in source_data.model_fields_set and hasattr(request.app.state, "scheduler"):
         request.app.state.scheduler.update_source_schedule(source_id, source.scan_schedule)
-        db.refresh(source)
 
     logger.info(f"Updated source: {source_id}")
 
