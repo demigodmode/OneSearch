@@ -106,6 +106,36 @@ class TestTextExtractor:
         assert not TextExtractor.supports_file(str(temp_dir / "test.pdf"))
 
     @pytest.mark.asyncio
+    async def test_code_file_type(self, temp_dir):
+        """Code files should get type 'code', not 'text'"""
+        for ext in ['.py', '.js', '.ts', '.go', '.sh']:
+            f = temp_dir / f"script{ext}"
+            f.write_text("print('hello')")
+            extractor = TextExtractor("src", "Source")
+            doc = await extractor.extract_with_timeout(str(f))
+            assert doc.type == "code", f"Expected 'code' for {ext}, got '{doc.type}'"
+
+    @pytest.mark.asyncio
+    async def test_config_file_type(self, temp_dir):
+        """Config files should get type 'config', not 'text'"""
+        for ext in ['.yaml', '.yml', '.toml', '.json', '.ini', '.env']:
+            f = temp_dir / f"config{ext}"
+            f.write_text("key: value")
+            extractor = TextExtractor("src", "Source")
+            doc = await extractor.extract_with_timeout(str(f))
+            assert doc.type == "config", f"Expected 'config' for {ext}, got '{doc.type}'"
+
+    @pytest.mark.asyncio
+    async def test_plain_text_still_text_type(self, temp_dir):
+        """Plain .txt and .log files should still be type 'text'"""
+        for ext in ['.txt', '.log', '.text']:
+            f = temp_dir / f"file{ext}"
+            f.write_text("some content")
+            extractor = TextExtractor("src", "Source")
+            doc = await extractor.extract_with_timeout(str(f))
+            assert doc.type == "text", f"Expected 'text' for {ext}, got '{doc.type}'"
+
+    @pytest.mark.asyncio
     async def test_file_size_limit(self, temp_dir):
         """Test file size limit enforcement"""
         # Create large file

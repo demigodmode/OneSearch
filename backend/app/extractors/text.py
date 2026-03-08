@@ -18,34 +18,44 @@ logger = logging.getLogger(__name__)
 
 class TextExtractor(BaseExtractor):
     """
-    Extractor for plain text files
+    Extractor for plain text files.
 
-    Supports:
-    - .txt - Plain text files
-    - .log - Log files
-    - .conf, .cfg, .ini - Configuration files
-    - .env.example - Environment example files
-    - .sh, .bash - Shell scripts
-    - .py, .js, .ts, .java, .c, .cpp, .h - Source code files
+    Extension → type mapping is the single source of truth.
+    SUPPORTED_EXTENSIONS is derived from it automatically.
     """
 
-    SUPPORTED_EXTENSIONS = [
-        '.txt', '.text',
-        '.log',
-        '.conf', '.cfg', '.config', '.ini',
-        '.env.example',
-        '.sh', '.bash', '.zsh',
-        '.py', '.pyw',
-        '.js', '.jsx', '.ts', '.tsx',
-        '.java', '.c', '.cpp', '.cc', '.h', '.hpp',
-        '.go', '.rs', '.rb', '.php',
-        '.css', '.scss', '.sass', '.less',
-        '.html', '.htm', '.xml', '.json', '.yaml', '.yml',
-        '.sql', '.r'
-    ]
+    # Single source of truth: extension → document type
+    EXTENSION_TYPES: dict[str, str] = {
+        # Plain text
+        '.txt': 'text', '.text': 'text', '.log': 'text',
+        # Code
+        '.py': 'code', '.pyw': 'code',
+        '.js': 'code', '.jsx': 'code', '.ts': 'code', '.tsx': 'code',
+        '.mjs': 'code', '.cjs': 'code',
+        '.java': 'code', '.c': 'code', '.cpp': 'code', '.cc': 'code',
+        '.h': 'code', '.hpp': 'code',
+        '.go': 'code', '.rs': 'code', '.rb': 'code', '.php': 'code',
+        '.cs': 'code', '.swift': 'code', '.kt': 'code',
+        '.css': 'code', '.scss': 'code', '.sass': 'code', '.less': 'code',
+        '.html': 'code', '.htm': 'code',
+        '.sh': 'code', '.bash': 'code', '.zsh': 'code', '.fish': 'code',
+        '.sql': 'code', '.r': 'code', '.lua': 'code',
+        # Config
+        '.conf': 'config', '.cfg': 'config', '.config': 'config',
+        '.ini': 'config', '.toml': 'config',
+        '.yaml': 'config', '.yml': 'config',
+        '.json': 'config', '.xml': 'config',
+        '.env': 'config',
+    }
+
+    SUPPORTED_EXTENSIONS = list(EXTENSION_TYPES.keys())
 
     # Max file size from settings
     MAX_FILE_SIZE = settings.max_text_file_size_mb * 1024 * 1024
+
+    def _type_for_extension(self, file_path: str) -> str:
+        ext = Path(file_path).suffix.lower()
+        return self.EXTENSION_TYPES.get(ext, 'text')
 
     # Timeout from settings
     TIMEOUT = settings.text_extraction_timeout
@@ -80,6 +90,7 @@ class TextExtractor(BaseExtractor):
 
             # Create base document
             doc = self._create_base_document(file_path, content)
+            doc.type = self._type_for_extension(file_path)
 
             # Try to extract title from first line (for code files, config files)
             doc.title = self._extract_title(file_path, content)
@@ -101,6 +112,7 @@ class TextExtractor(BaseExtractor):
             )
             # Create minimal document with just filename
             doc = self._create_base_document(file_path, "")
+            doc.type = self._type_for_extension(file_path)
             doc.title = Path(file_path).stem
             doc.metadata = {
                 "extraction_error": str(e),
@@ -117,6 +129,7 @@ class TextExtractor(BaseExtractor):
             )
             # Create minimal document
             doc = self._create_base_document(file_path, "")
+            doc.type = self._type_for_extension(file_path)
             doc.title = Path(file_path).stem
             doc.metadata = {
                 "extraction_error": str(e),
