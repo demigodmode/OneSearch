@@ -212,6 +212,8 @@ export default function SearchPage() {
               <option value="">All Types</option>
               <option value="text">Text</option>
               <option value="markdown">Markdown</option>
+              <option value="code">Code</option>
+              <option value="config">Config</option>
               <option value="pdf">PDF</option>
               <option value="docx">Word (.docx)</option>
               <option value="xlsx">Excel (.xlsx)</option>
