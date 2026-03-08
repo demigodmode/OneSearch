@@ -54,7 +54,7 @@ For detailed setup instructions, see the [Installation Guide](getting-started/in
 
 ## What's New
 
-v0.7.3 is the current stable release. This version fixes the schedule display bug (next scan time now updates immediately when you change the schedule) and adds a proper favicon. Also includes 32 new tests for better coverage on the scheduler code.
+v0.8.0 is the current stable release. Code and config files now get their own document types (`code`, `config`) so you can filter search results by file category. Also includes a pypdf security update and more supported file extensions.
 
 Check the [Changelog](about/changelog.md) for details.
 

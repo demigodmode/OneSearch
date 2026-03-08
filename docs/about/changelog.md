@@ -8,14 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## Latest Release
 
-**v0.7.3** - 2026-02-13
+**v0.8.0** - 2026-03-08
 
-Bug fix and polish release.
+Code and config files now get their own types and filter options in search.
 
 Highlights:
-- Schedule display now updates immediately when changed (no refresh needed)
-- Custom favicon with OneSearch branding
-- 32 new tests for scheduler and source scheduling API
+- Code files (.py, .js, .go, .sh etc) indexed as `code`, config files (.yaml, .toml, .json, .env etc) as `config`
+- Both filterable from the search UI
+- pypdf bumped to 6.7.5 (security)
 
 ---
 

@@ -5,6 +5,30 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-08
+
+Code and config files are now searchable by type, plus a security update for pypdf.
+
+### Added
+
+- **Code and config file types** — `.py`, `.js`, `.go`, `.sh` etc are now indexed as `code`; `.yaml`, `.toml`, `.json`, `.env` etc as `config`. Both show up as filter options in the search UI. (#102)
+- **More supported extensions** — `.mjs`, `.cjs`, `.cs`, `.swift`, `.kt`, `.fish`, `.lua`, `.env` added to the indexer.
+- **3 new extractor tests** — covering type classification for code, config, and plain text files.
+
+### Changed
+
+- **Extension → type is now a single dict** — previously three separate lists had to be kept in sync. Now `SUPPORTED_EXTENSIONS` is derived automatically from the type map; one place to edit.
+
+### Security
+
+- **pypdf 6.6.2 → 6.7.5** — fixes several CVEs where malformed PDFs could exhaust RAM or cause infinite loops. (#106)
+
+### Issues Closed
+
+- #102, #106
+
+---
+
 ## [0.7.3] - 2026-02-13
 
 Small fixes and better test coverage.
