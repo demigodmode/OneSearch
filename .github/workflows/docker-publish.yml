@@ -6,6 +6,7 @@ name: Build and Push Docker Image
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 env:
   REGISTRY_GHCR: ghcr.io
