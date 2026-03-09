@@ -1,7 +1,10 @@
 # OneSearch
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Documentation](https://img.shields.io/badge/docs-ReadTheDocs-blue)](https://onesearch.readthedocs.io)
+[![Latest Release](https://img.shields.io/github/v/release/demigodmode/OneSearch)](https://github.com/demigodmode/OneSearch/releases/latest)
+[![Tests](https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/backend-tests.yml?label=tests)](https://github.com/demigodmode/OneSearch/actions/workflows/backend-tests.yml)
+[![Docker](https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/docker-publish.yml?label=docker)](https://github.com/demigodmode/OneSearch/actions/workflows/docker-publish.yml)
+[![Documentation](https://readthedocs.org/projects/onesearch/badge/?version=latest)](https://onesearch.readthedocs.io)
 
 Self-hosted, privacy-focused search for your homelab.
 
@@ -67,7 +70,9 @@ Full documentation is available on ReadTheDocs:
 
 | Type | Extensions |
 |------|------------|
-| Text | .txt, .log, .conf, .cfg, .ini |
+| Text | .txt, .log |
+| Code | .py, .js, .ts, .go, .rs, .java, .c, .cpp, .sh, .sql, [and more](https://onesearch.readthedocs.io/en/latest/supported-formats/text-files/) |
+| Config | .yaml, .toml, .json, .xml, .ini, .env, [and more](https://onesearch.readthedocs.io/en/latest/supported-formats/text-files/) |
 | Markdown | .md, .markdown |
 | PDF | .pdf |
 | Word | .docx |
