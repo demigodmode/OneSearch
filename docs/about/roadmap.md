@@ -2,35 +2,41 @@
 
 OneSearch is under active development. Here's what's planned for future releases.
 
-**Current status**: Phase 1 is complete (v0.8.0). Phase 2 is next — UI redesign, theme system, and E2E testing.
+**Current status**: Phase 1 complete (v0.7.0). Phase 2 in progress (v0.8.0--v0.9.x) -- UI redesign mostly done, theme system and E2E testing still open.
 
 ---
 
 ## Phase 1 (Complete)
 
-Released as v0.8.0.
+Released across v0.5.0--v0.7.0.
 
-- Office document support (Word, Excel, PowerPoint)
-- Document preview page with syntax highlighting
-- JWT authentication with setup wizard and rate limiting
-- Scheduled indexing with APScheduler (per-source cron schedules)
-- Security fixes (PyJWT migration, dependency updates)
+- Unified Docker image with CI/CD (v0.5.0)
+- Office document support -- Word, Excel, PowerPoint (v0.6.0)
+- Document preview page with syntax highlighting (v0.6.0)
+- JWT authentication with setup wizard and rate limiting (v0.7.0)
+- Scheduled indexing with APScheduler, per-source cron schedules (v0.7.0)
+- Security hardening pass -- auth enforcement, CORS, path restriction (v0.7.2)
+- Code and config file type classification (v0.8.0)
 
 ---
 
-## Phase 2 (Next)
+## Phase 2 (In Progress)
 
-UI overhaul and polish.
+UI overhaul and polish. Started in v0.9.0.
 
-### UI Redesign
+### UI Redesign (Done)
 
-- New search page layout (#61)
-- Admin dashboard redesign (#62)
-- Source management improvements (#63)
-- Status page overhaul (#64)
-- Document preview redesign (#65)
-- Mobile-responsive layout (#66)
-- Theme system with light/dark modes (#38, #67)
+- Search page layout -- hero removed, search box is first element (v0.9.0)
+- Admin dashboard redesign (v0.9.0)
+- Source management improvements with container queries (v0.9.0)
+- Status page overhaul -- compact inline status bar (v0.9.0)
+- Document preview -- lazy-loaded with PrismLight (v0.9.0)
+- Accessibility pass -- focus rings, touch targets, reduced motion (v0.9.0)
+- Amber accent palette (v0.9.1)
+
+### Still Open
+
+- Theme system with accent color presets (#38, #67)
 - E2E test coverage (#20)
 
 ### Search Enhancements
@@ -45,13 +51,10 @@ UI overhaul and polish.
 - Image metadata (EXIF)
 - Archive files (.zip, .tar.gz)
 - Email (.eml, .mbox)
-- Better code file support
 
 ---
 
 ## Phase 3
-
-Target: v0.8.0
 
 ### Cloud Storage
 
@@ -139,7 +142,7 @@ All releases follow [Semantic Versioning](https://semver.org/).
 
 ## Stability & Backwards Compatibility
 
-### Phase 1 (Current)
+### Phase 2 (Current)
 
 Core features are stable and production-ready. The API may change in minor releases (v0.x.0). Database migrations are handled automatically.
 

@@ -83,11 +83,7 @@ Indexing large directories takes time, especially for PDFs and Office documents.
 
 ### Web UI
 
-Go to **Admin → Status** to see:
-
-- Total documents indexed across all sources
-- Per-source breakdowns
-- Any files that failed to index (click to expand and see errors)
+Go to **Admin → Status** to see a compact status bar showing API health, search engine status, total documents, source count, and last index time. Below it, each source gets its own row with total/indexed/skipped/failed counts. Click a source to expand and see failed file details.
 
 The page auto-refreshes every 30 seconds.
 
@@ -120,7 +116,7 @@ Once indexing completes (or even while it's running), you can search.
 
 Go to the home page and type a query. Meilisearch handles typos well, so don't worry about exact matches.
 
-Use the filters on the left to narrow by source or file type. Click any result card to see the full document with syntax highlighting.
+Use the filter dropdowns to narrow by source or file type. Click any result card to see the full document with syntax highlighting.
 
 Press `Cmd+K` (Mac) or `Ctrl+K` (Windows) to focus the search box from anywhere.
 

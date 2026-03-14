@@ -54,7 +54,7 @@ For detailed setup instructions, see the [Installation Guide](getting-started/in
 
 ## What's New
 
-v0.8.0 is the current stable release. Code and config files now get their own document types (`code`, `config`) so you can filter search results by file category. Also includes a pypdf security update and more supported file extensions.
+v0.9.1 is the current stable release. The v0.9.x series focused on a full UI redesign -- cleaner layout, container queries, lazy-loaded document preview, and an amber accent palette. v0.8.0 added code and config file types with search filtering.
 
 Check the [Changelog](about/changelog.md) for details.
 
