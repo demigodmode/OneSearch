@@ -4,10 +4,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - 'backend/**'
-      - 'pyproject.toml'
-      - '.github/workflows/backend-tests.yml'
   push:
     branches:
       - main
