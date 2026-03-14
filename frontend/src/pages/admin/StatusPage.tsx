@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useState } from 'react'
-import { CheckCircle, AlertCircle, Database, Clock, FileText, AlertTriangle, ChevronDown, ChevronRight, Server, Loader2 } from 'lucide-react'
+import { AlertCircle, Database, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import { useHealth, useStatus } from '@/hooks/useApi'
 import type { SourceStatus, FailedFile } from '@/types/api'
 import { cn, formatRelativeTime } from '@/lib/utils'
@@ -162,18 +162,9 @@ export default function StatusPage() {
           <div className="h-8 w-24 bg-secondary rounded animate-pulse" />
           <div className="h-4 w-48 bg-secondary rounded animate-pulse mt-2" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-card border border-border rounded-lg p-4">
-              <div className="h-12 bg-secondary rounded animate-pulse" />
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-card border border-border rounded-lg p-4">
-              <div className="h-16 bg-secondary rounded animate-pulse" />
-            </div>
+        <div className="flex gap-4 mb-8">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-4 w-20 bg-secondary rounded animate-pulse" />
           ))}
         </div>
       </div>
@@ -211,140 +202,38 @@ export default function StatusPage() {
         </p>
       </div>
 
-      {/* Health overview */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <div
-          className="bg-card border border-border rounded-lg p-4 animate-fade-in-up animate-initial"
-          style={{ animationDelay: '0ms', animationFillMode: 'forwards' }}
-        >
-          <div className="flex items-center gap-3">
-            <div className={cn(
-              'p-2 rounded-lg',
-              overallHealth === 'healthy' ? 'bg-green-500/10' : 'bg-amber-500/10'
-            )}>
-              <Server className={cn(
-                'h-5 w-5',
-                overallHealth === 'healthy' ? 'text-green-500' : 'text-amber-500'
-              )} />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">API Server</p>
-              <div className="flex items-center gap-2">
-                <div className={cn(
-                  'status-dot',
-                  overallHealth === 'healthy' ? 'status-dot-success' : 'status-dot-warning'
-                )} />
-                <p className="text-sm font-medium text-foreground capitalize">
-                  {overallHealth}
-                </p>
-              </div>
-            </div>
-          </div>
+      {/* System status — compact summary */}
+      <div
+        className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-8 text-sm animate-fade-in-up animate-initial"
+        style={{ animationDelay: '0ms', animationFillMode: 'forwards' }}
+      >
+        <div className="flex items-center gap-2">
+          <div className={cn('status-dot', overallHealth === 'healthy' ? 'status-dot-success' : 'status-dot-warning')} />
+          <span className="text-muted-foreground">API</span>
+          <span className="text-foreground capitalize">{overallHealth}</span>
         </div>
-
-        <div
-          className="bg-card border border-border rounded-lg p-4 animate-fade-in-up animate-initial"
-          style={{ animationDelay: '50ms', animationFillMode: 'forwards' }}
-        >
-          <div className="flex items-center gap-3">
-            <div className={cn(
-              'p-2 rounded-lg',
-              meilisearchStatus === 'available' ? 'bg-green-500/10' : 'bg-destructive/10'
-            )}>
-              <Database className={cn(
-                'h-5 w-5',
-                meilisearchStatus === 'available' ? 'text-green-500' : 'text-destructive'
-              )} />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Meilisearch</p>
-              <div className="flex items-center gap-2">
-                <div className={cn(
-                  'status-dot',
-                  meilisearchStatus === 'available' ? 'status-dot-success' : 'status-dot-error'
-                )} />
-                <p className="text-sm font-medium text-foreground capitalize">
-                  {meilisearchStatus === 'available' ? 'Connected' : meilisearchStatus}
-                </p>
-              </div>
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
+          <div className={cn('status-dot', meilisearchStatus === 'available' ? 'status-dot-success' : 'status-dot-error')} />
+          <span className="text-muted-foreground">Search</span>
+          <span className="text-foreground">{meilisearchStatus === 'available' ? 'connected' : meilisearchStatus}</span>
         </div>
-
-        <div
-          className="bg-card border border-border rounded-lg p-4 animate-fade-in-up animate-initial"
-          style={{ animationDelay: '100ms', animationFillMode: 'forwards' }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-brand/10">
-              <CheckCircle className="h-5 w-5 text-brand" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Version</p>
-              <p className="text-sm font-medium text-foreground font-mono">
-                {healthData?.version || 'unknown'}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Stats cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div
-          className="bg-card border border-border rounded-lg p-4 animate-fade-in-up animate-initial"
-          style={{ animationDelay: '150ms', animationFillMode: 'forwards' }}
-        >
-          <div className="flex items-center gap-2 text-muted-foreground mb-2">
-            <FileText className="h-4 w-4" />
-            <span className="text-xs uppercase tracking-wider">Documents</span>
-          </div>
-          <p className="text-2xl font-bold font-mono text-foreground">
-            {totalDocs.toLocaleString()}
-          </p>
-        </div>
-
-        <div
-          className="bg-card border border-border rounded-lg p-4 animate-fade-in-up animate-initial"
-          style={{ animationDelay: '200ms', animationFillMode: 'forwards' }}
-        >
-          <div className="flex items-center gap-2 text-muted-foreground mb-2">
-            <Database className="h-4 w-4" />
-            <span className="text-xs uppercase tracking-wider">Sources</span>
-          </div>
-          <p className="text-2xl font-bold font-mono text-foreground">
-            {sources.length}
-          </p>
-        </div>
-
-        <div
-          className="bg-card border border-border rounded-lg p-4 animate-fade-in-up animate-initial"
-          style={{ animationDelay: '250ms', animationFillMode: 'forwards' }}
-        >
-          <div className="flex items-center gap-2 text-muted-foreground mb-2">
-            <Clock className="h-4 w-4" />
-            <span className="text-xs uppercase tracking-wider">Last Indexed</span>
-          </div>
-          <p className="text-lg font-medium text-foreground">
-            {formatDate(lastIndexed)}
-          </p>
-        </div>
-
-        <div
-          className="bg-card border border-border rounded-lg p-4 animate-fade-in-up animate-initial"
-          style={{ animationDelay: '300ms', animationFillMode: 'forwards' }}
-        >
-          <div className="flex items-center gap-2 text-muted-foreground mb-2">
-            <AlertTriangle className="h-4 w-4" />
-            <span className="text-xs uppercase tracking-wider">Failed Files</span>
-          </div>
-          <p className={cn(
-            'text-2xl font-bold font-mono',
-            totalFailed > 0 ? 'text-amber-500' : 'text-foreground'
-          )}>
-            {totalFailed}
-          </p>
-        </div>
+        <span className="text-border hidden sm:inline">|</span>
+        <span className="text-muted-foreground">{totalDocs.toLocaleString()} docs</span>
+        <span className="text-border hidden sm:inline">·</span>
+        <span className="text-muted-foreground">{sources.length} {sources.length === 1 ? 'source' : 'sources'}</span>
+        <span className="text-border hidden sm:inline">·</span>
+        <span className="text-muted-foreground">indexed {formatDate(lastIndexed)}</span>
+        {totalFailed > 0 && (
+          <>
+            <span className="text-border hidden sm:inline">·</span>
+            <span className="text-amber-500">{totalFailed} failed</span>
+          </>
+        )}
+        {healthData?.version && (
+          <span className="sm:ml-auto text-muted-foreground font-mono text-xs">
+            v{healthData.version}
+          </span>
+        )}
       </div>
 
       {/* Per-source status */}

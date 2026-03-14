@@ -137,28 +137,12 @@ export default function SearchPage() {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] gradient-mesh">
-      <div className="max-w-4xl mx-auto px-4 pt-16 pb-16">
-        {/* Hero section with staggered animation */}
-        <div className="text-center mb-8">
-          <h1
-            className="text-5xl font-bold tracking-tight mb-4 animate-fade-in-up animate-initial"
-            style={{ animationDelay: '0ms', animationFillMode: 'forwards' }}
-          >
-            <span className="gradient-text">OneSearch</span>
-          </h1>
-          <p
-            className="text-lg text-muted-foreground animate-fade-in-up animate-initial"
-            style={{ animationDelay: '100ms', animationFillMode: 'forwards' }}
-          >
-            Find anything across your homelab
-          </p>
-        </div>
-
-        {/* Search box with glow effect */}
+      <div className="max-w-4xl mx-auto px-4 pt-10 pb-16">
+        {/* Search box */}
         <form
           onSubmit={handleSearch}
           className="mb-6 animate-fade-in-up animate-initial"
-          style={{ animationDelay: '200ms', animationFillMode: 'forwards' }}
+          style={{ animationDelay: '0ms', animationFillMode: 'forwards' }}
         >
           <div className={`search-input ${isFocused ? 'border-brand/50' : ''}`}>
             <div className="flex items-center">
@@ -235,7 +219,7 @@ export default function SearchPage() {
         {/* Results area */}
         <div
           className="animate-fade-in-up animate-initial"
-          style={{ animationDelay: '300ms', animationFillMode: 'forwards' }}
+          style={{ animationDelay: '150ms', animationFillMode: 'forwards' }}
         >
           {debouncedQuery === '' ? (
             // Empty state with file type hints
