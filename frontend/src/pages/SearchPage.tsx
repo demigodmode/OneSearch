@@ -166,6 +166,7 @@ export default function SearchPage() {
               <input
                 ref={inputRef}
                 type="text"
+                aria-label="Search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onFocus={() => setIsFocused(true)}

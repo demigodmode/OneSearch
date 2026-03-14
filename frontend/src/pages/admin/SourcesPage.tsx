@@ -419,27 +419,30 @@ export default function SourcesPage() {
                     <div className="flex items-center justify-end gap-1">
                       <button
                         className={cn(
-                          "p-2 rounded-lg transition-colors",
+                          "min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors",
                           reindexingId === source.id
                             ? "text-brand bg-brand/10"
                             : "text-muted-foreground hover:text-brand hover:bg-brand/10"
                         )}
                         title="Reindex"
+                        aria-label={`Reindex ${source.name}`}
                         onClick={() => handleReindex(source.id)}
                         disabled={reindexingId === source.id}
                       >
                         <RefreshCw className={cn("h-4 w-4", reindexingId === source.id && "animate-spin")} />
                       </button>
                       <button
-                        className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
                         title="Edit"
+                        aria-label={`Edit ${source.name}`}
                         onClick={() => { updateMutation.reset(); setEditingSource(source) }}
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
                       <button
-                        className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
                         title="Delete"
+                        aria-label={`Delete ${source.name}`}
                         onClick={() => setDeletingSource(source)}
                       >
                         <Trash2 className="h-4 w-4" />
