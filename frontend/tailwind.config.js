@@ -73,8 +73,6 @@ export default {
         'fade-in': 'fadeIn 0.5s ease-out forwards',
         'fade-in-up': 'fadeInUp 0.5s ease-out forwards',
         'slide-in-right': 'slideInRight 0.3s ease-out forwards',
-        'glow-pulse': 'glowPulse 2s ease-in-out infinite',
-        'shimmer': 'shimmer 2s linear infinite',
       },
       keyframes: {
         fadeIn: {
@@ -89,22 +87,6 @@ export default {
           '0%': { opacity: '0', transform: 'translateX(-10px)' },
           '100%': { opacity: '1', transform: 'translateX(0)' },
         },
-        glowPulse: {
-          '0%, 100%': { boxShadow: '0 0 20px 0px hsl(var(--brand) / 0.3)' },
-          '50%': { boxShadow: '0 0 30px 5px hsl(var(--brand) / 0.5)' },
-        },
-        shimmer: {
-          '0%': { backgroundPosition: '-200% 0' },
-          '100%': { backgroundPosition: '200% 0' },
-        },
-      },
-
-      // Box shadows
-      boxShadow: {
-        'glow-sm': '0 0 10px -3px hsl(var(--brand) / 0.3)',
-        'glow': '0 0 20px -5px hsl(var(--brand) / 0.35)',
-        'glow-lg': '0 0 30px -5px hsl(var(--brand) / 0.45)',
-        'inner-glow': 'inset 0 0 20px -10px hsl(var(--brand) / 0.25)',
       },
     },
   },
