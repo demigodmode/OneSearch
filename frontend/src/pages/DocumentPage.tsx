@@ -195,7 +195,7 @@ function CodeRenderer({ content, language }: { content: string; language: string
       language={language}
       showLineNumbers
       wrapLines
-      lineNumberStyle={{ color: '#6b7280', paddingRight: '1em', minWidth: '3em' }}
+      lineNumberStyle={{ color: 'hsl(var(--muted-foreground))', paddingRight: '1em', minWidth: '3em' }}
       className="rounded-lg !bg-card border border-border text-sm"
     >
       {content}
