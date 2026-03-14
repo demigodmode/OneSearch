@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  *
  * OneSearch - Design System
- * Dark-first interface with indigo accent
+ * Dark-first interface with amber accent
  */
 
 @tailwind base;
@@ -12,43 +12,43 @@
 @layer base {
   /* ═══════════════════════════════════════════════════════════════
      DARK THEME — Primary theme for OneSearch
-     Violet-tinted near-black, indigo accent, warm neutrals
+     Warm-tinted near-black, amber accent
      ═══════════════════════════════════════════════════════════════ */
   :root {
-    /* Base — violet-tinted blacks */
-    --background: 272 12% 8%;
-    --foreground: 0 0% 97%;
+    /* Base — warm-tinted blacks */
+    --background: 28 10% 7%;
+    --foreground: 28 10% 92%;
 
     /* Surfaces */
-    --card: 272 8% 12%;
-    --card-foreground: 0 0% 97%;
-    --popover: 272 8% 12%;
-    --popover-foreground: 0 0% 97%;
+    --card: 28 8% 11%;
+    --card-foreground: 28 10% 92%;
+    --popover: 28 8% 11%;
+    --popover-foreground: 28 10% 92%;
 
-    /* Primary — indigo */
-    --primary: 248 70% 65%;
-    --primary-foreground: 0 0% 98%;
+    /* Primary — amber */
+    --primary: 38 92% 58%;
+    --primary-foreground: 28 50% 8%;
 
     /* Secondary */
-    --secondary: 272 6% 17%;
-    --secondary-foreground: 0 0% 97%;
+    --secondary: 28 6% 15%;
+    --secondary-foreground: 28 10% 92%;
 
-    /* Muted — violet-tinted grays */
-    --muted: 272 6% 17%;
-    --muted-foreground: 272 7% 57%;
+    /* Muted — warm-tinted grays */
+    --muted: 28 6% 15%;
+    --muted-foreground: 28 6% 55%;
 
     /* Accent */
-    --accent: 272 6% 17%;
-    --accent-foreground: 0 0% 97%;
+    --accent: 28 6% 15%;
+    --accent-foreground: 28 10% 92%;
 
     /* Destructive */
-    --destructive: 0 84% 60%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
 
     /* Borders & inputs */
-    --border: 272 6% 19%;
-    --input: 272 6% 19%;
-    --ring: 248 70% 65%;
+    --border: 28 6% 19%;
+    --input: 28 6% 19%;
+    --ring: 38 92% 58%;
 
     /* Radius */
     --radius: 0.625rem;
@@ -56,36 +56,36 @@
     /* ═══════════════════════════════════════════════════════════
        SEMANTIC COLORS
        ═══════════════════════════════════════════════════════════ */
-    --brand: 248 70% 65%;
-    --brand-foreground: 0 0% 98%;
+    --brand: 38 92% 58%;
+    --brand-foreground: 28 50% 8%;
 
-    --success: 142 76% 46%;
-    --warning: 38 92% 50%;
+    --success: 142 60% 45%;
+    --warning: 38 92% 58%;
   }
 
   /* Light theme */
   .light {
-    --background: 270 20% 98%;
-    --foreground: 272 15% 10%;
+    --background: 30 20% 97%;
+    --foreground: 28 15% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 272 15% 10%;
+    --card-foreground: 28 15% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 272 15% 10%;
-    --primary: 248 72% 52%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 270 8% 93%;
-    --secondary-foreground: 272 15% 10%;
-    --muted: 270 8% 93%;
-    --muted-foreground: 272 7% 40%;
-    --accent: 270 8% 93%;
-    --accent-foreground: 272 15% 10%;
+    --popover-foreground: 28 15% 10%;
+    --primary: 38 92% 45%;
+    --primary-foreground: 28 50% 8%;
+    --secondary: 30 8% 93%;
+    --secondary-foreground: 28 15% 10%;
+    --muted: 30 8% 93%;
+    --muted-foreground: 28 7% 40%;
+    --accent: 30 8% 93%;
+    --accent-foreground: 28 15% 10%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 270 10% 86%;
-    --input: 270 10% 86%;
-    --ring: 248 72% 52%;
-    --brand: 248 72% 52%;
-    --brand-foreground: 0 0% 100%;
+    --border: 30 10% 86%;
+    --input: 30 10% 86%;
+    --ring: 38 92% 45%;
+    --brand: 38 92% 45%;
+    --brand-foreground: 28 50% 8%;
     --success: 142 65% 38%;
     --warning: 38 92% 40%;
   }
@@ -247,7 +247,7 @@
     @apply bg-muted-foreground/50;
   }
 
-  /* Gradient mesh background — indigo hue */
+  /* Gradient mesh background — amber hue */
   .gradient-mesh {
     background:
       radial-gradient(at 40% 20%, hsl(var(--brand) / 0.06) 0px, transparent 50%),
