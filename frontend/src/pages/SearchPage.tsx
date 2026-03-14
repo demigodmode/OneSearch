@@ -171,7 +171,8 @@ export default function SearchPage() {
         {/* Filters */}
         {showFilters && (
           <div
-            className="flex flex-wrap gap-3 mb-6 animate-fade-in"
+            className="flex flex-wrap gap-3 mb-6 animate-fade-in animate-initial"
+            style={{ animationFillMode: 'forwards' }}
           >
             <select
               value={sourceFilter}
@@ -292,7 +293,7 @@ export default function SearchPage() {
                     onClick={() => setPage(p => Math.max(0, p - 1))}
                     disabled={page === 0}
                     className={cn(
-                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-all active:scale-95",
+                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-all active:scale-95 disabled:active:scale-100",
                       page === 0
                         ? "text-muted-foreground cursor-not-allowed"
                         : "text-foreground hover:bg-secondary"
@@ -310,7 +311,7 @@ export default function SearchPage() {
                     onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
                     disabled={page >= totalPages - 1}
                     className={cn(
-                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-all active:scale-95",
+                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-all active:scale-95 disabled:active:scale-100",
                       page >= totalPages - 1
                         ? "text-muted-foreground cursor-not-allowed"
                         : "text-foreground hover:bg-secondary"

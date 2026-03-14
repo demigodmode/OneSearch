@@ -75,8 +75,10 @@ function SourceStatusCard({ source, index }: { source: SourceStatus; index: numb
     >
       <div
         className={cn(
-          "p-4 cursor-pointer hover:bg-secondary/20 transition-colors",
-          hasFailedFiles && "cursor-pointer"
+          "p-4 transition-colors",
+          hasFailedFiles
+            ? "cursor-pointer hover:bg-secondary/20"
+            : "cursor-default"
         )}
         onClick={() => hasFailedFiles && setIsExpanded(!isExpanded)}
       >

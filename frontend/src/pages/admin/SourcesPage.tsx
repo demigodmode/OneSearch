@@ -419,7 +419,7 @@ export default function SourcesPage() {
                     <div className="flex items-center justify-end gap-1">
                       <button
                         className={cn(
-                          "min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-all active:scale-95",
+                          "min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-all active:scale-95 disabled:active:scale-100",
                           reindexingId === source.id
                             ? "text-brand bg-brand/10"
                             : "text-muted-foreground hover:text-brand hover:bg-brand/10"

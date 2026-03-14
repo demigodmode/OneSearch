@@ -68,6 +68,22 @@ export default {
         warning: 'hsl(var(--warning))',
       },
 
+      // Prose — wire link/heading colors to --brand so light/dark themes work
+      typography: {
+        DEFAULT: {
+          css: {
+            '--tw-prose-links': 'hsl(var(--brand))',
+            '--tw-prose-bold': 'hsl(var(--foreground))',
+          },
+        },
+        invert: {
+          css: {
+            '--tw-prose-invert-links': 'hsl(var(--brand))',
+            '--tw-prose-invert-bold': 'hsl(var(--foreground))',
+          },
+        },
+      },
+
       // Custom animations — expo-out easing for natural deceleration
       animation: {
         'fade-in': 'fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards',

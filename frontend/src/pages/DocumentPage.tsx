@@ -1,6 +1,7 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDocument } from '@/hooks/useApi'
 import {
@@ -19,15 +20,17 @@ import {
 import ReactMarkdown from 'react-markdown'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-// Register only the languages we actually use — keeps the chunk ~300KB lighter
+// Register only the languages we use — keeps the chunk ~300KB lighter than full Prism
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
 import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
 import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx'
 import python from 'react-syntax-highlighter/dist/esm/languages/prism/python'
-import html from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
+import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
 import css from 'react-syntax-highlighter/dist/esm/languages/prism/css'
 import scss from 'react-syntax-highlighter/dist/esm/languages/prism/scss'
+import sass from 'react-syntax-highlighter/dist/esm/languages/prism/sass'
+import less from 'react-syntax-highlighter/dist/esm/languages/prism/less'
 import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
@@ -40,16 +43,21 @@ import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust'
 import ruby from 'react-syntax-highlighter/dist/esm/languages/prism/ruby'
 import php from 'react-syntax-highlighter/dist/esm/languages/prism/php'
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
+import r from 'react-syntax-highlighter/dist/esm/languages/prism/r'
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown'
+import { cn, formatSize, formatFullDate } from '@/lib/utils'
 
 SyntaxHighlighter.registerLanguage('javascript', javascript)
 SyntaxHighlighter.registerLanguage('jsx', jsx)
 SyntaxHighlighter.registerLanguage('typescript', typescript)
 SyntaxHighlighter.registerLanguage('tsx', tsx)
 SyntaxHighlighter.registerLanguage('python', python)
-SyntaxHighlighter.registerLanguage('html', html)
+SyntaxHighlighter.registerLanguage('html', markup)
+SyntaxHighlighter.registerLanguage('xml', markup)  // xml reuses markup/html parser
 SyntaxHighlighter.registerLanguage('css', css)
 SyntaxHighlighter.registerLanguage('scss', scss)
+SyntaxHighlighter.registerLanguage('sass', sass)
+SyntaxHighlighter.registerLanguage('less', less)
 SyntaxHighlighter.registerLanguage('json', json)
 SyntaxHighlighter.registerLanguage('yaml', yaml)
 SyntaxHighlighter.registerLanguage('bash', bash)
@@ -62,9 +70,8 @@ SyntaxHighlighter.registerLanguage('rust', rust)
 SyntaxHighlighter.registerLanguage('ruby', ruby)
 SyntaxHighlighter.registerLanguage('php', php)
 SyntaxHighlighter.registerLanguage('sql', sql)
+SyntaxHighlighter.registerLanguage('r', r)
 SyntaxHighlighter.registerLanguage('markdown', markdown)
-import { useState, useEffect, useCallback } from 'react'
-import { cn, formatSize, formatFullDate } from '@/lib/utils'
 
 // Map file extensions to syntax highlighter languages
 const extensionToLanguage: Record<string, string> = {
@@ -135,7 +142,7 @@ function FileTypeIcon({ type, className }: { type: string; className?: string })
 // Markdown content renderer
 function MarkdownRenderer({ content }: { content: string }) {
   return (
-    <div className="prose prose-invert prose-violet max-w-none">
+    <div className="prose prose-invert max-w-none">
       <ReactMarkdown
         components={{
           // Custom code block rendering with syntax highlighting
