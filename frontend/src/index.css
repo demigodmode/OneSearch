@@ -158,16 +158,6 @@
     transform: translateY(-1px);
   }
 
-  /* Accent border left — indigo */
-  .accent-border-left {
-    @apply border-l-2 border-l-brand/50;
-  }
-
-  /* Gradient text — solid brand for now, polish pass removes entirely */
-  .gradient-text {
-    color: hsl(var(--brand));
-  }
-
   /* Kbd styling */
   .kbd {
     @apply inline-flex items-center gap-1 px-1.5 py-0.5
@@ -194,10 +184,6 @@
     @apply bg-red-500;
   }
 
-  /* Pulse animation for live status */
-  .status-dot-pulse {
-    @apply animate-pulse;
-  }
 }
 
 /* ═══════════════════════════════════════════════════════════════

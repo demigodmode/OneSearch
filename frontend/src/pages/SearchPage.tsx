@@ -34,7 +34,7 @@ function ResultCard({
   return (
     <div
       onClick={onClick}
-      className="bg-card border border-border rounded-lg p-4 card-hover accent-border-left animate-fade-in-up animate-initial cursor-pointer group"
+      className="bg-card border border-border rounded-lg p-4 card-hover animate-fade-in-up animate-initial cursor-pointer group"
       style={{ animationDelay: `${100 + index * 50}ms`, animationFillMode: 'forwards' }}
     >
       <div className="flex items-start justify-between gap-4">
@@ -77,7 +77,6 @@ export default function SearchPage() {
   const [sourceFilter, setSourceFilter] = useState<string>(searchParams.get('source') || '')
   const [typeFilter, setTypeFilter] = useState<string>(searchParams.get('type') || '')
   const [page, setPage] = useState(0)
-  const [isFocused, setIsFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const limit = 20
@@ -144,7 +143,7 @@ export default function SearchPage() {
           className="mb-6 animate-fade-in-up animate-initial"
           style={{ animationDelay: '0ms', animationFillMode: 'forwards' }}
         >
-          <div className={`search-input ${isFocused ? 'border-brand/50' : ''}`}>
+          <div className="search-input">
             <div className="flex items-center">
               <Search className="ml-4 h-5 w-5 text-muted-foreground" />
               <input
@@ -153,8 +152,6 @@ export default function SearchPage() {
                 aria-label="Search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
                 placeholder="Search documents, files, notes..."
                 className="flex-1 px-4 py-4 bg-transparent text-foreground placeholder-muted-foreground text-lg outline-none font-sans"
               />
