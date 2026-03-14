@@ -356,21 +356,21 @@ export default function SourcesPage() {
       </div>
 
       {hasSources ? (
-        // Sources table
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
+        // Sources table — @container so columns show based on table width, not viewport
+        <div className="@container bg-card border border-border rounded-lg overflow-hidden">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border bg-secondary/30">
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Source
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden @[560px]:table-cell">
                   Path
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden @[800px]:table-cell">
                   Schedule
                 </th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">
+                <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden @[400px]:table-cell">
                   Last Updated
                 </th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -392,16 +392,16 @@ export default function SourcesPage() {
                       </div>
                       <div>
                         <p className="font-medium text-foreground">{source.name}</p>
-                        <p className="text-xs text-muted-foreground font-mono md:hidden truncate max-w-[200px]">
+                        <p className="text-xs text-muted-foreground font-mono @[560px]:hidden truncate max-w-[200px]">
                           {source.root_path}
                         </p>
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-4 hidden md:table-cell">
+                  <td className="px-4 py-4 hidden @[560px]:table-cell">
                     <code className="text-sm text-muted-foreground font-mono">{source.root_path}</code>
                   </td>
-                  <td className="px-4 py-4 hidden lg:table-cell">
+                  <td className="px-4 py-4 hidden @[800px]:table-cell">
                     <div className="flex items-center gap-1.5">
                       <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                       <span className="text-sm text-muted-foreground">{formatSchedule(source.scan_schedule)}</span>
@@ -412,7 +412,7 @@ export default function SourcesPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-4 text-right hidden sm:table-cell">
+                  <td className="px-4 py-4 text-right hidden @[400px]:table-cell">
                     <span className="text-sm text-muted-foreground">{formatDate(source.updated_at)}</span>
                   </td>
                   <td className="px-4 py-4 text-right">

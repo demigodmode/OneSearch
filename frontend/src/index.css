@@ -205,6 +205,14 @@
     opacity: 0;
   }
 
+  /* Hide scrollbar (for overflow-x-auto nav on mobile) */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
   /* Custom scrollbar */
   .scrollbar-thin {
     scrollbar-width: thin;
