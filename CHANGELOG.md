@@ -5,6 +5,23 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **UI redesign** — full design audit pass. Replaced cyan accent palette with indigo, removed all glow/shimmer effects, dropped the hero section (search box is now the first element), replaced StatusPage metric cards with a compact inline status bar.
+- **Container queries** — SourcesPage table and DocumentPage metadata grid now respond to their container width instead of the viewport. Columns were toggling at the wrong breakpoints due to the admin sidebar taking ~224px.
+- **Lazy-loaded DocumentPage** — split off into its own chunk via `React.lazy`. Switched from full Prism to PrismLight with explicit language registration, significantly reducing the initial bundle.
+- **Release script** — `scripts/release.py` handles version bumps across all 5 files, CHANGELOG promotion, git tag, push, and GitHub release creation in one command.
+- **Backend tests on all PRs** — removed path filter from CI so the required check always runs and doesn't block merges on frontend-only PRs.
+
+### Fixed
+
+- **Accessibility** — added `aria-label` to the search input, 44px minimum touch targets on sources table action buttons, focus rings on interactive elements, `prefers-reduced-motion` support.
+- **CLI version drift** — CLI package was stuck at 0.7.x while the rest of the project was at 0.8.0.
+
+---
+
 ## [0.8.0] - 2026-03-08
 
 Code and config files are now searchable by type, plus a security update for pypdf.
