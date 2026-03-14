@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
+import { AlertCircle, ChevronRight, Loader2 } from 'lucide-react'
 import { useHealth, useStatus } from '@/hooks/useApi'
 import type { SourceStatus, FailedFile } from '@/types/api'
 import { cn, formatRelativeTime } from '@/lib/utils'
@@ -83,9 +83,10 @@ function SourceStatusCard({ source, index }: { source: SourceStatus; index: numb
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {hasFailedFiles && (
-              isExpanded
-                ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                : <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              <ChevronRight
+                className="h-4 w-4 text-muted-foreground transition-transform duration-300"
+                style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
+              />
             )}
             <div className={cn(
               'status-dot',
@@ -129,11 +130,24 @@ function SourceStatusCard({ source, index }: { source: SourceStatus; index: numb
             )}
           </div>
         </div>
-
-        {isExpanded && hasFailedFiles && source.failed_files && (
-          <FailedFilesList files={source.failed_files} />
-        )}
       </div>
+
+      {/* Animated expand area for failed files */}
+      {hasFailedFiles && source.failed_files && (
+        <div
+          className="grid transition-all duration-300 overflow-hidden"
+          style={{
+            gridTemplateRows: isExpanded ? '1fr' : '0fr',
+            transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+        >
+          <div className="overflow-hidden">
+            <div className="px-4 pb-4">
+              <FailedFilesList files={source.failed_files} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -208,12 +222,18 @@ export default function StatusPage() {
         style={{ animationDelay: '0ms', animationFillMode: 'forwards' }}
       >
         <div className="flex items-center gap-2">
-          <div className={cn('status-dot', overallHealth === 'healthy' ? 'status-dot-success' : 'status-dot-warning')} />
+          <div className={cn(
+            'status-dot',
+            overallHealth === 'healthy' ? 'status-dot-success status-dot-live' : 'status-dot-warning'
+          )} />
           <span className="text-muted-foreground">API</span>
           <span className="text-foreground capitalize">{overallHealth}</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className={cn('status-dot', meilisearchStatus === 'available' ? 'status-dot-success' : 'status-dot-error')} />
+          <div className={cn(
+            'status-dot',
+            meilisearchStatus === 'available' ? 'status-dot-success status-dot-live' : 'status-dot-error'
+          )} />
           <span className="text-muted-foreground">Search</span>
           <span className="text-foreground">{meilisearchStatus === 'available' ? 'connected' : meilisearchStatus}</span>
         </div>

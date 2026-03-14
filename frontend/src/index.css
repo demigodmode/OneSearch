@@ -184,6 +184,15 @@
     @apply bg-red-500;
   }
 
+  /* Slow opacity pulse for live/healthy status dots */
+  @keyframes statusPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  .status-dot-live {
+    animation: statusPulse 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
 }
 
 /* ═══════════════════════════════════════════════════════════════

@@ -419,7 +419,7 @@ export default function SourcesPage() {
                     <div className="flex items-center justify-end gap-1">
                       <button
                         className={cn(
-                          "min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-colors",
+                          "min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-all active:scale-95",
                           reindexingId === source.id
                             ? "text-brand bg-brand/10"
                             : "text-muted-foreground hover:text-brand hover:bg-brand/10"
@@ -429,10 +429,10 @@ export default function SourcesPage() {
                         onClick={() => handleReindex(source.id)}
                         disabled={reindexingId === source.id}
                       >
-                        <RefreshCw className={cn("h-4 w-4", reindexingId === source.id && "animate-spin")} />
+                        <RefreshCw className={cn("h-4 w-4 transition-transform", reindexingId === source.id && "animate-spin")} />
                       </button>
                       <button
-                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-all active:scale-95"
                         title="Edit"
                         aria-label={`Edit ${source.name}`}
                         onClick={() => { updateMutation.reset(); setEditingSource(source) }}
@@ -440,7 +440,7 @@ export default function SourcesPage() {
                         <Pencil className="h-4 w-4" />
                       </button>
                       <button
-                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all active:scale-95"
                         title="Delete"
                         aria-label={`Delete ${source.name}`}
                         onClick={() => setDeletingSource(source)}

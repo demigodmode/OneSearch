@@ -64,7 +64,7 @@ SyntaxHighlighter.registerLanguage('php', php)
 SyntaxHighlighter.registerLanguage('sql', sql)
 SyntaxHighlighter.registerLanguage('markdown', markdown)
 import { useState, useEffect, useCallback } from 'react'
-import { formatSize, formatFullDate } from '@/lib/utils'
+import { cn, formatSize, formatFullDate } from '@/lib/utils'
 
 // Map file extensions to syntax highlighter languages
 const extensionToLanguage: Record<string, string> = {
@@ -378,7 +378,12 @@ export default function DocumentPage() {
           <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border">
             <button
               onClick={handleCopyPath}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-all duration-150 active:scale-95",
+                copied
+                  ? "text-brand bg-brand/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+              )}
             >
               <Copy className="h-4 w-4" />
               {copied ? 'Copied!' : 'Copy path'}

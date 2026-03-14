@@ -267,7 +267,7 @@ export default function SearchPage() {
             </div>
           ) : hasResults ? (
             // Results
-            <div className="space-y-4">
+            <div key={`${debouncedQuery}-${page}`} className="space-y-4 animate-fade-in animate-initial" style={{ animationFillMode: 'forwards' }}>
               <div className="flex items-center justify-between text-sm text-muted-foreground mb-4">
                 <span>
                   {searchData.total.toLocaleString()} result{searchData.total !== 1 ? 's' : ''} for "
@@ -292,7 +292,7 @@ export default function SearchPage() {
                     onClick={() => setPage(p => Math.max(0, p - 1))}
                     disabled={page === 0}
                     className={cn(
-                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-colors",
+                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-all active:scale-95",
                       page === 0
                         ? "text-muted-foreground cursor-not-allowed"
                         : "text-foreground hover:bg-secondary"
@@ -310,7 +310,7 @@ export default function SearchPage() {
                     onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
                     disabled={page >= totalPages - 1}
                     className={cn(
-                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-colors",
+                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-all active:scale-95",
                       page >= totalPages - 1
                         ? "text-muted-foreground cursor-not-allowed"
                         : "text-foreground hover:bg-secondary"
