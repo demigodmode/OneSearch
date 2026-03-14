@@ -319,22 +319,22 @@ def main():
     # --- Bump version files ---
     print("\nBumping version files...")
     bump_toml_version(ROOT_PYPROJECT, new_version)
-    print(f"  ✓ pyproject.toml")
+    print(f"  ok pyproject.toml")
     bump_toml_version(BACKEND_PYPROJECT, new_version)
-    print(f"  ✓ backend/pyproject.toml")
+    print(f"  ok backend/pyproject.toml")
     bump_toml_version(CLI_PYPROJECT, new_version)
-    print(f"  ✓ cli/pyproject.toml")
+    print(f"  ok cli/pyproject.toml")
     bump_cli_init(new_version)
-    print(f"  ✓ cli/onesearch/__init__.py")
+    print(f"  ok cli/onesearch/__init__.py")
     bump_frontend(new_version)
-    print(f"  ✓ frontend/package.json + package-lock.json")
+    print(f"  ok frontend/package.json + package-lock.json")
 
     # --- CHANGELOG ---
     print("\nUpdating CHANGELOG.md...")
     promote_unreleased(new_version, today)
     append_changelog_link(new_version)
-    print(f"  ✓ Promoted [Unreleased] -> [{new_version}]")
-    print(f"  ✓ Added comparison link")
+    print(f"  ok Promoted [Unreleased] -> [{new_version}]")
+    print(f"  ok Added comparison link")
 
     # --- Commit ---
     print("\nCommitting...")
@@ -349,7 +349,7 @@ def main():
         "CHANGELOG.md"
     )
     run(f'git commit -m "release {tag}"')
-    print(f"  ✓ Committed")
+    print(f"  ok Committed")
 
     # --- Tag & push ---
     print(f"\nTagging {tag}...")
@@ -357,13 +357,13 @@ def main():
     print("Pushing commits and tag...")
     run("git push")
     run("git push --tags")
-    print(f"  ✓ Pushed")
+    print(f"  ok Pushed")
 
     # --- GitHub release ---
     print("\nCreating GitHub release...")
     notes = get_version_notes(new_version)
     create_gh_release(tag, notes)
-    print(f"  ✓ GitHub release created")
+    print(f"  ok GitHub release created")
 
     # --- Done ---
     minor_tag = new_version.rsplit('.', 1)[0]
