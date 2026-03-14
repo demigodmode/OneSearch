@@ -160,7 +160,7 @@ def promote_unreleased(new_version: str, today: str) -> str:
     m = UNRELEASED_RE.search(content)
 
     if m:
-        body = m.group(2).strip()
+        body = re.sub(r'\s*^---\s*$', '', m.group(2).strip(), flags=re.MULTILINE).strip()
         entry = f"## [{new_version}] - {today}\n\n{body}\n\n---\n\n"
         new_content = content[: m.start()] + entry + content[m.end():]
     else:
@@ -176,16 +176,17 @@ def promote_unreleased(new_version: str, today: str) -> str:
     return body
 
 
-def get_previous_version() -> str | None:
-    """Find the most recent versioned entry in CHANGELOG."""
+def get_previous_version(skip: str) -> str | None:
+    """Find the most recent versioned entry in CHANGELOG, excluding new_version."""
     content = CHANGELOG.read_text(encoding="utf-8")
     matches = re.findall(r"^## \[(\d+\.\d+\.\d+)\]", content, re.MULTILINE)
+    matches = [m for m in matches if m != skip]
     return matches[0] if matches else None
 
 
 def append_changelog_link(new_version: str):
     content = CHANGELOG.read_text(encoding="utf-8")
-    prev = get_previous_version()
+    prev = get_previous_version(skip=new_version)
 
     if prev:
         new_link = f"[{new_version}]: https://github.com/{REPO}/compare/v{prev}...v{new_version}"
