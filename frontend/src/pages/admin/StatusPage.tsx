@@ -68,7 +68,7 @@ function SourceStatusCard({ source, index }: { source: SourceStatus; index: numb
       className={cn(
         "bg-card border rounded-lg overflow-hidden animate-fade-in-up animate-initial",
         healthStatus === 'error' ? 'border-destructive/50' :
-        healthStatus === 'warning' ? 'border-amber-500/50' :
+        healthStatus === 'warning' ? 'border-warning/50' :
         'border-border'
       )}
       style={{ animationDelay: `${200 + index * 75}ms`, animationFillMode: 'forwards' }}
@@ -115,7 +115,7 @@ function SourceStatusCard({ source, index }: { source: SourceStatus; index: numb
               <p className="text-xs text-muted-foreground">total</p>
             </div>
             <div className="text-right">
-              <p className="font-mono text-green-500">{(source.successful ?? 0).toLocaleString()}</p>
+              <p className="font-mono text-success">{(source.successful ?? 0).toLocaleString()}</p>
               <p className="text-xs text-muted-foreground">indexed</p>
             </div>
             {(source.skipped ?? 0) > 0 && (
@@ -126,7 +126,7 @@ function SourceStatusCard({ source, index }: { source: SourceStatus; index: numb
             )}
             {(source.failed ?? 0) > 0 && (
               <div className="text-right">
-                <p className="font-mono text-amber-500">{source.failed}</p>
+                <p className="font-mono text-warning">{source.failed}</p>
                 <p className="text-xs text-muted-foreground">failed</p>
               </div>
             )}
@@ -248,7 +248,7 @@ export default function StatusPage() {
         {totalFailed > 0 && (
           <>
             <span className="text-muted-foreground/40 hidden sm:inline">·</span>
-            <span className="text-amber-500">{totalFailed} failed</span>
+            <span className="text-warning">{totalFailed} failed</span>
           </>
         )}
         {healthData?.version && (

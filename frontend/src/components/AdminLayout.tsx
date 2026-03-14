@@ -32,7 +32,7 @@ export default function AdminLayout() {
                   OneSearch
                 </span>
               </Link>
-              <span className="text-border">/</span>
+              <span className="text-muted-foreground/40">/</span>
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Terminal className="h-4 w-4" />
                 <span className="text-sm font-medium">Admin</span>

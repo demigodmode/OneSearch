@@ -337,7 +337,7 @@ export default function DocumentPage() {
         {/* Back navigation */}
         <button
           onClick={handleBack}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6"
+          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to search

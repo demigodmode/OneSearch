@@ -173,15 +173,15 @@
   }
 
   .status-dot-success {
-    @apply bg-green-500;
+    @apply bg-success;
   }
 
   .status-dot-warning {
-    @apply bg-amber-500;
+    @apply bg-warning;
   }
 
   .status-dot-error {
-    @apply bg-red-500;
+    @apply bg-destructive;
   }
 
   /* Slow opacity pulse for live/healthy status dots */

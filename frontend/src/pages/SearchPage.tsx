@@ -177,7 +177,7 @@ export default function SearchPage() {
             <select
               value={sourceFilter}
               onChange={(e) => { setSourceFilter(e.target.value); setPage(0) }}
-              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand"
+              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
             >
               <option value="">All Sources</option>
               {sources?.map((source) => (
@@ -190,7 +190,7 @@ export default function SearchPage() {
             <select
               value={typeFilter}
               onChange={(e) => { setTypeFilter(e.target.value); setPage(0) }}
-              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand"
+              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
             >
               <option value="">All Types</option>
               <option value="text">Text</option>

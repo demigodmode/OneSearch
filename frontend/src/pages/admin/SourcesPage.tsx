@@ -346,13 +346,10 @@ export default function SourcesPage() {
             Manage directories and locations to index
           </p>
         </div>
-        <button
-          className="flex items-center gap-2 px-4 py-2.5 bg-brand text-brand-foreground font-medium rounded-lg hover:bg-brand/90 transition-colors"
-          onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}
-        >
+        <Button onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}>
           <Plus className="h-4 w-4" />
           Add Source
-        </button>
+        </Button>
       </div>
 
       {hasSources ? (
@@ -467,13 +464,10 @@ export default function SourcesPage() {
             <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
               Add a source to start indexing your files. Sources are directories that OneSearch will scan and index.
             </p>
-            <button
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand text-brand-foreground font-medium rounded-lg hover:bg-brand/90 transition-colors"
-              onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}
-            >
+            <Button onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}>
               <Plus className="h-4 w-4" />
               Add Your First Source
-            </button>
+            </Button>
           </div>
         </div>
       )}
