@@ -5,6 +5,14 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Brand color switched to amber** - replaced indigo accent with warm amber, warm-tinted neutral backgrounds to match. CSS-only change via custom properties.
+
+---
+
 ## [0.9.0] - 2026-03-14
 
 ### Changed
