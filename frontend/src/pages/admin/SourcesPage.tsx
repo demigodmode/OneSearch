@@ -347,7 +347,7 @@ export default function SourcesPage() {
           </p>
         </div>
         <button
-          className="flex items-center gap-2 px-4 py-2.5 bg-cyan text-cyan-foreground font-medium rounded-lg hover:bg-cyan/90 transition-colors shadow-glow-sm hover:shadow-glow"
+          className="flex items-center gap-2 px-4 py-2.5 bg-brand text-brand-foreground font-medium rounded-lg hover:bg-brand/90 transition-colors"
           onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}
         >
           <Plus className="h-4 w-4" />
@@ -387,8 +387,8 @@ export default function SourcesPage() {
                 >
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-cyan/10">
-                        <FolderOpen className="h-4 w-4 text-cyan" />
+                      <div className="p-2 rounded-lg bg-brand/10">
+                        <FolderOpen className="h-4 w-4 text-brand" />
                       </div>
                       <div>
                         <p className="font-medium text-foreground">{source.name}</p>
@@ -421,8 +421,8 @@ export default function SourcesPage() {
                         className={cn(
                           "p-2 rounded-lg transition-colors",
                           reindexingId === source.id
-                            ? "text-cyan bg-cyan/10"
-                            : "text-muted-foreground hover:text-cyan hover:bg-cyan/10"
+                            ? "text-brand bg-brand/10"
+                            : "text-muted-foreground hover:text-brand hover:bg-brand/10"
                         )}
                         title="Reindex"
                         onClick={() => handleReindex(source.id)}
@@ -465,7 +465,7 @@ export default function SourcesPage() {
               Add a source to start indexing your files. Sources are directories that OneSearch will scan and index.
             </p>
             <button
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-cyan text-cyan-foreground font-medium rounded-lg hover:bg-cyan/90 transition-colors shadow-glow-sm hover:shadow-glow"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand text-brand-foreground font-medium rounded-lg hover:bg-brand/90 transition-colors"
               onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}
             >
               <Plus className="h-4 w-4" />

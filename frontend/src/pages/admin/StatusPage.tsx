@@ -276,8 +276,8 @@ export default function StatusPage() {
           style={{ animationDelay: '100ms', animationFillMode: 'forwards' }}
         >
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-cyan/10">
-              <CheckCircle className="h-5 w-5 text-cyan" />
+            <div className="p-2 rounded-lg bg-brand/10">
+              <CheckCircle className="h-5 w-5 text-brand" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Version</p>

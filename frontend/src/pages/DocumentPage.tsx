@@ -91,7 +91,7 @@ function FileTypeIcon({ type, className }: { type: string; className?: string })
 // Markdown content renderer
 function MarkdownRenderer({ content }: { content: string }) {
   return (
-    <div className="prose prose-invert prose-cyan max-w-none">
+    <div className="prose prose-invert prose-violet max-w-none">
       <ReactMarkdown
         components={{
           // Custom code block rendering with syntax highlighting
@@ -100,7 +100,7 @@ function MarkdownRenderer({ content }: { content: string }) {
             const isInline = !match
 
             return isInline ? (
-              <code className="bg-secondary px-1.5 py-0.5 rounded text-cyan font-mono text-sm" {...props}>
+              <code className="bg-secondary px-1.5 py-0.5 rounded text-brand font-mono text-sm" {...props}>
                 {children}
               </code>
             ) : (
@@ -121,7 +121,7 @@ function MarkdownRenderer({ content }: { content: string }) {
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-cyan hover:underline"
+                className="text-brand hover:underline"
                 {...props}
               >
                 {children}
@@ -249,7 +249,7 @@ export default function DocumentPage() {
     return (
       <div className="min-h-[calc(100vh-4rem)] gradient-mesh flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-12 w-12 text-cyan animate-spin mx-auto mb-4" />
+          <Loader2 className="h-12 w-12 text-brand animate-spin mx-auto mb-4" />
           <p className="text-muted-foreground">Loading document...</p>
         </div>
       </div>
@@ -297,7 +297,7 @@ export default function DocumentPage() {
         <div className="bg-card border border-border rounded-lg p-6 mb-6">
           <div className="flex items-start gap-4">
             <div className="p-3 bg-secondary rounded-lg shrink-0">
-              <FileTypeIcon type={document.type} className="h-8 w-8 text-cyan" />
+              <FileTypeIcon type={document.type} className="h-8 w-8 text-brand" />
             </div>
 
             <div className="flex-1 min-w-0">
@@ -312,7 +312,7 @@ export default function DocumentPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <FolderOpen className="h-4 w-4" />
-                  <span className="text-cyan">{document.source_name}</span>
+                  <span className="text-brand">{document.source_name}</span>
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <HardDrive className="h-4 w-4" />

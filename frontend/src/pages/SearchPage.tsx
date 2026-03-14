@@ -40,7 +40,7 @@ function ResultCard({
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="font-medium text-foreground truncate group-hover:text-cyan transition-colors">
+            <h3 className="font-medium text-foreground truncate group-hover:text-brand transition-colors">
               {result.basename}
             </h3>
             <Eye className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
@@ -62,7 +62,7 @@ function ResultCard({
           </div>
           <span>{formatSize(result.size_bytes)}</span>
           <span>{formatTimestamp(result.modified_at)}</span>
-          <span className="text-cyan text-xs">{result.source_name}</span>
+          <span className="text-brand text-xs">{result.source_name}</span>
         </div>
       </div>
     </div>
@@ -160,7 +160,7 @@ export default function SearchPage() {
           className="mb-6 animate-fade-in-up animate-initial"
           style={{ animationDelay: '200ms', animationFillMode: 'forwards' }}
         >
-          <div className={`search-input ${isFocused ? 'border-cyan/50' : ''}`}>
+          <div className={`search-input ${isFocused ? 'border-brand/50' : ''}`}>
             <div className="flex items-center">
               <Search className="ml-4 h-5 w-5 text-muted-foreground" />
               <input
@@ -174,7 +174,7 @@ export default function SearchPage() {
                 className="flex-1 px-4 py-4 bg-transparent text-foreground placeholder-muted-foreground text-lg outline-none font-sans"
               />
               {isLoading && debouncedQuery && (
-                <Loader2 className="h-5 w-5 text-cyan animate-spin mr-4" />
+                <Loader2 className="h-5 w-5 text-brand animate-spin mr-4" />
               )}
               <div className="hidden sm:flex items-center gap-1 mr-4">
                 <kbd className="kbd">
@@ -194,7 +194,7 @@ export default function SearchPage() {
             <select
               value={sourceFilter}
               onChange={(e) => { setSourceFilter(e.target.value); setPage(0) }}
-              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-cyan"
+              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand"
             >
               <option value="">All Sources</option>
               {sources?.map((source) => (
@@ -207,7 +207,7 @@ export default function SearchPage() {
             <select
               value={typeFilter}
               onChange={(e) => { setTypeFilter(e.target.value); setPage(0) }}
-              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-cyan"
+              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand"
             >
               <option value="">All Types</option>
               <option value="text">Text</option>
@@ -244,15 +244,15 @@ export default function SearchPage() {
               </p>
               <div className="flex items-center justify-center gap-6 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-cyan" />
+                  <FileText className="h-4 w-4 text-brand" />
                   <span>Documents</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <FileCode className="h-4 w-4 text-cyan" />
+                  <FileCode className="h-4 w-4 text-brand" />
                   <span>Markdown</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <File className="h-4 w-4 text-cyan" />
+                  <File className="h-4 w-4 text-brand" />
                   <span>PDFs</span>
                 </div>
               </div>

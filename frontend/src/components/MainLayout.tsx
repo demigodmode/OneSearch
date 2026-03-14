@@ -17,8 +17,8 @@ export default function MainLayout() {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2.5 group">
-              <div className="p-1.5 rounded-lg bg-cyan/10 group-hover:bg-cyan/20 transition-colors">
-                <Search className="h-5 w-5 text-cyan" />
+              <div className="p-1.5 rounded-lg bg-brand/10 group-hover:bg-brand/20 transition-colors">
+                <Search className="h-5 w-5 text-brand" />
               </div>
               <span className="text-lg font-semibold text-foreground tracking-tight">
                 OneSearch

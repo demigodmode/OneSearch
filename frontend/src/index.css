@@ -1,8 +1,8 @@
 /* Copyright (C) 2025 demigodmode
  * SPDX-License-Identifier: AGPL-3.0-only
  *
- * OneSearch - "Obsidian Terminal" Design System
- * A refined, dark-first interface for developer tools
+ * OneSearch - Design System
+ * Dark-first interface with indigo accent
  */
 
 @tailwind base;
@@ -11,83 +11,83 @@
 
 @layer base {
   /* ═══════════════════════════════════════════════════════════════
-     OBSIDIAN DARK THEME - Primary theme for OneSearch
-     Deep blacks, cyan accents, refined surfaces
+     DARK THEME — Primary theme for OneSearch
+     Violet-tinted near-black, indigo accent, warm neutrals
      ═══════════════════════════════════════════════════════════════ */
   :root {
-    /* Base colors - Deep obsidian */
-    --background: 240 10% 4%;           /* #09090b - near black */
-    --foreground: 0 0% 98%;             /* #fafafa - crisp white */
+    /* Base — violet-tinted blacks */
+    --background: 272 12% 8%;
+    --foreground: 0 0% 97%;
 
-    /* Surfaces - Layered depth */
-    --card: 240 6% 10%;                 /* #18181b - elevated surface */
-    --card-foreground: 0 0% 98%;
-    --popover: 240 6% 10%;
-    --popover-foreground: 0 0% 98%;
+    /* Surfaces */
+    --card: 272 8% 12%;
+    --card-foreground: 0 0% 97%;
+    --popover: 272 8% 12%;
+    --popover-foreground: 0 0% 97%;
 
-    /* Primary - Cyan accent */
-    --primary: 187 85% 53%;             /* #14b8a6 - teal/cyan */
-    --primary-foreground: 240 10% 4%;
+    /* Primary — indigo */
+    --primary: 248 70% 65%;
+    --primary-foreground: 0 0% 98%;
 
-    /* Secondary - Subtle zinc */
-    --secondary: 240 4% 16%;            /* #27272a */
-    --secondary-foreground: 0 0% 98%;
+    /* Secondary */
+    --secondary: 272 6% 17%;
+    --secondary-foreground: 0 0% 97%;
 
-    /* Muted - For secondary text */
-    --muted: 240 4% 16%;
-    --muted-foreground: 240 5% 65%;     /* #a1a1aa */
+    /* Muted — violet-tinted grays */
+    --muted: 272 6% 17%;
+    --muted-foreground: 272 7% 57%;
 
-    /* Accent - Highlight states */
-    --accent: 240 4% 16%;
-    --accent-foreground: 0 0% 98%;
+    /* Accent */
+    --accent: 272 6% 17%;
+    --accent-foreground: 0 0% 97%;
 
-    /* Destructive - Errors */
-    --destructive: 0 84% 60%;           /* #ef4444 */
+    /* Destructive */
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
 
     /* Borders & inputs */
-    --border: 240 4% 16%;
-    --input: 240 4% 16%;
-    --ring: 187 85% 53%;
+    --border: 272 6% 19%;
+    --input: 272 6% 19%;
+    --ring: 248 70% 65%;
 
     /* Radius */
     --radius: 0.625rem;
 
     /* ═══════════════════════════════════════════════════════════
-       CUSTOM SEMANTIC COLORS
+       SEMANTIC COLORS
        ═══════════════════════════════════════════════════════════ */
-    --cyan: 187 85% 53%;                /* Primary accent */
-    --cyan-foreground: 240 10% 4%;
-    --cyan-glow: 187 85% 53%;           /* For glow effects */
+    --brand: 248 70% 65%;
+    --brand-foreground: 0 0% 98%;
 
-    --success: 142 76% 46%;             /* #22c55e - green */
-    --warning: 38 92% 50%;              /* #f59e0b - amber */
+    --success: 142 76% 46%;
+    --warning: 38 92% 50%;
   }
 
-  /* Light theme (optional, for future use) */
+  /* Light theme */
   .light {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 4%;
+    --background: 270 20% 98%;
+    --foreground: 272 15% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 4%;
+    --card-foreground: 272 15% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 4%;
-    --primary: 187 85% 43%;
+    --popover-foreground: 272 15% 10%;
+    --primary: 248 72% 52%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 5% 96%;
-    --secondary-foreground: 240 6% 10%;
-    --muted: 240 5% 96%;
-    --muted-foreground: 240 4% 46%;
-    --accent: 240 5% 96%;
-    --accent-foreground: 240 6% 10%;
+    --secondary: 270 8% 93%;
+    --secondary-foreground: 272 15% 10%;
+    --muted: 270 8% 93%;
+    --muted-foreground: 272 7% 40%;
+    --accent: 270 8% 93%;
+    --accent-foreground: 272 15% 10%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 6% 90%;
-    --input: 240 6% 90%;
-    --ring: 187 85% 43%;
-    --cyan: 187 85% 43%;
-    --cyan-foreground: 0 0% 100%;
-    --cyan-glow: 187 85% 43%;
+    --border: 270 10% 86%;
+    --input: 270 10% 86%;
+    --ring: 248 72% 52%;
+    --brand: 248 72% 52%;
+    --brand-foreground: 0 0% 100%;
+    --success: 142 65% 38%;
+    --warning: 38 92% 40%;
   }
 }
 
@@ -112,14 +112,22 @@
     min-height: 100vh;
   }
 
-  /* Refined selection colors */
+  /* Selection */
   ::selection {
-    @apply bg-cyan/30 text-foreground;
+    @apply bg-brand/25 text-foreground;
   }
 
-  /* Focus visible for accessibility */
+  /* Focus visible */
   :focus-visible {
-    @apply outline-none ring-2 ring-cyan ring-offset-2 ring-offset-background;
+    @apply outline-none ring-2 ring-brand ring-offset-2 ring-offset-background;
+  }
+
+  /* Reduced motion */
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
@@ -128,20 +136,19 @@
    ═══════════════════════════════════════════════════════════════ */
 
 @layer components {
-  /* Search input with glow effect */
+  /* Search input focus state */
   .search-input {
     @apply relative w-full bg-card border border-border rounded-lg
            transition-all duration-300 ease-out;
   }
 
   .search-input:focus-within {
-    @apply border-cyan/50;
-    box-shadow: 0 0 0 1px hsl(var(--cyan) / 0.2),
-                0 0 20px -5px hsl(var(--cyan-glow) / 0.4),
-                0 0 40px -10px hsl(var(--cyan-glow) / 0.2);
+    @apply border-brand/50;
+    box-shadow: 0 0 0 1px hsl(var(--brand) / 0.15),
+                0 0 20px -8px hsl(var(--brand) / 0.25);
   }
 
-  /* Card with subtle hover effect */
+  /* Card hover */
   .card-hover {
     @apply transition-all duration-200 ease-out;
   }
@@ -151,17 +158,17 @@
     transform: translateY(-1px);
   }
 
-  /* Accent border left */
+  /* Accent border left — indigo */
   .accent-border-left {
-    @apply border-l-2 border-l-cyan/60;
+    @apply border-l-2 border-l-brand/50;
   }
 
-  /* Gradient text */
+  /* Gradient text — solid brand for now, polish pass removes entirely */
   .gradient-text {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-cyan to-emerald-400;
+    color: hsl(var(--brand));
   }
 
-  /* Kbd styling for keyboard shortcuts */
+  /* Kbd styling */
   .kbd {
     @apply inline-flex items-center gap-1 px-1.5 py-0.5
            text-xs font-mono font-medium
@@ -176,15 +183,15 @@
   }
 
   .status-dot-success {
-    @apply bg-green-500 shadow-[0_0_8px_2px_rgba(34,197,94,0.4)];
+    @apply bg-green-500;
   }
 
   .status-dot-warning {
-    @apply bg-amber-500 shadow-[0_0_8px_2px_rgba(245,158,11,0.4)];
+    @apply bg-amber-500;
   }
 
   .status-dot-error {
-    @apply bg-red-500 shadow-[0_0_8px_2px_rgba(239,68,68,0.4)];
+    @apply bg-red-500;
   }
 
   /* Pulse animation for live status */
@@ -198,7 +205,7 @@
    ═══════════════════════════════════════════════════════════════ */
 
 @layer utilities {
-  /* Staggered animation delays for page load */
+  /* Staggered animation delays */
   .delay-75 { animation-delay: 75ms; }
   .delay-100 { animation-delay: 100ms; }
   .delay-150 { animation-delay: 150ms; }
@@ -235,27 +242,12 @@
     @apply bg-muted-foreground/50;
   }
 
-  /* Noise texture overlay */
-  .noise-overlay {
-    position: relative;
-  }
-
-  .noise-overlay::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%' height='100%' filter='url(%23noise)'/%3E%3C/svg%3E");
-    opacity: 0.03;
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  /* Gradient mesh background */
+  /* Gradient mesh background — indigo hue */
   .gradient-mesh {
     background:
-      radial-gradient(at 40% 20%, hsl(var(--cyan) / 0.08) 0px, transparent 50%),
-      radial-gradient(at 80% 0%, hsl(187 85% 53% / 0.05) 0px, transparent 50%),
-      radial-gradient(at 0% 50%, hsl(var(--cyan) / 0.05) 0px, transparent 50%),
+      radial-gradient(at 40% 20%, hsl(var(--brand) / 0.06) 0px, transparent 50%),
+      radial-gradient(at 80% 0%, hsl(var(--brand) / 0.04) 0px, transparent 50%),
+      radial-gradient(at 0% 50%, hsl(var(--brand) / 0.04) 0px, transparent 50%),
       hsl(var(--background));
   }
 }

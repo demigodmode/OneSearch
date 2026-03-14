@@ -24,7 +24,7 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
 
-      // Obsidian color palette
+      // Color palette
       colors: {
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
@@ -59,11 +59,10 @@ export default {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
-        // Custom semantic colors
-        cyan: {
-          DEFAULT: 'hsl(var(--cyan))',
-          foreground: 'hsl(var(--cyan-foreground))',
-          glow: 'hsl(var(--cyan-glow))',
+        // Brand accent — indigo
+        brand: {
+          DEFAULT: 'hsl(var(--brand))',
+          foreground: 'hsl(var(--brand-foreground))',
         },
         success: 'hsl(var(--success))',
         warning: 'hsl(var(--warning))',
@@ -91,8 +90,8 @@ export default {
           '100%': { opacity: '1', transform: 'translateX(0)' },
         },
         glowPulse: {
-          '0%, 100%': { boxShadow: '0 0 20px 0px hsl(var(--cyan-glow) / 0.3)' },
-          '50%': { boxShadow: '0 0 30px 5px hsl(var(--cyan-glow) / 0.5)' },
+          '0%, 100%': { boxShadow: '0 0 20px 0px hsl(var(--brand) / 0.3)' },
+          '50%': { boxShadow: '0 0 30px 5px hsl(var(--brand) / 0.5)' },
         },
         shimmer: {
           '0%': { backgroundPosition: '-200% 0' },
@@ -100,12 +99,12 @@ export default {
         },
       },
 
-      // Box shadows with glow effects
+      // Box shadows
       boxShadow: {
-        'glow-sm': '0 0 10px -3px hsl(var(--cyan-glow) / 0.3)',
-        'glow': '0 0 20px -5px hsl(var(--cyan-glow) / 0.4)',
-        'glow-lg': '0 0 30px -5px hsl(var(--cyan-glow) / 0.5)',
-        'inner-glow': 'inset 0 0 20px -10px hsl(var(--cyan-glow) / 0.3)',
+        'glow-sm': '0 0 10px -3px hsl(var(--brand) / 0.3)',
+        'glow': '0 0 20px -5px hsl(var(--brand) / 0.35)',
+        'glow-lg': '0 0 30px -5px hsl(var(--brand) / 0.45)',
+        'inner-glow': 'inset 0 0 20px -10px hsl(var(--brand) / 0.25)',
       },
     },
   },

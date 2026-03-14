@@ -25,8 +25,8 @@ export default function AdminLayout() {
             {/* Logo & breadcrumb */}
             <div className="flex items-center gap-3">
               <Link to="/" className="flex items-center gap-2.5 group">
-                <div className="p-1.5 rounded-lg bg-cyan/10 group-hover:bg-cyan/20 transition-colors">
-                  <Search className="h-5 w-5 text-cyan" />
+                <div className="p-1.5 rounded-lg bg-brand/10 group-hover:bg-brand/20 transition-colors">
+                  <Search className="h-5 w-5 text-brand" />
                 </div>
                 <span className="text-lg font-semibold text-foreground tracking-tight">
                   OneSearch
@@ -86,15 +86,15 @@ export default function AdminLayout() {
                       'flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200',
                       'animate-fade-in-up animate-initial',
                       isActive
-                        ? 'bg-cyan/10 text-cyan border border-cyan/20'
+                        ? 'bg-brand/10 text-brand border border-brand/20'
                         : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
                     )}
                     style={{ animationDelay: `${index * 50}ms`, animationFillMode: 'forwards' }}
                   >
-                    <Icon className={cn('h-4 w-4', isActive && 'text-cyan')} />
+                    <Icon className={cn('h-4 w-4', isActive && 'text-brand')} />
                     {item.label}
                     {isActive && (
-                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan shadow-[0_0_8px_2px_rgba(34,211,238,0.4)]" />
+                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-brand opacity-70" />
                     )}
                   </Link>
                 )
