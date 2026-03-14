@@ -217,15 +217,15 @@ export default function StatusPage() {
           <span className="text-muted-foreground">Search</span>
           <span className="text-foreground">{meilisearchStatus === 'available' ? 'connected' : meilisearchStatus}</span>
         </div>
-        <span className="text-border hidden sm:inline">|</span>
+        <span className="text-muted-foreground/40 hidden sm:inline">|</span>
         <span className="text-muted-foreground">{totalDocs.toLocaleString()} docs</span>
-        <span className="text-border hidden sm:inline">·</span>
+        <span className="text-muted-foreground/40 hidden sm:inline">·</span>
         <span className="text-muted-foreground">{sources.length} {sources.length === 1 ? 'source' : 'sources'}</span>
-        <span className="text-border hidden sm:inline">·</span>
+        <span className="text-muted-foreground/40 hidden sm:inline">·</span>
         <span className="text-muted-foreground">indexed {formatDate(lastIndexed)}</span>
         {totalFailed > 0 && (
           <>
-            <span className="text-border hidden sm:inline">·</span>
+            <span className="text-muted-foreground/40 hidden sm:inline">·</span>
             <span className="text-amber-500">{totalFailed} failed</span>
           </>
         )}
