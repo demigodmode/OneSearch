@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useState } from 'react'
-import { AlertCircle, Database, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import { useHealth, useStatus } from '@/hooks/useApi'
 import type { SourceStatus, FailedFile } from '@/types/api'
 import { cn, formatRelativeTime } from '@/lib/utils'
