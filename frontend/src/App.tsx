@@ -1,17 +1,20 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import MainLayout from './components/MainLayout'
 import AdminLayout from './components/AdminLayout'
 import SearchPage from './pages/SearchPage'
-import DocumentPage from './pages/DocumentPage'
 import SourcesPage from './pages/admin/SourcesPage'
 import StatusPage from './pages/admin/StatusPage'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
+
+// Lazy-load DocumentPage — it pulls in react-syntax-highlighter + react-markdown (~400KB)
+const DocumentPage = lazy(() => import('./pages/DocumentPage'))
 
 function App() {
   return (
@@ -31,7 +34,7 @@ function App() {
           }
         >
           <Route index element={<SearchPage />} />
-          <Route path="document/:id" element={<DocumentPage />} />
+          <Route path="document/:id" element={<Suspense fallback={null}><DocumentPage /></Suspense>} />
         </Route>
 
         {/* Protected admin routes */}
