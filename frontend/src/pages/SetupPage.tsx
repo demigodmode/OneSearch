@@ -77,8 +77,8 @@ export default function SetupPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
-            <div className="p-3 bg-primary/10 rounded-full">
-              <Search className="h-8 w-8 text-primary" />
+            <div className="p-3 bg-brand/10 rounded-full">
+              <Search className="h-8 w-8 text-brand" />
             </div>
           </div>
           <CardTitle className="text-2xl">Welcome to OneSearch</CardTitle>
@@ -142,7 +142,7 @@ export default function SetupPage() {
                 required
               />
               {confirmPassword && password === confirmPassword && (
-                <p className="text-xs text-green-600 flex items-center gap-1">
+                <p className="text-xs text-success flex items-center gap-1">
                   <CheckCircle className="h-3 w-3" /> Passwords match
                 </p>
               )}

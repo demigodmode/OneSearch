@@ -346,31 +346,28 @@ export default function SourcesPage() {
             Manage directories and locations to index
           </p>
         </div>
-        <button
-          className="flex items-center gap-2 px-4 py-2.5 bg-cyan text-cyan-foreground font-medium rounded-lg hover:bg-cyan/90 transition-colors shadow-glow-sm hover:shadow-glow"
-          onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}
-        >
+        <Button onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}>
           <Plus className="h-4 w-4" />
           Add Source
-        </button>
+        </Button>
       </div>
 
       {hasSources ? (
-        // Sources table
-        <div className="bg-card border border-border rounded-lg overflow-hidden">
+        // Sources table — @container so columns show based on table width, not viewport
+        <div className="@container bg-card border border-border rounded-lg overflow-hidden">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border bg-secondary/30">
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Source
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden md:table-cell">
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden @[560px]:table-cell">
                   Path
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden lg:table-cell">
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden @[800px]:table-cell">
                   Schedule
                 </th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden sm:table-cell">
+                <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider hidden @[400px]:table-cell">
                   Last Updated
                 </th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -387,21 +384,21 @@ export default function SourcesPage() {
                 >
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-cyan/10">
-                        <FolderOpen className="h-4 w-4 text-cyan" />
+                      <div className="p-2 rounded-lg bg-brand/10">
+                        <FolderOpen className="h-4 w-4 text-brand" />
                       </div>
                       <div>
                         <p className="font-medium text-foreground">{source.name}</p>
-                        <p className="text-xs text-muted-foreground font-mono md:hidden truncate max-w-[200px]">
+                        <p className="text-xs text-muted-foreground font-mono @[560px]:hidden truncate max-w-[200px]">
                           {source.root_path}
                         </p>
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-4 hidden md:table-cell">
+                  <td className="px-4 py-4 hidden @[560px]:table-cell">
                     <code className="text-sm text-muted-foreground font-mono">{source.root_path}</code>
                   </td>
-                  <td className="px-4 py-4 hidden lg:table-cell">
+                  <td className="px-4 py-4 hidden @[800px]:table-cell">
                     <div className="flex items-center gap-1.5">
                       <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                       <span className="text-sm text-muted-foreground">{formatSchedule(source.scan_schedule)}</span>
@@ -412,34 +409,37 @@ export default function SourcesPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-4 text-right hidden sm:table-cell">
+                  <td className="px-4 py-4 text-right hidden @[400px]:table-cell">
                     <span className="text-sm text-muted-foreground">{formatDate(source.updated_at)}</span>
                   </td>
                   <td className="px-4 py-4 text-right">
                     <div className="flex items-center justify-end gap-1">
                       <button
                         className={cn(
-                          "p-2 rounded-lg transition-colors",
+                          "min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-all active:scale-95 disabled:active:scale-100",
                           reindexingId === source.id
-                            ? "text-cyan bg-cyan/10"
-                            : "text-muted-foreground hover:text-cyan hover:bg-cyan/10"
+                            ? "text-brand bg-brand/10"
+                            : "text-muted-foreground hover:text-brand hover:bg-brand/10"
                         )}
                         title="Reindex"
+                        aria-label={`Reindex ${source.name}`}
                         onClick={() => handleReindex(source.id)}
                         disabled={reindexingId === source.id}
                       >
-                        <RefreshCw className={cn("h-4 w-4", reindexingId === source.id && "animate-spin")} />
+                        <RefreshCw className={cn("h-4 w-4 transition-transform", reindexingId === source.id && "animate-spin")} />
                       </button>
                       <button
-                        className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-all active:scale-95"
                         title="Edit"
+                        aria-label={`Edit ${source.name}`}
                         onClick={() => { updateMutation.reset(); setEditingSource(source) }}
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
                       <button
-                        className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all active:scale-95"
                         title="Delete"
+                        aria-label={`Delete ${source.name}`}
                         onClick={() => setDeletingSource(source)}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -464,13 +464,10 @@ export default function SourcesPage() {
             <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
               Add a source to start indexing your files. Sources are directories that OneSearch will scan and index.
             </p>
-            <button
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-cyan text-cyan-foreground font-medium rounded-lg hover:bg-cyan/90 transition-colors shadow-glow-sm hover:shadow-glow"
-              onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}
-            >
+            <Button onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}>
               <Plus className="h-4 w-4" />
               Add Your First Source
-            </button>
+            </Button>
           </div>
         </div>
       )}

@@ -25,14 +25,14 @@ export default function AdminLayout() {
             {/* Logo & breadcrumb */}
             <div className="flex items-center gap-3">
               <Link to="/" className="flex items-center gap-2.5 group">
-                <div className="p-1.5 rounded-lg bg-cyan/10 group-hover:bg-cyan/20 transition-colors">
-                  <Search className="h-5 w-5 text-cyan" />
+                <div className="p-1.5 rounded-lg bg-brand/10 group-hover:bg-brand/20 transition-colors">
+                  <Search className="h-5 w-5 text-brand" />
                 </div>
                 <span className="text-lg font-semibold text-foreground tracking-tight">
                   OneSearch
                 </span>
               </Link>
-              <span className="text-border">/</span>
+              <span className="text-muted-foreground/40">/</span>
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Terminal className="h-4 w-4" />
                 <span className="text-sm font-medium">Admin</span>
@@ -71,10 +71,10 @@ export default function AdminLayout() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-col md:flex-row gap-8">
-          {/* Sidebar */}
-          <aside className="md:w-56 flex-shrink-0">
-            <nav className="space-y-1">
+        <div className="flex flex-col md:flex-row gap-6 md:gap-8">
+          {/* Sidebar — horizontal pills on mobile, vertical list on md+ */}
+          <aside className="flex-shrink-0 md:w-56">
+            <nav className="flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-visible pb-2 md:pb-0 border-b border-border md:border-0 mb-2 md:mb-0 scrollbar-none">
               {adminNavItems.map((item, index) => {
                 const Icon = item.icon
                 const isActive = location.pathname === item.path
@@ -83,30 +83,24 @@ export default function AdminLayout() {
                     key={item.path}
                     to={item.path}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200',
-                      'animate-fade-in-up animate-initial',
+                      'flex items-center gap-2.5 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200',
+                      'shrink-0 md:shrink animate-fade-in-up animate-initial',
                       isActive
-                        ? 'bg-cyan/10 text-cyan border border-cyan/20'
+                        ? 'bg-brand/10 text-brand border border-brand/20'
                         : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
                     )}
                     style={{ animationDelay: `${index * 50}ms`, animationFillMode: 'forwards' }}
                   >
-                    <Icon className={cn('h-4 w-4', isActive && 'text-cyan')} />
+                    <Icon className={cn('h-4 w-4 shrink-0', isActive && 'text-brand')} />
                     {item.label}
                     {isActive && (
-                      <div className="ml-auto w-1.5 h-1.5 rounded-full bg-cyan shadow-[0_0_8px_2px_rgba(34,211,238,0.4)]" />
+                      <div className="hidden md:block ml-auto w-1.5 h-1.5 rounded-full bg-brand opacity-70" />
                     )}
                   </Link>
                 )
               })}
             </nav>
 
-            {/* Version info */}
-            <div className="mt-8 px-3 py-3 rounded-lg bg-card border border-border">
-              <p className="text-xs text-muted-foreground font-mono">
-                OneSearch v{__APP_VERSION__}
-              </p>
-            </div>
           </aside>
 
           {/* Main content */}

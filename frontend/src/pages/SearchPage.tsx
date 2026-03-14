@@ -34,13 +34,13 @@ function ResultCard({
   return (
     <div
       onClick={onClick}
-      className="bg-card border border-border rounded-lg p-4 card-hover accent-border-left animate-fade-in-up animate-initial cursor-pointer group"
+      className="bg-card border border-border rounded-lg p-4 card-hover animate-fade-in-up animate-initial cursor-pointer group"
       style={{ animationDelay: `${100 + index * 50}ms`, animationFillMode: 'forwards' }}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="font-medium text-foreground truncate group-hover:text-cyan transition-colors">
+            <h3 className="font-medium text-foreground truncate group-hover:text-brand transition-colors">
               {result.basename}
             </h3>
             <Eye className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
@@ -62,7 +62,7 @@ function ResultCard({
           </div>
           <span>{formatSize(result.size_bytes)}</span>
           <span>{formatTimestamp(result.modified_at)}</span>
-          <span className="text-cyan text-xs">{result.source_name}</span>
+          <span className="text-brand text-xs">{result.source_name}</span>
         </div>
       </div>
     </div>
@@ -77,7 +77,6 @@ export default function SearchPage() {
   const [sourceFilter, setSourceFilter] = useState<string>(searchParams.get('source') || '')
   const [typeFilter, setTypeFilter] = useState<string>(searchParams.get('type') || '')
   const [page, setPage] = useState(0)
-  const [isFocused, setIsFocused] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const limit = 20
@@ -137,44 +136,27 @@ export default function SearchPage() {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] gradient-mesh">
-      <div className="max-w-4xl mx-auto px-4 pt-16 pb-16">
-        {/* Hero section with staggered animation */}
-        <div className="text-center mb-8">
-          <h1
-            className="text-5xl font-bold tracking-tight mb-4 animate-fade-in-up animate-initial"
-            style={{ animationDelay: '0ms', animationFillMode: 'forwards' }}
-          >
-            <span className="gradient-text">OneSearch</span>
-          </h1>
-          <p
-            className="text-lg text-muted-foreground animate-fade-in-up animate-initial"
-            style={{ animationDelay: '100ms', animationFillMode: 'forwards' }}
-          >
-            Find anything across your homelab
-          </p>
-        </div>
-
-        {/* Search box with glow effect */}
+      <div className="max-w-4xl mx-auto px-4 pt-10 pb-16">
+        {/* Search box */}
         <form
           onSubmit={handleSearch}
           className="mb-6 animate-fade-in-up animate-initial"
-          style={{ animationDelay: '200ms', animationFillMode: 'forwards' }}
+          style={{ animationDelay: '0ms', animationFillMode: 'forwards' }}
         >
-          <div className={`search-input ${isFocused ? 'border-cyan/50' : ''}`}>
+          <div className="search-input">
             <div className="flex items-center">
               <Search className="ml-4 h-5 w-5 text-muted-foreground" />
               <input
                 ref={inputRef}
                 type="text"
+                aria-label="Search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
                 placeholder="Search documents, files, notes..."
                 className="flex-1 px-4 py-4 bg-transparent text-foreground placeholder-muted-foreground text-lg outline-none font-sans"
               />
               {isLoading && debouncedQuery && (
-                <Loader2 className="h-5 w-5 text-cyan animate-spin mr-4" />
+                <Loader2 className="h-5 w-5 text-brand animate-spin mr-4" />
               )}
               <div className="hidden sm:flex items-center gap-1 mr-4">
                 <kbd className="kbd">
@@ -189,12 +171,13 @@ export default function SearchPage() {
         {/* Filters */}
         {showFilters && (
           <div
-            className="flex flex-wrap gap-3 mb-6 animate-fade-in"
+            className="flex flex-wrap gap-3 mb-6 animate-fade-in animate-initial"
+            style={{ animationFillMode: 'forwards' }}
           >
             <select
               value={sourceFilter}
               onChange={(e) => { setSourceFilter(e.target.value); setPage(0) }}
-              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-cyan"
+              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
             >
               <option value="">All Sources</option>
               {sources?.map((source) => (
@@ -207,7 +190,7 @@ export default function SearchPage() {
             <select
               value={typeFilter}
               onChange={(e) => { setTypeFilter(e.target.value); setPage(0) }}
-              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-cyan"
+              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
             >
               <option value="">All Types</option>
               <option value="text">Text</option>
@@ -234,7 +217,7 @@ export default function SearchPage() {
         {/* Results area */}
         <div
           className="animate-fade-in-up animate-initial"
-          style={{ animationDelay: '300ms', animationFillMode: 'forwards' }}
+          style={{ animationDelay: '150ms', animationFillMode: 'forwards' }}
         >
           {debouncedQuery === '' ? (
             // Empty state with file type hints
@@ -244,15 +227,15 @@ export default function SearchPage() {
               </p>
               <div className="flex items-center justify-center gap-6 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-cyan" />
+                  <FileText className="h-4 w-4 text-brand" />
                   <span>Documents</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <FileCode className="h-4 w-4 text-cyan" />
+                  <FileCode className="h-4 w-4 text-brand" />
                   <span>Markdown</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <File className="h-4 w-4 text-cyan" />
+                  <File className="h-4 w-4 text-brand" />
                   <span>PDFs</span>
                 </div>
               </div>
@@ -285,7 +268,7 @@ export default function SearchPage() {
             </div>
           ) : hasResults ? (
             // Results
-            <div className="space-y-4">
+            <div key={`${debouncedQuery}-${page}`} className="space-y-4 animate-fade-in animate-initial" style={{ animationFillMode: 'forwards' }}>
               <div className="flex items-center justify-between text-sm text-muted-foreground mb-4">
                 <span>
                   {searchData.total.toLocaleString()} result{searchData.total !== 1 ? 's' : ''} for "
@@ -310,7 +293,7 @@ export default function SearchPage() {
                     onClick={() => setPage(p => Math.max(0, p - 1))}
                     disabled={page === 0}
                     className={cn(
-                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-colors",
+                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-all active:scale-95 disabled:active:scale-100",
                       page === 0
                         ? "text-muted-foreground cursor-not-allowed"
                         : "text-foreground hover:bg-secondary"
@@ -328,7 +311,7 @@ export default function SearchPage() {
                     onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
                     disabled={page >= totalPages - 1}
                     className={cn(
-                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-colors",
+                      "flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-all active:scale-95 disabled:active:scale-100",
                       page >= totalPages - 1
                         ? "text-muted-foreground cursor-not-allowed"
                         : "text-foreground hover:bg-secondary"

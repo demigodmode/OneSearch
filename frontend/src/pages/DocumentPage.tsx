@@ -1,6 +1,7 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDocument } from '@/hooks/useApi'
 import {
@@ -17,10 +18,60 @@ import {
   FolderOpen,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { useState, useEffect, useCallback } from 'react'
-import { formatSize, formatFullDate } from '@/lib/utils'
+// Register only the languages we use — keeps the chunk ~300KB lighter than full Prism
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
+import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
+import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx'
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python'
+import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
+import css from 'react-syntax-highlighter/dist/esm/languages/prism/css'
+import scss from 'react-syntax-highlighter/dist/esm/languages/prism/scss'
+import sass from 'react-syntax-highlighter/dist/esm/languages/prism/sass'
+import less from 'react-syntax-highlighter/dist/esm/languages/prism/less'
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
+import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
+import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
+import ini from 'react-syntax-highlighter/dist/esm/languages/prism/ini'
+import java from 'react-syntax-highlighter/dist/esm/languages/prism/java'
+import c from 'react-syntax-highlighter/dist/esm/languages/prism/c'
+import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp'
+import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
+import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust'
+import ruby from 'react-syntax-highlighter/dist/esm/languages/prism/ruby'
+import php from 'react-syntax-highlighter/dist/esm/languages/prism/php'
+import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
+import r from 'react-syntax-highlighter/dist/esm/languages/prism/r'
+import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown'
+import { cn, formatSize, formatFullDate } from '@/lib/utils'
+
+SyntaxHighlighter.registerLanguage('javascript', javascript)
+SyntaxHighlighter.registerLanguage('jsx', jsx)
+SyntaxHighlighter.registerLanguage('typescript', typescript)
+SyntaxHighlighter.registerLanguage('tsx', tsx)
+SyntaxHighlighter.registerLanguage('python', python)
+SyntaxHighlighter.registerLanguage('html', markup)
+SyntaxHighlighter.registerLanguage('xml', markup)  // xml reuses markup/html parser
+SyntaxHighlighter.registerLanguage('css', css)
+SyntaxHighlighter.registerLanguage('scss', scss)
+SyntaxHighlighter.registerLanguage('sass', sass)
+SyntaxHighlighter.registerLanguage('less', less)
+SyntaxHighlighter.registerLanguage('json', json)
+SyntaxHighlighter.registerLanguage('yaml', yaml)
+SyntaxHighlighter.registerLanguage('bash', bash)
+SyntaxHighlighter.registerLanguage('ini', ini)
+SyntaxHighlighter.registerLanguage('java', java)
+SyntaxHighlighter.registerLanguage('c', c)
+SyntaxHighlighter.registerLanguage('cpp', cpp)
+SyntaxHighlighter.registerLanguage('go', go)
+SyntaxHighlighter.registerLanguage('rust', rust)
+SyntaxHighlighter.registerLanguage('ruby', ruby)
+SyntaxHighlighter.registerLanguage('php', php)
+SyntaxHighlighter.registerLanguage('sql', sql)
+SyntaxHighlighter.registerLanguage('r', r)
+SyntaxHighlighter.registerLanguage('markdown', markdown)
 
 // Map file extensions to syntax highlighter languages
 const extensionToLanguage: Record<string, string> = {
@@ -91,7 +142,7 @@ function FileTypeIcon({ type, className }: { type: string; className?: string })
 // Markdown content renderer
 function MarkdownRenderer({ content }: { content: string }) {
   return (
-    <div className="prose prose-invert prose-cyan max-w-none">
+    <div className="prose prose-invert max-w-none">
       <ReactMarkdown
         components={{
           // Custom code block rendering with syntax highlighting
@@ -100,7 +151,7 @@ function MarkdownRenderer({ content }: { content: string }) {
             const isInline = !match
 
             return isInline ? (
-              <code className="bg-secondary px-1.5 py-0.5 rounded text-cyan font-mono text-sm" {...props}>
+              <code className="bg-secondary px-1.5 py-0.5 rounded text-brand font-mono text-sm" {...props}>
                 {children}
               </code>
             ) : (
@@ -121,7 +172,7 @@ function MarkdownRenderer({ content }: { content: string }) {
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-cyan hover:underline"
+                className="text-brand hover:underline"
                 {...props}
               >
                 {children}
@@ -144,7 +195,7 @@ function CodeRenderer({ content, language }: { content: string; language: string
       language={language}
       showLineNumbers
       wrapLines
-      lineNumberStyle={{ color: '#6b7280', paddingRight: '1em', minWidth: '3em' }}
+      lineNumberStyle={{ color: 'hsl(var(--muted-foreground))', paddingRight: '1em', minWidth: '3em' }}
       className="rounded-lg !bg-card border border-border text-sm"
     >
       {content}
@@ -249,7 +300,7 @@ export default function DocumentPage() {
     return (
       <div className="min-h-[calc(100vh-4rem)] gradient-mesh flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-12 w-12 text-cyan animate-spin mx-auto mb-4" />
+          <Loader2 className="h-12 w-12 text-brand animate-spin mx-auto mb-4" />
           <p className="text-muted-foreground">Loading document...</p>
         </div>
       </div>
@@ -286,7 +337,7 @@ export default function DocumentPage() {
         {/* Back navigation */}
         <button
           onClick={handleBack}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6"
+          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to search
@@ -294,10 +345,10 @@ export default function DocumentPage() {
         </button>
 
         {/* Document header */}
-        <div className="bg-card border border-border rounded-lg p-6 mb-6">
+        <div className="@container bg-card border border-border rounded-lg p-6 mb-6">
           <div className="flex items-start gap-4">
             <div className="p-3 bg-secondary rounded-lg shrink-0">
-              <FileTypeIcon type={document.type} className="h-8 w-8 text-cyan" />
+              <FileTypeIcon type={document.type} className="h-8 w-8 text-brand" />
             </div>
 
             <div className="flex-1 min-w-0">
@@ -309,10 +360,10 @@ export default function DocumentPage() {
               </p>
 
               {/* Metadata grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="grid grid-cols-2 @[560px]:grid-cols-4 gap-4 text-sm">
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <FolderOpen className="h-4 w-4" />
-                  <span className="text-cyan">{document.source_name}</span>
+                  <span className="text-brand">{document.source_name}</span>
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <HardDrive className="h-4 w-4" />
@@ -334,7 +385,12 @@ export default function DocumentPage() {
           <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border">
             <button
               onClick={handleCopyPath}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-all duration-150 active:scale-95",
+                copied
+                  ? "text-brand bg-brand/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+              )}
             >
               <Copy className="h-4 w-4" />
               {copied ? 'Copied!' : 'Copy path'}
@@ -363,9 +419,9 @@ export default function DocumentPage() {
 
         {/* Metadata details (if any) */}
         {document.metadata && Object.keys(document.metadata).length > 0 && (
-          <div className="mt-6 bg-card border border-border rounded-lg p-4">
+          <div className="@container mt-6 bg-card border border-border rounded-lg p-4">
             <h3 className="text-sm font-medium text-muted-foreground mb-3">Metadata</h3>
-            <dl className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+            <dl className="grid grid-cols-1 @[480px]:grid-cols-2 gap-2 text-sm">
               {Object.entries(document.metadata).map(([key, value]) => (
                 <div key={key} className="flex gap-2">
                   <dt className="text-muted-foreground font-mono">{key}:</dt>
