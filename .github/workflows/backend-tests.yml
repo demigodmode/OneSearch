@@ -46,14 +46,11 @@ jobs:
 
       - name: Run backend tests
         run: |
-          uv run pytest backend/tests/ -v --tb=short --color=yes
+          uv run pytest backend/tests/ -v --tb=short --color=yes --cov=app --cov-report=xml
 
-      - name: Test Summary
-        if: always()
-        run: |
-          if [ $? -eq 0 ]; then
-            echo "✅ All tests passed!"
-          else
-            echo "❌ Tests failed!"
-            exit 1
-          fi
+      - name: Upload coverage to Codecov
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false

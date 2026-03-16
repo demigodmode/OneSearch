@@ -3,7 +3,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Latest Release](https://img.shields.io/github/v/release/demigodmode/OneSearch)](https://github.com/demigodmode/OneSearch/releases/latest)
 [![Tests](https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/backend-tests.yml?label=tests)](https://github.com/demigodmode/OneSearch/actions/workflows/backend-tests.yml)
-[![Docker](https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/docker-publish.yml?label=docker)](https://github.com/demigodmode/OneSearch/actions/workflows/docker-publish.yml)
+[![Coverage](https://codecov.io/gh/demigodmode/OneSearch/graph/badge.svg)](https://codecov.io/gh/demigodmode/OneSearch)
 [![Docker Pulls](https://img.shields.io/docker/pulls/demigodmode/onesearch)](https://hub.docker.com/r/demigodmode/onesearch)
 [![Documentation](https://readthedocs.org/projects/onesearch/badge/?version=latest)](https://onesearch.readthedocs.io)
 
