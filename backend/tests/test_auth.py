@@ -13,7 +13,12 @@ from sqlalchemy.pool import StaticPool
 from app.main import app
 from app.models import Base, User
 from app.db.database import get_db
-from app.api.auth import hash_password, verify_password, create_access_token, decode_token, rate_limit_store
+from app.api.auth import (
+    hash_password, verify_password, create_access_token, decode_token,
+    rate_limit_store, get_client_ip, get_secret_key, check_rate_limit,
+    get_current_user, get_optional_user, _last_prune,
+)
+import app.api.auth as auth_module
 
 
 # In-memory SQLite database for testing
@@ -393,3 +398,170 @@ class TestHealthWithSetupRequired:
 
         assert "setup_required" in data
         assert data["setup_required"] is False
+
+
+class TestGetClientIp:
+    """Tests for get_client_ip() utility"""
+
+    def _make_request(self, headers=None, client_host="127.0.0.1"):
+        from unittest.mock import Mock
+        req = Mock()
+        req.headers = headers or {}
+        req.client = Mock()
+        req.client.host = client_host
+        return req
+
+    def test_x_forwarded_for_single(self):
+        req = self._make_request(headers={"x-forwarded-for": "1.2.3.4"})
+        assert get_client_ip(req) == "1.2.3.4"
+
+    def test_x_forwarded_for_chain(self):
+        req = self._make_request(headers={"x-forwarded-for": "1.2.3.4, 10.0.0.1, 10.0.0.2"})
+        assert get_client_ip(req) == "1.2.3.4"
+
+    def test_x_real_ip(self):
+        req = self._make_request(headers={"x-real-ip": "5.6.7.8"})
+        assert get_client_ip(req) == "5.6.7.8"
+
+    def test_no_proxy_headers(self):
+        req = self._make_request(client_host="192.168.1.1")
+        assert get_client_ip(req) == "192.168.1.1"
+
+    def test_no_client(self):
+        from unittest.mock import Mock
+        req = Mock()
+        req.headers = {}
+        req.client = None
+        assert get_client_ip(req) == "unknown"
+
+    def test_forwarded_for_takes_priority_over_real_ip(self):
+        req = self._make_request(headers={
+            "x-forwarded-for": "1.1.1.1",
+            "x-real-ip": "2.2.2.2",
+        })
+        assert get_client_ip(req) == "1.1.1.1"
+
+
+class TestGetSecretKey:
+
+    def test_with_session_secret(self, monkeypatch):
+        from app.config import settings
+        monkeypatch.setattr(settings, "session_secret", "my-secret-key")
+        assert get_secret_key() == "my-secret-key"
+
+    def test_without_session_secret(self, monkeypatch):
+        from app.config import settings
+        monkeypatch.setattr(settings, "session_secret", "")
+        key = get_secret_key()
+        assert "temporary" in key
+
+
+class TestCheckRateLimitPruning:
+
+    def test_stale_ip_pruning(self):
+        """Stale IPs should be pruned after 5 minutes"""
+        import time
+        rate_limit_store.clear()
+
+        # Add an old entry
+        rate_limit_store["old-ip"] = [time.time() - 120]  # 2 minutes old (outside 60s window)
+
+        # Force prune by setting _last_prune to long ago
+        auth_module._last_prune = 0.0
+
+        # This call should trigger pruning and then succeed
+        result = check_rate_limit("new-ip")
+
+        assert result is True
+        assert "old-ip" not in rate_limit_store
+
+
+class TestDecodeTokenEdgeCases:
+
+    def test_expired_token(self):
+        """Expired token should return None"""
+        import jwt as pyjwt
+        from datetime import datetime, timedelta, timezone
+
+        payload = {
+            "sub": "1",
+            "username": "test",
+            "exp": datetime.now(timezone.utc) - timedelta(hours=1),
+            "iat": datetime.now(timezone.utc) - timedelta(hours=2),
+        }
+        token = pyjwt.encode(payload, get_secret_key(), algorithm="HS256")
+
+        result = decode_token(token)
+        assert result is None
+
+
+class TestGetCurrentUserEdgeCases:
+
+    @pytest.mark.asyncio
+    async def test_token_missing_sub(self, db_session):
+        """Token with no 'sub' field should fail"""
+        import jwt as pyjwt
+        from unittest.mock import Mock
+        from fastapi import HTTPException
+
+        payload = {"username": "test", "exp": 9999999999, "iat": 1700000000}
+        token = pyjwt.encode(payload, get_secret_key(), algorithm="HS256")
+
+        creds = Mock()
+        creds.credentials = token
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(credentials=creds, db=db_session)
+        assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_inactive_user_via_token(self, db_session):
+        """Token for inactive user should fail"""
+        from unittest.mock import Mock
+        from fastapi import HTTPException
+
+        # Create an inactive user
+        user = User(
+            username="inactive_test",
+            password_hash=hash_password("testpass"),
+            is_active=False,
+        )
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+
+        token, _ = create_access_token(user.id, user.username)
+        creds = Mock()
+        creds.credentials = token
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(credentials=creds, db=db_session)
+        assert exc_info.value.status_code == 401
+
+
+class TestGetOptionalUser:
+
+    @pytest.mark.asyncio
+    async def test_no_credentials(self, db_session):
+        result = await get_optional_user(credentials=None, db=db_session)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_invalid_token(self, db_session):
+        from unittest.mock import Mock
+        creds = Mock()
+        creds.credentials = "bad.token.here"
+
+        result = await get_optional_user(credentials=creds, db=db_session)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_valid_token(self, db_session, sample_user):
+        from unittest.mock import Mock
+        token, _ = create_access_token(sample_user.id, sample_user.username)
+        creds = Mock()
+        creds.credentials = token
+
+        result = await get_optional_user(credentials=creds, db=db_session)
+        assert result is not None
+        assert result.username == "testuser"
