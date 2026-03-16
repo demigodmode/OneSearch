@@ -6,13 +6,18 @@ Tests for scheduler service
 """
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import patch
+from unittest.mock import patch, Mock, MagicMock
+import threading
 
 from app.services.scheduler import (
     validate_schedule,
     resolve_cron,
     calculate_next_run_time,
     SCHEDULE_PRESETS,
+    SchedulerService,
+    get_source_lock,
+    _indexing_locks,
+    _locks_lock,
 )
 
 
@@ -150,3 +155,204 @@ class TestSchedulePresetsConsistency:
         result = calculate_next_run_time(preset)
         assert result is not None
         assert isinstance(result, datetime)
+
+
+class TestGetSourceLock:
+
+    def test_returns_lock(self):
+        lock = get_source_lock("lock-test-1")
+        assert hasattr(lock, "acquire") and hasattr(lock, "release")
+
+    def test_same_lock_for_same_id(self):
+        a = get_source_lock("lock-test-2")
+        b = get_source_lock("lock-test-2")
+        assert a is b
+
+    def test_different_locks_for_different_ids(self):
+        a = get_source_lock("lock-test-3")
+        b = get_source_lock("lock-test-4")
+        assert a is not b
+
+
+class TestSchedulerService:
+
+    @pytest.fixture
+    def mock_engine(self):
+        return Mock()
+
+    @pytest.fixture
+    def svc(self, mock_engine):
+        return SchedulerService(mock_engine)
+
+    def test_start_disabled(self, svc, monkeypatch):
+        from app.config import settings
+        monkeypatch.setattr(settings, "scheduler_enabled", False)
+
+        svc.start()
+
+        assert svc.scheduler is None
+
+    @patch("app.services.scheduler.BackgroundScheduler")
+    def test_start_enabled(self, MockScheduler, svc, monkeypatch):
+        from app.config import settings
+        monkeypatch.setattr(settings, "scheduler_enabled", True)
+
+        mock_sched = MockScheduler.return_value
+        # _sync_all_jobs needs a session factory, mock it
+        svc._session_factory = Mock(return_value=Mock(
+            query=Mock(return_value=Mock(
+                filter=Mock(return_value=Mock(all=Mock(return_value=[])))
+            )),
+            close=Mock(),
+        ))
+
+        svc.start()
+
+        assert svc.scheduler is mock_sched
+        mock_sched.start.assert_called_once()
+
+    def test_shutdown_running(self, svc):
+        svc.scheduler = Mock()
+        svc.scheduler.running = True
+
+        svc.shutdown()
+
+        svc.scheduler.shutdown.assert_called_once_with(wait=False)
+
+    def test_shutdown_not_running(self, svc):
+        svc.scheduler = None
+
+        # Should not raise
+        svc.shutdown()
+
+    def test_update_source_schedule_add(self, svc):
+        mock_sched = Mock()
+        mock_sched.running = True
+        mock_job = Mock()
+        mock_job.next_run_time = datetime.now(timezone.utc)
+        mock_sched.get_job.return_value = mock_job
+        svc.scheduler = mock_sched
+
+        mock_db = Mock()
+        mock_source = Mock()
+        mock_db.get.return_value = mock_source
+        svc._session_factory = Mock(return_value=mock_db)
+
+        svc.update_source_schedule("src1", "@hourly")
+
+        mock_sched.add_job.assert_called_once()
+
+    def test_update_source_schedule_clear(self, svc):
+        mock_sched = Mock()
+        mock_sched.running = True
+        svc.scheduler = mock_sched
+
+        mock_db = Mock()
+        mock_source = Mock()
+        mock_db.get.return_value = mock_source
+        svc._session_factory = Mock(return_value=mock_db)
+
+        svc.update_source_schedule("src1", None)
+
+        mock_sched.remove_job.assert_called_once_with("index-src1")
+
+    def test_update_source_schedule_not_running(self, svc):
+        svc.scheduler = None
+
+        # Should not raise
+        svc.update_source_schedule("src1", "@daily")
+
+    @patch("app.services.scheduler.meili_service")
+    @patch("app.services.scheduler.IndexingService")
+    def test_run_indexing_job_success(self, MockIndexingService, mock_meili, svc):
+        mock_db = Mock()
+        mock_source = Mock()
+        mock_source.name = "Test"
+        mock_db.get.return_value = mock_source
+        svc._session_factory = Mock(return_value=mock_db)
+
+        mock_stats = Mock()
+        mock_stats.successful = 5
+        mock_stats.failed = 0
+        MockIndexingService.return_value.index_source = Mock(return_value=mock_stats)
+
+        svc.scheduler = Mock()
+        mock_job = Mock()
+        mock_job.next_run_time = datetime.now(timezone.utc)
+        svc.scheduler.get_job.return_value = mock_job
+
+        # Need to make run_until_complete work with the mock
+        with patch("asyncio.new_event_loop") as mock_loop_factory:
+            mock_loop = Mock()
+            mock_loop.run_until_complete.return_value = mock_stats
+            mock_loop_factory.return_value = mock_loop
+
+            svc._run_indexing_job("src1")
+
+        mock_db.commit.assert_called()
+        mock_db.close.assert_called()
+
+    @patch("app.services.scheduler.meili_service")
+    def test_run_indexing_job_source_not_found(self, mock_meili, svc):
+        mock_db = Mock()
+        mock_db.get.return_value = None
+        svc._session_factory = Mock(return_value=mock_db)
+
+        svc._run_indexing_job("missing-src")
+
+        # Should return without error
+        mock_db.close.assert_called()
+
+    def test_run_indexing_job_already_locked(self, svc):
+        lock = get_source_lock("locked-src")
+        lock.acquire()  # Lock it first
+
+        mock_db = Mock()
+        svc._session_factory = Mock(return_value=mock_db)
+
+        try:
+            svc._run_indexing_job("locked-src")
+        finally:
+            lock.release()
+
+        # DB session should NOT have been created since lock was held
+        svc._session_factory.assert_not_called()
+
+    def test_remove_source(self, svc):
+        mock_sched = Mock()
+        mock_sched.running = True
+        svc.scheduler = mock_sched
+
+        # Pre-populate lock
+        with _locks_lock:
+            _indexing_locks["rm-src"] = threading.Lock()
+
+        svc.remove_source("rm-src")
+
+        mock_sched.remove_job.assert_called_once_with("index-rm-src")
+        assert "rm-src" not in _indexing_locks
+
+    def test_remove_source_scheduler_not_running(self, svc):
+        svc.scheduler = None
+
+        # Should not raise
+        svc.remove_source("any-src")
+
+    def test_sync_all_jobs_cleans_stale(self, svc):
+        mock_sched = Mock()
+        mock_sched.running = True
+        svc.scheduler = mock_sched
+
+        # No sources have schedules
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.all.return_value = []
+        svc._session_factory = Mock(return_value=mock_db)
+
+        # But scheduler has a stale job
+        stale_job = Mock()
+        stale_job.id = "index-deleted-source"
+        mock_sched.get_jobs.return_value = [stale_job]
+
+        svc._sync_all_jobs()
+
+        mock_sched.remove_job.assert_called_once_with("index-deleted-source")
