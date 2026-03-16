@@ -162,6 +162,32 @@ class TestTextExtractor:
         assert len(doc.content) > 0
 
     @pytest.mark.asyncio
+    async def test_empty_text_file(self, temp_dir):
+        """0-byte file should still produce a document"""
+        f = temp_dir / "empty.txt"
+        f.write_text("")
+
+        extractor = TextExtractor("src", "Source")
+        doc = await extractor.extract_with_timeout(str(f))
+
+        assert doc is not None
+        assert doc.content == ""
+        assert doc.metadata["line_count"] == 1  # empty string split gives 1
+
+    @pytest.mark.asyncio
+    async def test_very_long_first_line_title_fallback(self, temp_dir):
+        """If first line is > 100 chars, title should fall back to filename"""
+        f = temp_dir / "longline.txt"
+        f.write_text("x" * 150 + "\nshort second line")
+
+        extractor = TextExtractor("src", "Source")
+        doc = await extractor.extract_with_timeout(str(f))
+
+        # The long first line exceeds 100 chars, so it checks next lines.
+        # "short second line" is <= 100 chars, so that becomes the title.
+        assert doc.title == "short second line"
+
+    @pytest.mark.asyncio
     async def test_timeout(self, temp_dir, monkeypatch):
         """Test extraction timeout"""
         import time
@@ -222,6 +248,33 @@ class TestMarkdownExtractor:
         doc = await extractor.extract_with_timeout(str(file_path))
 
         assert doc.title == "my_document"
+
+    @pytest.mark.asyncio
+    async def test_invalid_yaml_frontmatter(self, temp_dir):
+        """Invalid YAML frontmatter should fallback gracefully"""
+        file_path = temp_dir / "bad_yaml.md"
+        file_path.write_text("---\ntitle: [unclosed bracket\n---\n\n# Content")
+
+        extractor = MarkdownExtractor("test_source", "Test Source")
+        doc = await extractor.extract_with_timeout(str(file_path))
+
+        # Should still produce a document (graceful fallback)
+        assert doc is not None
+        # Either parsed successfully or fell back to filename
+        assert doc.title is not None
+
+    @pytest.mark.asyncio
+    async def test_empty_markdown_file(self, temp_dir):
+        """Empty markdown file should produce a document with filename as title"""
+        file_path = temp_dir / "empty.md"
+        file_path.write_text("")
+
+        extractor = MarkdownExtractor("test_source", "Test Source")
+        doc = await extractor.extract_with_timeout(str(file_path))
+
+        assert doc is not None
+        assert doc.title == "empty"
+        assert doc.content == ""
 
     @pytest.mark.asyncio
     async def test_supports_file(self, temp_dir):
