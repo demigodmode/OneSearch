@@ -27,11 +27,11 @@ interface ThemeContextType {
 }
 
 export const PRESETS: ThemePreset[] = [
-  { id: 'amber',   name: 'Amber',   brandH: 38,  brandS: 92, brandL: 58, bgH: 28  },
-  { id: 'indigo',  name: 'Indigo',  brandH: 248, brandS: 70, brandL: 65, bgH: 242 },
-  { id: 'violet',  name: 'Violet',  brandH: 270, brandS: 72, brandL: 62, bgH: 264 },
-  { id: 'emerald', name: 'Emerald', brandH: 152, brandS: 60, brandL: 45, bgH: 142 },
-  { id: 'rose',    name: 'Rose',    brandH: 350, brandS: 89, brandL: 60, bgH: 340 },
+  { id: 'amber',  name: 'Amber',  brandH: 38,  brandS: 92, brandL: 58, bgH: 28  },
+  { id: 'indigo', name: 'Indigo', brandH: 248, brandS: 70, brandL: 65, bgH: 242 },
+  { id: 'cyan',   name: 'Cyan',   brandH: 192, brandS: 78, brandL: 50, bgH: 200 },
+  { id: 'teal',   name: 'Teal',   brandH: 174, brandS: 66, brandL: 44, bgH: 180 },
+  { id: 'rose',   name: 'Rose',   brandH: 350, brandS: 89, brandL: 60, bgH: 340 },
 ]
 
 const DEFAULT_PRESET = PRESETS[0] // Amber

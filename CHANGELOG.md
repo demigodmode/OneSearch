@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Accent color theming** — 5 built-in presets (Amber, Indigo, Violet, Emerald, Rose) plus a custom hue slider. Pick your accent in Admin → Settings. Choice persists to localStorage and applies before first paint (no flash on reload).
+- **Accent color theming** — 5 built-in presets (Amber, Indigo, Cyan, Teal, Rose) plus a custom hue slider. Pick your accent in Admin → Settings. Choice persists to localStorage and applies before first paint (no flash on reload).
 
 ---
 
