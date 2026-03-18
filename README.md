@@ -6,100 +6,77 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/demigodmode/onesearch)](https://hub.docker.com/r/demigodmode/onesearch)
 [![Documentation](https://readthedocs.org/projects/onesearch/badge/?version=latest)](https://onesearch.readthedocs.io)
 
-Self-hosted, privacy-focused search for your homelab.
+Search your homelab like you search the web.
 
-Search across all your files, documents, and notes from a single interface. No cloud dependencies, no telemetry, just fast local search.
+OneSearch indexes your local directories, NAS shares, and external drives and gives you instant full-text search from a browser. No cloud, no telemetry, runs in Docker.
 
----
-
-## Features
-
-- Fast full-text search powered by Meilisearch
-- Multiple file types: text, code, config, markdown, PDF, and Office documents (Word, Excel, PowerPoint)
-- Index local directories, NAS shares, or external drives
-- Incremental indexing (only changed files get reindexed)
-- Scheduled indexing with per-source cron schedules
-- JWT authentication with setup wizard and rate limiting
-- Document preview with syntax highlighting
-- Web UI, REST API, and CLI
-- Privacy first - all data stays local
+![OneSearch search results](assets/screenshots/search_results.png)
 
 ---
 
 ## Quick Start
 
 ```bash
-# Create project directory
 mkdir onesearch && cd onesearch
-
-# Download configuration
 curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/docker-compose.yml
 curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/.env.example
 cp .env.example .env
+```
 
-# Generate Meilisearch key
-openssl rand -base64 32
-# Add to .env: MEILI_MASTER_KEY=your-key-here
+Edit `.env` and set `MEILI_MASTER_KEY` to a random string (`openssl rand -base64 32` works).
 
-# Edit docker-compose.yml to use pre-built image:
-# image: ghcr.io/demigodmode/onesearch:latest
-
-# Start OneSearch
+```bash
 docker-compose up -d
 ```
 
-Open http://localhost:8000 and start searching.
+Open http://localhost:8000, run through the setup wizard, add a directory as a source, and start searching.
 
-**For detailed installation instructions, see the [documentation](https://onesearch.readthedocs.io/en/latest/getting-started/installation/).**
+Full setup guide: [onesearch.readthedocs.io](https://onesearch.readthedocs.io/en/latest/getting-started/installation/)
+
+---
+
+## What it indexes
+
+| Type | Formats |
+|------|---------|
+| Documents | PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx) |
+| Markdown | .md, .markdown |
+| Code | .py, .js, .ts, .go, .rs, .java, .c, .cpp, .sh, .sql, [and more](https://onesearch.readthedocs.io/en/latest/supported-formats/text-files/) |
+| Config | .yaml, .toml, .json, .xml, .ini, .env, [and more](https://onesearch.readthedocs.io/en/latest/supported-formats/text-files/) |
+| Text | .txt, .log |
+
+Incremental indexing so only changed files get reindexed. Per-source cron schedules so your NAS gets scanned daily without thinking about it.
+
+---
+
+## Screenshots
+
+Document preview with metadata and syntax highlighting:
+
+![Document preview](assets/screenshots/document_preview.png)
+
+Admin panel - indexing status across all sources:
+
+![Admin status](assets/screenshots/admin_status.png)
+
+Accent color theming - pick what feels like yours:
+
+![Admin settings](assets/screenshots/admin_settings.png)
 
 ---
 
 ## Documentation
 
-Full documentation is available on ReadTheDocs:
+**[onesearch.readthedocs.io](https://onesearch.readthedocs.io)**
 
-**[https://onesearch.readthedocs.io](https://onesearch.readthedocs.io)**
-
-- [Installation Guide](https://onesearch.readthedocs.io/en/latest/getting-started/installation/) - Detailed setup instructions
-- [User Guide](https://onesearch.readthedocs.io/en/latest/user-guide/) - Adding sources, searching, and managing your index
-- [CLI Documentation](https://onesearch.readthedocs.io/en/latest/cli/) - Command-line interface reference
-- [API Reference](https://onesearch.readthedocs.io/en/latest/api/) - REST API documentation
-- [Development Guide](https://onesearch.readthedocs.io/en/latest/development/) - Contributing and architecture
-
----
-
-## Supported File Types
-
-| Type | Extensions |
-|------|------------|
-| Text | .txt, .log |
-| Code | .py, .js, .ts, .go, .rs, .java, .c, .cpp, .sh, .sql, [and more](https://onesearch.readthedocs.io/en/latest/supported-formats/text-files/) |
-| Config | .yaml, .toml, .json, .xml, .ini, .env, [and more](https://onesearch.readthedocs.io/en/latest/supported-formats/text-files/) |
-| Markdown | .md, .markdown |
-| PDF | .pdf |
-| Word | .docx |
-| Excel | .xlsx |
-| PowerPoint | .pptx |
-
----
-
-## Architecture
-
-OneSearch is built on modern, proven technologies:
-
-- **Backend**: FastAPI (Python) with async support
-- **Search**: Meilisearch for fast full-text search
-- **Database**: SQLite for metadata
-- **Frontend**: React + TypeScript
-- **Deployment**: Docker Compose
-
-See the [Architecture Guide](https://onesearch.readthedocs.io/en/latest/development/architecture/) for details.
+- [Installation Guide](https://onesearch.readthedocs.io/en/latest/getting-started/installation/)
+- [User Guide](https://onesearch.readthedocs.io/en/latest/user-guide/)
+- [CLI Reference](https://onesearch.readthedocs.io/en/latest/cli/)
+- [API Reference](https://onesearch.readthedocs.io/en/latest/api/)
 
 ---
 
 ## Development
-
-Want to contribute?
 
 ```bash
 git clone https://github.com/demigodmode/OneSearch.git
@@ -112,18 +89,12 @@ See the [Development Guide](https://onesearch.readthedocs.io/en/latest/developme
 
 ## License
 
-Licensed under [AGPL-3.0](LICENSE). You can freely use, modify, and distribute OneSearch. If you deploy a modified version as a network service, you must make your source code available.
-
-See the [License Documentation](https://onesearch.readthedocs.io/en/latest/about/license/) for details.
+[AGPL-3.0](LICENSE). Free to use, modify, and distribute. If you deploy a modified version as a network service, source must be made available.
 
 ---
 
 ## Support
 
-- [Documentation](https://onesearch.readthedocs.io) - Full guides and references
-- [GitHub Issues](https://github.com/demigodmode/OneSearch/issues) - Bug reports and feature requests
-- [GitHub Discussions](https://github.com/demigodmode/OneSearch/discussions) - Questions and ideas
-
----
-
-**Built with Python, FastAPI, Meilisearch, React, TypeScript, Docker**
+- [GitHub Issues](https://github.com/demigodmode/OneSearch/issues) - bugs and feature requests
+- [GitHub Discussions](https://github.com/demigodmode/OneSearch/discussions) - questions and ideas
+- [Documentation](https://onesearch.readthedocs.io) - guides and reference
