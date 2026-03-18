@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Accent color theming** — 5 built-in presets (Amber, Indigo, Cyan, Teal, Rose) plus a custom hue slider. Pick your accent in Admin → Settings. Choice persists to localStorage and applies before first paint (no flash on reload).
+- **Accent color theming** - OneSearch has now cycled through cyan, indigo, and amber in the span of three releases. Rather than shipping a fourth opinion, this release lets you pick. Five presets (Amber, Indigo, Cyan, Teal, Rose) plus a 0-360 hue slider for the truly indecisive. Find it in Admin -> Settings. Choice persists to localStorage and is applied before first paint via an inline script, so no amber flash if you're an indigo person.
 
 ---
 
