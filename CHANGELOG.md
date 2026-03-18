@@ -5,6 +5,14 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Accent color theming** - OneSearch has now cycled through cyan, indigo, and amber in the span of three releases. Rather than shipping a fourth opinion, this release lets you pick. Five presets (Amber, Indigo, Cyan, Teal, Rose) plus a 0-360 hue slider for the truly indecisive. Find it in Admin -> Settings. Choice persists to localStorage and is applied before first paint via an inline script, so no amber flash if you're an indigo person.
+
+---
+
 ## [0.9.1] - 2026-03-14
 
 ### Changed

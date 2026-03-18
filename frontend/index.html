@@ -14,6 +14,20 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function () {
+        try {
+          var t = JSON.parse(localStorage.getItem('onesearch-theme'));
+          if (t) {
+            var r = document.documentElement.style;
+            r.setProperty('--brand-h', t.brandH);
+            r.setProperty('--brand-s', t.brandS + '%');
+            r.setProperty('--brand-l', t.brandL + '%');
+            r.setProperty('--bg-h', t.bgH);
+          }
+        } catch (e) {}
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

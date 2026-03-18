@@ -4,12 +4,14 @@
 import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import MainLayout from './components/MainLayout'
 import AdminLayout from './components/AdminLayout'
 import SearchPage from './pages/SearchPage'
 import SourcesPage from './pages/admin/SourcesPage'
 import StatusPage from './pages/admin/StatusPage'
+import SettingsPage from './pages/admin/SettingsPage'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
 
@@ -18,6 +20,7 @@ const DocumentPage = lazy(() => import('./pages/DocumentPage'))
 
 function App() {
   return (
+    <ThemeProvider>
     <AuthProvider>
       <Routes>
         {/* Public auth routes */}
@@ -49,12 +52,14 @@ function App() {
           <Route index element={<Navigate to="/admin/sources" replace />} />
           <Route path="sources" element={<SourcesPage />} />
           <Route path="status" element={<StatusPage />} />
+          <Route path="settings" element={<SettingsPage />} />
         </Route>
 
         {/* Catch-all 404 */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AuthProvider>
+    </ThemeProvider>
   )
 }
 
