@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Search, Database, Activity, ArrowLeft, Terminal, LogOut, User } from 'lucide-react'
+import { Search, Database, Activity, ArrowLeft, Terminal, LogOut, User, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 
 const adminNavItems = [
-  { path: '/admin/sources', label: 'Sources', icon: Database },
-  { path: '/admin/status', label: 'Status', icon: Activity },
+  { path: '/admin/sources',  label: 'Sources',  icon: Database  },
+  { path: '/admin/status',   label: 'Status',   icon: Activity  },
+  { path: '/admin/settings', label: 'Settings', icon: Settings  },
 ]
 
 export default function AdminLayout() {
