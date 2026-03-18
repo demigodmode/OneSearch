@@ -5,6 +5,14 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Accent color theming** — 5 built-in presets (Amber, Indigo, Violet, Emerald, Rose) plus a custom hue slider. Pick your accent in Admin → Settings. Choice persists to localStorage and applies before first paint (no flash on reload).
+
+---
+
 ## [0.9.1] - 2026-03-14
 
 ### Changed
