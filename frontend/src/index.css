@@ -15,40 +15,46 @@
      Warm-tinted near-black, amber accent
      ═══════════════════════════════════════════════════════════════ */
   :root {
+    /* Theme vars — JS-writable for live accent switching */
+    --brand-h: 38;
+    --brand-s: 92%;
+    --brand-l: 58%;
+    --bg-h: 28;
+
     /* Base — warm-tinted blacks */
-    --background: 28 10% 7%;
-    --foreground: 28 10% 92%;
+    --background: var(--bg-h) 10% 7%;
+    --foreground: var(--bg-h) 10% 92%;
 
     /* Surfaces */
-    --card: 28 8% 11%;
-    --card-foreground: 28 10% 92%;
-    --popover: 28 8% 11%;
-    --popover-foreground: 28 10% 92%;
+    --card: var(--bg-h) 8% 11%;
+    --card-foreground: var(--bg-h) 10% 92%;
+    --popover: var(--bg-h) 8% 11%;
+    --popover-foreground: var(--bg-h) 10% 92%;
 
     /* Primary — amber */
-    --primary: 38 92% 58%;
+    --primary: var(--brand-h) var(--brand-s) var(--brand-l);
     --primary-foreground: 28 50% 8%;
 
     /* Secondary */
-    --secondary: 28 6% 15%;
-    --secondary-foreground: 28 10% 92%;
+    --secondary: var(--bg-h) 6% 15%;
+    --secondary-foreground: var(--bg-h) 10% 92%;
 
     /* Muted — warm-tinted grays */
-    --muted: 28 6% 15%;
-    --muted-foreground: 28 6% 55%;
+    --muted: var(--bg-h) 6% 15%;
+    --muted-foreground: var(--bg-h) 6% 55%;
 
     /* Accent */
-    --accent: 28 6% 15%;
-    --accent-foreground: 28 10% 92%;
+    --accent: var(--bg-h) 6% 15%;
+    --accent-foreground: var(--bg-h) 10% 92%;
 
     /* Destructive */
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
 
     /* Borders & inputs */
-    --border: 28 6% 19%;
-    --input: 28 6% 19%;
-    --ring: 38 92% 58%;
+    --border: var(--bg-h) 6% 19%;
+    --input: var(--bg-h) 6% 19%;
+    --ring: var(--brand-h) var(--brand-s) var(--brand-l);
 
     /* Radius */
     --radius: 0.625rem;
@@ -56,7 +62,7 @@
     /* ═══════════════════════════════════════════════════════════
        SEMANTIC COLORS
        ═══════════════════════════════════════════════════════════ */
-    --brand: 38 92% 58%;
+    --brand: var(--brand-h) var(--brand-s) var(--brand-l);
     --brand-foreground: 28 50% 8%;
 
     --success: 142 60% 45%;
