@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## Latest Release
 
+**v0.10.0** - 2026-03-18
+
+After cycling through cyan, indigo, and amber across three versions, decided to just let you pick. Five accent color presets (Amber, Indigo, Cyan, Teal, Rose) plus a custom hue slider in Admin -> Settings. Choice persists to localStorage with no flash on reload.
+
 **v0.9.1** - 2026-03-14
 
 Brand color switched to amber with warm-tinted backgrounds.

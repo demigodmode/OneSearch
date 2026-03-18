@@ -10,7 +10,7 @@ Search across all your files, documents, and notes from a single interface. No c
 
 **Fast full-text search** with typo tolerance and relevance ranking. OneSearch uses Meilisearch under the hood, so searches are typically sub-second even with millions of documents.
 
-**Multiple file types supported**: text files, markdown, PDFs, and Microsoft Office documents (Word, Excel, PowerPoint).
+**Multiple file types supported**: text files, code (.py, .js, .go, .rs and more), config files (.yaml, .toml, .json, .env and more), markdown, PDFs, and Microsoft Office documents (Word, Excel, PowerPoint).
 
 **Multiple sources**: Index local directories, NAS shares, or external drives. Each source can have its own include/exclude patterns.
 
@@ -21,6 +21,8 @@ Search across all your files, documents, and notes from a single interface. No c
 **Authentication**: JWT-based login with a setup wizard. Rate-limited to prevent brute force.
 
 **Three ways to use it**: Web UI for browsing and searching, REST API for integrations, and CLI for automation.
+
+**Themeable**: pick an accent color preset or dial in a custom hue from Admin -> Settings. Persists across reloads.
 
 **Privacy first**: Everything runs locally. No outbound connections, no telemetry, no cloud services. Your data never leaves your network.
 
@@ -54,7 +56,7 @@ For detailed setup instructions, see the [Installation Guide](getting-started/in
 
 ## What's New
 
-v0.9.1 is the current stable release. The v0.9.x series focused on a full UI redesign -- cleaner layout, container queries, lazy-loaded document preview, and an amber accent palette. v0.8.0 added code and config file types with search filtering.
+v0.10.0 is the current stable release. After cycling through cyan, indigo, and amber across three versions, v0.10.0 adds user-selectable accent color theming -- 5 presets plus a custom hue slider in Admin -> Settings. v0.9.x focused on a full UI redesign and v0.8.0 added code and config file types.
 
 Check the [Changelog](about/changelog.md) for details.
 
