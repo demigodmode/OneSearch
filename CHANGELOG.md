@@ -5,6 +5,21 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Search settings** - configurable results per page, sort order, snippet length, display density, and metadata visibility. All preferences persist to localStorage. New "Search" section in Admin -> Settings with segmented buttons, toggles, and a sort dropdown.
+- **Keyboard shortcuts** - `/` or `Ctrl+K` (`Cmd+K` on Mac) to focus search, `Escape` to clear or blur, arrow keys to navigate results, `Enter` to open. Shortcut hint in the search box now shows the correct modifier for your OS.
+- **Backend sort and snippet length** - search API accepts `sort` (validated against allowed fields) and `snippet_length` (50-1000) parameters. Sort is passed through to Meilisearch; snippet length controls both the crop and the response truncation.
+
+### Fixed
+
+- **Search box focus ring** - removed the 1px spread that was overlapping the search icon. Focus state now uses only the soft glow.
+- **Flaky timestamp test** - `test_update_source_success` was comparing `updated_at != created_at`, which fails when both happen within the same millisecond. Changed to `>=`.
+
+---
+
 ## [0.10.0] - 2026-03-18
 
 ### Added
