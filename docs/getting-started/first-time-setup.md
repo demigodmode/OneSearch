@@ -4,7 +4,7 @@ After installing OneSearch, you'll go through a quick setup wizard, then you can
 
 ## Setup Wizard
 
-When you first open OneSearch at http://localhost:8000, you'll be greeted by a setup wizard that asks you to create an admin account. Pick a username and password — this is what you'll use to log in going forward.
+When you first open OneSearch at http://localhost:8000, you'll be greeted by a setup wizard that asks you to create an admin account. Pick a username and password. That's what you'll use to log in.
 
 Once that's done, you're taken to the login page. Log in with the credentials you just created.
 

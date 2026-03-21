@@ -12,9 +12,9 @@ Monitor OneSearch system status. Status endpoints require authentication; the he
 
 The status response includes per-source details with scheduling information:
 
-- `scan_schedule` — The source's cron schedule (e.g., `@daily`, `0 */6 * * *`), or `null` for manual-only
-- `last_scan_at` — When the last scheduled or manual scan completed
-- `next_scan_at` — When the next scheduled scan will run
+- `scan_schedule`: the source's cron schedule (e.g., `@daily`, `0 */6 * * *`), or `null` for manual-only
+- `last_scan_at`: when the last scheduled or manual scan completed
+- `next_scan_at`: when the next scheduled scan will run
 
 ## Example
 

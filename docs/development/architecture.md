@@ -57,7 +57,7 @@ Indexing and search:
    - Update `indexed_files` table with metadata
 6. Search queries go to Meilisearch, which returns results with highlighted snippets
 
-Reindexing a large library is slow, so OneSearch tracks file metadata in SQLite and only processes files that changed. Each file type has its own extractor (text, markdown, PDF, Office docs) that returns the same normalized document structure. Meilisearch handles search — typo tolerance and relevance ranking out of the box.
+Reindexing a large library is slow, so OneSearch tracks file metadata in SQLite and only processes files that changed. Each file type has its own extractor (text, markdown, PDF, Office docs) that returns the same normalized document structure. Meilisearch handles search: typo tolerance and relevance ranking out of the box.
 
 ---
 
@@ -174,7 +174,7 @@ backend/app/
     └── database.py      # SQLAlchemy setup
 ```
 
-API routes are thin handlers — business logic lives in services, models stay separate from request schemas. FastAPI's DI system injects database sessions into route handlers.
+API routes are thin handlers. Business logic lives in services, models stay separate from request schemas. FastAPI's DI system injects database sessions into route handlers.
 
 ---
 

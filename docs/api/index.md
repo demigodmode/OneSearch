@@ -266,7 +266,7 @@ curl http://localhost:8000/api/status \
 
 ## Rate Limiting
 
-The login endpoint (`POST /api/auth/login`) is rate-limited to prevent brute force attacks. Default is 5 attempts per minute, configurable via `AUTH_RATE_LIMIT`. Other endpoints don't have rate limiting — use reasonable request rates for bulk operations.
+The login endpoint (`POST /api/auth/login`) is rate-limited to prevent brute force attacks. Default is 5 attempts per minute, configurable via `AUTH_RATE_LIMIT`. Other endpoints don't have rate limiting; use reasonable request rates for bulk operations.
 
 ---
 

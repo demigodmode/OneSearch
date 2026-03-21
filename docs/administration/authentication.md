@@ -4,7 +4,7 @@ OneSearch uses JWT-based authentication. Every request to the API (except the se
 
 ## Setup Wizard
 
-The first time you open OneSearch, you'll see a setup wizard asking you to create an admin account. Pick a username and password, and that's it — you're the admin.
+The first time you open OneSearch, you'll see a setup wizard asking you to create an admin account. Pick a username and password, and you're the admin.
 
 This only works once. After the initial account is created, the setup endpoint is disabled. If you need to reset your credentials, you'll need to clear the `users` table in the database.
 
@@ -42,22 +42,22 @@ curl http://localhost:8000/api/sources \
 
 Three environment variables control auth behavior:
 
-**SESSION_SECRET** — The key used to sign JWT tokens. If you don't set this, a hardcoded fallback is used and you'll see a warning in the logs. Fine for development, but set a proper secret for anything else.
+**SESSION_SECRET**: The key used to sign JWT tokens. If you don't set this, a hardcoded fallback is used and you'll see a warning in the logs. Fine for development, but set a proper secret for anything else.
 
 ```bash
 # Generate a good secret
 openssl rand -base64 32
 ```
 
-**SESSION_EXPIRE_HOURS** — How long tokens last before you need to log in again. Default is 24 hours.
+**SESSION_EXPIRE_HOURS**: How long tokens last before you need to log in again. Default is 24 hours.
 
-**AUTH_RATE_LIMIT** — Max failed login attempts per minute. Default is 5. After that, login requests get rejected with a 429 status until the window resets.
+**AUTH_RATE_LIMIT**: Max failed login attempts per minute. Default is 5. After that, login requests get rejected with a 429 status until the window resets.
 
 ## Rate Limiting
 
 The login endpoint is rate-limited to prevent brute force attacks. If someone (or something) hammers the login endpoint with bad credentials, they'll get locked out temporarily.
 
-This is a simple in-memory rate limiter — it resets when the server restarts. Good enough for a homelab, but if you're exposing OneSearch to the internet you should put it behind a reverse proxy with its own rate limiting too.
+This is a simple in-memory rate limiter. It resets when the server restarts. Good enough for a homelab, but if you're exposing OneSearch to the internet you should put it behind a reverse proxy with its own rate limiting too.
 
 ## Security Notes
 

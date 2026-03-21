@@ -6,9 +6,9 @@ OneSearch runs in Docker and can only index directories that are mounted into th
 
 ## How it works
 
-When you add a source in the UI, you give it a **container path** — the path as seen from inside the Docker container, not the path on your host machine. So if you mount `/mnt/nas` → `/nas` in your compose file, you'd enter `/nas` (or a subdirectory like `/nas/documents`) when adding the source.
+When you add a source in the UI, you give it a **container path**: the path as seen from inside the Docker container, not the path on your host machine. So if you mount `/mnt/nas` → `/nas` in your compose file, you'd enter `/nas` (or a subdirectory like `/nas/documents`) when adding the source.
 
-The mount has to exist before OneSearch starts. You can't add a path via the UI that hasn't been mounted — the container simply can't see it.
+The mount has to exist before OneSearch starts. You can't add a path via the UI that hasn't been mounted. The container can't see it.
 
 ---
 
@@ -27,7 +27,7 @@ services:
       - /mnt/external:/external:ro
 ```
 
-Then in the UI you can add `/nas/documents`, `/nas/photos`, `/external/backups/archive` — any subdirectory — without touching compose again.
+Then in the UI you can add any subdirectory under those mounts (`/nas/documents`, `/nas/photos`, `/external/backups/archive`, etc.) without touching compose again.
 
 Good fit for: NAS shares, external drives, organized data directories.
 
@@ -64,7 +64,7 @@ services:
       - /:/host:ro
 ```
 
-Then add any path via the UI using the `/host/` prefix — e.g. `/host/mnt/nas/documents`.
+Then add any path via the UI using the `/host/` prefix, e.g. `/host/mnt/nas/documents`.
 
 This is the most flexible setup but means the container can read everything on your host. Fine for a single-user homelab where you trust what's running, but worth knowing before you do it.
 

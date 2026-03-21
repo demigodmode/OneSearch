@@ -6,11 +6,11 @@ You can set up automatic scan schedules so your sources stay indexed without man
 
 When adding or editing a source in the web UI, you'll see a schedule picker with these options:
 
-- **Manual** — No automatic scanning. You trigger reindex yourself.
-- **Hourly** — Runs every hour on the hour (`0 * * * *`)
-- **Daily** — Runs at 2 AM (`0 2 * * *`)
-- **Weekly** — Runs at 2 AM on Sundays (`0 2 * * 0`)
-- **Custom** — Enter your own cron expression
+- **Manual**: No automatic scanning. You trigger reindex yourself.
+- **Hourly**: Runs every hour on the hour (`0 * * * *`)
+- **Daily**: Runs at 2 AM (`0 2 * * *`)
+- **Weekly**: Runs at 2 AM on Sundays (`0 2 * * 0`)
+- **Custom**: Enter your own cron expression
 
 The daily and weekly presets run at 2 AM to avoid interfering with daytime usage, but you can always use a custom cron if you prefer different timing.
 
@@ -40,7 +40,7 @@ Uses standard IANA timezone names.
 
 ## How It Works
 
-OneSearch uses APScheduler running in a background thread. Jobs are persisted in the database, so schedules survive restarts. When a scheduled job fires, it runs the same incremental indexing as a manual reindex — only changed files get processed.
+OneSearch uses APScheduler running in a background thread. Jobs are persisted in the database, so schedules survive restarts. When a scheduled job fires, it runs the same incremental indexing as a manual reindex. Only changed files get processed.
 
 If a source is already being indexed (from a manual trigger or another schedule run), the new run is skipped to avoid conflicts. You'll see a 409 response if you try to manually reindex while a scheduled run is in progress.
 
@@ -52,4 +52,4 @@ Via the API, check `scan_schedule`, `last_scan_at`, and `next_scan_at` fields on
 
 ## Disabling the Scheduler
 
-If you only want manual indexing, set `SCHEDULER_ENABLED=false` in your environment. This stops the background scheduler entirely — no scheduled jobs will run.
+If you only want manual indexing, set `SCHEDULER_ENABLED=false` in your environment. This stops the background scheduler entirely. No scheduled jobs will run.
