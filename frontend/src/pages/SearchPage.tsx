@@ -2,14 +2,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import type React from 'react'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Command, FileText, FileCode, File, Loader2, AlertCircle, ChevronLeft, ChevronRight, Eye } from 'lucide-react'
+import { Search, FileText, FileCode, File, Loader2, AlertCircle, ChevronLeft, ChevronRight, Eye } from 'lucide-react'
 import { useSearch, useSources } from '@/hooks/useApi'
+import { useSearchSettings, SNIPPET_LENGTH_MAP } from '@/contexts/SearchSettingsContext'
 import type { SearchResult } from '@/types/api'
 import { cn, sanitizeSnippet, formatSize, formatTimestamp } from '@/lib/utils'
 
-// Get file type icon
+const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform)
+
 function FileTypeIcon({ type }: { type: string }) {
   switch (type) {
     case 'markdown':
@@ -21,20 +23,35 @@ function FileTypeIcon({ type }: { type: string }) {
   }
 }
 
-// Result card component
 function ResultCard({
   result,
   index,
   onClick,
+  density,
+  showPath,
+  showSize,
+  showDate,
+  isSelected,
 }: {
   result: SearchResult
   index: number
   onClick: () => void
+  density: 'compact' | 'comfortable' | 'spacious'
+  showPath: boolean
+  showSize: boolean
+  showDate: boolean
+  isSelected: boolean
 }) {
+  const paddingClass = density === 'compact' ? 'p-2.5' : density === 'spacious' ? 'p-6' : 'p-4'
+
   return (
     <div
       onClick={onClick}
-      className="bg-card border border-border rounded-lg p-4 card-hover animate-fade-in-up animate-initial cursor-pointer group"
+      className={cn(
+        'bg-card border rounded-lg card-hover animate-fade-in-up animate-initial cursor-pointer group',
+        paddingClass,
+        isSelected ? 'border-brand/60 ring-1 ring-brand/30' : 'border-border',
+      )}
       style={{ animationDelay: `${100 + index * 50}ms`, animationFillMode: 'forwards' }}
     >
       <div className="flex items-start justify-between gap-4">
@@ -45,12 +62,14 @@ function ResultCard({
             </h3>
             <Eye className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
           </div>
-          <p className="text-sm text-muted-foreground font-mono truncate mb-2">
-            {result.path}
-          </p>
+          {showPath && (
+            <p className="text-sm text-muted-foreground font-mono truncate mb-2">
+              {result.path}
+            </p>
+          )}
           {result.snippet && (
             <p
-              className="text-sm text-muted-foreground line-clamp-2"
+              className={cn('text-sm text-muted-foreground', density === 'compact' ? 'line-clamp-1' : 'line-clamp-2')}
               dangerouslySetInnerHTML={{ __html: sanitizeSnippet(result.snippet) }}
             />
           )}
@@ -60,8 +79,8 @@ function ResultCard({
             <FileTypeIcon type={result.type} />
             <span className="font-mono uppercase">{result.type}</span>
           </div>
-          <span>{formatSize(result.size_bytes)}</span>
-          <span>{formatTimestamp(result.modified_at)}</span>
+          {showSize && <span>{formatSize(result.size_bytes)}</span>}
+          {showDate && <span>{formatTimestamp(result.modified_at)}</span>}
           <span className="text-brand text-xs">{result.source_name}</span>
         </div>
       </div>
@@ -77,57 +96,97 @@ export default function SearchPage() {
   const [sourceFilter, setSourceFilter] = useState<string>(searchParams.get('source') || '')
   const [typeFilter, setTypeFilter] = useState<string>(searchParams.get('type') || '')
   const [page, setPage] = useState(0)
+  const [selectedIndex, setSelectedIndex] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const limit = 20
+  const { settings } = useSearchSettings()
+  const limit = settings.resultsPerPage
+  const snippetLengthValue = SNIPPET_LENGTH_MAP[settings.snippetLength]
 
-  // Navigate to document detail page with search context
-  const handleViewDocument = (documentId: string) => {
+  const handleViewDocument = useCallback((documentId: string) => {
     const params = new URLSearchParams()
     if (debouncedQuery) params.set('q', debouncedQuery)
     if (sourceFilter) params.set('source', sourceFilter)
     if (typeFilter) params.set('type', typeFilter)
     const queryString = params.toString()
     navigate(`/document/${encodeURIComponent(documentId)}${queryString ? `?${queryString}` : ''}`)
-  }
+  }, [debouncedQuery, sourceFilter, typeFilter, navigate])
 
   // Debounce search query
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(query)
-      setPage(0) // Reset to first page on new search
+      setPage(0)
+      setSelectedIndex(-1)
     }, 300)
     return () => clearTimeout(timer)
   }, [query])
 
-  // Fetch sources for filter dropdown
   const { data: sources } = useSources()
 
-  // Search with current filters
-  const { data: searchData, isLoading, error } = useSearch({
+  const searchQuery = useMemo(() => ({
     q: debouncedQuery,
     source_id: sourceFilter || undefined,
     type: typeFilter || undefined,
     limit,
     offset: page * limit,
-  })
+    sort: settings.sortOrder !== 'relevance' ? settings.sortOrder : undefined,
+    snippet_length: snippetLengthValue,
+  }), [debouncedQuery, sourceFilter, typeFilter, limit, page, settings.sortOrder, snippetLengthValue])
 
-  // Keyboard shortcut: Ctrl+K or Cmd+K to focus search
+  const { data: searchData, isLoading, error } = useSearch(searchQuery)
+
+  // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl/Cmd+K to focus search
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
         inputRef.current?.focus()
+        return
+      }
+
+      // / to focus search (when not already in an input)
+      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement).tagName)) {
+        e.preventDefault()
+        inputRef.current?.focus()
+        return
+      }
+
+      // Escape to clear/blur
+      if (e.key === 'Escape' && document.activeElement === inputRef.current) {
+        if (query) {
+          setQuery('')
+        } else {
+          inputRef.current?.blur()
+        }
+        return
+      }
+
+      // Arrow key navigation through results
+      if (!searchData?.results.length) return
+      const resultCount = searchData.results.length
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedIndex(prev => Math.min(prev + 1, resultCount - 1))
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedIndex(prev => Math.max(prev - 1, -1))
+      } else if (e.key === 'Enter' && selectedIndex >= 0) {
+        e.preventDefault()
+        handleViewDocument(searchData.results[selectedIndex].id)
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  }, [query, searchData, selectedIndex, handleViewDocument])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     setDebouncedQuery(query)
     setPage(0)
+    setSelectedIndex(-1)
   }
 
   const totalPages = searchData ? Math.ceil(searchData.total / limit) : 0
@@ -159,9 +218,7 @@ export default function SearchPage() {
                 <Loader2 className="h-5 w-5 text-brand animate-spin mr-4" />
               )}
               <div className="hidden sm:flex items-center gap-1 mr-4">
-                <kbd className="kbd">
-                  <Command className="h-3 w-3" />
-                </kbd>
+                <kbd className="kbd">{isMac ? '⌘' : 'Ctrl'}</kbd>
                 <kbd className="kbd">K</kbd>
               </div>
             </div>
@@ -241,7 +298,6 @@ export default function SearchPage() {
               </div>
             </div>
           ) : error ? (
-            // Error state
             <div className="text-center py-12">
               <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
               <p className="text-foreground font-medium mb-2">Search failed</p>
@@ -250,7 +306,6 @@ export default function SearchPage() {
               </p>
             </div>
           ) : isLoading ? (
-            // Loading state
             <div className="space-y-4">
               <div className="flex items-center justify-between text-sm text-muted-foreground mb-4">
                 <span>Searching for "<span className="text-foreground">{debouncedQuery}</span>"...</span>
@@ -267,7 +322,6 @@ export default function SearchPage() {
               ))}
             </div>
           ) : hasResults ? (
-            // Results
             <div key={`${debouncedQuery}-${page}`} className="space-y-4 animate-fade-in animate-initial" style={{ animationFillMode: 'forwards' }}>
               <div className="flex items-center justify-between text-sm text-muted-foreground mb-4">
                 <span>
@@ -283,6 +337,11 @@ export default function SearchPage() {
                   result={result}
                   index={index}
                   onClick={() => handleViewDocument(result.id)}
+                  density={settings.density}
+                  showPath={settings.showPath}
+                  showSize={settings.showSize}
+                  showDate={settings.showDate}
+                  isSelected={index === selectedIndex}
                 />
               ))}
 
@@ -324,7 +383,6 @@ export default function SearchPage() {
               )}
             </div>
           ) : (
-            // No results
             <div className="text-center py-12">
               <Search className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <p className="text-foreground font-medium mb-2">No results found</p>

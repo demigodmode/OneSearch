@@ -86,6 +86,8 @@ export interface SearchQuery {
   type?: string
   limit?: number // 1-100, default 20
   offset?: number // default 0
+  sort?: string
+  snippet_length?: number // 50-1000, default 300
 }
 
 /**
