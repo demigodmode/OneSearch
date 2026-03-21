@@ -2,11 +2,11 @@
 
 OneSearch is under active development. Here's what's planned for future releases.
 
-**Current status**: Phase 1 complete (v0.7.0). Phase 2 in progress (v0.8.0--v0.9.x) -- UI redesign mostly done, theme system and E2E testing still open.
+**Current status**: Milestone 1 complete (v0.7.0). Milestone 2 in progress (v0.8.0--v0.9.x) -- UI redesign mostly done, theme system and E2E testing still open.
 
 ---
 
-## Phase 1 (Complete)
+## Milestone 1 (Complete)
 
 Released across v0.5.0--v0.7.0.
 
@@ -20,7 +20,7 @@ Released across v0.5.0--v0.7.0.
 
 ---
 
-## Phase 2 (In Progress)
+## Milestone 2 (In Progress)
 
 UI overhaul and polish. Started in v0.9.0.
 
@@ -54,7 +54,7 @@ UI overhaul and polish. Started in v0.9.0.
 
 ---
 
-## Phase 3
+## Milestone 3
 
 ### Cloud Storage
 
@@ -79,7 +79,7 @@ UI overhaul and polish. Started in v0.9.0.
 
 ---
 
-## Phase 4 & Beyond
+## Milestone 4 & Beyond
 
 Target: v1.0.0
 
@@ -142,7 +142,7 @@ All releases follow [Semantic Versioning](https://semver.org/).
 
 ## Stability & Backwards Compatibility
 
-### Phase 2 (Current)
+### Milestone 2 (Current)
 
 Core features are stable and production-ready. The API may change in minor releases (v0.x.0). Database migrations are handled automatically.
 

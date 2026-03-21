@@ -92,7 +92,7 @@ Full API access for custom integrations. All the web UI functionality is availab
 
 **Research library**: Full-text search across PDFs, academic papers, and research notes.
 
-**Media libraries**: Search file names and metadata across large collections (EXIF support coming in Phase 2).
+**Media libraries**: Search file names and metadata across large collections (EXIF support coming in Milestone 2).
 
 ---
 

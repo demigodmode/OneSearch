@@ -151,7 +151,7 @@ Hotfix for critical deployment bugs found during first real Proxmox CT install. 
 
 ## [0.7.0] - 2026-02-05
 
-Phase 1 complete. All core features are in — search, indexing, auth, scheduling, document preview.
+Milestone 1 complete. All core features are in — search, indexing, auth, scheduling, document preview.
 
 ### Added
 
