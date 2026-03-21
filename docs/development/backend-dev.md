@@ -172,11 +172,7 @@ def create_source(
     return source_service.create(db, source)
 ```
 
-**Key points:**
-- Use Pydantic schemas for validation
-- Dependency injection for database sessions
-- Return proper HTTP status codes
-- Handle errors with FastAPI exceptions
+Use Pydantic schemas for validation, dependency injection for database sessions, and FastAPI exceptions for errors.
 
 ### Services
 
@@ -222,11 +218,7 @@ class TextExtractor(BaseExtractor):
         )
 ```
 
-**Why this pattern:**
-- Easy to add new file types
-- Consistent interface
-- Error handling in one place
-- Timeout protection built in
+All extractors share the same interface, so error handling and timeout protection live in one place and adding new file types is just a new class.
 
 ### Database Models
 
@@ -255,10 +247,7 @@ class SourceResponse(BaseModel):
     # ...
 ```
 
-**Why separate?**
-- Models = database structure
-- Schemas = API contracts
-- Different concerns, different validation
+Models define database structure, schemas define API contracts. They change for different reasons so they stay separate.
 
 ### Database Migrations
 

@@ -1,7 +1,5 @@
 # User Guide
 
-This guide covers everything you need to know about using OneSearch effectively.
-
 ## Main Topics
 
 **[Adding Sources](adding-sources.md)** - Configure directories to index and search.
@@ -95,13 +93,3 @@ For bugs or feature requests, open a [GitHub Issue](https://github.com/demigodmo
 
 For questions or discussions, use [GitHub Discussions](https://github.com/demigodmode/OneSearch/discussions).
 
----
-
-## Next Steps
-
-- **[Adding Sources](adding-sources.md)** - Configure what to index
-- **[Searching](searching.md)** - Master search features
-- **[Web Interface](web-interface.md)** - Navigate the UI
-- **[Document Preview](document-preview.md)** - View full content
-- **[Scheduling](scheduling.md)** - Automatic scan schedules
-- **[Understanding Indexing](indexing.md)** - How it works

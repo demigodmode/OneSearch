@@ -1,6 +1,6 @@
 # Architecture
 
-OneSearch is built on a straightforward architecture designed for self-hosting and ease of deployment.
+OneSearch runs as two Docker containers: the main app (nginx + FastAPI backend) and Meilisearch.
 
 ## High-Level Overview
 
@@ -42,7 +42,7 @@ Supervisord manages both nginx and uvicorn inside the OneSearch container. This 
 
 ## Data Flow
 
-Here's what happens when you index and search:
+Indexing and search:
 
 ### Indexing Flow
 
@@ -57,13 +57,7 @@ Here's what happens when you index and search:
    - Update `indexed_files` table with metadata
 6. Search queries go to Meilisearch, which returns results with highlighted snippets
 
-### Why This Design
-
-**Incremental indexing** is key. Reindexing a large library is slow, so OneSearch tracks file metadata in SQLite. When you reindex, it only processes files that changed. This makes regular updates fast.
-
-**Extractors are pluggable**. Each file type has its own extractor (text, markdown, PDF, Office docs). They all return the same normalized document structure, so adding new formats is straightforward.
-
-**Meilisearch handles search**. We don't reinvent the wheel - Meilisearch is purpose-built for fast full-text search with typo tolerance and relevance ranking.
+Reindexing a large library is slow, so OneSearch tracks file metadata in SQLite and only processes files that changed. Each file type has its own extractor (text, markdown, PDF, Office docs) that returns the same normalized document structure. Meilisearch handles search — typo tolerance and relevance ranking out of the box.
 
 ---
 
@@ -133,8 +127,6 @@ Every document in Meilisearch follows this structure:
 
 **Filterable fields:** source_id, type, extension, modified_at
 
-This lets users filter searches by source or file type.
-
 ---
 
 ## Extractor System
@@ -182,13 +174,7 @@ backend/app/
     └── database.py      # SQLAlchemy setup
 ```
 
-**Why this structure:**
-
-**Separation of concerns** - API routes are thin handlers. Business logic lives in services. Database models separate from request schemas.
-
-**Dependency injection** - FastAPI's DI system provides database sessions and services to route handlers.
-
-**Consistent responses** - All API endpoints return similar JSON structures. Errors use FastAPI's exception handling.
+API routes are thin handlers — business logic lives in services, models stay separate from request schemas. FastAPI's DI system injects database sessions into route handlers.
 
 ---
 
@@ -227,20 +213,6 @@ frontend/src/
 No global state library needed. Server state lives in TanStack Query, UI state in component hooks.
 
 ---
-
-## Why These Choices
-
-**Docker Compose** - Easy deployment, reproducible environments, no host dependencies.
-
-**FastAPI** - Modern Python framework with async support, automatic OpenAPI docs, type hints.
-
-**Meilisearch** - Purpose-built for full-text search. Faster than Elasticsearch for our use case, simpler to operate.
-
-**SQLite** - Lightweight, no separate database server, perfect for homelabs. Metadata is small.
-
-**React + TypeScript** - Type safety catches bugs early. Modern React hooks are simple and powerful.
-
-**shadcn/ui** - Components copied into the project (not npm deps), so we control the code. Tailwind-based, accessible.
 
 ---
 

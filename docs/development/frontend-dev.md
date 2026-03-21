@@ -173,10 +173,7 @@ function SearchBox() {
 }
 ```
 
-**Why this approach:**
-- TanStack Query handles caching, refetching, and loading states automatically
-- No need for global state (Redux, Zustand, etc.)
-- Simple and performant
+TanStack Query handles caching, refetching, and loading states automatically — no need for Redux or Zustand.
 
 ### API Client
 
