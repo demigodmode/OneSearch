@@ -85,7 +85,9 @@ async def search(query: SearchQuery, current_user: User = Depends(get_current_us
             query=query.q,
             filters=filters,
             limit=query.limit,
-            offset=query.offset
+            offset=query.offset,
+            sort=query.sort if query.sort and query.sort != 'relevance' else None,
+            crop_length=query.snippet_length,
         )
 
         # Transform results to response format
@@ -94,8 +96,8 @@ async def search(query: SearchQuery, current_user: User = Depends(get_current_us
             # Extract content snippet with highlighting
             # Meilisearch provides _formatted field with <em> tags for matches
             formatted = hit.get("_formatted", hit)
-            snippet = formatted.get("content", "")[:300]  # First 300 chars
-            if len(hit.get("content", "")) > 300:
+            snippet = formatted.get("content", "")[:query.snippet_length]
+            if len(hit.get("content", "")) > query.snippet_length:
                 snippet += "..."
 
             search_results.append(SearchResult(

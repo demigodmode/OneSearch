@@ -5,7 +5,7 @@
 Pydantic schemas for request/response validation
 """
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -87,6 +87,12 @@ class SearchQuery(BaseModel):
     type: Optional[str] = None
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
+    sort: Optional[Literal[
+        'relevance',
+        'modified_at:desc', 'modified_at:asc',
+        'size_bytes:desc', 'basename:asc',
+    ]] = None
+    snippet_length: int = Field(default=300, ge=50, le=1000)
 
 
 class SearchResult(BaseModel):

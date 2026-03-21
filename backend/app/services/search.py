@@ -246,6 +246,8 @@ class MeilisearchService:
         filters: Optional[List[str]] = None,
         limit: int = 20,
         offset: int = 0,
+        sort: Optional[str] = None,
+        crop_length: int = 200,
     ) -> Dict[str, Any]:
         """
         Search documents (runs blocking Meilisearch HTTP call in thread pool)
@@ -255,6 +257,8 @@ class MeilisearchService:
             filters: Optional list of Meilisearch filter strings (safer than single string)
             limit: Number of results to return
             offset: Pagination offset
+            sort: Optional sort field (e.g. 'modified_at:desc')
+            crop_length: Snippet crop length for highlighted content
 
         Returns:
             dict: Search results with hits, query time, etc.
@@ -263,19 +267,22 @@ class MeilisearchService:
             raise RuntimeError("Index not initialized")
 
         try:
-            # Run blocking Meilisearch HTTP call in thread pool to avoid blocking event loop
+            opts: Dict[str, Any] = {
+                "filter": filters,
+                "limit": limit,
+                "offset": offset,
+                "attributesToHighlight": ["content"],
+                "highlightPreTag": "<mark>",
+                "highlightPostTag": "</mark>",
+                "cropLength": crop_length,
+            }
+            if sort:
+                opts["sort"] = [sort]
+
             results = await asyncio.to_thread(
                 self.index.search,
                 query,
-                {
-                    "filter": filters,  # Can be string or array
-                    "limit": limit,
-                    "offset": offset,
-                    "attributesToHighlight": ["content"],
-                    "highlightPreTag": "<mark>",
-                    "highlightPostTag": "</mark>",
-                    "cropLength": 200,
-                }
+                opts,
             )
 
             return results

@@ -150,8 +150,7 @@
 
   .search-input:focus-within {
     @apply border-brand/50;
-    box-shadow: 0 0 0 1px hsl(var(--brand) / 0.15),
-                0 0 20px -8px hsl(var(--brand) / 0.25);
+    box-shadow: 0 0 20px -8px hsl(var(--brand) / 0.25);
   }
 
   /* Card hover */

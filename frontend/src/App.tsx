@@ -5,6 +5,7 @@ import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { SearchSettingsProvider } from './contexts/SearchSettingsContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import MainLayout from './components/MainLayout'
 import AdminLayout from './components/AdminLayout'
@@ -22,6 +23,7 @@ function App() {
   return (
     <ThemeProvider>
     <AuthProvider>
+    <SearchSettingsProvider>
       <Routes>
         {/* Public auth routes */}
         <Route path="/login" element={<LoginPage />} />
@@ -58,6 +60,7 @@ function App() {
         {/* Catch-all 404 */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+    </SearchSettingsProvider>
     </AuthProvider>
     </ThemeProvider>
   )
