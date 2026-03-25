@@ -3,7 +3,9 @@
 
 import { useState } from 'react'
 import { AlertCircle, ChevronRight, Loader2 } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useHealth, useStatus } from '@/hooks/useApi'
+import { clearStaleFailed, queryKeys } from '@/lib/api'
 import type { SourceStatus, FailedFile } from '@/types/api'
 import { cn, formatRelativeTime } from '@/lib/utils'
 
@@ -32,14 +34,39 @@ function getSourceHealthStatus(source: SourceStatus): 'healthy' | 'warning' | 'e
 }
 
 // Failed files list component
-function FailedFilesList({ files }: { files: FailedFile[] }) {
+function FailedFilesList({ files, sourceId }: { files: FailedFile[], sourceId: string }) {
+  const [clearing, setClearing] = useState(false)
+  const queryClient = useQueryClient()
+
   if (files.length === 0) return null
+
+  const handleClear = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setClearing(true)
+    try {
+      await clearStaleFailed(sourceId)
+      queryClient.invalidateQueries({ queryKey: queryKeys.status })
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setClearing(false)
+    }
+  }
 
   return (
     <div className="mt-3 pt-3 border-t border-border">
-      <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-        Failed Files ({files.length})
-      </p>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs text-muted-foreground uppercase tracking-wider">
+          Failed Files ({files.length})
+        </p>
+        <button
+          onClick={handleClear}
+          disabled={clearing}
+          className="text-xs px-2 py-1 rounded bg-secondary/50 hover:bg-secondary disabled:opacity-50 transition-colors"
+        >
+          {clearing ? <><Loader2 className="inline h-3 w-3 mr-1 animate-spin" />Clearing…</> : 'Clear stale'}
+        </button>
+      </div>
       <div className="space-y-2 max-h-48 overflow-y-auto scrollbar-thin">
         {files.map((file, index) => (
           <div
@@ -145,7 +172,7 @@ function SourceStatusCard({ source, index }: { source: SourceStatus; index: numb
         >
           <div className="overflow-hidden">
             <div className="px-4 pb-4">
-              <FailedFilesList files={source.failed_files} />
+              <FailedFilesList files={source.failed_files} sourceId={source.source_id} />
             </div>
           </div>
         </div>
