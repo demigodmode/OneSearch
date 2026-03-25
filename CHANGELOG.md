@@ -5,6 +5,25 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Stale failed files** - files deleted or moved after scanning were stuck in the Failed Files list indefinitely. The indexer now handles `FileNotFoundError` mid-index and lets the normal deletion logic clean them up. A "Clear stale" button on the Status page lets you manually flush existing stale entries.
+
+### Security
+
+- Bumped pypdf 6.9.0 → 6.9.2 (inefficient stream decoding, CVE)
+- Bumped flatted 3.3.3 → 3.4.2 (prototype pollution)
+- Upgraded @typescript-eslint 6.x → 8.x (minimatch ReDoS)
+
+### Maintenance
+
+- Added CodeQL scanning for Python and TypeScript
+- Added Dependabot version update config for pip, npm, and GitHub Actions
+
+---
+
 ## [0.11.0] - 2026-03-21
 
 ### Added
