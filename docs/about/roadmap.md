@@ -2,7 +2,7 @@
 
 OneSearch is under active development. Here's what's planned for future releases.
 
-**Current status**: Milestone 1 complete (v0.7.0). Milestone 2 in progress (v0.8.0--v0.9.x) -- UI redesign mostly done, theme system and E2E testing still open.
+**Current status**: Milestone 2 nearly complete (v0.9.0--v0.11.0) -- UI redesign done, theme system shipped. Light/dark toggle (#113) is the remaining item before closing out MS-2.
 
 ---
 
@@ -36,8 +36,7 @@ UI overhaul and polish. Started in v0.9.0.
 
 ### Still Open
 
-- Theme system with accent color presets (#38, #67)
-- E2E test coverage (#20)
+- Light/dark toggle (#113)
 
 ### Search Enhancements
 
@@ -70,6 +69,10 @@ UI overhaul and polish. Started in v0.9.0.
 - Obsidian vault support (backlinks, tags)
 - Custom extractor plugins
 - Faceted search
+
+### Testing
+
+- E2E and integration test coverage (#20)
 
 ### Performance
 

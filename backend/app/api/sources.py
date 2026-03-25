@@ -5,6 +5,7 @@
 Source management API endpoints
 Provides CRUD operations for search sources
 """
+import hashlib
 import json
 import logging
 from typing import List
@@ -377,3 +378,40 @@ async def reindex_source(
         )
     finally:
         lock.release()
+
+
+@router.post("/{source_id}/clear-stale")
+async def clear_stale_failed_files(
+    source_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Clear stale failed file entries for a source.
+
+    Removes failed entries from DB and Meilisearch where the file no longer exists on disk.
+    Useful for cleaning up entries left behind by files deleted or moved after scanning.
+    """
+    source = db.get(Source, source_id)
+    if not source:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Source '{source_id}' not found")
+
+    failed_files = db.execute(
+        select(IndexedFile).where(IndexedFile.source_id == source_id, IndexedFile.status == "failed")
+    ).scalars().all()
+
+    cleared = 0
+    for indexed_file in failed_files:
+        if not Path(indexed_file.path).exists():
+            path_hash = hashlib.sha256(indexed_file.path.encode()).hexdigest()[:12]
+            doc_id = f"{source_id}--{path_hash}"
+            try:
+                await meili_service.delete_document(doc_id)
+            except Exception as e:
+                logger.warning(f"Meilisearch delete failed for {doc_id}: {e}")
+            db.delete(indexed_file)
+            cleared += 1
+
+    db.commit()
+    logger.info(f"Cleared {cleared} stale failed files for source '{source_id}'")
+    return {"cleared": cleared}

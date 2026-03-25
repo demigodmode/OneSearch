@@ -217,6 +217,11 @@ class IndexingService:
                             f"{stats.skipped} skipped) - {rate:.1f} files/sec"
                         )
 
+                except FileNotFoundError:
+                    logger.info(f"File deleted during indexing: {file_path}")
+                    current_files.discard(file_path)
+                    # _handle_deleted_files will clean up DB/Meilisearch at end of run
+
                 except Exception as e:
                     logger.warning(
                         f"Failed to index file '{Path(file_path).name}': {type(e).__name__}: {e}",
