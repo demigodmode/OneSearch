@@ -22,16 +22,19 @@ class APIError(Exception):
 class OneSearchAPI:
     """Client for the OneSearch backend API."""
 
-    def __init__(self, base_url: str = "http://localhost:8000", timeout: int = 30):
+    def __init__(self, base_url: str = "http://localhost:8000", timeout: int = 30, token: str | None = None):
         """Initialize the API client.
 
         Args:
             base_url: Backend API base URL.
             timeout: Request timeout in seconds.
+            token: Optional bearer token.
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()
+        if token:
+            self.session.headers.update({"Authorization": f"Bearer {token}"})
 
     def _url(self, endpoint: str) -> str:
         """Build full URL for an endpoint."""
@@ -71,13 +74,13 @@ class OneSearchAPI:
             if response.content:
                 return response.json()
             return None
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as err:
             raise APIError(
                 f"Could not connect to OneSearch at {self.base_url}. "
                 "Is the server running?"
-            )
-        except requests.exceptions.Timeout:
-            raise APIError(f"Request to {url} timed out after {self.timeout}s")
+            ) from err
+        except requests.exceptions.Timeout as err:
+            raise APIError(f"Request to {url} timed out after {self.timeout}s") from err
         except requests.exceptions.HTTPError as e:
             status_code = e.response.status_code
             try:
@@ -86,7 +89,31 @@ class OneSearchAPI:
             except Exception:
                 details = None
                 message = str(e)
-            raise APIError(message, status_code=status_code, details=details)
+
+            if status_code in (401, 403):
+                message = f"{message}. Run 'onesearch login' or set ONESEARCH_TOKEN."
+
+            raise APIError(message, status_code=status_code, details=details) from e
+
+    def login(self, username: str, password: str) -> dict:
+        """Authenticate and return token payload."""
+        return self._request(
+            "POST",
+            "/api/auth/login",
+            json={"username": username, "password": password},
+        )
+
+    def logout(self) -> dict:
+        """Logout current user."""
+        return self._request("POST", "/api/auth/logout")
+
+    def whoami(self) -> dict:
+        """Return current user info."""
+        return self._request("GET", "/api/auth/me")
+
+    def auth_status(self) -> dict:
+        """Return auth setup status."""
+        return self._request("GET", "/api/auth/status")
 
     # Health endpoints
     def health(self) -> dict:

@@ -4,6 +4,16 @@ Command-line interface for OneSearch - Self-hosted, privacy-focused search for y
 
 ## Installation
 
+The CLI is a standalone client for a running OneSearch server. It does not include the backend, indexer, or search data. Tagged OneSearch releases publish the Docker image and the `onesearch-cli` package together on the same shared version.
+
+### Recommended: pipx
+
+```bash
+pipx install onesearch-cli
+onesearch config set backend_url http://localhost:8000
+onesearch login
+```
+
 ### From Source (Development)
 
 ```bash
@@ -108,13 +118,18 @@ onesearch health --json
 ### Environment Variables
 
 - `ONESEARCH_URL` - Backend API URL (default: `http://localhost:8000`)
+- `ONESEARCH_TOKEN` - Bearer token for non-interactive auth
 
 ```bash
 # Use a custom backend URL
 export ONESEARCH_URL=http://onesearch.local:8000
 onesearch search "test"
 
-# Or pass directly
+# Non-interactive auth for scripts
+export ONESEARCH_TOKEN=xxxxx
+onesearch search "test" --json
+
+# Or pass the URL directly
 onesearch --url http://onesearch.local:8000 search "test"
 ```
 

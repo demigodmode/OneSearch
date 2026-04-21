@@ -7,7 +7,7 @@ import click
 from rich.table import Table
 
 from onesearch.api import APIError
-from onesearch.context import Context, pass_context, console, err_console
+from onesearch.context import Context, console, err_console, pass_context
 from onesearch.main import cli
 
 
@@ -72,7 +72,7 @@ def source_list(ctx: Context):
         console.print(table)
     except APIError as e:
         err_console.print(f"[red]Error:[/red] {e.message}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 @source.command("add")
@@ -131,7 +131,7 @@ def source_add(ctx: Context, name: str, path: str, include: str | None, exclude:
         out.print("\nRun [cyan]onesearch source reindex {id}[/cyan] to start indexing.".format(id=result['id']))
     except APIError as e:
         err_console.print(f"[red]Error:[/red] {e.message}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 @source.command("show")
@@ -157,7 +157,7 @@ def source_show(ctx: Context, source_id: str):
             console.print(f"  Updated:          {s['updated_at']}")
     except APIError as e:
         err_console.print(f"[red]Error:[/red] {e.message}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 @source.command("delete")
@@ -191,7 +191,7 @@ def source_delete(ctx: Context, source_id: str, yes: bool):
         ctx.get_console().print(f"[green]✓[/green] Deleted source [cyan]{s['name']}[/cyan]")
     except APIError as e:
         err_console.print(f"[red]Error:[/red] {e.message}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 @source.command("reindex")
@@ -229,4 +229,4 @@ def source_reindex(ctx: Context, source_id: str):
             out.print(f"  Skipped:      {stats.get('skipped', 0)}")
     except APIError as e:
         err_console.print(f"[red]Error:[/red] {e.message}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e

@@ -10,7 +10,7 @@ from rich.markup import escape
 from rich.text import Text
 
 from onesearch.api import APIError
-from onesearch.context import Context, pass_context, console, err_console
+from onesearch.context import Context, console, err_console, pass_context
 from onesearch.main import cli
 
 
@@ -139,4 +139,4 @@ def search(
 
     except APIError as e:
         err_console.print(f"[red]Error:[/red] {e.message}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
