@@ -308,11 +308,12 @@ def main():
     print(f"  4. Commit all changed files")
     print(f"  5. Create and push tag {tag}")
     print(f"  6. Create GitHub release {tag}")
-    print(f"  -> Docker CI builds and pushes:")
+    print(f"  -> Shared release workflow publishes:")
     print(f"       ghcr.io/demigodmode/onesearch:{new_version}")
     print(f"       ghcr.io/demigodmode/onesearch:{new_version.rsplit('.', 1)[0]}")
     print(f"       ghcr.io/demigodmode/onesearch:latest")
-    print(f"       docker.io/demigodmode/onesearch (same tags)\n")
+    print(f"       docker.io/demigodmode/onesearch (same tags)")
+    print(f"       onesearch-cli=={new_version} (PyPI, if publishing is configured)\n")
 
     if not confirm("Proceed?"):
         sys.exit(0)
@@ -375,9 +376,10 @@ Done. {tag} is live.
   Actions (build): https://github.com/{REPO}/actions
   GHCR image:      ghcr.io/demigodmode/onesearch:{new_version}
   Docker Hub:      docker.io/demigodmode/onesearch:{new_version}
+  CLI package:     onesearch-cli=={new_version}
   Latest tags:     :{minor_tag}  :latest
 
-Docker build is running in CI — check Actions for progress.
+Shared release workflow is running in CI — check Actions for progress.
 """)
 
 
