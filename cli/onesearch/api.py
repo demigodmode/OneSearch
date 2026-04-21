@@ -46,6 +46,7 @@ class OneSearchAPI:
         endpoint: str,
         params: dict | None = None,
         json: dict | None = None,
+        allow_status_codes: set[int] | None = None,
     ) -> Any:
         """Make an API request.
 
@@ -70,6 +71,11 @@ class OneSearchAPI:
                 json=json,
                 timeout=self.timeout,
             )
+            if allow_status_codes and response.status_code in allow_status_codes:
+                if response.content:
+                    return response.json()
+                return None
+
             response.raise_for_status()
             if response.content:
                 return response.json()
@@ -116,9 +122,10 @@ class OneSearchAPI:
         return self._request("GET", "/api/auth/status")
 
     # Health endpoints
-    def health(self) -> dict:
+    def health(self, allow_degraded: bool = False) -> dict:
         """Check system health."""
-        return self._request("GET", "/api/health")
+        allowed = {503} if allow_degraded else None
+        return self._request("GET", "/api/health", allow_status_codes=allowed)
 
     def status(self) -> dict:
         """Get system status."""

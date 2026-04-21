@@ -26,13 +26,13 @@ def get_default_url() -> str:
     return get_backend_url()
 
 
-def _has_configured_backend() -> bool:
+def _has_configured_backend(resolved_url: str | None = None) -> bool:
     config_data = load_config()
-    return bool(os.environ.get("ONESEARCH_URL") or config_data.get("backend_url"))
+    return bool(resolved_url or os.environ.get("ONESEARCH_URL") or config_data.get("backend_url"))
 
 
 def _render_startup_panel(ctx: Context) -> None:
-    configured = _has_configured_backend()
+    configured = _has_configured_backend(ctx.url)
     if not configured:
         console.print(
             build_startup_panel(
@@ -45,7 +45,7 @@ def _render_startup_panel(ctx: Context) -> None:
 
     api = ctx.get_api()
     try:
-        health = api.health()
+        health = api.health(allow_degraded=True)
         server_version = health.get("version")
         server_status = health.get("status", "unknown")
         auth_state = "not logged in"
