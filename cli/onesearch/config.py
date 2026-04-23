@@ -36,7 +36,7 @@ def load_config() -> dict:
         return {}
 
     try:
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config = yaml.safe_load(f) or {}
             return config
     except Exception:
@@ -137,18 +137,29 @@ def get_backend_url() -> str:
     2. Config file backend_url
     3. Default http://localhost:8000
     """
-    # Check environment first
     env_url = os.environ.get("ONESEARCH_URL")
     if env_url:
         return env_url
 
-    # Check config file
     config_url = get_config_value("backend_url")
     if config_url:
         return config_url
 
-    # Default
     return "http://localhost:8000"
+
+
+def get_auth_token() -> str | None:
+    """Get auth token from env/config.
+
+    Priority:
+    1. Environment variable ONESEARCH_TOKEN
+    2. Config file auth.token
+    """
+    env_token = os.environ.get("ONESEARCH_TOKEN")
+    if env_token:
+        return env_token
+
+    return get_config_value("auth.token")
 
 
 # Default configuration template
@@ -158,6 +169,10 @@ DEFAULT_CONFIG = """\
 
 # Backend API URL
 backend_url: http://localhost:8000
+
+# Authentication
+auth:
+  token: null
 
 # Output settings
 output:

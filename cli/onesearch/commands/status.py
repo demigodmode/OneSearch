@@ -10,8 +10,8 @@ import click
 from rich.table import Table
 
 from onesearch.api import APIError
-from onesearch.config import get_config_path, get_backend_url
-from onesearch.context import Context, pass_context, console, err_console
+from onesearch.config import get_config_path
+from onesearch.context import Context, console, err_console, pass_context
 from onesearch.main import cli
 
 
@@ -68,7 +68,7 @@ def status(ctx: Context, source_id: str | None, as_json: bool):
             if failed > 0:
                 console.print(f"  [red]Failed:     {failed} ✗[/red]")
             else:
-                console.print(f"  Failed:     0")
+                console.print("  Failed:     0")
 
             skipped = result.get("skipped", 0)
             if skipped > 0:
@@ -116,7 +116,7 @@ def status(ctx: Context, source_id: str | None, as_json: bool):
                         f"{s.get('source_name', 'Unknown')} ({s.get('source_id', '?')})",
                         "-",
                         "-",
-                        f"[red]Error[/red]",
+                        "[red]Error[/red]",
                         "-",
                         "-",
                     )
@@ -142,7 +142,7 @@ def status(ctx: Context, source_id: str | None, as_json: bool):
 
     except APIError as e:
         err_console.print(f"[red]Error:[/red] {e.message}")
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
 
 @cli.command()
@@ -193,7 +193,7 @@ def health(ctx: Context, as_json: bool):
         meili = result.get("meilisearch", {})
         meili_status = meili.get("status", "unknown")
         if meili_status in ("available", "healthy"):
-            out.print(f"  Meilisearch: Connected [green]✓[/green]")
+            out.print("  Meilisearch: Connected [green]✓[/green]")
         else:
             out.print(f"  Meilisearch: [yellow]{meili_status}[/yellow]")
 
@@ -201,21 +201,21 @@ def health(ctx: Context, as_json: bool):
         out.print("[bold]Configuration:[/bold]")
         out.print(f"  Config file: {config_path}")
         if config_path.exists():
-            out.print(f"  Config:      [green]Loaded[/green]")
+            out.print("  Config:      [green]Loaded[/green]")
         else:
-            out.print(f"  Config:      [dim]Using defaults[/dim]")
+            out.print("  Config:      [dim]Using defaults[/dim]")
         out.print()
 
     except APIError as e:
-        err_console.print(f"[red]✗ System Unhealthy[/red]")
+        err_console.print("[red]✗ System Unhealthy[/red]")
         err_console.print(f"\n  Backend: {ctx.url} [red]✗[/red]")
         err_console.print(f"  Error: {e.message}")
         err_console.print()
         err_console.print("[bold]Configuration:[/bold]")
         err_console.print(f"  Config file: {config_path}")
         if config_path.exists():
-            err_console.print(f"  Config:      [green]Loaded[/green]")
+            err_console.print("  Config:      [green]Loaded[/green]")
         else:
-            err_console.print(f"  Config:      [dim]Using defaults[/dim]")
+            err_console.print("  Config:      [dim]Using defaults[/dim]")
         console.print()
-        raise SystemExit(1)
+        raise SystemExit(1) from e

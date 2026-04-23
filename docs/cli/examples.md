@@ -2,14 +2,33 @@
 
 Real-world CLI automation scripts.
 
-!!! note "Coming Soon"
-    More examples coming soon.
+## Standalone CLI setup
 
-## Quick Examples
+```bash
+pipx install onesearch-cli
+onesearch config set backend_url http://infra-stack:8000
+onesearch login
+onesearch whoami
+```
 
-See [CLI Overview](index.md#scripting-examples) for sample scripts.
+## Scripted auth
 
-## Common Workflows
+```bash
+export ONESEARCH_URL=http://infra-stack:8000
+export ONESEARCH_TOKEN=xxxxx
+onesearch search "compose" --json
+```
+
+## Docker fallback
+
+The Docker image bundles the same CLI codebase as the standalone package for a given release version.
+
+```bash
+docker exec -it onesearch-app onesearch status
+docker exec -it onesearch-app onesearch search "compose"
+```
+
+## Common workflows
 
 - Automated reindexing with cron
 - Search and process results

@@ -3,12 +3,16 @@
 
 """OneSearch CLI entry point."""
 
+import os
 import sys
 
 import click
 
 from onesearch import __version__
-from onesearch.context import Context, pass_context, console, err_console
+from onesearch.api import APIError
+from onesearch.banner import build_startup_panel
+from onesearch.config import load_config
+from onesearch.context import Context, console, err_console
 
 # Context settings for all commands
 CONTEXT_SETTINGS = {
@@ -22,7 +26,69 @@ def get_default_url() -> str:
     return get_backend_url()
 
 
-@click.group(context_settings=CONTEXT_SETTINGS)
+def _has_configured_backend(resolved_url: str | None = None) -> bool:
+    config_data = load_config()
+    return bool(resolved_url or os.environ.get("ONESEARCH_URL") or config_data.get("backend_url"))
+
+
+def _render_startup_panel(ctx: Context) -> None:
+    configured = _has_configured_backend(ctx.url)
+    if not configured:
+        console.print(
+            build_startup_panel(
+                configured=False,
+                backend_url=None,
+                cli_version=__version__,
+            )
+        )
+        return
+
+    api = ctx.get_api()
+    try:
+        health = api.health(allow_degraded=True)
+        server_version = health.get("version")
+        server_status = health.get("status", "unknown")
+        auth_state = "not logged in"
+
+        try:
+            user = api.whoami()
+            auth_state = f"logged in as {user.get('username', 'unknown')}"
+        except APIError as auth_error:
+            if auth_error.status_code not in (401, 403):
+                console.print(
+                    build_startup_panel(
+                        configured=True,
+                        backend_url=ctx.url,
+                        cli_version=__version__,
+                        server_version=server_version,
+                        server_status=server_status,
+                        error_message=auth_error.message,
+                    )
+                )
+                return
+
+        console.print(
+            build_startup_panel(
+                configured=True,
+                backend_url=ctx.url,
+                cli_version=__version__,
+                server_version=server_version,
+                server_status=server_status,
+                auth_state=auth_state,
+            )
+        )
+    except APIError as e:
+        console.print(
+            build_startup_panel(
+                configured=True,
+                backend_url=ctx.url,
+                cli_version=__version__,
+                error_message=e.message,
+            )
+        )
+
+
+@click.group(context_settings=CONTEXT_SETTINGS, invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="onesearch")
 @click.option(
     "--url",
@@ -41,8 +107,8 @@ def get_default_url() -> str:
     is_flag=True,
     help="Suppress non-essential output. Only show results/errors.",
 )
-@pass_context
-def cli(ctx: Context, url: str, verbose: bool, quiet: bool):
+@click.pass_context
+def cli(click_ctx: click.Context, url: str, verbose: bool, quiet: bool):
     """OneSearch - Self-hosted, privacy-focused search for your homelab.
 
     Search across all your files, documents, and notes from a single,
@@ -57,13 +123,17 @@ def cli(ctx: Context, url: str, verbose: bool, quiet: bool):
 
     Use 'onesearch COMMAND --help' for more information on a command.
     """
+    ctx = click_ctx.ensure_object(Context)
     ctx.url = url
     ctx.verbose = verbose
     ctx.quiet = quiet
 
+    if click_ctx.invoked_subcommand is None:
+        _render_startup_panel(ctx)
+
 
 # Import and register command groups after cli is defined
-from onesearch.commands import source, search, status, config  # noqa: E402, F401
+from onesearch.commands import auth, config, search, source, status  # noqa: E402, F401
 
 
 def main():

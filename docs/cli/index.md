@@ -1,6 +1,6 @@
 # CLI Overview
 
-The OneSearch command-line interface lets you manage sources, search documents, and automate workflows from the terminal.
+`onesearch-cli` is a standalone command-line client for a running OneSearch server. It talks to the same backend API as the web UI, so both interfaces share the same sources, indexes, auth, and search results. Tagged OneSearch releases publish the Docker image and the CLI package on the same shared version.
 
 ## Why Use the CLI
 
@@ -10,65 +10,51 @@ The OneSearch command-line interface lets you manage sources, search documents, 
 
 **JSON output**: Parse results programmatically with `--json`.
 
-**Speed**: Faster than clicking through the web UI once you know the commands.
+**Fast admin workflow**: Search, inspect status, and manage sources without opening the browser.
 
 ---
 
 ## Installation
 
-Install using pip:
+Install the standalone CLI with `pipx`:
 
 ```bash
-cd cli
-pip install -e .
+pipx install onesearch-cli
 ```
 
-Once published to PyPI, you'll be able to install with:
-
-```bash
-pip install onesearch-cli
-```
-
-See the [CLI Installation Guide](installation.md) for details.
+You still need a running OneSearch backend somewhere on your network. See the [CLI Installation Guide](installation.md) for details.
 
 ---
 
 ## Quick Start
 
-Configure the API endpoint:
+Point the CLI at your server, then log in:
 
 ```bash
-# Initialize config file
-onesearch config init
-
-# Set URL if not localhost
-onesearch config set url http://192.168.1.100:8000
-
-# Or use environment variable
-export ONESEARCH_URL=http://192.168.1.100:8000
+onesearch config set backend_url http://192.168.1.100:8000
+onesearch login
+onesearch whoami
 ```
 
 Basic commands:
 
 ```bash
-# Check connection
 onesearch health
-
-# Add a source
-onesearch source add "Documents" /data/docs --include "**/*.pdf,**/*.md"
-
-# List sources
 onesearch source list
-
-# Trigger indexing
-onesearch source reindex documents
-
-# Search
 onesearch search "kubernetes deployment"
-
-# Check status
 onesearch status
 ```
+
+### Docker fallback
+
+If you don't want to install the standalone CLI yet, the Docker image still includes it:
+
+```bash
+docker exec -it onesearch-app onesearch status
+docker exec -it onesearch-app onesearch whoami
+```
+
+That works fine for debugging, but the standalone CLI is the preferred path.
 
 ---
 
@@ -135,13 +121,13 @@ onesearch health
 onesearch config show
 
 # Get specific value
-onesearch config get url
+onesearch config get backend_url
 
 # Set value
-onesearch config set url http://localhost:8000
+onesearch config set backend_url http://localhost:8000
 
-# Initialize config file
-onesearch config init
+# Show config path
+onesearch config path
 ```
 
 ---
@@ -203,19 +189,18 @@ onesearch --url http://nas.local:8000 status
 
 The CLI stores config in a platform-specific location:
 
-- **Linux/macOS**: `~/.config/onesearch/config.json`
-- **Windows**: `%APPDATA%\onesearch\config.json`
+- **Linux/macOS**: `~/.config/onesearch/config.yml`
+- **Windows**: `%APPDATA%\onesearch\config.yml`
 
 Example config:
 
-```json
-{
-  "url": "http://localhost:8000",
-  "timeout": 30
-}
+```yaml
+backend_url: http://localhost:8000
+auth:
+  token: null
 ```
 
-You can override with the `ONESEARCH_URL` environment variable.
+You can override with `ONESEARCH_URL` and `ONESEARCH_TOKEN`.
 
 See the [Configuration Guide](configuration.md) for details.
 

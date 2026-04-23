@@ -9,6 +9,7 @@ import click
 from rich.console import Console
 
 from onesearch.api import OneSearchAPI
+from onesearch.config import get_auth_token
 
 # Rich console for output
 console = Console()
@@ -26,12 +27,19 @@ class Context:
         self.verbose: bool = False
         self.quiet: bool = False
         self.url: str = "http://localhost:8000"
+        self.token: str | None = None
 
     def get_api(self) -> OneSearchAPI:
         """Get or create the API client."""
         if self.api is None:
-            self.api = OneSearchAPI(base_url=self.url)
+            self.token = get_auth_token()
+            self.api = OneSearchAPI(base_url=self.url, token=self.token)
         return self.api
+
+    def reset_api(self) -> None:
+        """Clear cached API client after config/auth changes."""
+        self.api = None
+        self.token = None
 
     def get_console(self) -> Console:
         """Get the appropriate console based on quiet mode."""

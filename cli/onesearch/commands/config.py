@@ -7,12 +7,12 @@ import click
 import yaml
 
 from onesearch.config import (
-    get_config_path,
-    load_config,
-    get_config_value,
-    set_config_value,
-    delete_config_value,
     DEFAULT_CONFIG,
+    delete_config_value,
+    get_config_path,
+    get_config_value,
+    load_config,
+    set_config_value,
 )
 from onesearch.context import console, err_console
 from onesearch.main import cli
@@ -34,6 +34,7 @@ def config():
       onesearch config show
       onesearch config set backend_url http://onesearch.local:8000
       onesearch config get backend_url
+      onesearch config path
     """
     pass
 
@@ -157,3 +158,9 @@ def config_init(force: bool):
 
     console.print(f"[green]✓[/green] Created config file: {config_path}")
     console.print("\nEdit this file or use [cyan]onesearch config set <key> <value>[/cyan]")
+
+
+@config.command("path")
+def config_path_command():
+    """Show the configuration file path."""
+    console.print(str(get_config_path()))

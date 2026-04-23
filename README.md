@@ -71,7 +71,7 @@ Accent color theming - pick what feels like yours:
 
 - [Installation Guide](https://onesearch.readthedocs.io/en/latest/getting-started/installation/)
 - [User Guide](https://onesearch.readthedocs.io/en/latest/user-guide/)
-- [CLI Reference](https://onesearch.readthedocs.io/en/latest/cli/)
+- [CLI Reference](https://onesearch.readthedocs.io/en/latest/cli/) - standalone `onesearch-cli` package that connects to your running OneSearch server and ships from the same tagged release as the Docker image
 - [API Reference](https://onesearch.readthedocs.io/en/latest/api/)
 
 ---

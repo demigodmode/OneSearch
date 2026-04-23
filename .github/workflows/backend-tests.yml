@@ -1,4 +1,4 @@
-name: Backend Tests
+name: Backend + CLI CI
 
 on:
   pull_request:
@@ -9,7 +9,9 @@ on:
       - main
     paths:
       - 'backend/**'
+      - 'cli/**'
       - 'pyproject.toml'
+      - 'uv.lock'
       - '.github/workflows/backend-tests.yml'
 
 jobs:
@@ -47,6 +49,20 @@ jobs:
       - name: Run backend tests
         run: |
           uv run pytest backend/tests/ -v --tb=short --color=yes --cov=app --cov-report=xml
+
+      - name: Run CLI tests
+        run: |
+          uv run pytest cli/tests/ -v --tb=short --color=yes
+
+      - name: Build onesearch-cli package
+        run: |
+          uv run --with build python -m build cli
+
+      - name: Upload onesearch-cli artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: onesearch-cli-dist
+          path: cli/dist/*
 
       - name: Upload coverage to Codecov
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
