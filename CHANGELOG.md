@@ -5,6 +5,22 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-04-23
+
+### Added
+
+- **Standalone CLI auth flow** - `onesearch login`, `logout`, and `whoami` now support interactive username/password login for humans and direct token storage for scripts.
+- **Live CLI startup panel** - bare `onesearch` now shows a Rich startup banner with backend URL, auth state, server status, version mismatch hints, and actionable first-run guidance.
+- **CLI integration tests** - added Python-level auth integration coverage for login, token reuse, and unauthenticated `whoami` behavior.
+
+### Changed
+
+- **Shared release pipeline** - the Docker image and `onesearch-cli` package now build from the same tagged release workflow and stay on the same version.
+- **CLI CI verification** - CI now runs CLI tests and builds the `onesearch-cli` distribution artifacts on normal pushes and pull requests.
+- **CLI docs** - installation, configuration, and examples now describe the standalone package as the primary UX and Docker `exec` as the fallback path.
+
+---
+
 ## [0.11.1] - 2026-03-25
 
 ### Fixed
@@ -406,6 +422,7 @@ Milestone 1 complete. All core features are in — search, indexing, auth, sched
 
 ---
 
+[0.12.0]: https://github.com/demigodmode/OneSearch/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/demigodmode/OneSearch/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/demigodmode/OneSearch/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/demigodmode/OneSearch/compare/v0.9.1...v0.10.0
