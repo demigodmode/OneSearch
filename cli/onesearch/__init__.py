@@ -3,4 +3,4 @@
 
 """OneSearch CLI - Command-line interface for OneSearch."""
 
-__version__ = "0.12.0"
+__version__ = "0.12.1"
