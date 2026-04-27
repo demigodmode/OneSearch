@@ -18,6 +18,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      meilisearch:
+        image: getmeili/meilisearch:v1.12
+        ports:
+          - 7700:7700
+        env:
+          MEILI_MASTER_KEY: test-master-key
+          MEILI_ENV: development
+        options: >-
+          --health-cmd="wget --no-verbose --spider http://127.0.0.1:7700/health || exit 1"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -47,6 +61,9 @@ jobs:
           uv sync --all-extras --all-groups
 
       - name: Run backend tests
+        env:
+          MEILI_URL: http://127.0.0.1:7700
+          MEILI_MASTER_KEY: test-master-key
         run: |
           uv run pytest backend/tests/ -v --tb=short --color=yes --cov=app --cov-report=xml
 
