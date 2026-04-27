@@ -206,7 +206,7 @@ class MeilisearchService:
         try:
             # Run blocking HTTP call in thread pool
             task = await asyncio.to_thread(
-                self.index.delete_documents_by_filter, filter_str
+                self.index.delete_documents, filter=filter_str
             )
             logger.info(f"Deleted documents with filter: {filter_str}")
             return task.__dict__
