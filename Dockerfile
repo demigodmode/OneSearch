@@ -75,9 +75,9 @@ COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
 # Copy Meilisearch binary and Alpine runtime libs for opt-in managed mode
 COPY --from=meilisearch-runtime /bin/meilisearch /usr/local/bin/meilisearch
-COPY --from=meilisearch-runtime /lib/ld-musl-x86_64.so.1 /lib/ld-musl-x86_64.so.1
+COPY --from=meilisearch-runtime /lib/ld-musl-*.so.1 /lib/
+COPY --from=meilisearch-runtime /lib/libc.musl-*.so.1 /lib/
 COPY --from=meilisearch-runtime /usr/lib/libgcc_s.so.1 /usr/lib/libgcc_s.so.1
-RUN ln -sf ld-musl-x86_64.so.1 /lib/libc.musl-x86_64.so.1
 
 # Copy backend application code
 COPY --chown=onesearch:onesearch backend/ ./backend/
