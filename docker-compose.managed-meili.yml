@@ -1,0 +1,44 @@
+services:
+  # OneSearch with managed Meilisearch inside the app container.
+  # Experimental/opt-in while bundled search backend support is validated.
+  onesearch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # For production testing with a pre-built candidate image, replace build with:
+    # image: ghcr.io/demigodmode/onesearch:meili-managed-candidate
+
+    container_name: onesearch-app
+    volumes:
+      # Persistent SQLite database
+      - onesearch_data:/app/data
+
+      # Persistent managed Meilisearch index data
+      - onesearch_index:/app/meili_data
+
+      # Example source mounts (uncomment and modify as needed)
+      # - /mnt/nas/documents:/data/nas_docs:ro
+      # - /home/user/Documents:/data/documents:ro
+
+    environment:
+      - ONESEARCH_MANAGED_MEILI=true
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - DATABASE_URL=sqlite:////app/data/onesearch.db
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  onesearch_data:
+    driver: local
+  onesearch_index:
+    driver: local
