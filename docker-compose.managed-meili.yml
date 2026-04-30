@@ -6,8 +6,8 @@ services:
       context: .
       dockerfile: Dockerfile
 
-    # For production testing with a pre-built candidate image, replace build with:
-    # image: ghcr.io/demigodmode/onesearch:meili-managed-candidate
+    # For a released image, replace build with:
+    # image: ghcr.io/demigodmode/onesearch:latest
 
     container_name: onesearch-app
     volumes:
