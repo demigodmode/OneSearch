@@ -78,6 +78,7 @@ nav:
     - Installation: getting-started/installation.md
     - First-Time Setup: getting-started/first-time-setup.md
     - Upgrading: getting-started/upgrading.md
+    - Migrating to managed Meilisearch: getting-started/migrate-to-managed-meilisearch.md
   - User Guide:
     - Overview: user-guide/index.md
     - Adding Sources: user-guide/adding-sources.md

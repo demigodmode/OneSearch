@@ -69,7 +69,7 @@ If you switch to `docker-compose.managed-meili.yml`, OneSearch runs Meilisearch 
 - `/app/data` for the SQLite database
 - `/app/meili_data` for the bundled Meilisearch index
 
-The search index is derived from your configured sources, so it can be rebuilt if needed. The source files and OneSearch database are the important data to preserve.
+The search index is derived from your configured sources, so it can be rebuilt if needed. The source files and OneSearch database are the important data to preserve. For the step-by-step flow, see [Migrating to managed Meilisearch](migrate-to-managed-meilisearch.md).
 
 ---
 

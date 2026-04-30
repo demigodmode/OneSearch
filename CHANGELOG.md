@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Managed Meilisearch mode** - added an opt-in single-container mode where OneSearch starts Meilisearch inside the app container. Existing two-container installs keep working as before.
+- **Managed Meilisearch mode** - added an opt-in single-container mode where OneSearch starts Meilisearch inside the app container. Existing two-container installs keep working as before, and the docs now include a safe migration guide.
 - **Meilisearch contract coverage** - added a live integration test against Meilisearch v1.12 so client/API mismatches are caught earlier.
 
 ### Fixed

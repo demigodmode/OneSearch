@@ -137,7 +137,7 @@ Then start with:
 docker-compose -f docker-compose.managed-meili.yml up -d
 ```
 
-Managed mode still needs `MEILI_MASTER_KEY` in `.env`. It stores the SQLite database in `/app/data` and the bundled Meilisearch index in `/app/meili_data`, so keep both volumes if you want data to survive restarts.
+Managed mode still needs `MEILI_MASTER_KEY` in `.env`. It stores the SQLite database in `/app/data` and the bundled Meilisearch index in `/app/meili_data`, so keep both volumes if you want data to survive restarts. If you're switching an existing install, read [Migrating to managed Meilisearch](migrate-to-managed-meilisearch.md) first.
 
 ---
 
