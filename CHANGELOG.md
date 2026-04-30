@@ -5,6 +5,20 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Managed Meilisearch mode** - added an opt-in single-container mode where OneSearch starts Meilisearch inside the app container. Existing two-container installs keep working as before.
+- **Meilisearch contract coverage** - added a live integration test against Meilisearch v1.12 so client/API mismatches are caught earlier.
+
+### Fixed
+
+- **Source cleanup in Meilisearch** - replaced the unsupported delete-by-filter client call with the supported `delete_documents(..., filter=...)` API.
+- **Bundled Meilisearch on ARM64** - fixed the Dockerfile so the bundled Meilisearch binary works on both amd64 and ARM64 builds.
+
+---
+
 ## [0.12.1] - 2026-04-23
 
 ### Fixed
