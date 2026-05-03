@@ -515,6 +515,24 @@ class TestReindexEndpoint:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
+    def test_reindex_uses_overridden_database_session(self, client, sample_source, monkeypatch):
+        """Reindexing should use the test database bind, not the app's default DB."""
+        from app.api import sources
+
+        class FakeSearchService:
+            async def index_documents(self, documents):
+                return None
+
+            async def delete_documents_by_filter(self, filter_str):
+                return None
+
+        monkeypatch.setattr(sources, "meili_service", FakeSearchService())
+
+        response = client.post(f"/api/sources/{sample_source.id}/reindex")
+
+        assert response.status_code == 200, \
+            f"Expected 200, got {response.status_code}: {response.json()}"
+
     @pytest.mark.asyncio
     async def test_reindex_source_success(self, client, sample_source, meili_available):
         """Test reindexing returns statistics

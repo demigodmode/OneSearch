@@ -60,6 +60,19 @@ You can pin to specific tags if you want more control:
 
 ---
 
+## Managed Meilisearch mode
+
+Managed Meilisearch is opt-in. Upgrading does not change existing two-container installs; if your compose file has a separate `meilisearch` service, it will keep working that way.
+
+If you switch to `docker-compose.managed-meili.yml`, OneSearch runs Meilisearch inside the app container and points the backend at `http://127.0.0.1:7700`. Keep these volumes around:
+
+- `/app/data` for the SQLite database
+- `/app/meili_data` for the bundled Meilisearch index
+
+The search index is derived from your configured sources, so it can be rebuilt if needed. The source files and OneSearch database are the important data to preserve. For the step-by-step flow, see [Migrating to managed Meilisearch](migrate-to-managed-meilisearch.md).
+
+---
+
 ## Version-Specific Notes
 
 Check the [Changelog](../about/changelog.md) for breaking changes and migration notes.

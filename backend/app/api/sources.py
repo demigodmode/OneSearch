@@ -330,12 +330,13 @@ async def reindex_source(
     try:
         from starlette.concurrency import run_in_threadpool
         from sqlalchemy.orm import sessionmaker
-        from ..db.database import engine
+
+        db_bind = db.get_bind()
 
         def sync_index_wrapper():
             import asyncio
 
-            SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+            SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db_bind)
             thread_db = SessionLocal()
 
             try:

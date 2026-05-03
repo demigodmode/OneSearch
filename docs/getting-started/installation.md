@@ -119,6 +119,26 @@ docker-compose logs -f onesearch
 
 Open http://localhost:8000 in your browser. You should see the OneSearch search page.
 
+### Optional: managed Meilisearch mode
+
+The default compose file runs Meilisearch as a separate container. That is still the recommended path for most installs.
+
+There is also an opt-in managed mode where OneSearch starts Meilisearch inside the app container. It's useful if you want a single app container and don't want to manage a separate Meilisearch service. Existing installs do not need to switch.
+
+To try it, download the managed compose file instead:
+
+```bash
+curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/docker-compose.managed-meili.yml
+```
+
+Then start with:
+
+```bash
+docker-compose -f docker-compose.managed-meili.yml up -d
+```
+
+Managed mode still needs `MEILI_MASTER_KEY` in `.env`. It stores the SQLite database in `/app/data` and the bundled Meilisearch index in `/app/meili_data`, so keep both volumes if you want data to survive restarts. If you're switching an existing install, read [Migrating to managed Meilisearch](migrate-to-managed-meilisearch.md) first.
+
 ---
 
 ## Option 2: Build from Source
@@ -184,6 +204,7 @@ After installation you have:
 - Web UI at http://localhost:8000
 - Backend API at http://localhost:8000/api
 - CLI tool (inside the container, or install separately)
+- Meilisearch, either as a separate container or inside the OneSearch container if managed mode is enabled
 
 ---
 
@@ -210,7 +231,7 @@ docker-compose down -v
 
 # Remove images
 docker rmi ghcr.io/demigodmode/onesearch:latest
-docker rmi meilisearch/meilisearch:latest
+docker rmi getmeili/meilisearch:v1.12
 ```
 
 The `-v` flag deletes your search index and configurations. Your original files are never modified or deleted by OneSearch.

@@ -165,13 +165,22 @@ class TestDeleteDocument:
 class TestDeleteDocumentsByFilter:
 
     @pytest.mark.asyncio
-    async def test_delete_by_filter_success(self, connected_service):
-        task = _fake_task(task_uid=6)
-        connected_service.index.delete_documents_by_filter.return_value = task
+    async def test_delete_by_filter_uses_supported_client_method(self, service):
+        class FakeIndex:
+            def __init__(self):
+                self.filter = None
 
-        result = await connected_service.delete_documents_by_filter("source_id = 'src1'")
+            def delete_documents(self, *, filter):
+                self.filter = filter
+                return _fake_task(task_uid=6)
+
+        fake_index = FakeIndex()
+        service.index = fake_index
+
+        result = await service.delete_documents_by_filter("source_id = 'src1'")
 
         assert result["task_uid"] == 6
+        assert fake_index.filter == "source_id = 'src1'"
 
     @pytest.mark.asyncio
     async def test_delete_by_filter_not_initialized(self, service):

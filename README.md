@@ -31,6 +31,8 @@ docker-compose up -d
 
 Open http://localhost:8000, run through the setup wizard, add a directory as a source, and start searching.
 
+> **Heads up:** OneSearch is moving toward an easier single-container setup. The default install still runs Meilisearch as a separate container, but v0.13 adds an opt-in managed Meilisearch mode where OneSearch starts Meilisearch inside the app container. If you want to try it, use `docker-compose.managed-meili.yml`; existing installs should read the [migration guide](https://onesearch.readthedocs.io/en/latest/getting-started/migrate-to-managed-meilisearch/) first. Existing installs do not need to change.
+
 Full setup guide: [onesearch.readthedocs.io](https://onesearch.readthedocs.io/en/latest/getting-started/installation/)
 
 ---

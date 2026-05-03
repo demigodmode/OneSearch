@@ -44,7 +44,12 @@ COPY cli/ ./cli/
 RUN uv pip install --system ./backend ./cli
 
 # =============================================================================
-# Stage 3: Runtime
+# Stage 3: Meilisearch binary
+# =============================================================================
+FROM getmeili/meilisearch:v1.12 AS meilisearch-runtime
+
+# =============================================================================
+# Stage 4: Runtime
 # =============================================================================
 FROM python:3.13-slim
 
@@ -68,6 +73,12 @@ WORKDIR /app
 COPY --from=backend-builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
+# Copy Meilisearch binary and Alpine runtime libs for opt-in managed mode
+COPY --from=meilisearch-runtime /bin/meilisearch /usr/local/bin/meilisearch
+COPY --from=meilisearch-runtime /lib/ld-musl-*.so.1 /lib/
+COPY --from=meilisearch-runtime /lib/libc.musl-*.so.1 /lib/
+COPY --from=meilisearch-runtime /usr/lib/libgcc_s.so.1 /usr/lib/libgcc_s.so.1
+
 # Copy backend application code
 COPY --chown=onesearch:onesearch backend/ ./backend/
 
@@ -78,9 +89,10 @@ COPY --from=frontend-builder /app/dist ./frontend/
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Copy and set up entrypoint script
+# Copy and set up runtime scripts
 COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+COPY start-backend.sh /app/start-backend.sh
+RUN chmod +x /app/entrypoint.sh /app/start-backend.sh
 
 # Fix nginx permissions (Debian uses www-data, not nginx)
 RUN mkdir -p /var/cache/nginx /var/log/nginx && \
@@ -89,8 +101,8 @@ RUN mkdir -p /var/cache/nginx /var/log/nginx && \
     touch /var/run/nginx.pid && \
     chown -R www-data:www-data /var/run/nginx.pid
 
-# Create data directory with correct permissions
-RUN mkdir -p /app/data && chown -R onesearch:onesearch /app/data
+# Create data directories with correct permissions
+RUN mkdir -p /app/data /app/meili_data && chown -R onesearch:onesearch /app/data /app/meili_data
 
 # Expose port (nginx listens on 8000)
 EXPOSE 8000
