@@ -1,8 +1,10 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { useTheme, PRESETS, type ThemePreset } from '@/contexts/ThemeContext'
-import { useSearchSettings, type SearchSettings } from '@/contexts/SearchSettingsContext'
+import { PRESETS, type ThemePreset } from '@/contexts/theme'
+import { useTheme } from '@/contexts/useTheme'
+import type { SearchSettings } from '@/contexts/searchSettings'
+import { useSearchSettings } from '@/contexts/useSearchSettings'
 import { cn } from '@/lib/utils'
 
 export default function SettingsPage() {
