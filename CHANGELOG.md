@@ -5,6 +5,15 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Added the new OneSearch logo to the README, browser favicon, and app header. The in-app logo now follows the active accent hue.
+- Cleaned up frontend context exports and localStorage initialization so the full frontend lint check passes again.
+
+---
+
 ## [0.13.0] - 2026-05-03
 
 ### Added

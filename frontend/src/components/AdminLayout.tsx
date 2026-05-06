@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Search, Database, Activity, ArrowLeft, Terminal, LogOut, User, Settings } from 'lucide-react'
+import { Database, Activity, ArrowLeft, Terminal, LogOut, User, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useAuth } from '@/contexts/AuthContext'
+import { useAuth } from '@/contexts/useAuth'
 import { Button } from '@/components/ui/button'
+import { OneSearchLogo } from '@/components/OneSearchLogo'
 
 const adminNavItems = [
   { path: '/admin/sources',  label: 'Sources',  icon: Database  },
@@ -26,8 +27,8 @@ export default function AdminLayout() {
             {/* Logo & breadcrumb */}
             <div className="flex items-center gap-3">
               <Link to="/" className="flex items-center gap-2.5 group">
-                <div className="p-1.5 rounded-lg bg-brand/10 group-hover:bg-brand/20 transition-colors">
-                  <Search className="h-5 w-5 text-brand" />
+                <div className="p-1 rounded-lg bg-brand/10 group-hover:bg-brand/20 transition-colors">
+                  <OneSearchLogo className="h-6 w-6" aria-hidden="true" />
                 </div>
                 <span className="text-lg font-semibold text-foreground tracking-tight">
                   OneSearch

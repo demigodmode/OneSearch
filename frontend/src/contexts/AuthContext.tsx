@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import {
-  createContext,
-  useContext,
   useState,
   useEffect,
   useCallback,
@@ -21,19 +19,7 @@ import {
   getAuthStatus,
 } from '@/lib/api'
 import type { User, LoginRequest, SetupRequest } from '@/types/api'
-
-interface AuthContextType {
-  user: User | null
-  isAuthenticated: boolean
-  isLoading: boolean
-  setupRequired: boolean
-  login: (data: LoginRequest) => Promise<void>
-  logout: () => Promise<void>
-  setup: (data: SetupRequest) => Promise<void>
-  checkAuth: () => Promise<void>
-}
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+import { AuthContext, type AuthContextType } from '@/contexts/AuthContextValue'
 
 interface AuthProviderProps {
   children: ReactNode
@@ -69,7 +55,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Validate token by fetching current user
       const currentUser = await getCurrentUser()
       setUser(currentUser)
-    } catch (error) {
+    } catch {
       // Token is invalid or expired
       clearToken()
       setUser(null)
@@ -122,12 +108,4 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider')
-  }
-  return context
 }

@@ -1,5 +1,13 @@
 # OneSearch
 
+<p align="center">
+  <img src="frontend/public/onesearch-logo.svg" alt="OneSearch logo" width="120">
+</p>
+
+<p align="center">
+  Logo by <a href="https://www.briefreelancing.com/">Briefreelancing</a>.
+</p>
+
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Latest Release](https://img.shields.io/github/v/release/demigodmode/OneSearch)](https://github.com/demigodmode/OneSearch/releases/latest)
 [![Tests](https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/backend-tests.yml?label=tests)](https://github.com/demigodmode/OneSearch/actions/workflows/backend-tests.yml)

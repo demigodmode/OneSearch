@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Outlet, Link } from 'react-router-dom'
-import { Search, Settings, LogOut, User } from 'lucide-react'
-import { useAuth } from '@/contexts/AuthContext'
+import { Settings, LogOut, User } from 'lucide-react'
+import { useAuth } from '@/contexts/useAuth'
 import { Button } from '@/components/ui/button'
+import { OneSearchLogo } from '@/components/OneSearchLogo'
 
 export default function MainLayout() {
   const { user, logout } = useAuth()
@@ -17,8 +18,8 @@ export default function MainLayout() {
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2.5 group">
-              <div className="p-1.5 rounded-lg bg-brand/10 group-hover:bg-brand/20 transition-colors">
-                <Search className="h-5 w-5 text-brand" />
+              <div className="p-1 rounded-lg bg-brand/10 group-hover:bg-brand/20 transition-colors">
+                <OneSearchLogo className="h-6 w-6" aria-hidden="true" />
               </div>
               <span className="text-lg font-semibold text-foreground tracking-tight">
                 OneSearch
