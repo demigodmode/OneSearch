@@ -309,6 +309,36 @@ class TestIndexingService:
         assert indexed_file.size_bytes == 0
 
     @pytest.mark.asyncio
+    async def test_full_reindex_missing_root_does_not_clear_existing_index_state(self, db_session, mock_search_service):
+        """Full reindex should fail before clearing data when the source path is missing."""
+        source = Source(
+            id="missing_source",
+            name="Missing Source",
+            root_path="/definitely/missing/onesearch/path",
+            include_patterns=json.dumps(["**/*.txt"]),
+            exclude_patterns=json.dumps([]),
+        )
+        indexed_file = IndexedFile(
+            source_id="missing_source",
+            path="/definitely/missing/onesearch/path/file.txt",
+            size_bytes=100,
+            modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            indexed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            status="success",
+        )
+        db_session.add_all([source, indexed_file])
+        db_session.commit()
+
+        service = IndexingService(db_session, mock_search_service)
+
+        with pytest.raises(FileNotFoundError):
+            await service.index_source("missing_source", full=True)
+
+        mock_search_service.delete_documents_by_filter.assert_not_called()
+        remaining = db_session.query(IndexedFile).filter_by(source_id="missing_source").count()
+        assert remaining == 1
+
+    @pytest.mark.asyncio
     @patch('app.services.indexer.FileScanner')
     async def test_index_source_full_flow(
         self,

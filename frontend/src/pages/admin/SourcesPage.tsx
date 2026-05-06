@@ -251,6 +251,7 @@ export default function SourcesPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [editingSource, setEditingSource] = useState<Source | null>(null)
   const [deletingSource, setDeletingSource] = useState<Source | null>(null)
+  const [fullReindexSource, setFullReindexSource] = useState<Source | null>(null)
   const [reindexingId, setReindexingId] = useState<string | null>(null)
 
   // Queries and mutations
@@ -294,6 +295,17 @@ export default function SourcesPage() {
     reindexMutation.mutate({ id }, {
       onSettled: () => {
         setReindexingId(null)
+      },
+    })
+  }
+
+  const handleFullReindex = () => {
+    if (!fullReindexSource) return
+    setReindexingId(fullReindexSource.id)
+    reindexMutation.mutate({ id: fullReindexSource.id, full: true }, {
+      onSettled: () => {
+        setReindexingId(null)
+        setFullReindexSource(null)
       },
     })
   }
@@ -429,6 +441,15 @@ export default function SourcesPage() {
                         <RefreshCw className={cn("h-4 w-4 transition-transform", reindexingId === source.id && "animate-spin")} />
                       </button>
                       <button
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-brand hover:bg-brand/10 rounded-lg transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+                        title="Full reindex"
+                        aria-label={`Full reindex ${source.name}`}
+                        onClick={() => setFullReindexSource(source)}
+                        disabled={reindexingId === source.id}
+                      >
+                        <Database className="h-4 w-4" />
+                      </button>
+                      <button
                         className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-all active:scale-95"
                         title="Edit"
                         aria-label={`Edit ${source.name}`}
@@ -516,6 +537,35 @@ export default function SourcesPage() {
               error={updateMutation.error}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Full Reindex Confirmation Dialog */}
+      <Dialog open={!!fullReindexSource} onOpenChange={(open) => !open && setFullReindexSource(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Full reindex source?</DialogTitle>
+            <DialogDescription>
+              This clears indexed metadata for {fullReindexSource?.name} and rebuilds every matching file from scratch.
+              Use this after migrating to managed Meilisearch or when search index data is out of sync.
+            </DialogDescription>
+          </DialogHeader>
+          {fullReindexSource && (
+            <Alert>
+              <AlertDescription>
+                Confirm the path exists inside the container first: <code className="font-mono">{fullReindexSource.root_path}</code>
+              </AlertDescription>
+            </Alert>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFullReindexSource(null)} disabled={reindexMutation.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={handleFullReindex} disabled={reindexMutation.isPending}>
+              {reindexMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Full reindex
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

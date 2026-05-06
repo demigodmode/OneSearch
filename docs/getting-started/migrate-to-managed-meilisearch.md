@@ -125,9 +125,26 @@ curl http://localhost:8000/api/health
 
 The health response should show Meilisearch as available.
 
-## 7. Reindex sources
+## 7. Full reindex sources
 
-After switching modes, reindex your sources from the admin UI. The source configuration is kept in OneSearch's database, but the managed Meilisearch index starts with its own `/app/meili_data` volume.
+After switching modes, run a full reindex for each source. Source configuration and indexed-file metadata are kept in OneSearch's SQLite database, but the managed Meilisearch index starts with its own `/app/meili_data` volume. A normal incremental reindex may skip unchanged files because SQLite still remembers them from the old index.
+
+From the admin UI, go to **Admin → Sources** and use the **Full reindex** action for each source. Confirm the source path still exists inside the container before starting.
+
+From the CLI, list sources and run full reindex per source:
+
+```bash
+onesearch source list
+onesearch source reindex <source-id> --full
+```
+
+Or call the API directly:
+
+```bash
+curl -X POST \
+  "http://localhost:8000/api/sources/<source-id>/reindex?full=true" \
+  -H "Authorization: Bearer <token>"
+```
 
 Large source trees may take a while to rebuild. Your original files are not modified.
 

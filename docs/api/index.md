@@ -196,6 +196,13 @@ curl -X POST http://localhost:8000/api/sources/documents/reindex \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+Use `full=true` to clear indexed metadata and rebuild every file from scratch, such as after a managed Meilisearch migration:
+
+```bash
+curl -X POST "http://localhost:8000/api/sources/documents/reindex?full=true" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 ### Get Status
 
 ```bash
