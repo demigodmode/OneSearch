@@ -108,6 +108,12 @@ class IndexingService:
         stats = IndexingStats()
         total_bytes_processed = 0  # Track bytes for throughput metrics
 
+        root_path = Path(source.root_path)
+        if not root_path.exists():
+            raise FileNotFoundError(f"Root path does not exist: {source.root_path}")
+        if not root_path.is_dir():
+            raise ValueError(f"Root path is not a directory: {source.root_path}")
+
         # Full reindex: clear existing documents to handle migration or fix corruption
         if full:
             try:

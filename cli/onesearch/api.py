@@ -203,16 +203,18 @@ class OneSearchAPI:
         """Delete a source."""
         self._request("DELETE", f"/api/sources/{source_id}")
 
-    def reindex_source(self, source_id: str) -> dict:
+    def reindex_source(self, source_id: str, full: bool = False) -> dict:
         """Trigger reindex for a source.
 
         Args:
             source_id: Source ID.
+            full: If true, clear metadata and rebuild every file from scratch.
 
         Returns:
             Reindex result with statistics.
         """
-        return self._request("POST", f"/api/sources/{source_id}/reindex")
+        suffix = "?full=true" if full else ""
+        return self._request("POST", f"/api/sources/{source_id}/reindex{suffix}")
 
     # Search endpoints
     def search(

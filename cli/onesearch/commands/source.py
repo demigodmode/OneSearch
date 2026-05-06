@@ -196,8 +196,9 @@ def source_delete(ctx: Context, source_id: str, yes: bool):
 
 @source.command("reindex")
 @click.argument("source_id")
+@click.option("--full", is_flag=True, help="Clear indexed metadata and rebuild every file from scratch.")
 @pass_context
-def source_reindex(ctx: Context, source_id: str):
+def source_reindex(ctx: Context, source_id: str, full: bool):
     """Trigger reindex for a source.
 
     \b
@@ -205,14 +206,16 @@ def source_reindex(ctx: Context, source_id: str):
       SOURCE_ID  The source ID to reindex
 
     This will scan the source path and index all matching files.
+    Use --full after managed Meilisearch migrations or to repair index drift.
     """
     api = ctx.get_api()
     out = ctx.get_console()
     try:
         s = api.get_source(source_id)
-        out.print(f"[dim]Reindexing source [cyan]{s['name']}[/cyan]...[/dim]")
+        action = "Full reindexing" if full else "Reindexing"
+        out.print(f"[dim]{action} source [cyan]{s['name']}[/cyan]...[/dim]")
 
-        result = api.reindex_source(source_id)
+        result = api.reindex_source(source_id, full=full)
 
         # Backend returns: {"message": ..., "stats": {...}}
         stats = result.get("stats", {})

@@ -77,7 +77,7 @@ The main page has a search box (press `Cmd/Ctrl + K` to focus it), filters for s
 
 ### Admin Section
 
-**Sources**: Manage sources - add, edit, delete, and trigger reindexing.
+**Sources**: Manage sources - add, edit, delete, trigger incremental reindexing, or run a full reindex when rebuilding the search index.
 
 **Status**: Monitor indexing progress, view per-source statistics, and check failed files.
 
