@@ -294,6 +294,29 @@ class TestIndexingService:
             assert doc.metadata["unsupported_extension"] is True
 
     @pytest.mark.asyncio
+    async def test_extract_document_large_unsupported_file_is_metadata_only(self, db_session):
+        """Large unsupported files should still index metadata without reading content."""
+        service = IndexingService(db_session, Mock())
+
+        with TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / "large-video.mkv"
+            with open(file_path, "wb") as f:
+                f.seek((11 * 1024 * 1024) - 1)
+                f.write(b"0")
+
+            doc = await service._extract_document(
+                str(file_path),
+                "test_source",
+                "Test Source"
+            )
+
+            assert doc is not None
+            assert doc.type == "file"
+            assert doc.basename == "large-video.mkv"
+            assert doc.size_bytes == 11 * 1024 * 1024
+            assert doc.metadata["metadata_only"] is True
+
+    @pytest.mark.asyncio
     async def test_extract_document_unsupported_type_respects_skip_policy(self, db_session):
         """Unsupported files should still be skipped when the policy is skip."""
         db_session.add(AppSetting(key="unsupported_file_policy", value="skip"))

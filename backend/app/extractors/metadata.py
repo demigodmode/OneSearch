@@ -17,7 +17,10 @@ class MetadataOnlyExtractor(BaseExtractor):
 
     def extract(self, file_path: str) -> Document:
         path = Path(file_path)
-        self._check_file_size(file_path)
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+        if not path.is_file():
+            raise ValueError(f"Not a file: {file_path}")
         metadata = self._get_file_metadata(file_path)
         absolute_path = str(path.absolute())
         content = "\n".join([
