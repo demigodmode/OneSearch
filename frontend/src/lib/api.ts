@@ -22,6 +22,8 @@ import type {
   LoginRequest,
   AuthResponse,
   User,
+  AppSettings,
+  AppSettingsUpdate,
 } from '@/types/api'
 
 // ============================================================================
@@ -218,6 +220,21 @@ export async function clearStaleFailed(id: string): Promise<{ cleared: number }>
 }
 
 // ============================================================================
+// App Settings
+// ============================================================================
+
+export async function getAppSettings(): Promise<AppSettings> {
+  return apiFetch<AppSettings>('/settings')
+}
+
+export async function updateAppSettings(data: AppSettingsUpdate): Promise<AppSettings> {
+  return apiFetch<AppSettings>('/settings', {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+// ============================================================================
 // Search
 // ============================================================================
 
@@ -302,6 +319,7 @@ export const queryKeys = {
   source: (id: string) => ['sources', id] as const,
   search: (query: SearchQuery) => ['search', query] as const,
   document: (id: string) => ['documents', id] as const,
+  appSettings: ['appSettings'] as const,
   authStatus: ['authStatus'] as const,
   currentUser: ['currentUser'] as const,
 }

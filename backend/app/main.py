@@ -20,7 +20,7 @@ from .config import settings
 from .services.search import meili_service
 from .services.scheduler import SchedulerService
 from .db.database import engine
-from .api import sources, search, status, auth
+from .api import sources, search, status, auth, settings as settings_api
 
 # Configure logging
 logging.basicConfig(
@@ -148,6 +148,7 @@ app.include_router(auth.router)
 app.include_router(sources.router)
 app.include_router(search.router)
 app.include_router(status.router)
+app.include_router(settings_api.router)
 
 
 @app.get("/api/health")

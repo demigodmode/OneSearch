@@ -5,6 +5,9 @@
 Application configuration using pydantic-settings
 Loads settings from environment variables
 """
+from typing import Literal
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -54,6 +57,21 @@ class Settings(BaseSettings):
     # Scheduler settings
     scheduler_enabled: bool = True
     schedule_timezone: str = "UTC"
+
+    # Rich media indexing and preview defaults
+    unsupported_file_policy: Literal["skip", "metadata_only"] = "metadata_only"
+    media_metadata_mode: Literal["auto", "off"] = "auto"
+    index_gps_metadata: bool = False
+    show_previews: bool = True
+    raw_preview_enabled: bool = True
+    max_preview_size_mb: int = 50
+
+    @field_validator("max_preview_size_mb")
+    @classmethod
+    def validate_max_preview_size_mb(cls, value: int) -> int:
+        if value not in {25, 50, 100}:
+            raise ValueError("max_preview_size_mb must be one of: 25, 50, 100")
+        return value
 
 
 # Global settings instance

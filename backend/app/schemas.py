@@ -167,6 +167,26 @@ class AuthResponse(BaseModel):
     expires_in: int  # seconds
 
 
+class AppSettingsResponse(BaseModel):
+    """Backend-managed indexing and preview settings."""
+    unsupported_file_policy: Literal["skip", "metadata_only"] = "metadata_only"
+    media_metadata_mode: Literal["auto", "off"] = "auto"
+    index_gps_metadata: bool = False
+    show_previews: bool = True
+    raw_preview_enabled: bool = True
+    max_preview_size_mb: Literal[25, 50, 100] = 50
+
+
+class AppSettingsUpdate(BaseModel):
+    """Partial update for backend-managed indexing and preview settings."""
+    unsupported_file_policy: Optional[Literal["skip", "metadata_only"]] = None
+    media_metadata_mode: Optional[Literal["auto", "off"]] = None
+    index_gps_metadata: Optional[bool] = None
+    show_previews: Optional[bool] = None
+    raw_preview_enabled: Optional[bool] = None
+    max_preview_size_mb: Optional[Literal[25, 50, 100]] = None
+
+
 class MessageResponse(BaseModel):
     """Generic message response"""
     message: str

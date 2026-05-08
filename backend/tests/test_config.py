@@ -18,6 +18,8 @@ _ENV_SENSITIVE_FIELDS = [
     "TEXT_EXTRACTION_TIMEOUT", "PDF_EXTRACTION_TIMEOUT", "OFFICE_EXTRACTION_TIMEOUT",
     "MEILISEARCH_BATCH_SIZE", "INDEXING_PROGRESS_INTERVAL",
     "SESSION_EXPIRE_HOURS", "AUTH_RATE_LIMIT",
+    "UNSUPPORTED_FILE_POLICY", "MEDIA_METADATA_MODE", "INDEX_GPS_METADATA",
+    "SHOW_PREVIEWS", "RAW_PREVIEW_ENABLED", "MAX_PREVIEW_SIZE_MB",
 ]
 
 
@@ -78,6 +80,15 @@ class TestSettingsDefaults:
         s = Settings(_env_file=None)
         assert s.allowed_source_paths == "/data"
 
+    def test_rich_media_settings_defaults(self, clean_env):
+        s = Settings(_env_file=None)
+        assert s.unsupported_file_policy == "metadata_only"
+        assert s.media_metadata_mode == "auto"
+        assert s.index_gps_metadata is False
+        assert s.show_previews is True
+        assert s.raw_preview_enabled is True
+        assert s.max_preview_size_mb == 50
+
 
 class TestSettingsFromEnv:
 
@@ -105,3 +116,20 @@ class TestSettingsFromEnv:
         monkeypatch.setenv("SESSION_EXPIRE_HOURS", "48")
         s = Settings(_env_file=None)
         assert s.session_expire_hours == 48
+
+    def test_rich_media_settings_from_env(self, monkeypatch):
+        monkeypatch.setenv("UNSUPPORTED_FILE_POLICY", "skip")
+        monkeypatch.setenv("MEDIA_METADATA_MODE", "off")
+        monkeypatch.setenv("INDEX_GPS_METADATA", "true")
+        monkeypatch.setenv("SHOW_PREVIEWS", "false")
+        monkeypatch.setenv("RAW_PREVIEW_ENABLED", "false")
+        monkeypatch.setenv("MAX_PREVIEW_SIZE_MB", "100")
+
+        s = Settings(_env_file=None)
+
+        assert s.unsupported_file_policy == "skip"
+        assert s.media_metadata_mode == "off"
+        assert s.index_gps_metadata is True
+        assert s.show_previews is False
+        assert s.raw_preview_enabled is False
+        assert s.max_preview_size_mb == 100

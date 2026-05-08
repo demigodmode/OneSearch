@@ -1,15 +1,20 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import { AlertCircle, Loader2 } from 'lucide-react'
 import { PRESETS, type ThemePreset } from '@/contexts/theme'
 import { useTheme } from '@/contexts/useTheme'
 import type { SearchSettings } from '@/contexts/searchSettings'
 import { useSearchSettings } from '@/contexts/useSearchSettings'
+import { useAppSettings, useUpdateAppSettings } from '@/hooks/useApi'
+import type { AppSettings } from '@/types/api'
 import { cn } from '@/lib/utils'
 
 export default function SettingsPage() {
   const { theme, customHue, setPreset, setCustomHue } = useTheme()
   const { settings, updateSettings } = useSearchSettings()
+  const appSettings = useAppSettings()
+  const updateAppSettings = useUpdateAppSettings()
 
   return (
     <div className="animate-fade-in">
@@ -27,6 +32,14 @@ export default function SettingsPage() {
         />
 
         <SearchSection settings={settings} onUpdate={updateSettings} />
+
+        <IndexingPreviewsSection
+          settings={appSettings.data}
+          isLoading={appSettings.isLoading}
+          error={appSettings.error}
+          isSaving={updateAppSettings.isPending}
+          onUpdate={(partial) => updateAppSettings.mutate(partial)}
+        />
       </div>
     </div>
   )
@@ -144,16 +157,33 @@ function SegmentedButtons<T extends string | number>({
   )
 }
 
-function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+function Toggle({
+  checked,
+  onChange,
+  label,
+  description,
+  disabled = false,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  label: string
+  description?: string
+  disabled?: boolean
+}) {
   return (
-    <label className="flex items-center justify-between gap-3 cursor-pointer">
-      <span className="text-sm text-foreground">{label}</span>
+    <label className={cn('flex items-start justify-between gap-3', disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')}>
+      <span>
+        <span className="block text-sm text-foreground">{label}</span>
+        {description && <span className="block text-xs text-muted-foreground mt-0.5">{description}</span>}
+      </span>
       <button
+        type="button"
         role="switch"
         aria-checked={checked}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          'relative w-9 h-5 rounded-full transition-colors',
+          'relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 disabled:cursor-not-allowed',
           checked ? 'bg-brand' : 'bg-secondary'
         )}
       >
@@ -171,6 +201,117 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 interface SearchSectionProps {
   settings: SearchSettings
   onUpdate: (partial: Partial<SearchSettings>) => void
+}
+
+interface IndexingPreviewsSectionProps {
+  settings?: AppSettings
+  isLoading: boolean
+  error: unknown
+  isSaving: boolean
+  onUpdate: (partial: Partial<AppSettings>) => void
+}
+
+function IndexingPreviewsSection({
+  settings,
+  isLoading,
+  error,
+  isSaving,
+  onUpdate,
+}: IndexingPreviewsSectionProps) {
+  return (
+    <section className="bg-card border border-border rounded-lg p-6 max-w-lg">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">
+          Indexing & Previews
+        </h2>
+        {isSaving && <Loader2 className="h-4 w-4 text-brand animate-spin" />}
+      </div>
+
+      {isLoading && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading settings...
+        </div>
+      )}
+
+      {Boolean(error) && (
+        <div className="flex items-start gap-2 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 mt-0.5" />
+          <span>Unable to load indexing and preview settings.</span>
+        </div>
+      )}
+
+      {settings && (
+        <div className="space-y-5">
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Unsupported files</p>
+            <select
+              value={settings.unsupported_file_policy}
+              onChange={(e) => onUpdate({ unsupported_file_policy: e.target.value as AppSettings['unsupported_file_policy'] })}
+              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+            >
+              <option value="metadata_only">Index filename/path only</option>
+              <option value="skip">Skip unsupported files</option>
+            </select>
+            <p className="text-xs text-muted-foreground mt-2">
+              Metadata-only indexing makes unknown files searchable without extracting content.
+            </p>
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Media metadata extraction</p>
+            <SegmentedButtons
+              options={[
+                { value: 'auto' as const, label: 'Auto' },
+                { value: 'off' as const, label: 'Off' },
+              ]}
+              value={settings.media_metadata_mode}
+              onChange={(v) => onUpdate({ media_metadata_mode: v })}
+              ariaLabel="Media metadata extraction"
+            />
+            <p className="text-xs text-muted-foreground mt-2">
+              Auto uses ffprobe when available and falls back cleanly when it is not.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <Toggle
+              label="Index GPS metadata"
+              description="Off by default because photo GPS metadata can reveal precise location."
+              checked={settings.index_gps_metadata}
+              onChange={(v) => onUpdate({ index_gps_metadata: v })}
+            />
+            <Toggle
+              label="Show previews"
+              checked={settings.show_previews}
+              onChange={(v) => onUpdate({ show_previews: v })}
+            />
+            <Toggle
+              label="RAW embedded previews"
+              description="Extract embedded JPEG previews from RAW photos on demand."
+              checked={settings.raw_preview_enabled}
+              disabled={!settings.show_previews}
+              onChange={(v) => onUpdate({ raw_preview_enabled: v })}
+            />
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Max preview file size</p>
+            <SegmentedButtons
+              options={[
+                { value: 25 as const, label: '25 MB' },
+                { value: 50 as const, label: '50 MB' },
+                { value: 100 as const, label: '100 MB' },
+              ]}
+              value={settings.max_preview_size_mb}
+              onChange={(v) => onUpdate({ max_preview_size_mb: v })}
+              ariaLabel="Max preview file size"
+            />
+          </div>
+        </div>
+      )}
+    </section>
+  )
 }
 
 function SearchSection({ settings, onUpdate }: SearchSectionProps) {
