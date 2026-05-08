@@ -17,9 +17,10 @@ from sqlalchemy import select, func, case
 
 from ..models import Source, IndexedFile
 from ..schemas import Document
-from ..extractors import extractor_registry
+from ..extractors import MetadataOnlyExtractor, extractor_registry
 from ..config import settings
 from .scanner import FileScanner
+from .app_settings import AppSettingsService
 from .search import SearchService
 
 logger = logging.getLogger(__name__)
@@ -361,8 +362,12 @@ class IndexingService:
         )
 
         if extractor is None:
-            logger.debug(f"No extractor for file: {file_path}")
-            return None
+            app_settings = AppSettingsService(self.db).get_settings()
+            if app_settings.unsupported_file_policy == "skip":
+                logger.debug(f"No extractor for file: {file_path}")
+                return None
+            logger.debug(f"Creating metadata-only document for unsupported file: {file_path}")
+            extractor = MetadataOnlyExtractor(source_id, source_name)
 
         # Extract with timeout
         document = await extractor.extract_with_timeout(file_path)

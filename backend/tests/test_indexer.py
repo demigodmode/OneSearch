@@ -15,7 +15,7 @@ import json
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Base, Source, IndexedFile
+from app.models import AppSetting, Base, Source, IndexedFile
 from app.services.indexer import IndexingService, IndexingStats
 from app.schemas import Document
 
@@ -269,8 +269,35 @@ class TestIndexingService:
         assert len(status["failed_files"]) == 1
 
     @pytest.mark.asyncio
-    async def test_extract_document_unsupported_type(self, db_session):
-        """Test extracting document with unsupported file type"""
+    async def test_extract_document_unsupported_type_creates_metadata_only_document(self, db_session):
+        """Unsupported files should become metadata-only documents by default."""
+        service = IndexingService(db_session, Mock())
+
+        with TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / "test.unsupported"
+            file_path.write_text("test content")
+
+            doc = await service._extract_document(
+                str(file_path),
+                "test_source",
+                "Test Source"
+            )
+
+            assert doc is not None
+            assert doc.type == "file"
+            assert doc.basename == "test.unsupported"
+            assert doc.extension == "unsupported"
+            assert "test.unsupported" in doc.content
+            assert str(file_path.absolute()) in doc.content
+            assert "Test Source" in doc.content
+            assert doc.metadata["metadata_only"] is True
+            assert doc.metadata["unsupported_extension"] is True
+
+    @pytest.mark.asyncio
+    async def test_extract_document_unsupported_type_respects_skip_policy(self, db_session):
+        """Unsupported files should still be skipped when the policy is skip."""
+        db_session.add(AppSetting(key="unsupported_file_policy", value="skip"))
+        db_session.commit()
         service = IndexingService(db_session, Mock())
 
         with TemporaryDirectory() as tmp:
@@ -337,6 +364,86 @@ class TestIndexingService:
         mock_search_service.delete_documents_by_filter.assert_not_called()
         remaining = db_session.query(IndexedFile).filter_by(source_id="missing_source").count()
         assert remaining == 1
+
+    @pytest.mark.asyncio
+    @patch('app.services.indexer.FileScanner')
+    async def test_index_source_indexes_unsupported_file_as_metadata_only(
+        self,
+        mock_scanner_class,
+        db_session,
+        mock_search_service,
+        test_directory
+    ):
+        """Full indexing should count metadata-only fallback documents as successful."""
+        unsupported_file = test_directory / "photo.rawish"
+        unsupported_file.write_text("binary-ish test data")
+        mock_scanner = Mock()
+        mock_scanner.scan.return_value = [str(unsupported_file)]
+        mock_scanner_class.return_value = mock_scanner
+        source = Source(
+            id="metadata_source",
+            name="Metadata Source",
+            root_path=str(test_directory),
+            include_patterns=json.dumps(["**/*"]),
+            exclude_patterns=json.dumps([])
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        service = IndexingService(db_session, mock_search_service)
+        stats = await service.index_source("metadata_source")
+
+        assert stats.total_scanned == 1
+        assert stats.successful == 1
+        assert stats.skipped == 0
+        indexed_batch = mock_search_service.index_documents.call_args.args[0]
+        assert indexed_batch[0].type == "file"
+        assert indexed_batch[0].metadata["metadata_only"] is True
+        indexed_file = db_session.query(IndexedFile).filter_by(
+            source_id="metadata_source",
+            path=str(unsupported_file),
+        ).one()
+        assert indexed_file.status == "success"
+
+    @pytest.mark.asyncio
+    @patch('app.services.indexer.FileScanner')
+    async def test_index_source_skips_unsupported_file_when_policy_is_skip(
+        self,
+        mock_scanner_class,
+        db_session,
+        mock_search_service,
+        test_directory
+    ):
+        """Full indexing should keep old skipped behavior when configured."""
+        db_session.add(AppSetting(key="unsupported_file_policy", value="skip"))
+        unsupported_file = test_directory / "photo.rawish"
+        unsupported_file.write_text("binary-ish test data")
+        mock_scanner = Mock()
+        mock_scanner.scan.return_value = [str(unsupported_file)]
+        mock_scanner_class.return_value = mock_scanner
+        source = Source(
+            id="skip_source",
+            name="Skip Source",
+            root_path=str(test_directory),
+            include_patterns=json.dumps(["**/*"]),
+            exclude_patterns=json.dumps([])
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        service = IndexingService(db_session, mock_search_service)
+        stats = await service.index_source("skip_source")
+
+        assert stats.total_scanned == 1
+        assert stats.successful == 0
+        assert stats.skipped == 1
+        mock_search_service.index_documents.assert_not_called()
+        indexed_file = db_session.query(IndexedFile).filter_by(
+            source_id="skip_source",
+            path=str(unsupported_file),
+        ).one()
+        assert indexed_file.status == "skipped"
+        assert indexed_file.error_message == "Unsupported file type"
 
     @pytest.mark.asyncio
     @patch('app.services.indexer.FileScanner')
