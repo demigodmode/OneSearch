@@ -12,6 +12,7 @@ from .markdown import MarkdownExtractor
 from .pdf import PDFExtractor
 from .office import DocxExtractor, XlsxExtractor, PptxExtractor
 from .metadata import MetadataOnlyExtractor
+from .subtitles import SubtitleExtractor
 
 __all__ = [
     "BaseExtractor",
@@ -24,4 +25,5 @@ __all__ = [
     "XlsxExtractor",
     "PptxExtractor",
     "MetadataOnlyExtractor",
+    "SubtitleExtractor",
 ]
