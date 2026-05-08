@@ -71,6 +71,48 @@ Second line
 
 
 @pytest.mark.asyncio
+async def test_vtt_keeps_single_word_caption_lines(temp_dir):
+    file_path = temp_dir / "single-word.vtt"
+    file_path.write_text(
+        """WEBVTT
+
+00:00:01.000 --> 00:00:02.000
+Yes
+
+00:00:03.000 --> 00:00:04.000
+No
+""",
+        encoding="utf-8",
+    )
+
+    doc = await SubtitleExtractor("src", "Movies").extract_with_timeout(str(file_path))
+
+    assert doc.content == "Yes\nNo"
+    assert doc.metadata["cue_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_srt_keeps_numeric_caption_lines(temp_dir):
+    file_path = temp_dir / "number.srt"
+    file_path.write_text(
+        """1
+00:00:01,000 --> 00:00:02,000
+2024
+
+2
+00:00:03,000 --> 00:00:04,000
+Done
+""",
+        encoding="utf-8",
+    )
+
+    doc = await SubtitleExtractor("src", "Movies").extract_with_timeout(str(file_path))
+
+    assert doc.content == "2024\nDone"
+    assert doc.metadata["cue_count"] == 2
+
+
+@pytest.mark.asyncio
 async def test_extract_ass_dialogue_text(temp_dir):
     file_path = temp_dir / "episode.ass"
     file_path.write_text(

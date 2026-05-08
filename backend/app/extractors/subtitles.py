@@ -63,41 +63,43 @@ class SubtitleExtractor(BaseExtractor):
     def _parse_srt(self, content: str) -> tuple[list[str], int]:
         lines: list[str] = []
         cue_count = 0
-        for raw_line in content.splitlines():
-            line = raw_line.strip()
-            if not line:
+        blocks = re.split(r"\n\s*\n", content.strip())
+        for block in blocks:
+            block_lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not block_lines:
                 continue
-            if line.isdigit():
-                continue
-            if _TIMESTAMP_LINE.match(line):
+            if block_lines[0].isdigit() and len(block_lines) > 1 and _TIMESTAMP_LINE.match(block_lines[1]):
+                block_lines = block_lines[1:]
+            if block_lines and _TIMESTAMP_LINE.match(block_lines[0]):
                 cue_count += 1
-                continue
-            lines.append(self._clean_text(line))
-        return [line for line in lines if line], cue_count
+                for line in block_lines[1:]:
+                    cleaned = self._clean_text(line)
+                    if cleaned:
+                        lines.append(cleaned)
+        return lines, cue_count
 
     def _parse_vtt(self, content: str) -> tuple[list[str], int]:
         lines: list[str] = []
         cue_count = 0
-        skip_note = False
-        for raw_line in content.splitlines():
-            line = raw_line.strip()
-            if not line:
-                skip_note = False
+        blocks = re.split(r"\n\s*\n", content.strip())
+        for block in blocks:
+            block_lines = [line.strip() for line in block.splitlines() if line.strip()]
+            if not block_lines:
                 continue
-            if line == "WEBVTT" or line.startswith("STYLE") or line.startswith("REGION"):
+            first_line = block_lines[0]
+            if first_line == "WEBVTT" or first_line.startswith("STYLE") or first_line.startswith("REGION"):
                 continue
-            if line.startswith("NOTE"):
-                skip_note = True
+            if first_line.startswith("NOTE"):
                 continue
-            if skip_note:
+            timestamp_index = next((i for i, line in enumerate(block_lines) if "-->" in line), -1)
+            if timestamp_index == -1:
                 continue
-            if "-->" in line:
-                cue_count += 1
-                continue
-            if re.match(r"^[A-Za-z0-9_-]+$", line):
-                continue
-            lines.append(self._clean_text(line))
-        return [line for line in lines if line], cue_count
+            cue_count += 1
+            for line in block_lines[timestamp_index + 1:]:
+                cleaned = self._clean_text(line)
+                if cleaned:
+                    lines.append(cleaned)
+        return lines, cue_count
 
     def _parse_ass(self, content: str) -> tuple[list[str], int]:
         lines: list[str] = []
