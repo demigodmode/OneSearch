@@ -46,6 +46,16 @@ async def test_extract_rtf_decodes_hex_escapes(temp_dir):
 
 
 @pytest.mark.asyncio
+async def test_extract_rtf_decodes_unicode_escapes(temp_dir):
+    file_path = temp_dir / "unicode.rtf"
+    file_path.write_text(r"{\rtf1\ansi Unicode \u8212? dash}", encoding="utf-8")
+
+    doc = await RTFExtractor("src", "Documents").extract_with_timeout(str(file_path))
+
+    assert doc.content == "Unicode — dash"
+
+
+@pytest.mark.asyncio
 async def test_extract_rtf_ignores_metadata_groups(temp_dir):
     file_path = temp_dir / "metadata.rtf"
     file_path.write_text(

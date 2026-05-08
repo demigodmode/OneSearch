@@ -114,6 +114,7 @@ class RTFExtractor(BaseExtractor):
             return "", i + 2
 
         word = match.group(1)
+        arg = match.group(2)
         replacement = {
             "par": "\n",
             "line": "\n",
@@ -122,9 +123,17 @@ class RTFExtractor(BaseExtractor):
             "endash": "–",
             "bullet": "•",
         }.get(word, "")
-        if replacement == "" and match.group(3) == " ":
+        new_i = i + len(match.group(0))
+        if word == "u" and arg:
+            codepoint = int(arg)
+            if codepoint < 0:
+                codepoint += 65536
+            replacement = chr(codepoint)
+            if new_i < len(raw) and raw[new_i] not in "{}\\\n\r":
+                new_i += 1
+        elif replacement == "" and match.group(3) == " ":
             replacement = " "
-        return replacement, i + len(match.group(0))
+        return replacement, new_i
 
     def _normalize_text(self, text: str) -> str:
         text = text.replace("\r", "")
