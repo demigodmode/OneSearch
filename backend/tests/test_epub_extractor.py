@@ -19,7 +19,7 @@ def temp_dir():
         yield Path(tmp)
 
 
-def write_epub(path: Path, *, opf_path: str = "OEBPS/content.opf") -> None:
+def write_epub(path: Path, *, opf_path: str = "OEBPS/content.opf", include_image_spine: bool = False) -> None:
     container_xml = f"""<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
@@ -40,13 +40,15 @@ def write_epub(path: Path, *, opf_path: str = "OEBPS/content.opf") -> None:
   <manifest>
     <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
     <item id="chapter2" href="text/chapter2.xhtml" media-type="application/xhtml+xml"/>
+    <item id="cover" href="images/cover.jpg" media-type="image/jpeg"/>
   </manifest>
   <spine>
     <itemref idref="chapter1"/>
     <itemref idref="chapter2"/>
+    {image_spine}
   </spine>
 </package>
-"""
+""".format(image_spine='<itemref idref="cover"/>' if include_image_spine else '')
     chapter1 = """<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Chapter One</h1><p>Hello <em>ebook</em> world.</p></body></html>
 """
@@ -59,6 +61,7 @@ def write_epub(path: Path, *, opf_path: str = "OEBPS/content.opf") -> None:
         zf.writestr(opf_path, opf)
         zf.writestr("OEBPS/chapter1.xhtml", chapter1)
         zf.writestr("OEBPS/text/chapter2.xhtml", chapter2)
+        zf.writestr("OEBPS/images/cover.jpg", b"not really a jpeg")
 
 
 @pytest.mark.asyncio
@@ -84,6 +87,19 @@ async def test_extract_epub_metadata_and_spine_text(temp_dir):
     assert doc.metadata["identifier"] == "urn:isbn:1234567890"
     assert doc.metadata["chapter_count"] == 2
     assert doc.metadata["extraction_failed"] is False
+
+
+@pytest.mark.asyncio
+async def test_epub_skips_non_text_spine_items(temp_dir):
+    file_path = temp_dir / "book-with-cover.epub"
+    write_epub(file_path, include_image_spine=True)
+
+    doc = await EPUBExtractor("src", "Books").extract_with_timeout(str(file_path))
+
+    assert doc.metadata["chapter_count"] == 2
+    assert "not really a jpeg" not in doc.content
+    assert "Chapter One" in doc.content
+    assert "Second chapter" in doc.content
 
 
 @pytest.mark.asyncio

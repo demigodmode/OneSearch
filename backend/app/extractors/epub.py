@@ -117,10 +117,13 @@ class EPUBExtractor(BaseExtractor):
         return metadata
 
     def _spine_chapter_paths(self, opf_root: ET.Element, opf_path: str) -> list[str]:
+        readable_media_types = {"application/xhtml+xml", "text/html"}
         manifest_items = {
             item.attrib.get("id"): item.attrib.get("href")
             for item in opf_root.findall("opf:manifest/opf:item", _OPF_NS)
-            if item.attrib.get("id") and item.attrib.get("href")
+            if item.attrib.get("id")
+            and item.attrib.get("href")
+            and item.attrib.get("media-type") in readable_media_types
         }
         opf_dir = posixpath.dirname(opf_path)
         chapter_paths: list[str] = []
