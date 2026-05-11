@@ -15,6 +15,7 @@ from .metadata import MetadataOnlyExtractor
 from .subtitles import SubtitleExtractor
 from .rtf import RTFExtractor
 from .epub import EPUBExtractor
+from .comic import ComicExtractor
 
 __all__ = [
     "BaseExtractor",
@@ -30,4 +31,5 @@ __all__ = [
     "SubtitleExtractor",
     "RTFExtractor",
     "EPUBExtractor",
+    "ComicExtractor",
 ]
