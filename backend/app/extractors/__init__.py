@@ -14,6 +14,7 @@ from .office import DocxExtractor, XlsxExtractor, PptxExtractor
 from .metadata import MetadataOnlyExtractor
 from .subtitles import SubtitleExtractor
 from .rtf import RTFExtractor
+from .epub import EPUBExtractor
 
 __all__ = [
     "BaseExtractor",
@@ -28,4 +29,5 @@ __all__ = [
     "MetadataOnlyExtractor",
     "SubtitleExtractor",
     "RTFExtractor",
+    "EPUBExtractor",
 ]

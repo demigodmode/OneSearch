@@ -1,0 +1,107 @@
+# Copyright (C) 2025 demigodmode
+# SPDX-License-Identifier: AGPL-3.0-only
+
+"""
+Tests for EPUB extraction.
+"""
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from zipfile import ZIP_DEFLATED, ZipFile
+
+import pytest
+
+from app.extractors import EPUBExtractor, extractor_registry
+
+
+@pytest.fixture
+def temp_dir():
+    with TemporaryDirectory() as tmp:
+        yield Path(tmp)
+
+
+def write_epub(path: Path, *, opf_path: str = "OEBPS/content.opf") -> None:
+    container_xml = f"""<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="{opf_path}" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>
+"""
+    opf = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Example Book</dc:title>
+    <dc:creator>Jane Writer</dc:creator>
+    <dc:language>en</dc:language>
+    <dc:publisher>Small Press</dc:publisher>
+    <dc:date>2024-01-02</dc:date>
+    <dc:identifier id="bookid">urn:isbn:1234567890</dc:identifier>
+  </metadata>
+  <manifest>
+    <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="chapter2" href="text/chapter2.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="chapter1"/>
+    <itemref idref="chapter2"/>
+  </spine>
+</package>
+"""
+    chapter1 = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Chapter One</h1><p>Hello <em>ebook</em> world.</p></body></html>
+"""
+    chapter2 = """<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Second chapter &amp; more text.</p></body></html>
+"""
+    with ZipFile(path, "w", ZIP_DEFLATED) as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml", container_xml)
+        zf.writestr(opf_path, opf)
+        zf.writestr("OEBPS/chapter1.xhtml", chapter1)
+        zf.writestr("OEBPS/text/chapter2.xhtml", chapter2)
+
+
+@pytest.mark.asyncio
+async def test_extract_epub_metadata_and_spine_text(temp_dir):
+    file_path = temp_dir / "book.epub"
+    write_epub(file_path)
+
+    doc = await EPUBExtractor("src", "Books").extract_with_timeout(str(file_path))
+
+    assert doc.type == "epub"
+    assert doc.title == "Example Book"
+    assert "Example Book" in doc.content
+    assert "Jane Writer" in doc.content
+    assert "Chapter One" in doc.content
+    assert "Hello ebook world." in doc.content
+    assert "Second chapter & more text." in doc.content
+    assert doc.content.index("Chapter One") < doc.content.index("Second chapter")
+    assert doc.metadata["title"] == "Example Book"
+    assert doc.metadata["creator"] == "Jane Writer"
+    assert doc.metadata["language"] == "en"
+    assert doc.metadata["publisher"] == "Small Press"
+    assert doc.metadata["date"] == "2024-01-02"
+    assert doc.metadata["identifier"] == "urn:isbn:1234567890"
+    assert doc.metadata["chapter_count"] == 2
+    assert doc.metadata["extraction_failed"] is False
+
+
+@pytest.mark.asyncio
+async def test_invalid_epub_falls_back_to_metadata_only(temp_dir):
+    file_path = temp_dir / "broken.epub"
+    file_path.write_bytes(b"not a zip")
+
+    doc = await EPUBExtractor("src", "Books").extract_with_timeout(str(file_path))
+
+    assert doc.type == "epub"
+    assert doc.title == "broken"
+    assert "broken.epub" in doc.content
+    assert str(file_path.absolute()) in doc.content
+    assert doc.metadata["metadata_only"] is True
+    assert doc.metadata["extraction_failed"] is True
+    assert "extraction_error" in doc.metadata
+
+
+def test_epub_extension_is_registered(temp_dir):
+    assert EPUBExtractor.supports_file(str(temp_dir / "book.epub"))
+    assert extractor_registry.get_extractor(str(temp_dir / "book.epub"), "src", "Source") is not None
