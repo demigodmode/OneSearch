@@ -4,6 +4,7 @@
 """
 CBZ comic archive metadata extractor.
 """
+import re
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 from xml.etree import ElementTree as ET
@@ -57,8 +58,11 @@ class ComicExtractor(BaseExtractor):
         with ZipFile(file_path) as zf:
             names = [name for name in zf.namelist() if not name.endswith("/")]
             page_files = sorted(
-                name for name in names
-                if Path(name).suffix.lower() in _IMAGE_EXTENSIONS
+                (
+                    name for name in names
+                    if Path(name).suffix.lower() in _IMAGE_EXTENSIONS
+                ),
+                key=_natural_sort_key,
             )
             metadata = self._comic_info_metadata(zf)
 
@@ -100,6 +104,10 @@ class ComicExtractor(BaseExtractor):
         lines.append(f"Page count: {len(page_files)}")
         lines.extend(page_files)
         return "\n".join(lines)
+
+
+def _natural_sort_key(value: str) -> list[int | str]:
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", value)]
 
 
 extractor_registry.register(ComicExtractor)

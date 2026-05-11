@@ -81,6 +81,20 @@ async def test_extract_cbz_without_comic_info_uses_filename_title(temp_dir):
 
 
 @pytest.mark.asyncio
+async def test_cbz_page_files_use_natural_sort(temp_dir):
+    file_path = temp_dir / "natural-sort.cbz"
+    with ZipFile(file_path, "w", ZIP_DEFLATED) as zf:
+        zf.writestr("10.jpg", b"fake jpg")
+        zf.writestr("2.jpg", b"fake jpg")
+        zf.writestr("1.jpg", b"fake jpg")
+
+    doc = await ComicExtractor("src", "Comics").extract_with_timeout(str(file_path))
+
+    assert doc.metadata["page_files"] == ["1.jpg", "2.jpg", "10.jpg"]
+    assert doc.content.index("1.jpg") < doc.content.index("2.jpg") < doc.content.index("10.jpg")
+
+
+@pytest.mark.asyncio
 async def test_invalid_cbz_falls_back_to_metadata_only(temp_dir):
     file_path = temp_dir / "broken.cbz"
     file_path.write_bytes(b"not a zip")
