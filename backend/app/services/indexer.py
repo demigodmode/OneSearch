@@ -369,6 +369,9 @@ class IndexingService:
             logger.debug(f"Creating metadata-only document for unsupported file: {file_path}")
             extractor = MetadataOnlyExtractor(source_id, source_name)
 
+        if hasattr(extractor, "set_index_gps_metadata"):
+            extractor.set_index_gps_metadata(AppSettingsService(self.db).get_settings().index_gps_metadata)
+
         # Extract with timeout
         document = await extractor.extract_with_timeout(file_path)
 

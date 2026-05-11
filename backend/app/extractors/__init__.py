@@ -16,6 +16,7 @@ from .subtitles import SubtitleExtractor
 from .rtf import RTFExtractor
 from .epub import EPUBExtractor
 from .comic import ComicExtractor
+from .images import ImageExtractor
 
 __all__ = [
     "BaseExtractor",
@@ -32,4 +33,5 @@ __all__ = [
     "RTFExtractor",
     "EPUBExtractor",
     "ComicExtractor",
+    "ImageExtractor",
 ]
