@@ -53,8 +53,15 @@ class EPUBExtractor(BaseExtractor):
     MAX_FILE_SIZE = settings.max_office_file_size_mb * 1024 * 1024
     TIMEOUT = settings.office_extraction_timeout
 
+    def __init__(self, source_id: str, source_name: str, archive_extraction_max_size_mb: int | None = None):
+        super().__init__(source_id, source_name)
+        self.archive_extraction_max_size_mb = archive_extraction_max_size_mb
+
+    def set_archive_extraction_max_size_mb(self, max_size_mb: int) -> None:
+        self.archive_extraction_max_size_mb = max_size_mb
+
     def extract(self, file_path: str) -> Document:
-        self._check_file_size(file_path)
+        self._check_file_size_limit(file_path, self._archive_extraction_max_size_bytes())
         try:
             content, metadata = self._extract_epub(file_path)
             doc = self._create_base_document(file_path, content)
@@ -73,6 +80,12 @@ class EPUBExtractor(BaseExtractor):
                 "extraction_error": str(e),
             })
             return doc
+
+    def _archive_extraction_max_size_bytes(self) -> int:
+        from ..services.app_settings import default_app_settings
+        if self.archive_extraction_max_size_mb is None:
+            self.archive_extraction_max_size_mb = default_app_settings().archive_extraction_max_size_mb
+        return self.archive_extraction_max_size_mb * 1024 * 1024
 
     def _extract_epub(self, file_path: str) -> tuple[str, dict]:
         with ZipFile(file_path) as zf:

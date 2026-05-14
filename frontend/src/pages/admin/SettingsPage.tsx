@@ -157,6 +157,34 @@ function SegmentedButtons<T extends string | number>({
   )
 }
 
+function NumberSetting({
+  label,
+  value,
+  onChange,
+  description,
+  min = 0,
+}: {
+  label: string
+  value: number
+  onChange: (v: number) => void
+  description?: string
+  min?: number
+}) {
+  return (
+    <label className="block">
+      <span className="block text-xs text-muted-foreground mb-2">{label}</span>
+      <input
+        type="number"
+        min={min}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+      />
+      {description && <span className="block text-xs text-muted-foreground mt-2">{description}</span>}
+    </label>
+  )
+}
+
 function Toggle({
   checked,
   onChange,
@@ -306,6 +334,44 @@ function IndexingPreviewsSection({
               value={settings.max_preview_size_mb}
               onChange={(v) => onUpdate({ max_preview_size_mb: v })}
               ariaLabel="Max preview file size"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 border-t border-border pt-5">
+            <NumberSetting
+              label="Max media metadata probe size (MB)"
+              value={settings.media_probe_max_size_mb}
+              min={0}
+              onChange={(v) => onUpdate({ media_probe_max_size_mb: v })}
+              description="0 means unlimited; ffprobe still has a timeout and falls back cleanly."
+            />
+            <NumberSetting
+              label="Max image/RAW metadata size (MB)"
+              value={settings.image_metadata_max_size_mb}
+              min={1}
+              onChange={(v) => onUpdate({ image_metadata_max_size_mb: v })}
+              description="Oversized images still index filename/path metadata."
+            />
+            <NumberSetting
+              label="Max archive/ebook extraction size (MB)"
+              value={settings.archive_extraction_max_size_mb}
+              min={1}
+              onChange={(v) => onUpdate({ archive_extraction_max_size_mb: v })}
+              description="Applies to EPUB and CBZ archive extraction."
+            />
+            <NumberSetting
+              label="Readable preview page size (characters)"
+              value={settings.readable_preview_page_chars}
+              min={1000}
+              onChange={(v) => onUpdate({ readable_preview_page_chars: v })}
+              description="Controls generated page length in document detail previews."
+            />
+            <NumberSetting
+              label="Long text pagination threshold (characters)"
+              value={settings.long_text_pagination_threshold_chars}
+              min={1000}
+              onChange={(v) => onUpdate({ long_text_pagination_threshold_chars: v })}
+              description="Plain text longer than this uses the paginated reader."
             />
           </div>
         </div>

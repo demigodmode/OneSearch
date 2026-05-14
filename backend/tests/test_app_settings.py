@@ -17,6 +17,11 @@ def test_get_settings_returns_defaults(client):
         "show_previews": True,
         "raw_preview_enabled": True,
         "max_preview_size_mb": 50,
+        "media_probe_max_size_mb": 0,
+        "image_metadata_max_size_mb": 100,
+        "archive_extraction_max_size_mb": 100,
+        "readable_preview_page_chars": 6000,
+        "long_text_pagination_threshold_chars": 20000,
     }
 
 
@@ -28,6 +33,11 @@ def test_update_settings_persists_values(client):
         "show_previews": False,
         "raw_preview_enabled": False,
         "max_preview_size_mb": 25,
+        "media_probe_max_size_mb": 500,
+        "image_metadata_max_size_mb": 250,
+        "archive_extraction_max_size_mb": 250,
+        "readable_preview_page_chars": 8000,
+        "long_text_pagination_threshold_chars": 30000,
     }
 
     response = client.put("/api/settings", json=update)
@@ -51,12 +61,29 @@ def test_update_settings_accepts_partial_payload(client):
     assert body["show_previews"] is True
     assert body["raw_preview_enabled"] is True
     assert body["max_preview_size_mb"] == 50
+    assert body["media_probe_max_size_mb"] == 0
+    assert body["image_metadata_max_size_mb"] == 100
+    assert body["archive_extraction_max_size_mb"] == 100
+    assert body["readable_preview_page_chars"] == 6000
+    assert body["long_text_pagination_threshold_chars"] == 20000
 
 
 def test_update_settings_rejects_invalid_preview_size(client):
     response = client.put("/api/settings", json={"max_preview_size_mb": 10})
 
     assert response.status_code == 422
+
+
+def test_update_settings_rejects_invalid_limit_values(client):
+    for payload in [
+        {"media_probe_max_size_mb": -1},
+        {"image_metadata_max_size_mb": 0},
+        {"archive_extraction_max_size_mb": 0},
+        {"readable_preview_page_chars": 999},
+        {"long_text_pagination_threshold_chars": 999},
+    ]:
+        response = client.put("/api/settings", json=payload)
+        assert response.status_code == 422
 
 
 def test_settings_requires_auth(client):

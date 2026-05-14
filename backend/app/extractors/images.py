@@ -28,19 +28,29 @@ class ImageExtractor(BaseExtractor):
     MAX_FILE_SIZE = settings.max_office_file_size_mb * 1024 * 1024
     TIMEOUT = settings.office_extraction_timeout
 
-    def __init__(self, source_id: str, source_name: str, index_gps_metadata: bool | None = None):
+    def __init__(
+        self,
+        source_id: str,
+        source_name: str,
+        index_gps_metadata: bool | None = None,
+        image_metadata_max_size_mb: int | None = None,
+    ):
         super().__init__(source_id, source_name)
         self.index_gps_metadata = index_gps_metadata
+        self.image_metadata_max_size_mb = image_metadata_max_size_mb
 
     def set_index_gps_metadata(self, enabled: bool) -> None:
         self.index_gps_metadata = enabled
+
+    def set_image_metadata_max_size_mb(self, max_size_mb: int) -> None:
+        self.image_metadata_max_size_mb = max_size_mb
 
     def extract(self, file_path: str) -> Document:
         path = Path(file_path)
         is_raw = path.suffix.lower() in _RAW_IMAGE_EXTENSIONS
 
         try:
-            self._check_file_size(file_path)
+            self._check_file_size_limit(file_path, self._image_metadata_max_size_bytes())
             metadata = self._extract_image_metadata(file_path)
         except (UnidentifiedImageError, OSError, ValueError) as e:
             doc = MetadataOnlyExtractor(self.source_id, self.source_name).extract(file_path)
@@ -111,6 +121,11 @@ class ImageExtractor(BaseExtractor):
         if self.index_gps_metadata is None:
             return default_app_settings().index_gps_metadata
         return self.index_gps_metadata
+
+    def _image_metadata_max_size_bytes(self) -> int:
+        if self.image_metadata_max_size_mb is None:
+            self.image_metadata_max_size_mb = default_app_settings().image_metadata_max_size_mb
+        return self.image_metadata_max_size_mb * 1024 * 1024
 
     def _extract_gps(self, exif: Image.Exif) -> dict[str, Any]:
         gps_tag = _EXIF_TAGS.get("GPSInfo")

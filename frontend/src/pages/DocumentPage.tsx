@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { useDocument } from '@/hooks/useApi'
+import { useAppSettings, useDocument } from '@/hooks/useApi'
 import { FormatDetails } from '@/components/document/FormatDetails'
 import { ReadableTextRenderer } from '@/components/document/ReadableTextRenderer'
 import {
@@ -129,7 +129,8 @@ const extensionToLanguage: Record<string, string> = {
 // Code file extensions that should use syntax highlighting
 const codeExtensions = new Set(Object.keys(extensionToLanguage))
 const proseDocumentTypes = new Set(['epub', 'rtf', 'subtitle', 'pdf', 'docx', 'pptx'])
-const LONG_TEXT_THRESHOLD = 20_000
+const DEFAULT_LONG_TEXT_THRESHOLD = 20_000
+const DEFAULT_READABLE_PAGE_CHARS = 6000
 
 // Get file type icon
 function FileTypeIcon({ type, className }: { type: string; className?: string }) {
@@ -240,6 +241,7 @@ export default function DocumentPage() {
   const fromType = searchParams.get('type')
 
   const { data: document, isLoading, error } = useDocument(id || '')
+  const { data: appSettings } = useAppSettings()
 
   const handleBack = useCallback(() => {
     if (fromQuery) {
@@ -303,8 +305,17 @@ export default function DocumentPage() {
     }
 
     // Long prose-style extracted formats
-    if (proseDocumentTypes.has(type) || (type === 'text' && content.length > LONG_TEXT_THRESHOLD)) {
-      return <ReadableTextRenderer key={`${document.id}-${fromQuery || ''}`} content={content} searchQuery={fromQuery} />
+    const longTextThreshold = appSettings?.long_text_pagination_threshold_chars ?? DEFAULT_LONG_TEXT_THRESHOLD
+    const pageSizeChars = appSettings?.readable_preview_page_chars ?? DEFAULT_READABLE_PAGE_CHARS
+    if (proseDocumentTypes.has(type) || (type === 'text' && content.length > longTextThreshold)) {
+      return (
+        <ReadableTextRenderer
+          key={`${document.id}-${fromQuery || ''}-${pageSizeChars}`}
+          content={content}
+          searchQuery={fromQuery}
+          pageSizeChars={pageSizeChars}
+        />
+      )
     }
 
     // Code files with syntax highlighting

@@ -26,12 +26,22 @@ class MediaExtractor(BaseExtractor):
     MAX_FILE_SIZE = settings.max_office_file_size_mb * 1024 * 1024
     TIMEOUT = settings.office_extraction_timeout
 
-    def __init__(self, source_id: str, source_name: str, media_metadata_mode: Literal["auto", "off"] | None = None):
+    def __init__(
+        self,
+        source_id: str,
+        source_name: str,
+        media_metadata_mode: Literal["auto", "off"] | None = None,
+        media_probe_max_size_mb: int | None = None,
+    ):
         super().__init__(source_id, source_name)
         self.media_metadata_mode = media_metadata_mode
+        self.media_probe_max_size_mb = media_probe_max_size_mb
 
     def set_media_metadata_mode(self, mode: Literal["auto", "off"]) -> None:
         self.media_metadata_mode = mode
+
+    def set_media_probe_max_size_mb(self, max_size_mb: int) -> None:
+        self.media_probe_max_size_mb = max_size_mb
 
     def extract(self, file_path: str) -> Document:
         mode = self._media_metadata_mode()
@@ -39,7 +49,7 @@ class MediaExtractor(BaseExtractor):
             return self._metadata_only(file_path, metadata_updates={"media_metadata_mode": "off"})
 
         try:
-            self._check_file_size(file_path)
+            self._check_file_size_limit(file_path, self._media_probe_max_size_bytes())
             ffprobe = shutil.which("ffprobe")
             if ffprobe is None:
                 return self._metadata_only(
@@ -69,6 +79,11 @@ class MediaExtractor(BaseExtractor):
         if self.media_metadata_mode is None:
             return default_app_settings().media_metadata_mode
         return self.media_metadata_mode
+
+    def _media_probe_max_size_bytes(self) -> int:
+        if self.media_probe_max_size_mb is None:
+            self.media_probe_max_size_mb = default_app_settings().media_probe_max_size_mb
+        return self.media_probe_max_size_mb * 1024 * 1024
 
     def _metadata_only(
         self,

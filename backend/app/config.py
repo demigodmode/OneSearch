@@ -65,12 +65,45 @@ class Settings(BaseSettings):
     show_previews: bool = True
     raw_preview_enabled: bool = True
     max_preview_size_mb: int = 50
+    media_probe_max_size_mb: int = 0  # 0 = unlimited; ffprobe timeout still applies
+    image_metadata_max_size_mb: int = 100
+    archive_extraction_max_size_mb: int = 100
+    readable_preview_page_chars: int = 6000
+    long_text_pagination_threshold_chars: int = 20000
 
     @field_validator("max_preview_size_mb")
     @classmethod
     def validate_max_preview_size_mb(cls, value: int) -> int:
         if value not in {25, 50, 100}:
             raise ValueError("max_preview_size_mb must be one of: 25, 50, 100")
+        return value
+
+    @field_validator("media_probe_max_size_mb")
+    @classmethod
+    def validate_media_probe_max_size_mb(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("media_probe_max_size_mb must be 0 or greater")
+        return value
+
+    @field_validator("image_metadata_max_size_mb", "archive_extraction_max_size_mb")
+    @classmethod
+    def validate_positive_mb_limit(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("size limit must be at least 1 MB")
+        return value
+
+    @field_validator("readable_preview_page_chars")
+    @classmethod
+    def validate_readable_preview_page_chars(cls, value: int) -> int:
+        if value < 1000:
+            raise ValueError("readable_preview_page_chars must be at least 1000")
+        return value
+
+    @field_validator("long_text_pagination_threshold_chars")
+    @classmethod
+    def validate_long_text_pagination_threshold_chars(cls, value: int) -> int:
+        if value < 1000:
+            raise ValueError("long_text_pagination_threshold_chars must be at least 1000")
         return value
 
 

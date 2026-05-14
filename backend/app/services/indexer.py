@@ -370,12 +370,25 @@ class IndexingService:
             extractor = MetadataOnlyExtractor(source_id, source_name)
 
         app_settings = None
-        if hasattr(extractor, "set_index_gps_metadata") or hasattr(extractor, "set_media_metadata_mode"):
+        configurable_extractors = [
+            "set_index_gps_metadata",
+            "set_image_metadata_max_size_mb",
+            "set_archive_extraction_max_size_mb",
+            "set_media_metadata_mode",
+            "set_media_probe_max_size_mb",
+        ]
+        if any(hasattr(extractor, name) for name in configurable_extractors):
             app_settings = AppSettingsService(self.db).get_settings()
         if hasattr(extractor, "set_index_gps_metadata"):
             extractor.set_index_gps_metadata(app_settings.index_gps_metadata)
+        if hasattr(extractor, "set_image_metadata_max_size_mb"):
+            extractor.set_image_metadata_max_size_mb(app_settings.image_metadata_max_size_mb)
+        if hasattr(extractor, "set_archive_extraction_max_size_mb"):
+            extractor.set_archive_extraction_max_size_mb(app_settings.archive_extraction_max_size_mb)
         if hasattr(extractor, "set_media_metadata_mode"):
             extractor.set_media_metadata_mode(app_settings.media_metadata_mode)
+        if hasattr(extractor, "set_media_probe_max_size_mb"):
+            extractor.set_media_probe_max_size_mb(app_settings.media_probe_max_size_mb)
 
         # Extract with timeout
         document = await extractor.extract_with_timeout(file_path)

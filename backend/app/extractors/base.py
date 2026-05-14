@@ -124,6 +124,22 @@ class BaseExtractor(ABC):
 
         return size
 
+    def _check_file_size_limit(self, file_path: str, max_size_bytes: int | None) -> int:
+        if max_size_bytes is None or max_size_bytes <= 0:
+            path = Path(file_path)
+            if not path.exists():
+                raise FileNotFoundError(f"File not found: {file_path}")
+            if not path.is_file():
+                raise ValueError(f"Not a file: {file_path}")
+            return path.stat().st_size
+
+        original_max = self.MAX_FILE_SIZE
+        try:
+            self.MAX_FILE_SIZE = max_size_bytes
+            return self._check_file_size(file_path)
+        finally:
+            self.MAX_FILE_SIZE = original_max
+
     def _get_file_metadata(self, file_path: str) -> dict:
         """
         Get basic file metadata (size, modified time, etc.)

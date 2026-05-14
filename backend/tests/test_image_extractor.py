@@ -128,7 +128,7 @@ async def test_oversized_raw_file_falls_back_to_metadata_only(temp_dir):
         f.seek(ImageExtractor.MAX_FILE_SIZE)
         f.write(b"0")
 
-    doc = await ImageExtractor("src", "Photos").extract_with_timeout(str(file_path))
+    doc = await ImageExtractor("src", "Photos", image_metadata_max_size_mb=50).extract_with_timeout(str(file_path))
 
     assert doc.type == "raw_image"
     assert doc.title == "huge"

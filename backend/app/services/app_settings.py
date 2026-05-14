@@ -20,6 +20,11 @@ SETTING_KEYS = (
     "show_previews",
     "raw_preview_enabled",
     "max_preview_size_mb",
+    "media_probe_max_size_mb",
+    "image_metadata_max_size_mb",
+    "archive_extraction_max_size_mb",
+    "readable_preview_page_chars",
+    "long_text_pagination_threshold_chars",
 )
 
 
@@ -32,6 +37,11 @@ def default_app_settings() -> AppSettingsResponse:
         show_previews=settings.show_previews,
         raw_preview_enabled=settings.raw_preview_enabled,
         max_preview_size_mb=settings.max_preview_size_mb,
+        media_probe_max_size_mb=settings.media_probe_max_size_mb,
+        image_metadata_max_size_mb=settings.image_metadata_max_size_mb,
+        archive_extraction_max_size_mb=settings.archive_extraction_max_size_mb,
+        readable_preview_page_chars=settings.readable_preview_page_chars,
+        long_text_pagination_threshold_chars=settings.long_text_pagination_threshold_chars,
     )
 
 
@@ -44,7 +54,14 @@ def _serialize(value: Any) -> str:
 def _coerce_value(key: str, value: str) -> Any:
     if key in {"index_gps_metadata", "show_previews", "raw_preview_enabled"}:
         return value.lower() == "true"
-    if key == "max_preview_size_mb":
+    if key in {
+        "max_preview_size_mb",
+        "media_probe_max_size_mb",
+        "image_metadata_max_size_mb",
+        "archive_extraction_max_size_mb",
+        "readable_preview_page_chars",
+        "long_text_pagination_threshold_chars",
+    }:
         return int(value)
     return value
 

@@ -63,6 +63,52 @@ async def test_ffprobe_unavailable_indexes_metadata_only(temp_dir, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_media_probe_size_zero_allows_large_media_probe(temp_dir, monkeypatch):
+    file_path = temp_dir / "large.mp4"
+    with file_path.open("wb") as f:
+        f.seek((60 * 1024 * 1024) - 1)
+        f.write(b"0")
+    monkeypatch.setattr("app.extractors.media.shutil.which", lambda name: "ffprobe")
+
+    class Result:
+        returncode = 0
+        stdout = json.dumps({"format": {"duration": "1.0"}, "streams": []})
+        stderr = ""
+
+    monkeypatch.setattr("app.extractors.media.subprocess.run", lambda *args, **kwargs: Result())
+
+    doc = await MediaExtractor("src", "Media", media_metadata_mode="auto", media_probe_max_size_mb=0).extract_with_timeout(str(file_path))
+
+    assert doc.type == "media"
+    assert doc.metadata["metadata_only"] is False
+    assert doc.metadata["duration_seconds"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_media_probe_size_limit_skips_probe(temp_dir, monkeypatch):
+    file_path = temp_dir / "large.mp4"
+    with file_path.open("wb") as f:
+        f.seek((2 * 1024 * 1024) - 1)
+        f.write(b"0")
+    called = False
+    monkeypatch.setattr("app.extractors.media.shutil.which", lambda name: "ffprobe")
+
+    def fake_run(*args, **kwargs):
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr("app.extractors.media.subprocess.run", fake_run)
+
+    doc = await MediaExtractor("src", "Media", media_metadata_mode="auto", media_probe_max_size_mb=1).extract_with_timeout(str(file_path))
+
+    assert called is False
+    assert doc.type == "media"
+    assert doc.metadata["metadata_only"] is True
+    assert doc.metadata["extraction_failed"] is True
+    assert "File too large" in doc.metadata["extraction_error"]
+
+
+@pytest.mark.asyncio
 async def test_ffprobe_json_output_is_indexed_as_searchable_metadata(temp_dir, monkeypatch):
     file_path = temp_dir / "clip.mkv"
     write_media_file(file_path)

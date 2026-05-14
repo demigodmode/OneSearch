@@ -4,9 +4,9 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react'
 
-const TARGET_PAGE_CHARS = 6000
+const DEFAULT_PAGE_CHARS = 6000
 
-function splitIntoPages(content: string): string[] {
+function splitIntoPages(content: string, targetPageChars: number): string[] {
   const paragraphs = content
     .replace(/\r\n/g, '\n')
     .split(/\n{2,}/)
@@ -19,7 +19,7 @@ function splitIntoPages(content: string): string[] {
   let current = ''
 
   for (const paragraph of paragraphs) {
-    if (current && current.length + paragraph.length + 2 > TARGET_PAGE_CHARS) {
+    if (current && current.length + paragraph.length + 2 > targetPageChars) {
       pages.push(current)
       current = paragraph
       continue
@@ -104,8 +104,16 @@ function pageParagraphs(page: string): Array<{ text: string; offset: number }> {
   return paragraphs
 }
 
-export function ReadableTextRenderer({ content, searchQuery }: { content: string; searchQuery?: string | null }) {
-  const pages = useMemo(() => splitIntoPages(content), [content])
+export function ReadableTextRenderer({
+  content,
+  searchQuery,
+  pageSizeChars = DEFAULT_PAGE_CHARS,
+}: {
+  content: string
+  searchQuery?: string | null
+  pageSizeChars?: number
+}) {
+  const pages = useMemo(() => splitIntoPages(content, pageSizeChars), [content, pageSizeChars])
   const matches = useMemo(() => findMatches(pages, searchQuery), [pages, searchQuery])
   const [activeMatchIndex, setActiveMatchIndex] = useState(0)
   const [pageIndex, setPageIndex] = useState(matches[0]?.pageIndex ?? 0)

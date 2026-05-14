@@ -127,6 +127,11 @@ export interface AppSettings {
   show_previews: boolean
   raw_preview_enabled: boolean
   max_preview_size_mb: 25 | 50 | 100
+  media_probe_max_size_mb: number
+  image_metadata_max_size_mb: number
+  archive_extraction_max_size_mb: number
+  readable_preview_page_chars: number
+  long_text_pagination_threshold_chars: number
 }
 
 export type AppSettingsUpdate = Partial<AppSettings>
