@@ -19,6 +19,7 @@ from app.api.auth import create_access_token, hash_password
 from app.db.database import get_db
 from app.main import app
 from app.models import AppSetting, Base, Source, User
+from meilisearch.models.document import Document as MeiliDocument
 
 
 engine = create_engine(
@@ -154,6 +155,20 @@ def test_preview_streams_indexed_standard_image(client, source, temp_source, mon
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/jpeg"
     assert response.content == image_path.read_bytes()
+
+
+def test_preview_accepts_meilisearch_document_object(client, source, temp_source, monkeypatch):
+    _, image_path, _ = temp_source
+
+    async def get_document(document_id):
+        return MeiliDocument(image_doc(source, image_path))
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+
+    response = client.get("/api/documents/photos--image123/preview")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
 
 
 def test_preview_rejects_path_outside_indexed_source(client, source, temp_source, monkeypatch):

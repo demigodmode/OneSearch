@@ -44,6 +44,8 @@ async def get_document_preview(
     if document is None:
         _preview_error(status.HTTP_404_NOT_FOUND, "document_not_found", "Document not found")
 
+    document = _document_to_dict(document)
+
     source = db.get(Source, document.get("source_id"))
     if source is None:
         _preview_error(status.HTTP_404_NOT_FOUND, "source_not_found", "Document source not found")
@@ -82,6 +84,15 @@ async def get_document_preview(
         )
 
     return FileResponse(file_path, media_type=media_type, filename=file_path.name)
+
+
+def _document_to_dict(document) -> dict:
+    if isinstance(document, dict):
+        return document
+    try:
+        return dict(document)
+    except (TypeError, ValueError):
+        return dict(getattr(document, "__dict__", {}))
 
 
 def _validated_document_path(document: dict, source: Source) -> Path:
