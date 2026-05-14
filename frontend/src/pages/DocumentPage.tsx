@@ -128,6 +128,8 @@ const extensionToLanguage: Record<string, string> = {
 
 // Code file extensions that should use syntax highlighting
 const codeExtensions = new Set(Object.keys(extensionToLanguage))
+const proseDocumentTypes = new Set(['epub', 'rtf', 'subtitle', 'pdf', 'docx', 'pptx'])
+const LONG_TEXT_THRESHOLD = 20_000
 
 // Get file type icon
 function FileTypeIcon({ type, className }: { type: string; className?: string }) {
@@ -301,7 +303,7 @@ export default function DocumentPage() {
     }
 
     // Long prose-style extracted formats
-    if (['epub', 'rtf', 'subtitle'].includes(type)) {
+    if (proseDocumentTypes.has(type) || (type === 'text' && content.length > LONG_TEXT_THRESHOLD)) {
       return <ReadableTextRenderer key={`${document.id}-${fromQuery || ''}`} content={content} searchQuery={fromQuery} />
     }
 
