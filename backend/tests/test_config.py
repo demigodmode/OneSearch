@@ -21,6 +21,7 @@ _ENV_SENSITIVE_FIELDS = [
     "UNSUPPORTED_FILE_POLICY", "MEDIA_METADATA_MODE", "INDEX_GPS_METADATA",
     "SHOW_PREVIEWS", "RAW_PREVIEW_ENABLED", "MAX_PREVIEW_SIZE_MB",
     "MEDIA_PROBE_MAX_SIZE_MB", "IMAGE_METADATA_MAX_SIZE_MB", "ARCHIVE_EXTRACTION_MAX_SIZE_MB",
+    "EPUB_EXTRACTION_MAX_SIZE_MB", "COMIC_EXTRACTION_MAX_SIZE_MB",
     "READABLE_PREVIEW_PAGE_CHARS", "LONG_TEXT_PAGINATION_THRESHOLD_CHARS",
 ]
 
@@ -92,7 +93,8 @@ class TestSettingsDefaults:
         assert s.max_preview_size_mb == 50
         assert s.media_probe_max_size_mb == 0
         assert s.image_metadata_max_size_mb == 100
-        assert s.archive_extraction_max_size_mb == 100
+        assert s.epub_extraction_max_size_mb == 100
+        assert s.comic_extraction_max_size_mb == 100
         assert s.readable_preview_page_chars == 6000
         assert s.long_text_pagination_threshold_chars == 20000
 
@@ -133,7 +135,8 @@ class TestSettingsFromEnv:
         monkeypatch.setenv("MAX_PREVIEW_SIZE_MB", "100")
         monkeypatch.setenv("MEDIA_PROBE_MAX_SIZE_MB", "500")
         monkeypatch.setenv("IMAGE_METADATA_MAX_SIZE_MB", "250")
-        monkeypatch.setenv("ARCHIVE_EXTRACTION_MAX_SIZE_MB", "250")
+        monkeypatch.setenv("EPUB_EXTRACTION_MAX_SIZE_MB", "200")
+        monkeypatch.setenv("COMIC_EXTRACTION_MAX_SIZE_MB", "300")
         monkeypatch.setenv("READABLE_PREVIEW_PAGE_CHARS", "8000")
         monkeypatch.setenv("LONG_TEXT_PAGINATION_THRESHOLD_CHARS", "30000")
 
@@ -147,6 +150,15 @@ class TestSettingsFromEnv:
         assert s.max_preview_size_mb == 100
         assert s.media_probe_max_size_mb == 500
         assert s.image_metadata_max_size_mb == 250
-        assert s.archive_extraction_max_size_mb == 250
+        assert s.epub_extraction_max_size_mb == 200
+        assert s.comic_extraction_max_size_mb == 300
         assert s.readable_preview_page_chars == 8000
         assert s.long_text_pagination_threshold_chars == 30000
+
+    def test_legacy_archive_limit_from_env_sets_epub_and_comic_defaults(self, monkeypatch):
+        monkeypatch.setenv("ARCHIVE_EXTRACTION_MAX_SIZE_MB", "175")
+
+        s = Settings(_env_file=None)
+
+        assert s.epub_extraction_max_size_mb == 175
+        assert s.comic_extraction_max_size_mb == 175

@@ -103,6 +103,17 @@ async def test_epub_skips_non_text_spine_items(temp_dir):
 
 
 @pytest.mark.asyncio
+async def test_epub_uses_epub_specific_size_limit(temp_dir):
+    file_path = temp_dir / "large.epub"
+    with file_path.open("wb") as f:
+        f.seek((2 * 1024 * 1024) - 1)
+        f.write(b"0")
+
+    with pytest.raises(ValueError, match="File too large"):
+        await EPUBExtractor("src", "Books", epub_extraction_max_size_mb=1).extract_with_timeout(str(file_path))
+
+
+@pytest.mark.asyncio
 async def test_invalid_epub_falls_back_to_metadata_only(temp_dir):
     file_path = temp_dir / "broken.epub"
     file_path.write_bytes(b"not a zip")

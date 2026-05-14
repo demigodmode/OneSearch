@@ -1,6 +1,7 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { PRESETS, type ThemePreset } from '@/contexts/theme'
 import { useTheme } from '@/contexts/useTheme'
@@ -170,14 +171,48 @@ function NumberSetting({
   description?: string
   min?: number
 }) {
+  const [draft, setDraft] = useState(String(value))
+  const skipNextBlurCommit = useRef(false)
+
+  useEffect(() => {
+    setDraft(String(value))
+  }, [value])
+
+  const commit = () => {
+    if (skipNextBlurCommit.current) {
+      skipNextBlurCommit.current = false
+      return
+    }
+    if (draft.trim() === '') {
+      setDraft(String(value))
+      return
+    }
+    const parsed = Number(draft)
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < min) {
+      setDraft(String(value))
+      return
+    }
+    if (parsed !== value) onChange(parsed)
+  }
+
   return (
     <label className="block">
       <span className="block text-xs text-muted-foreground mb-2">{label}</span>
       <input
         type="number"
         min={min}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        step={1}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Escape') {
+            skipNextBlurCommit.current = true
+            setDraft(String(value))
+            e.currentTarget.blur()
+          }
+        }}
         className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
       />
       {description && <span className="block text-xs text-muted-foreground mt-2">{description}</span>}
@@ -353,11 +388,18 @@ function IndexingPreviewsSection({
               description="Oversized images still index filename/path metadata."
             />
             <NumberSetting
-              label="Max archive/ebook extraction size (MB)"
-              value={settings.archive_extraction_max_size_mb}
+              label="Max EPUB extraction size (MB)"
+              value={settings.epub_extraction_max_size_mb}
               min={1}
-              onChange={(v) => onUpdate({ archive_extraction_max_size_mb: v })}
-              description="Applies to EPUB and CBZ archive extraction."
+              onChange={(v) => onUpdate({ epub_extraction_max_size_mb: v })}
+              description="Oversized ebooks are skipped before archive extraction."
+            />
+            <NumberSetting
+              label="Max CBZ comic extraction size (MB)"
+              value={settings.comic_extraction_max_size_mb}
+              min={1}
+              onChange={(v) => onUpdate({ comic_extraction_max_size_mb: v })}
+              description="Oversized comics are skipped before archive extraction."
             />
             <NumberSetting
               label="Readable preview page size (characters)"

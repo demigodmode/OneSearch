@@ -177,7 +177,8 @@ class AppSettingsResponse(BaseModel):
     max_preview_size_mb: Literal[25, 50, 100] = 50
     media_probe_max_size_mb: int = Field(default=0, ge=0)
     image_metadata_max_size_mb: int = Field(default=100, ge=1)
-    archive_extraction_max_size_mb: int = Field(default=100, ge=1)
+    epub_extraction_max_size_mb: int = Field(default=100, ge=1)
+    comic_extraction_max_size_mb: int = Field(default=100, ge=1)
     readable_preview_page_chars: int = Field(default=6000, ge=1000)
     long_text_pagination_threshold_chars: int = Field(default=20000, ge=1000)
 
@@ -192,7 +193,8 @@ class AppSettingsUpdate(BaseModel):
     max_preview_size_mb: Optional[Literal[25, 50, 100]] = None
     media_probe_max_size_mb: Optional[int] = Field(default=None, ge=0)
     image_metadata_max_size_mb: Optional[int] = Field(default=None, ge=1)
-    archive_extraction_max_size_mb: Optional[int] = Field(default=None, ge=1)
+    epub_extraction_max_size_mb: Optional[int] = Field(default=None, ge=1)
+    comic_extraction_max_size_mb: Optional[int] = Field(default=None, ge=1)
     readable_preview_page_chars: Optional[int] = Field(default=None, ge=1000)
     long_text_pagination_threshold_chars: Optional[int] = Field(default=None, ge=1000)
 

@@ -347,6 +347,34 @@ class TestIndexingService:
             assert doc.metadata["media_metadata_mode"] == "off"
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_extract_document_applies_epub_and_comic_limits_separately(self, db_session):
+        """EPUB and CBZ extractors should receive separate backend size limits."""
+        db_session.add_all([
+            AppSetting(key="epub_extraction_max_size_mb", value="1"),
+            AppSetting(key="comic_extraction_max_size_mb", value="3"),
+        ])
+        db_session.commit()
+        service = IndexingService(db_session, Mock())
+
+        with TemporaryDirectory() as tmp:
+            epub_path = Path(tmp) / "large.epub"
+            comic_path = Path(tmp) / "large.cbz"
+            for file_path in [epub_path, comic_path]:
+                with file_path.open("wb") as f:
+                    f.seek((2 * 1024 * 1024) - 1)
+                    f.write(b"0")
+
+            with pytest.raises(ValueError, match="File too large"):
+                await service._extract_document(str(epub_path), "test_source", "Test Source")
+
+            comic_doc = await service._extract_document(str(comic_path), "test_source", "Test Source")
+            assert comic_doc is not None
+            assert comic_doc.type == "comic"
+            assert comic_doc.metadata["metadata_only"] is True
+            assert "File is not a zip file" in comic_doc.metadata["extraction_error"]
+
+    @pytest.mark.asyncio
     async def test_extract_document_unsupported_type_respects_skip_policy(self, db_session):
         """Unsupported files should still be skipped when the policy is skip."""
         db_session.add(AppSetting(key="unsupported_file_policy", value="skip"))

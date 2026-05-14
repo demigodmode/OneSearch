@@ -7,7 +7,7 @@ Loads settings from environment variables
 """
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -67,7 +67,9 @@ class Settings(BaseSettings):
     max_preview_size_mb: int = 50
     media_probe_max_size_mb: int = 0  # 0 = unlimited; ffprobe timeout still applies
     image_metadata_max_size_mb: int = 100
-    archive_extraction_max_size_mb: int = 100
+    archive_extraction_max_size_mb: int | None = None  # Deprecated; fallback for older env/config
+    epub_extraction_max_size_mb: int | None = None
+    comic_extraction_max_size_mb: int | None = None
     readable_preview_page_chars: int = 6000
     long_text_pagination_threshold_chars: int = 20000
 
@@ -85,12 +87,26 @@ class Settings(BaseSettings):
             raise ValueError("media_probe_max_size_mb must be 0 or greater")
         return value
 
-    @field_validator("image_metadata_max_size_mb", "archive_extraction_max_size_mb")
+    @field_validator(
+        "image_metadata_max_size_mb",
+        "archive_extraction_max_size_mb",
+        "epub_extraction_max_size_mb",
+        "comic_extraction_max_size_mb",
+    )
     @classmethod
-    def validate_positive_mb_limit(cls, value: int) -> int:
-        if value < 1:
+    def validate_positive_mb_limit(cls, value: int | None) -> int | None:
+        if value is not None and value < 1:
             raise ValueError("size limit must be at least 1 MB")
         return value
+
+    @model_validator(mode="after")
+    def apply_legacy_archive_limit(self) -> "Settings":
+        legacy = self.archive_extraction_max_size_mb
+        if self.epub_extraction_max_size_mb is None:
+            self.epub_extraction_max_size_mb = legacy or 100
+        if self.comic_extraction_max_size_mb is None:
+            self.comic_extraction_max_size_mb = legacy or 100
+        return self
 
     @field_validator("readable_preview_page_chars")
     @classmethod

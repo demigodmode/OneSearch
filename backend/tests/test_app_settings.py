@@ -4,6 +4,7 @@
 """
 Tests for backend-managed app settings.
 """
+from app.models import AppSetting
 
 
 def test_get_settings_returns_defaults(client):
@@ -19,7 +20,8 @@ def test_get_settings_returns_defaults(client):
         "max_preview_size_mb": 50,
         "media_probe_max_size_mb": 0,
         "image_metadata_max_size_mb": 100,
-        "archive_extraction_max_size_mb": 100,
+        "epub_extraction_max_size_mb": 100,
+        "comic_extraction_max_size_mb": 100,
         "readable_preview_page_chars": 6000,
         "long_text_pagination_threshold_chars": 20000,
     }
@@ -35,7 +37,8 @@ def test_update_settings_persists_values(client):
         "max_preview_size_mb": 25,
         "media_probe_max_size_mb": 500,
         "image_metadata_max_size_mb": 250,
-        "archive_extraction_max_size_mb": 250,
+        "epub_extraction_max_size_mb": 200,
+        "comic_extraction_max_size_mb": 300,
         "readable_preview_page_chars": 8000,
         "long_text_pagination_threshold_chars": 30000,
     }
@@ -48,6 +51,19 @@ def test_update_settings_persists_values(client):
     second_response = client.get("/api/settings")
     assert second_response.status_code == 200
     assert second_response.json() == update
+
+
+def test_legacy_archive_setting_applies_to_epub_and_comic_when_new_keys_are_absent(client, db_session):
+    db_session.add(AppSetting(key="archive_extraction_max_size_mb", value="175"))
+    db_session.commit()
+
+    response = client.get("/api/settings")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["epub_extraction_max_size_mb"] == 175
+    assert body["comic_extraction_max_size_mb"] == 175
+    assert "archive_extraction_max_size_mb" not in body
 
 
 def test_update_settings_accepts_partial_payload(client):
@@ -63,7 +79,8 @@ def test_update_settings_accepts_partial_payload(client):
     assert body["max_preview_size_mb"] == 50
     assert body["media_probe_max_size_mb"] == 0
     assert body["image_metadata_max_size_mb"] == 100
-    assert body["archive_extraction_max_size_mb"] == 100
+    assert body["epub_extraction_max_size_mb"] == 100
+    assert body["comic_extraction_max_size_mb"] == 100
     assert body["readable_preview_page_chars"] == 6000
     assert body["long_text_pagination_threshold_chars"] == 20000
 
@@ -78,7 +95,8 @@ def test_update_settings_rejects_invalid_limit_values(client):
     for payload in [
         {"media_probe_max_size_mb": -1},
         {"image_metadata_max_size_mb": 0},
-        {"archive_extraction_max_size_mb": 0},
+        {"epub_extraction_max_size_mb": 0},
+        {"comic_extraction_max_size_mb": 0},
         {"readable_preview_page_chars": 999},
         {"long_text_pagination_threshold_chars": 999},
     ]:

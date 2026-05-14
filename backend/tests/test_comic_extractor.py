@@ -95,6 +95,17 @@ async def test_cbz_page_files_use_natural_sort(temp_dir):
 
 
 @pytest.mark.asyncio
+async def test_cbz_uses_comic_specific_size_limit(temp_dir):
+    file_path = temp_dir / "large.cbz"
+    with file_path.open("wb") as f:
+        f.seek((2 * 1024 * 1024) - 1)
+        f.write(b"0")
+
+    with pytest.raises(ValueError, match="File too large"):
+        await ComicExtractor("src", "Comics", comic_extraction_max_size_mb=1).extract_with_timeout(str(file_path))
+
+
+@pytest.mark.asyncio
 async def test_invalid_cbz_falls_back_to_metadata_only(temp_dir):
     file_path = temp_dir / "broken.cbz"
     file_path.write_bytes(b"not a zip")

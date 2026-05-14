@@ -22,7 +22,9 @@ SETTING_KEYS = (
     "max_preview_size_mb",
     "media_probe_max_size_mb",
     "image_metadata_max_size_mb",
-    "archive_extraction_max_size_mb",
+    "archive_extraction_max_size_mb",  # Deprecated; fallback for older persisted settings
+    "epub_extraction_max_size_mb",
+    "comic_extraction_max_size_mb",
     "readable_preview_page_chars",
     "long_text_pagination_threshold_chars",
 )
@@ -39,7 +41,8 @@ def default_app_settings() -> AppSettingsResponse:
         max_preview_size_mb=settings.max_preview_size_mb,
         media_probe_max_size_mb=settings.media_probe_max_size_mb,
         image_metadata_max_size_mb=settings.image_metadata_max_size_mb,
-        archive_extraction_max_size_mb=settings.archive_extraction_max_size_mb,
+        epub_extraction_max_size_mb=settings.epub_extraction_max_size_mb,
+        comic_extraction_max_size_mb=settings.comic_extraction_max_size_mb,
         readable_preview_page_chars=settings.readable_preview_page_chars,
         long_text_pagination_threshold_chars=settings.long_text_pagination_threshold_chars,
     )
@@ -59,6 +62,8 @@ def _coerce_value(key: str, value: str) -> Any:
         "media_probe_max_size_mb",
         "image_metadata_max_size_mb",
         "archive_extraction_max_size_mb",
+        "epub_extraction_max_size_mb",
+        "comic_extraction_max_size_mb",
         "readable_preview_page_chars",
         "long_text_pagination_threshold_chars",
     }:
@@ -75,8 +80,16 @@ class AppSettingsService:
     def get_settings(self) -> AppSettingsResponse:
         values = default_app_settings().model_dump()
         rows = self.db.query(AppSetting).filter(AppSetting.key.in_(SETTING_KEYS)).all()
-        for row in rows:
-            values[row.key] = _coerce_value(row.key, row.value)
+        row_values = {row.key: _coerce_value(row.key, row.value) for row in rows}
+        legacy_archive_limit = row_values.get("archive_extraction_max_size_mb")
+        for key, value in row_values.items():
+            if key != "archive_extraction_max_size_mb":
+                values[key] = value
+        if legacy_archive_limit is not None:
+            if "epub_extraction_max_size_mb" not in row_values:
+                values["epub_extraction_max_size_mb"] = legacy_archive_limit
+            if "comic_extraction_max_size_mb" not in row_values:
+                values["comic_extraction_max_size_mb"] = legacy_archive_limit
         return AppSettingsResponse(**values)
 
     def update_settings(self, update: AppSettingsUpdate) -> AppSettingsResponse:
