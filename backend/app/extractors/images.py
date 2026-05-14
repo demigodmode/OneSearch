@@ -18,7 +18,7 @@ from ..services.app_settings import default_app_settings
 _STANDARD_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", ".tiff"]
 _RAW_IMAGE_EXTENSIONS = [".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2", ".dng"]
 _EXIF_TAGS = {value: key for key, value in ExifTags.TAGS.items()}
-_GPS_TAGS = {value: key for key, value in ExifTags.GPSTAGS.items()}
+_GPS_TAGS = ExifTags.GPSTAGS
 
 
 class ImageExtractor(BaseExtractor):
@@ -36,11 +36,11 @@ class ImageExtractor(BaseExtractor):
         self.index_gps_metadata = enabled
 
     def extract(self, file_path: str) -> Document:
-        self._check_file_size(file_path)
         path = Path(file_path)
         is_raw = path.suffix.lower() in _RAW_IMAGE_EXTENSIONS
 
         try:
+            self._check_file_size(file_path)
             metadata = self._extract_image_metadata(file_path)
         except (UnidentifiedImageError, OSError, ValueError) as e:
             doc = MetadataOnlyExtractor(self.source_id, self.source_name).extract(file_path)

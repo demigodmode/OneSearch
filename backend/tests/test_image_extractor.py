@@ -85,6 +85,27 @@ async def test_gps_metadata_can_be_enabled(temp_dir, monkeypatch):
     assert "GPS" in doc.content
 
 
+def test_extract_gps_decodes_exif_gps_ifd():
+    gps_tag = 34853
+    exif = {
+        gps_tag: {
+            1: "N",
+            2: (40.0, 42.0, 30.0),
+            3: "W",
+            4: (74.0, 0.0, 0.0),
+        }
+    }
+
+    gps = ImageExtractor("src", "Photos")._extract_gps(exif)
+
+    assert gps == {
+        "GPSLatitudeRef": "N",
+        "GPSLatitude": (40.0, 42.0, 30.0),
+        "GPSLongitudeRef": "W",
+        "GPSLongitude": (74.0, 0.0, 0.0),
+    }
+
+
 @pytest.mark.asyncio
 async def test_raw_extension_falls_back_to_raw_image_metadata_only(temp_dir):
     file_path = temp_dir / "IMG_0001.CR3"
@@ -98,6 +119,24 @@ async def test_raw_extension_falls_back_to_raw_image_metadata_only(temp_dir):
     assert doc.metadata["metadata_only"] is True
     assert doc.metadata["extraction_failed"] is True
     assert "IMG_0001.CR3" in doc.content
+
+
+@pytest.mark.asyncio
+async def test_oversized_raw_file_falls_back_to_metadata_only(temp_dir):
+    file_path = temp_dir / "huge.CR3"
+    with file_path.open("wb") as f:
+        f.seek(ImageExtractor.MAX_FILE_SIZE)
+        f.write(b"0")
+
+    doc = await ImageExtractor("src", "Photos").extract_with_timeout(str(file_path))
+
+    assert doc.type == "raw_image"
+    assert doc.title == "huge"
+    assert doc.basename == "huge.CR3"
+    assert doc.metadata["metadata_only"] is True
+    assert doc.metadata["extraction_failed"] is True
+    assert "File too large" in doc.metadata["extraction_error"]
+    assert "huge.CR3" in doc.content
 
 
 def test_image_and_raw_extensions_are_registered(temp_dir):
