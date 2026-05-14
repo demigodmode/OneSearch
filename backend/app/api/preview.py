@@ -4,6 +4,7 @@
 """
 Authenticated preview API for indexed image documents.
 """
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -63,7 +64,7 @@ async def get_document_preview(
     if doc_type == "raw_image" or extension in _RAW_IMAGE_EXTENSIONS:
         if not app_settings.raw_preview_enabled:
             _preview_error(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "raw_preview_disabled", "RAW previews are disabled")
-        embedded_jpeg = _extract_embedded_jpeg(file_path, max_bytes)
+        embedded_jpeg = await asyncio.to_thread(_extract_embedded_jpeg, file_path, max_bytes)
         if embedded_jpeg is None:
             _preview_error(
                 status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -106,19 +107,35 @@ def _validated_document_path(document: dict, source: Source) -> Path:
 
 
 def _extract_embedded_jpeg(file_path: Path, max_bytes: int) -> bytes | None:
-    data = file_path.read_bytes()
-    if len(data) > max_bytes:
-        return None
+    bytes_read = 0
+    searching_tail = b""
+    jpeg_data: bytearray | None = None
+    chunk_size = 64 * 1024
 
-    start = data.find(b"\xff\xd8\xff")
-    if start == -1:
-        return None
+    with file_path.open("rb") as f:
+        while bytes_read < max_bytes:
+            chunk = f.read(min(chunk_size, max_bytes - bytes_read))
+            if not chunk:
+                break
+            bytes_read += len(chunk)
 
-    end = data.find(b"\xff\xd9", start + 3)
-    if end == -1:
-        return None
+            if jpeg_data is None:
+                window = searching_tail + chunk
+                start = window.find(b"\xff\xd8\xff")
+                if start == -1:
+                    searching_tail = window[-2:]
+                    continue
+                jpeg_data = bytearray(window[start:])
+                search_from = 0
+            else:
+                search_from = max(0, len(jpeg_data) - 1)
+                jpeg_data.extend(chunk)
 
-    return data[start:end + 2]
+            end = jpeg_data.find(b"\xff\xd9", search_from)
+            if end != -1:
+                return bytes(jpeg_data[:end + 2])
+
+    return None
 
 
 def _preview_error(status_code: int, code: str, message: str) -> None:

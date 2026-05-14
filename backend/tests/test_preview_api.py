@@ -225,3 +225,38 @@ def test_raw_preview_returns_unavailable_without_embedded_jpeg(client, source, t
 
     assert response.status_code == 415
     assert response.json()["detail"]["code"] == "raw_preview_unavailable"
+
+
+def test_raw_preview_scans_in_chunks_until_embedded_jpeg(client, source, temp_source, monkeypatch):
+    root, _, _ = temp_source
+    raw_path = root / "late-preview.CR3"
+    jpeg_buffer = BytesIO()
+    Image.new("RGB", (5, 5), color="yellow").save(jpeg_buffer, format="JPEG")
+    jpeg_bytes = jpeg_buffer.getvalue()
+    raw_path.write_bytes((b"x" * 200_000) + jpeg_bytes + b"tail")
+    read_sizes = []
+    real_open = Path.open
+
+    def tracking_open(self, *args, **kwargs):
+        f = real_open(self, *args, **kwargs)
+        real_read = f.read
+
+        def tracking_read(size=-1):
+            read_sizes.append(size)
+            return real_read(size)
+
+        f.read = tracking_read
+        return f
+
+    async def get_document(document_id):
+        return raw_doc(source, raw_path)
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+    monkeypatch.setattr(Path, "open", tracking_open)
+
+    response = client.get("/api/documents/photos--raw123/preview")
+
+    assert response.status_code == 200
+    assert response.content == jpeg_bytes
+    assert read_sizes
+    assert all(0 < size <= 65536 for size in read_sizes)
