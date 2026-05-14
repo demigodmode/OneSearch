@@ -265,7 +265,6 @@ function NumberSetting({
         }}
         className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
       />
-      {description && <span className="block text-xs text-muted-foreground mt-2">{description}</span>}
     </label>
   )
 }
@@ -290,7 +289,6 @@ function Toggle({
     >
       <span>
         <span className="block text-sm text-foreground">{label}</span>
-        {description && <span className="block text-xs text-muted-foreground mt-0.5">{description}</span>}
       </span>
       <button
         type="button"
@@ -370,9 +368,6 @@ function IndexingSection({ settings, isLoading, error, isSaving, onUpdate }: App
               <option value="metadata_only">Index filename/path only</option>
               <option value="skip">Skip unsupported files</option>
             </select>
-            <p className="text-xs text-muted-foreground mt-2">
-              Metadata-only indexing makes unknown files searchable without extracting content.
-            </p>
           </div>
 
           <div>
@@ -386,9 +381,6 @@ function IndexingSection({ settings, isLoading, error, isSaving, onUpdate }: App
               onChange={(v) => onUpdate({ media_metadata_mode: v })}
               ariaLabel="Media metadata extraction"
             />
-            <p className="text-xs text-muted-foreground mt-2">
-              Auto uses ffprobe when available and falls back cleanly when it is not.
-            </p>
           </div>
 
           <Toggle

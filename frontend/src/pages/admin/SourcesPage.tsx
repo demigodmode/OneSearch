@@ -138,9 +138,6 @@ function SourceForm({
           className="font-mono text-sm"
           required
         />
-        <p className="text-xs text-muted-foreground">
-          Container path to the directory (e.g., /data/nas)
-        </p>
       </div>
 
       <div className="space-y-2">
@@ -153,9 +150,6 @@ function SourceForm({
           title="Optional comma-separated glob patterns. Empty means include everything not excluded."
           className="font-mono text-sm"
         />
-        <p className="text-xs text-muted-foreground">
-          Comma-separated glob patterns
-        </p>
       </div>
 
       <div className="space-y-2">
@@ -168,9 +162,6 @@ function SourceForm({
           title="Optional comma-separated glob patterns to skip."
           className="font-mono text-sm"
         />
-        <p className="text-xs text-muted-foreground">
-          Comma-separated glob patterns
-        </p>
       </div>
 
       <div className="space-y-2">
@@ -196,9 +187,6 @@ function SourceForm({
             className="font-mono text-sm"
           />
         )}
-        <p className="text-xs text-muted-foreground">
-          How often to automatically re-scan this source
-        </p>
       </div>
 
       <DialogFooter>
