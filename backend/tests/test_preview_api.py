@@ -228,6 +228,30 @@ def test_raw_preview_streams_embedded_jpeg(client, source, temp_source, monkeypa
     assert response.content == jpeg_bytes
 
 
+def test_raw_preview_uses_largest_embedded_jpeg(client, source, temp_source, monkeypatch):
+    root, _, _ = temp_source
+    raw_path = root / "multiple-previews.CR3"
+    small_buffer = BytesIO()
+    large_buffer = BytesIO()
+    Image.new("RGB", (4, 4), color="red").save(small_buffer, format="JPEG")
+    Image.new("RGB", (80, 60), color="purple").save(large_buffer, format="JPEG", quality=95)
+    small_jpeg = small_buffer.getvalue()
+    large_jpeg = large_buffer.getvalue()
+    raw_path.write_bytes(b"raw-prefix" + small_jpeg + b"raw-middle" + large_jpeg + b"raw-suffix")
+
+    async def get_document(document_id):
+        return raw_doc(source, raw_path)
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+
+    response = client.get("/api/documents/photos--raw123/preview")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.content == large_jpeg
+    assert len(large_jpeg) > len(small_jpeg)
+
+
 def test_raw_preview_returns_unavailable_without_embedded_jpeg(client, source, temp_source, monkeypatch):
     _, _, raw_path = temp_source
 

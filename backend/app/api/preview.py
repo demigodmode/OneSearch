@@ -119,8 +119,9 @@ def _validated_document_path(document: dict, source: Source) -> Path:
 
 def _extract_embedded_jpeg(file_path: Path, max_bytes: int) -> bytes | None:
     bytes_read = 0
-    searching_tail = b""
-    jpeg_data: bytearray | None = None
+    buffer = b""
+    best_jpeg: bytes | None = None
+    collecting = False
     chunk_size = 64 * 1024
 
     with file_path.open("rb") as f:
@@ -129,24 +130,28 @@ def _extract_embedded_jpeg(file_path: Path, max_bytes: int) -> bytes | None:
             if not chunk:
                 break
             bytes_read += len(chunk)
+            buffer += chunk
 
-            if jpeg_data is None:
-                window = searching_tail + chunk
-                start = window.find(b"\xff\xd8\xff")
-                if start == -1:
-                    searching_tail = window[-2:]
-                    continue
-                jpeg_data = bytearray(window[start:])
-                search_from = 0
-            else:
-                search_from = max(0, len(jpeg_data) - 1)
-                jpeg_data.extend(chunk)
+            while buffer:
+                if not collecting:
+                    start = buffer.find(b"\xff\xd8\xff")
+                    if start == -1:
+                        buffer = buffer[-2:]
+                        break
+                    buffer = buffer[start:]
+                    collecting = True
 
-            end = jpeg_data.find(b"\xff\xd9", search_from)
-            if end != -1:
-                return bytes(jpeg_data[:end + 2])
+                end = buffer.find(b"\xff\xd9", 3)
+                if end == -1:
+                    break
 
-    return None
+                candidate = buffer[:end + 2]
+                if best_jpeg is None or len(candidate) > len(best_jpeg):
+                    best_jpeg = candidate
+                buffer = buffer[end + 2:]
+                collecting = False
+
+    return best_jpeg
 
 
 def _preview_error(status_code: int, code: str, message: str) -> None:
