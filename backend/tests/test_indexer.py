@@ -299,7 +299,7 @@ class TestIndexingService:
         service = IndexingService(db_session, Mock())
 
         with TemporaryDirectory() as tmp:
-            file_path = Path(tmp) / "large-video.mkv"
+            file_path = Path(tmp) / "large-archive.unsupported"
             with open(file_path, "wb") as f:
                 f.seek((11 * 1024 * 1024) - 1)
                 f.write(b"0")
@@ -312,9 +312,39 @@ class TestIndexingService:
 
             assert doc is not None
             assert doc.type == "file"
-            assert doc.basename == "large-video.mkv"
+            assert doc.basename == "large-archive.unsupported"
             assert doc.size_bytes == 11 * 1024 * 1024
             assert doc.metadata["metadata_only"] is True
+
+    @pytest.mark.asyncio
+    async def test_extract_document_media_metadata_mode_off_uses_metadata_only(self, db_session, monkeypatch):
+        """Media extractor should receive backend media metadata setting from indexer."""
+        db_session.add(AppSetting(key="media_metadata_mode", value="off"))
+        db_session.commit()
+        service = IndexingService(db_session, Mock())
+        called = False
+
+        def fake_run(*args, **kwargs):
+            nonlocal called
+            called = True
+
+        monkeypatch.setattr("app.extractors.media.subprocess.run", fake_run)
+
+        with TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / "song.mp3"
+            file_path.write_bytes(b"fake media")
+
+            doc = await service._extract_document(
+                str(file_path),
+                "test_source",
+                "Test Source"
+            )
+
+            assert called is False
+            assert doc is not None
+            assert doc.type == "media"
+            assert doc.metadata["metadata_only"] is True
+            assert doc.metadata["media_metadata_mode"] == "off"
 
     @pytest.mark.asyncio
     async def test_extract_document_unsupported_type_respects_skip_policy(self, db_session):
