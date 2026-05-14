@@ -1,9 +1,11 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDocument } from '@/hooks/useApi'
+import { getDocumentPreviewBlob } from '@/lib/api'
+import type { Document as SearchDocument } from '@/types/api'
 import {
   ArrowLeft,
   FileText,
@@ -16,6 +18,11 @@ import {
   HardDrive,
   Calendar,
   FolderOpen,
+  Image as ImageIcon,
+  Camera,
+  BookOpen,
+  FileArchive,
+  List,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -129,6 +136,15 @@ function FileTypeIcon({ type, className }: { type: string; className?: string })
   switch (type) {
     case 'markdown':
       return <FileCode className={className} />
+    case 'image':
+    case 'raw_image':
+      return <ImageIcon className={className} />
+    case 'comic':
+      return <FileArchive className={className} />
+    case 'epub':
+    case 'rtf':
+    case 'subtitle':
+      return <BookOpen className={className} />
     case 'pdf':
     case 'docx':
     case 'xlsx':
@@ -210,6 +226,198 @@ function PlainTextRenderer({ content }: { content: string }) {
       {content}
     </pre>
   )
+}
+
+function metadataString(metadata: Record<string, unknown>, key: string): string | null {
+  const value = metadata[key]
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+function MetadataCards({
+  title,
+  icon,
+  items,
+}: {
+  title: string
+  icon: ReactNode
+  items: Array<{ label: string; value: string | null }>
+}) {
+  const visibleItems = items.filter((item) => item.value)
+  if (visibleItems.length === 0) return null
+
+  return (
+    <div className="bg-card border border-border rounded-lg p-4">
+      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-3">
+        {icon}
+        <span>{title}</span>
+      </div>
+      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        {visibleItems.map((item) => (
+          <div key={item.label}>
+            <dt className="text-muted-foreground text-xs uppercase tracking-wide">{item.label}</dt>
+            <dd className="text-foreground mt-0.5 break-words">{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
+}
+
+function ImagePreviewPanel({ document }: { document: SearchDocument }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    let objectUrl: string | null = null
+
+    getDocumentPreviewBlob(document.id)
+      .then((blob) => {
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setPreviewUrl(objectUrl)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setPreviewError(err instanceof Error ? err.message : 'Preview unavailable')
+      })
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [document.id])
+
+  return (
+    <div className="bg-card border border-border rounded-lg overflow-hidden">
+      <div className="p-1 bg-secondary/50 border-b border-border">
+        <span className="text-xs text-muted-foreground px-3">Preview</span>
+      </div>
+      <div className="min-h-64 flex items-center justify-center bg-background/60 p-4">
+        {previewUrl ? (
+          <img
+            src={previewUrl}
+            alt={document.title || document.basename}
+            className="max-h-[70vh] max-w-full rounded-lg object-contain shadow-lg"
+            onError={() => {
+              setPreviewUrl(null)
+              setPreviewError('Preview could not be displayed')
+            }}
+          />
+        ) : (
+          <div className="text-center text-muted-foreground py-10">
+            {previewError ? (
+              <>
+                <AlertCircle className="h-10 w-10 mx-auto mb-3 opacity-70" />
+                <p>{previewError}</p>
+              </>
+            ) : (
+              <>
+                <Loader2 className="h-10 w-10 mx-auto mb-3 animate-spin text-brand" />
+                <p>Loading preview...</p>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PhotoMetadata({ document }: { document: SearchDocument }) {
+  const metadata = document.metadata || {}
+  const dimensions = metadata.width && metadata.height ? `${metadata.width} × ${metadata.height}` : null
+  const camera = [metadataString(metadata, 'camera_make'), metadataString(metadata, 'camera_model')]
+    .filter(Boolean)
+    .join(' ')
+
+  return (
+    <MetadataCards
+      title="Photo metadata"
+      icon={<Camera className="h-4 w-4" />}
+      items={[
+        { label: 'Camera', value: camera || null },
+        { label: 'Date taken', value: metadataString(metadata, 'date_taken') },
+        { label: 'Lens', value: metadataString(metadata, 'lens_model') },
+        { label: 'ISO', value: metadataString(metadata, 'iso') },
+        { label: 'Aperture', value: metadataString(metadata, 'aperture') },
+        { label: 'Exposure', value: metadataString(metadata, 'exposure_time') },
+        { label: 'Focal length', value: metadataString(metadata, 'focal_length') },
+        { label: 'Dimensions', value: dimensions },
+        { label: 'Format', value: metadataString(metadata, 'image_format') },
+      ]}
+    />
+  )
+}
+
+function ComicDetails({ document }: { document: SearchDocument }) {
+  const metadata = document.metadata || {}
+  const pages = Array.isArray(metadata.page_files) ? metadata.page_files.map(String) : []
+
+  return (
+    <div className="space-y-4">
+      <MetadataCards
+        title="Comic metadata"
+        icon={<FileArchive className="h-4 w-4" />}
+        items={[
+          { label: 'Title', value: metadataString(metadata, 'title') || document.title || null },
+          { label: 'Series', value: metadataString(metadata, 'series') },
+          { label: 'Issue', value: metadataString(metadata, 'number') },
+          { label: 'Writer', value: metadataString(metadata, 'writer') },
+          { label: 'Publisher', value: metadataString(metadata, 'publisher') },
+          { label: 'Year', value: metadataString(metadata, 'year') },
+          { label: 'Pages', value: metadataString(metadata, 'page_count') },
+          { label: 'Summary', value: metadataString(metadata, 'summary') },
+        ]}
+      />
+
+      {pages.length > 0 && (
+        <div className="bg-card border border-border rounded-lg p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-3">
+            <List className="h-4 w-4" />
+            <span>Page files</span>
+          </div>
+          <ol className="space-y-1 text-sm font-mono text-foreground max-h-64 overflow-auto">
+            {pages.map((page, index) => (
+              <li key={`${page}-${index}`} className="truncate text-muted-foreground">
+                <span className="text-brand mr-2">{index + 1}.</span>{page}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FormatDetails({ document }: { document: SearchDocument }) {
+  if (document.type === 'image' || document.type === 'raw_image') {
+    return (
+      <div className="space-y-4 mb-6">
+        <ImagePreviewPanel key={document.id} document={document} />
+        <PhotoMetadata document={document} />
+      </div>
+    )
+  }
+
+  if (document.type === 'comic') {
+    return <div className="mb-6"><ComicDetails document={document} /></div>
+  }
+
+  if (['epub', 'rtf', 'subtitle'].includes(document.type)) {
+    return (
+      <div className="bg-card border border-border rounded-lg p-4 mb-6">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <BookOpen className="h-4 w-4 text-brand" />
+          <span>This {document.type} is indexed as searchable text below.</span>
+        </div>
+      </div>
+    )
+  }
+
+  return null
 }
 
 export default function DocumentPage() {
@@ -406,6 +614,8 @@ export default function DocumentPage() {
             </div>
           </div>
         </div>
+
+        <FormatDetails document={document} />
 
         {/* Document content */}
         <div className="bg-card border border-border rounded-lg overflow-hidden">

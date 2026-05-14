@@ -257,6 +257,34 @@ export async function getDocument(id: string): Promise<Document> {
   return apiFetch<Document>(`/documents/${encodeURIComponent(id)}`)
 }
 
+export function getDocumentPreviewUrl(id: string): string {
+  return `${API_BASE}/documents/${encodeURIComponent(id)}/preview`
+}
+
+export async function getDocumentPreviewBlob(id: string): Promise<Blob> {
+  const token = getToken()
+  const response = await fetch(getDocumentPreviewUrl(id), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+
+  if (!response.ok) {
+    let detail = `Preview unavailable (${response.status})`
+    try {
+      const data = await response.json()
+      if (typeof data.detail === 'string') {
+        detail = data.detail
+      } else if (data.detail?.message) {
+        detail = data.detail.message
+      }
+    } catch {
+      // Response body not JSON
+    }
+    throw new ApiError(detail, response.status, detail)
+  }
+
+  return response.blob()
+}
+
 // ============================================================================
 // Authentication
 // ============================================================================
