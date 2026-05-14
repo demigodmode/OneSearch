@@ -192,7 +192,6 @@ export default function SearchPage() {
 
   const totalPages = searchData ? Math.ceil(searchData.total / limit) : 0
   const hasResults = searchData && searchData.results.length > 0
-  const showFilters = debouncedQuery.length > 0
 
   return (
     <div className="min-h-[calc(100vh-4rem)] gradient-mesh">
@@ -227,50 +226,59 @@ export default function SearchPage() {
         </form>
 
         {/* Filters */}
-        {showFilters && (
-          <div
-            className="flex flex-wrap gap-3 mb-6 animate-fade-in animate-initial"
-            style={{ animationFillMode: 'forwards' }}
+        <div
+          className="flex flex-wrap gap-3 mb-6 animate-fade-in animate-initial"
+          style={{ animationFillMode: 'forwards' }}
+        >
+          <select
+            value={sourceFilter}
+            title="Limit search results to one indexed source."
+            onChange={(e) => { setSourceFilter(e.target.value); setPage(0) }}
+            className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
           >
-            <select
-              value={sourceFilter}
-              onChange={(e) => { setSourceFilter(e.target.value); setPage(0) }}
-              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
-            >
-              <option value="">All Sources</option>
-              {sources?.map((source) => (
-                <option key={source.id} value={source.id}>
-                  {source.name}
-                </option>
-              ))}
-            </select>
+            <option value="">All Sources</option>
+            {sources?.map((source) => (
+              <option key={source.id} value={source.id}>
+                {source.name}
+              </option>
+            ))}
+          </select>
 
-            <select
-              value={typeFilter}
-              onChange={(e) => { setTypeFilter(e.target.value); setPage(0) }}
-              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
-            >
-              <option value="">All Types</option>
-              <option value="text">Text</option>
-              <option value="markdown">Markdown</option>
-              <option value="code">Code</option>
-              <option value="config">Config</option>
-              <option value="pdf">PDF</option>
-              <option value="docx">Word (.docx)</option>
-              <option value="xlsx">Excel (.xlsx)</option>
-              <option value="pptx">PowerPoint (.pptx)</option>
-            </select>
+          <select
+            value={typeFilter}
+            title="Limit search results to one file type."
+            onChange={(e) => { setTypeFilter(e.target.value); setPage(0) }}
+            className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+          >
+            <option value="">All Types</option>
+            <option value="text">Text</option>
+            <option value="markdown">Markdown</option>
+            <option value="code">Code</option>
+            <option value="config">Config</option>
+            <option value="pdf">PDF</option>
+            <option value="docx">Word (.docx)</option>
+            <option value="xlsx">Excel (.xlsx)</option>
+            <option value="pptx">PowerPoint (.pptx)</option>
+            <option value="rtf">RTF</option>
+            <option value="epub">EPUB</option>
+            <option value="subtitle">Subtitles</option>
+            <option value="comic">Comics</option>
+            <option value="image">Images</option>
+            <option value="raw_image">RAW Images</option>
+            <option value="media">Media</option>
+            <option value="file">Metadata-only files</option>
+          </select>
 
-            {(sourceFilter || typeFilter) && (
-              <button
-                onClick={() => { setSourceFilter(''); setTypeFilter(''); setPage(0) }}
-                className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Clear filters
-              </button>
-            )}
-          </div>
-        )}
+          {(sourceFilter || typeFilter) && (
+            <button
+              title="Clear source and type filters."
+              onClick={() => { setSourceFilter(''); setTypeFilter(''); setPage(0) }}
+              className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
 
         {/* Results area */}
         <div

@@ -79,6 +79,7 @@ function SettingsPanelButton({ label, isOpen, onClick }: { label: string; isOpen
     <button
       type="button"
       aria-expanded={isOpen}
+      title={`${isOpen ? 'Collapse' : 'Open'} ${label} settings`}
       onClick={onClick}
       className={cn(
         'rounded-lg border px-4 py-3 text-left text-sm font-semibold transition-colors',
@@ -146,6 +147,7 @@ function AppearanceSection({ theme, customHue, onPreset, onCustomHue }: Appearan
             min={0}
             max={360}
             value={customHue ?? theme.brandH}
+            title="Adjust the app accent color."
             onChange={(e) => onCustomHue(Number(e.target.value))}
             aria-label="Custom accent hue"
             className="flex-1 h-2 rounded-full cursor-pointer"
@@ -177,7 +179,7 @@ function SegmentedButtons<T extends string | number>({
   onChange,
   ariaLabel,
 }: {
-  options: { value: T; label: string }[]
+  options: { value: T; label: string; title?: string }[]
   value: T
   onChange: (v: T) => void
   ariaLabel: string
@@ -189,6 +191,7 @@ function SegmentedButtons<T extends string | number>({
           key={String(opt.value)}
           role="radio"
           aria-checked={value === opt.value}
+          title={opt.title ?? opt.label}
           onClick={() => onChange(opt.value)}
           className={cn(
             'px-3 py-1.5 text-xs font-medium transition-colors',
@@ -249,6 +252,7 @@ function NumberSetting({
         min={min}
         step={1}
         value={draft}
+        title={description ?? label}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -280,7 +284,10 @@ function Toggle({
   disabled?: boolean
 }) {
   return (
-    <label className={cn('flex items-start justify-between gap-3', disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')}>
+    <label
+      title={description ?? label}
+      className={cn('flex items-start justify-between gap-3', disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')}
+    >
       <span>
         <span className="block text-sm text-foreground">{label}</span>
         {description && <span className="block text-xs text-muted-foreground mt-0.5">{description}</span>}
@@ -356,6 +363,7 @@ function IndexingSection({ settings, isLoading, error, isSaving, onUpdate }: App
             <p className="text-xs text-muted-foreground mb-2">Unsupported files</p>
             <select
               value={settings.unsupported_file_policy}
+              title="Choose whether unknown file types are skipped or indexed by filename/path metadata."
               onChange={(e) => onUpdate({ unsupported_file_policy: e.target.value as AppSettings['unsupported_file_policy'] })}
               className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
             >
@@ -371,8 +379,8 @@ function IndexingSection({ settings, isLoading, error, isSaving, onUpdate }: App
             <p className="text-xs text-muted-foreground mb-2">Media metadata extraction</p>
             <SegmentedButtons
               options={[
-                { value: 'auto' as const, label: 'Auto' },
-                { value: 'off' as const, label: 'Off' },
+                { value: 'auto' as const, label: 'Auto', title: 'Use ffprobe when available and fall back if probing fails.' },
+                { value: 'off' as const, label: 'Off', title: 'Do not probe audio/video files for embedded metadata.' },
               ]}
               value={settings.media_metadata_mode}
               onChange={(v) => onUpdate({ media_metadata_mode: v })}
@@ -457,9 +465,9 @@ function FilePreviewsSection({ settings, isLoading, error, isSaving, onUpdate }:
             <p className="text-xs text-muted-foreground mb-2">Max preview file size</p>
             <SegmentedButtons
               options={[
-                { value: 25 as const, label: '25 MB' },
-                { value: 50 as const, label: '50 MB' },
-                { value: 100 as const, label: '100 MB' },
+                { value: 25 as const, label: '25 MB', title: 'Only serve previews for files up to 25 MB.' },
+                { value: 50 as const, label: '50 MB', title: 'Only serve previews for files up to 50 MB.' },
+                { value: 100 as const, label: '100 MB', title: 'Only serve previews for files up to 100 MB.' },
               ]}
               value={settings.max_preview_size_mb}
               onChange={(v) => onUpdate({ max_preview_size_mb: v })}
@@ -519,6 +527,7 @@ function SearchSection({ settings, onUpdate }: SearchSectionProps) {
           <p className="text-xs text-muted-foreground mb-2">Default sort</p>
           <select
             value={settings.sortOrder}
+            title="Default ordering used for search results."
             onChange={(e) => onUpdate({ sortOrder: e.target.value as SearchSettings['sortOrder'] })}
             className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
           >
