@@ -268,6 +268,12 @@ export async function getDocumentPreviewBlob(id: string): Promise<Blob> {
   })
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearToken()
+      window.location.href = '/login'
+      throw new ApiError('Session expired', 401)
+    }
+
     let detail = `Preview unavailable (${response.status})`
     try {
       const data = await response.json()
