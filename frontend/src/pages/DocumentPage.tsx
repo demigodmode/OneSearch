@@ -302,7 +302,7 @@ export default function DocumentPage() {
 
     // Long prose-style extracted formats
     if (['epub', 'rtf', 'subtitle'].includes(type)) {
-      return <ReadableTextRenderer content={content} />
+      return <ReadableTextRenderer key={`${document.id}-${fromQuery || ''}`} content={content} searchQuery={fromQuery} />
     }
 
     // Code files with syntax highlighting
