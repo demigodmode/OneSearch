@@ -7,28 +7,75 @@ import { ChevronLeft, ChevronRight, Search } from 'lucide-react'
 const DEFAULT_PAGE_CHARS = 6000
 
 function splitIntoPages(content: string, targetPageChars: number): string[] {
-  const paragraphs = content
+  const blocks = content
     .replace(/\r\n/g, '\n')
     .split(/\n{2,}/)
-    .map((part) => part.trim())
+    .flatMap((part) => splitOversizedBlock(part.trim(), targetPageChars))
     .filter(Boolean)
 
-  if (paragraphs.length === 0) return [content]
+  if (blocks.length === 0) return [content]
 
   const pages: string[] = []
   let current = ''
 
-  for (const paragraph of paragraphs) {
-    if (current && current.length + paragraph.length + 2 > targetPageChars) {
+  for (const block of blocks) {
+    if (current && current.length + block.length + 2 > targetPageChars) {
       pages.push(current)
-      current = paragraph
+      current = block
       continue
     }
-    current = current ? `${current}\n\n${paragraph}` : paragraph
+    current = current ? `${current}\n\n${block}` : block
   }
 
   if (current) pages.push(current)
   return pages.length > 0 ? pages : [content]
+}
+
+function splitOversizedBlock(block: string, targetPageChars: number): string[] {
+  if (block.length <= targetPageChars) return [block]
+
+  const pages: string[] = []
+  let current = ''
+
+  for (const line of block.split('\n')) {
+    if (line.length > targetPageChars) {
+      if (current) {
+        pages.push(current)
+        current = ''
+      }
+      pages.push(...splitLongLine(line, targetPageChars))
+      continue
+    }
+
+    const separator = current ? '\n' : ''
+    if (current && current.length + separator.length + line.length > targetPageChars) {
+      pages.push(current)
+      current = line
+    } else {
+      current = `${current}${separator}${line}`
+    }
+  }
+
+  if (current) pages.push(current)
+  return pages
+}
+
+function splitLongLine(line: string, targetPageChars: number): string[] {
+  const pages: string[] = []
+  let remaining = line
+
+  while (remaining.length > targetPageChars) {
+    const breakpoint = Math.max(
+      remaining.lastIndexOf(' ', targetPageChars),
+      remaining.lastIndexOf('\t', targetPageChars)
+    )
+    const splitAt = breakpoint > targetPageChars * 0.6 ? breakpoint : targetPageChars
+    pages.push(remaining.slice(0, splitAt).trimEnd())
+    remaining = remaining.slice(splitAt).trimStart()
+  }
+
+  if (remaining) pages.push(remaining)
+  return pages
 }
 
 function searchTermsForQuery(query?: string | null): string[] {
