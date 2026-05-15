@@ -18,11 +18,12 @@ _ENV_SENSITIVE_FIELDS = [
     "TEXT_EXTRACTION_TIMEOUT", "PDF_EXTRACTION_TIMEOUT", "OFFICE_EXTRACTION_TIMEOUT",
     "MEILISEARCH_BATCH_SIZE", "INDEXING_PROGRESS_INTERVAL",
     "SESSION_EXPIRE_HOURS", "AUTH_RATE_LIMIT",
-    "UNSUPPORTED_FILE_POLICY", "MEDIA_METADATA_MODE", "INDEX_GPS_METADATA",
+    "UNSUPPORTED_FILE_POLICY", "MEDIA_METADATA_MODE", "RAW_METADATA_MODE", "INDEX_GPS_METADATA",
     "SHOW_PREVIEWS", "RAW_PREVIEW_ENABLED", "MAX_PREVIEW_SIZE_MB",
     "MEDIA_PROBE_MAX_SIZE_MB", "IMAGE_METADATA_MAX_SIZE_MB", "ARCHIVE_EXTRACTION_MAX_SIZE_MB",
     "EPUB_EXTRACTION_MAX_SIZE_MB", "COMIC_EXTRACTION_MAX_SIZE_MB",
     "READABLE_PREVIEW_PAGE_CHARS", "LONG_TEXT_PAGINATION_THRESHOLD_CHARS",
+    "RAW_METADATA_TIMEOUT_SECONDS",
 ]
 
 
@@ -87,6 +88,8 @@ class TestSettingsDefaults:
         s = Settings(_env_file=None)
         assert s.unsupported_file_policy == "metadata_only"
         assert s.media_metadata_mode == "auto"
+        assert s.raw_metadata_mode == "auto"
+        assert s.raw_metadata_timeout_seconds == 10
         assert s.index_gps_metadata is False
         assert s.show_previews is True
         assert s.raw_preview_enabled is True
@@ -129,6 +132,8 @@ class TestSettingsFromEnv:
     def test_rich_media_settings_from_env(self, monkeypatch):
         monkeypatch.setenv("UNSUPPORTED_FILE_POLICY", "skip")
         monkeypatch.setenv("MEDIA_METADATA_MODE", "off")
+        monkeypatch.setenv("RAW_METADATA_MODE", "off")
+        monkeypatch.setenv("RAW_METADATA_TIMEOUT_SECONDS", "7")
         monkeypatch.setenv("INDEX_GPS_METADATA", "true")
         monkeypatch.setenv("SHOW_PREVIEWS", "false")
         monkeypatch.setenv("RAW_PREVIEW_ENABLED", "false")
@@ -144,6 +149,8 @@ class TestSettingsFromEnv:
 
         assert s.unsupported_file_policy == "skip"
         assert s.media_metadata_mode == "off"
+        assert s.raw_metadata_mode == "off"
+        assert s.raw_metadata_timeout_seconds == 7
         assert s.index_gps_metadata is True
         assert s.show_previews is False
         assert s.raw_preview_enabled is False
@@ -154,6 +161,12 @@ class TestSettingsFromEnv:
         assert s.comic_extraction_max_size_mb == 300
         assert s.readable_preview_page_chars == 8000
         assert s.long_text_pagination_threshold_chars == 30000
+
+    def test_raw_metadata_timeout_must_be_positive(self, clean_env):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, raw_metadata_timeout_seconds=0)
 
     def test_legacy_archive_limit_from_env_sets_epub_and_comic_defaults(self, monkeypatch):
         monkeypatch.setenv("ARCHIVE_EXTRACTION_MAX_SIZE_MB", "175")

@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     # Rich media indexing and preview defaults
     unsupported_file_policy: Literal["skip", "metadata_only"] = "metadata_only"
     media_metadata_mode: Literal["auto", "off"] = "auto"
+    raw_metadata_mode: Literal["auto", "off"] = "auto"
+    raw_metadata_timeout_seconds: int = 10
     index_gps_metadata: bool = False
     show_previews: bool = True
     raw_preview_enabled: bool = True
@@ -85,6 +87,13 @@ class Settings(BaseSettings):
     def validate_media_probe_max_size_mb(cls, value: int) -> int:
         if value < 0:
             raise ValueError("media_probe_max_size_mb must be 0 or greater")
+        return value
+
+    @field_validator("raw_metadata_timeout_seconds")
+    @classmethod
+    def validate_raw_metadata_timeout_seconds(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("raw_metadata_timeout_seconds must be at least 1")
         return value
 
     @field_validator(

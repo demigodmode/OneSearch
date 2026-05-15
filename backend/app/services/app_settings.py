@@ -16,6 +16,7 @@ from ..schemas import AppSettingsResponse, AppSettingsUpdate
 SETTING_KEYS = (
     "unsupported_file_policy",
     "media_metadata_mode",
+    "raw_metadata_mode",
     "index_gps_metadata",
     "show_previews",
     "raw_preview_enabled",
@@ -35,6 +36,7 @@ def default_app_settings() -> AppSettingsResponse:
     return AppSettingsResponse(
         unsupported_file_policy=settings.unsupported_file_policy,
         media_metadata_mode=settings.media_metadata_mode,
+        raw_metadata_mode=settings.raw_metadata_mode,
         index_gps_metadata=settings.index_gps_metadata,
         show_previews=settings.show_previews,
         raw_preview_enabled=settings.raw_preview_enabled,

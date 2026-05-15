@@ -14,6 +14,7 @@ def test_get_settings_returns_defaults(client):
     assert response.json() == {
         "unsupported_file_policy": "metadata_only",
         "media_metadata_mode": "auto",
+        "raw_metadata_mode": "auto",
         "index_gps_metadata": False,
         "show_previews": True,
         "raw_preview_enabled": True,
@@ -31,6 +32,7 @@ def test_update_settings_persists_values(client):
     update = {
         "unsupported_file_policy": "skip",
         "media_metadata_mode": "off",
+        "raw_metadata_mode": "off",
         "index_gps_metadata": True,
         "show_previews": False,
         "raw_preview_enabled": False,
@@ -74,6 +76,7 @@ def test_update_settings_accepts_partial_payload(client):
     assert body["index_gps_metadata"] is True
     assert body["unsupported_file_policy"] == "metadata_only"
     assert body["media_metadata_mode"] == "auto"
+    assert body["raw_metadata_mode"] == "auto"
     assert body["show_previews"] is True
     assert body["raw_preview_enabled"] is True
     assert body["max_preview_size_mb"] == 50
