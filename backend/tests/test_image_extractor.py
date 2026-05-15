@@ -139,6 +139,38 @@ def test_raw_extractor_uses_exiftool_metadata_when_pillow_fails(temp_dir, monkey
     assert "Aperture: f/2.8" in doc.content
 
 
+def test_raw_extractor_augments_readable_raw_with_exiftool_metadata(temp_dir, monkeypatch):
+    file_path = temp_dir / "photo.DNG"
+    file_path.write_bytes(b"raw bytes")
+
+    def fake_image_metadata(self, path):
+        assert path == str(file_path)
+        return {"width": 100, "height": 50, "image_format": "DNG"}
+
+    def fake_run(cmd, capture_output, text, timeout, check):
+        class Result:
+            returncode = 0
+            stderr = ""
+            stdout = '''[{"Make":"Leica","Model":"Q3","LensModel":"Summilux 28mm","ISO":200,"ImageWidth":9520,"ImageHeight":6336}]'''
+
+        return Result()
+
+    monkeypatch.setattr(ImageExtractor, "_extract_image_metadata", fake_image_metadata)
+    monkeypatch.setattr("app.extractors.images.subprocess.run", fake_run)
+
+    doc = ImageExtractor("src", "Source", raw_metadata_mode="auto").extract(str(file_path))
+
+    assert doc.type == "raw_image"
+    assert doc.metadata["camera_make"] == "Leica"
+    assert doc.metadata["camera_model"] == "Q3"
+    assert doc.metadata["lens_model"] == "Summilux 28mm"
+    assert doc.metadata["iso"] == 200
+    assert doc.metadata["width"] == 9520
+    assert doc.metadata["height"] == 6336
+    assert doc.metadata["image_format"] == "DNG"
+    assert "Leica" in doc.content
+
+
 def test_raw_extractor_can_include_gps_when_enabled(temp_dir, monkeypatch):
     file_path = temp_dir / "photo.ARW"
     file_path.write_bytes(b"raw bytes")

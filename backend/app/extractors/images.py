@@ -61,16 +61,25 @@ class ImageExtractor(BaseExtractor):
         except ValueError as e:
             return self._metadata_only_document(path, file_path, is_raw, str(e))
 
+        metadata: dict[str, Any] = {}
+        image_error: Exception | None = None
         try:
             metadata = self._extract_image_metadata(file_path)
         except (UnidentifiedImageError, OSError) as e:
-            if is_raw and self._raw_metadata_enabled():
-                try:
-                    metadata = self._extract_raw_metadata_with_exiftool(file_path)
-                except (FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError, ValueError) as raw_error:
-                    return self._metadata_only_document(path, file_path, is_raw, str(raw_error) or str(e))
-            else:
-                return self._metadata_only_document(path, file_path, is_raw, str(e))
+            image_error = e
+
+        if is_raw and self._raw_metadata_enabled():
+            try:
+                raw_metadata = self._extract_raw_metadata_with_exiftool(file_path)
+                metadata.update(raw_metadata)
+            except (FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError, ValueError) as raw_error:
+                if not metadata:
+                    return self._metadata_only_document(path, file_path, is_raw, str(raw_error) or str(image_error))
+        elif image_error is not None:
+            return self._metadata_only_document(path, file_path, is_raw, str(image_error))
+
+        if not metadata:
+            return self._metadata_only_document(path, file_path, is_raw, "No usable image metadata")
 
         doc = self._create_base_document(file_path, self._metadata_summary(path.name, metadata))
         doc.type = "raw_image" if is_raw else "image"
