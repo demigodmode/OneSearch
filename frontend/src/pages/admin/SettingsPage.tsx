@@ -383,6 +383,19 @@ function IndexingSection({ settings, isLoading, error, isSaving, onUpdate }: App
             />
           </div>
 
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">RAW metadata extraction</p>
+            <SegmentedButtons
+              options={[
+                { value: 'auto' as const, label: 'Auto', title: 'Use exiftool when available to extract searchable RAW camera metadata.' },
+                { value: 'off' as const, label: 'Off', title: 'Skip optional RAW metadata probing and index RAW files with basic file metadata only.' },
+              ]}
+              value={settings.raw_metadata_mode}
+              onChange={(v) => onUpdate({ raw_metadata_mode: v })}
+              ariaLabel="RAW metadata extraction"
+            />
+          </div>
+
           <Toggle
             label="Index GPS metadata"
             description="Off by default because photo GPS metadata can reveal precise location."

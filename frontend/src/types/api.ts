@@ -123,6 +123,7 @@ export interface SearchResponse {
 export interface AppSettings {
   unsupported_file_policy: 'skip' | 'metadata_only'
   media_metadata_mode: 'auto' | 'off'
+  raw_metadata_mode: 'auto' | 'off'
   index_gps_metadata: boolean
   show_previews: boolean
   raw_preview_enabled: boolean
