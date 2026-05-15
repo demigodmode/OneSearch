@@ -4,9 +4,11 @@
 """
 Image and RAW metadata extractor.
 """
+import json
+import subprocess
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from PIL import Image, ExifTags, UnidentifiedImageError
 from .base import BaseExtractor, extractor_registry
@@ -34,10 +36,12 @@ class ImageExtractor(BaseExtractor):
         source_name: str,
         index_gps_metadata: bool | None = None,
         image_metadata_max_size_mb: int | None = None,
+        raw_metadata_mode: Literal["auto", "off"] | None = None,
     ):
         super().__init__(source_id, source_name)
         self.index_gps_metadata = index_gps_metadata
         self.image_metadata_max_size_mb = image_metadata_max_size_mb
+        self.raw_metadata_mode = raw_metadata_mode
 
     def set_index_gps_metadata(self, enabled: bool) -> None:
         self.index_gps_metadata = enabled
@@ -45,23 +49,28 @@ class ImageExtractor(BaseExtractor):
     def set_image_metadata_max_size_mb(self, max_size_mb: int) -> None:
         self.image_metadata_max_size_mb = max_size_mb
 
+    def set_raw_metadata_mode(self, mode: Literal["auto", "off"]) -> None:
+        self.raw_metadata_mode = mode
+
     def extract(self, file_path: str) -> Document:
         path = Path(file_path)
         is_raw = path.suffix.lower() in _RAW_IMAGE_EXTENSIONS
 
         try:
             self._check_file_size_limit(file_path, self._image_metadata_max_size_bytes())
+        except ValueError as e:
+            return self._metadata_only_document(path, file_path, is_raw, str(e))
+
+        try:
             metadata = self._extract_image_metadata(file_path)
-        except (UnidentifiedImageError, OSError, ValueError) as e:
-            doc = MetadataOnlyExtractor(self.source_id, self.source_name).extract(file_path)
-            doc.type = "raw_image" if is_raw else "image"
-            doc.title = path.stem
-            doc.metadata.update({
-                "metadata_only": True,
-                "extraction_failed": True,
-                "extraction_error": str(e),
-            })
-            return doc
+        except (UnidentifiedImageError, OSError) as e:
+            if is_raw and self._raw_metadata_enabled():
+                try:
+                    metadata = self._extract_raw_metadata_with_exiftool(file_path)
+                except (FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError, ValueError) as raw_error:
+                    return self._metadata_only_document(path, file_path, is_raw, str(raw_error) or str(e))
+            else:
+                return self._metadata_only_document(path, file_path, is_raw, str(e))
 
         doc = self._create_base_document(file_path, self._metadata_summary(path.name, metadata))
         doc.type = "raw_image" if is_raw else "image"
@@ -85,6 +94,56 @@ class ImageExtractor(BaseExtractor):
                     if gps:
                         metadata["gps"] = gps
             return metadata
+
+    def _extract_raw_metadata_with_exiftool(self, file_path: str) -> dict[str, Any]:
+        result = subprocess.run(
+            ["exiftool", "-json", "-n", file_path],
+            capture_output=True,
+            text=True,
+            timeout=settings.raw_metadata_timeout_seconds,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise ValueError(result.stderr.strip() or "exiftool failed")
+        payload = json.loads(result.stdout or "[]")
+        if not payload:
+            raise ValueError("exiftool returned no metadata")
+        metadata = self._normalize_exiftool_metadata(payload[0])
+        if not metadata:
+            raise ValueError("exiftool returned no usable metadata")
+        return metadata
+
+    def _normalize_exiftool_metadata(self, raw: dict[str, Any]) -> dict[str, Any]:
+        metadata: dict[str, Any] = {}
+        field_map = {
+            "Make": "camera_make",
+            "Model": "camera_model",
+            "LensModel": "lens_model",
+            "Lens": "lens_model",
+            "ISO": "iso",
+            "ImageWidth": "width",
+            "ImageHeight": "height",
+            "ExifImageWidth": "width",
+            "ExifImageHeight": "height",
+            "DateTimeOriginal": "date_taken",
+            "CreateDate": "date_taken",
+        }
+        for raw_key, metadata_key in field_map.items():
+            if raw_key in raw and raw[raw_key] not in (None, ""):
+                metadata[metadata_key] = _clean_value(raw[raw_key])
+
+        if "FNumber" in raw and raw["FNumber"] not in (None, ""):
+            metadata["aperture"] = f"f/{_format_decimal(_to_float(raw['FNumber']))}"
+        if "ExposureTime" in raw and raw["ExposureTime"] not in (None, ""):
+            metadata["exposure_time"] = _format_exposure(raw["ExposureTime"])
+        if "FocalLength" in raw and raw["FocalLength"] not in (None, ""):
+            metadata["focal_length"] = f"{_format_decimal(_to_float(raw['FocalLength']))}mm"
+        if self._gps_enabled() and "GPSLatitude" in raw and "GPSLongitude" in raw:
+            metadata["gps"] = {
+                "latitude": _clean_value(raw["GPSLatitude"]),
+                "longitude": _clean_value(raw["GPSLongitude"]),
+            }
+        return metadata
 
     def _add_exif_fields(self, metadata: dict[str, Any], exif: Image.Exif) -> None:
         field_map = {
@@ -122,6 +181,10 @@ class ImageExtractor(BaseExtractor):
             return default_app_settings().index_gps_metadata
         return self.index_gps_metadata
 
+    def _raw_metadata_enabled(self) -> bool:
+        mode = self.raw_metadata_mode or default_app_settings().raw_metadata_mode
+        return mode == "auto"
+
     def _image_metadata_max_size_bytes(self) -> int:
         if self.image_metadata_max_size_mb is None:
             self.image_metadata_max_size_mb = default_app_settings().image_metadata_max_size_mb
@@ -140,6 +203,17 @@ class ImageExtractor(BaseExtractor):
         else:
             gps["raw"] = _clean_value(gps_info)
         return gps
+
+    def _metadata_only_document(self, path: Path, file_path: str, is_raw: bool, error: str) -> Document:
+        doc = MetadataOnlyExtractor(self.source_id, self.source_name).extract(file_path)
+        doc.type = "raw_image" if is_raw else "image"
+        doc.title = path.stem
+        doc.metadata.update({
+            "metadata_only": True,
+            "extraction_failed": True,
+            "extraction_error": error,
+        })
+        return doc
 
     def _metadata_summary(self, basename: str, metadata: dict[str, Any]) -> str:
         lines = [basename]

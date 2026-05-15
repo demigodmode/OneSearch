@@ -106,6 +106,87 @@ def test_extract_gps_decodes_exif_gps_ifd():
     }
 
 
+def test_raw_extractor_uses_exiftool_metadata_when_pillow_fails(temp_dir, monkeypatch):
+    file_path = temp_dir / "photo.NEF"
+    file_path.write_bytes(b"raw bytes")
+
+    def fake_run(cmd, capture_output, text, timeout, check):
+        assert cmd[:3] == ["exiftool", "-json", "-n"]
+        assert str(file_path) in cmd
+
+        class Result:
+            returncode = 0
+            stderr = ""
+            stdout = '''[{"Make":"Nikon","Model":"Z 8","LensModel":"NIKKOR Z 24-70mm f/2.8 S","ISO":400,"FNumber":2.8,"ExposureTime":0.004,"FocalLength":70,"ImageWidth":8256,"ImageHeight":5504,"DateTimeOriginal":"2025:05:14 17:06:22","GPSLatitude":40.1,"GPSLongitude":-74.2}]'''
+
+        return Result()
+
+    monkeypatch.setattr("app.extractors.images.subprocess.run", fake_run)
+    doc = ImageExtractor("src", "Source", index_gps_metadata=False, raw_metadata_mode="auto").extract(str(file_path))
+
+    assert doc.type == "raw_image"
+    assert doc.metadata["camera_make"] == "Nikon"
+    assert doc.metadata["camera_model"] == "Z 8"
+    assert doc.metadata["lens_model"] == "NIKKOR Z 24-70mm f/2.8 S"
+    assert doc.metadata["iso"] == 400
+    assert doc.metadata["aperture"] == "f/2.8"
+    assert doc.metadata["exposure_time"] == "1/250"
+    assert doc.metadata["focal_length"] == "70mm"
+    assert doc.metadata["width"] == 8256
+    assert doc.metadata["height"] == 5504
+    assert "gps" not in doc.metadata
+    assert "ISO: 400" in doc.content
+    assert "Aperture: f/2.8" in doc.content
+
+
+def test_raw_extractor_can_include_gps_when_enabled(temp_dir, monkeypatch):
+    file_path = temp_dir / "photo.ARW"
+    file_path.write_bytes(b"raw bytes")
+
+    def fake_run(cmd, capture_output, text, timeout, check):
+        class Result:
+            returncode = 0
+            stderr = ""
+            stdout = '''[{"Make":"Sony","GPSLatitude":40.1,"GPSLongitude":-74.2}]'''
+
+        return Result()
+
+    monkeypatch.setattr("app.extractors.images.subprocess.run", fake_run)
+    doc = ImageExtractor("src", "Source", index_gps_metadata=True, raw_metadata_mode="auto").extract(str(file_path))
+
+    assert doc.metadata["gps"] == {"latitude": 40.1, "longitude": -74.2}
+    assert "GPS:" in doc.content
+
+
+def test_raw_extractor_falls_back_when_exiftool_missing(temp_dir, monkeypatch):
+    file_path = temp_dir / "photo.CR3"
+    file_path.write_bytes(b"raw bytes")
+
+    def fake_run(*args, **kwargs):
+        raise FileNotFoundError("exiftool")
+
+    monkeypatch.setattr("app.extractors.images.subprocess.run", fake_run)
+    doc = ImageExtractor("src", "Source", raw_metadata_mode="auto").extract(str(file_path))
+
+    assert doc.type == "raw_image"
+    assert doc.metadata["metadata_only"] is True
+    assert doc.metadata["extraction_failed"] is True
+
+
+def test_raw_metadata_mode_off_skips_exiftool(temp_dir, monkeypatch):
+    file_path = temp_dir / "photo.DNG"
+    file_path.write_bytes(b"raw bytes")
+
+    def fake_run(*args, **kwargs):
+        raise AssertionError("exiftool should not run when RAW metadata mode is off")
+
+    monkeypatch.setattr("app.extractors.images.subprocess.run", fake_run)
+    doc = ImageExtractor("src", "Source", raw_metadata_mode="off").extract(str(file_path))
+
+    assert doc.type == "raw_image"
+    assert doc.metadata["metadata_only"] is True
+
+
 @pytest.mark.asyncio
 async def test_raw_extension_falls_back_to_raw_image_metadata_only(temp_dir):
     file_path = temp_dir / "IMG_0001.CR3"
