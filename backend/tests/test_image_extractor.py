@@ -117,7 +117,7 @@ def test_raw_extractor_uses_exiftool_metadata_when_pillow_fails(temp_dir, monkey
         class Result:
             returncode = 0
             stderr = ""
-            stdout = '''[{"Make":"Nikon","Model":"Z 8","LensModel":"NIKKOR Z 24-70mm f/2.8 S","ISO":400,"FNumber":2.8,"ExposureTime":0.004,"FocalLength":70,"ImageWidth":8256,"ImageHeight":5504,"DateTimeOriginal":"2025:05:14 17:06:22","GPSLatitude":40.1,"GPSLongitude":-74.2}]'''
+            stdout = '''[{"Make":"Nikon","Model":"Z 8","LensModel":"NIKKOR Z 24-70mm f/2.8 S","Lens":24,"ISO":400,"FNumber":2.8,"ExposureTime":0.004,"FocalLength":70,"ImageWidth":8256,"ImageHeight":5504,"DateTimeOriginal":"2025:05:14 17:06:22","GPSLatitude":40.1,"GPSLongitude":-74.2}]'''
 
         return Result()
 

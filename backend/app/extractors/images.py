@@ -129,7 +129,7 @@ class ImageExtractor(BaseExtractor):
             "CreateDate": "date_taken",
         }
         for raw_key, metadata_key in field_map.items():
-            if raw_key in raw and raw[raw_key] not in (None, ""):
+            if raw_key in raw and raw[raw_key] not in (None, "") and metadata_key not in metadata:
                 metadata[metadata_key] = _clean_value(raw[raw_key])
 
         if "FNumber" in raw and raw["FNumber"] not in (None, ""):
