@@ -47,9 +47,9 @@ UI overhaul and polish. Started in v0.9.0.
 
 ### Additional File Types
 
-- Image metadata (EXIF)
-- Archive files (.zip, .tar.gz)
+- Archive file contents beyond CBZ comics (.zip, .tar.gz)
 - Email (.eml, .mbox)
+- OCR for scanned/image-only documents
 
 ---
 

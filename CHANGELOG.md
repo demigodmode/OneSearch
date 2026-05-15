@@ -5,6 +5,21 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added rich media indexing for RTF, EPUB, subtitles, CBZ comics, images, RAW photos, media files, and metadata-only unsupported files.
+- Added authenticated image and RAW embedded preview support with configurable preview limits.
+- Added searchable photo/RAW metadata including camera, lens, ISO, aperture, exposure, focal length, dimensions, and date taken. GPS metadata stays opt-in.
+- Added Admin Settings controls for File Previews, Indexing, and rich media extraction limits.
+- Added long text preview pagination and search-match navigation on document previews.
+
+### Changed
+
+- Search filters now include rich media document types and show by default.
+- Docker runtime now includes exiftool for RAW metadata extraction.
+
 ## [0.14.0] - 2026-05-06
 
 ### Added

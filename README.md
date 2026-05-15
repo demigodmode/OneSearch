@@ -49,7 +49,11 @@ Full setup guide: [onesearch.readthedocs.io](https://onesearch.readthedocs.io/en
 
 | Type | Formats |
 |------|---------|
-| Documents | PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx) |
+| Documents | PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), RTF |
+| Ebooks & comics | EPUB, CBZ comic archives |
+| Images & RAW photos | JPG, PNG, WebP, GIF, TIFF, CR2, CR3, NEF, ARW, RAF, ORF, RW2, DNG |
+| Media metadata | MP4, MKV, MOV, AVI, MP3, FLAC, M4A, OGG, WAV |
+| Subtitles | SRT, WebVTT, ASS/SSA |
 | Markdown | .md, .markdown |
 | Code | .py, .js, .ts, .go, .rs, .java, .c, .cpp, .sh, .sql, [and more](https://onesearch.readthedocs.io/en/latest/supported-formats/text-files/) |
 | Config | .yaml, .toml, .json, .xml, .ini, .env, [and more](https://onesearch.readthedocs.io/en/latest/supported-formats/text-files/) |
