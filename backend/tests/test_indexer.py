@@ -17,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models import AppSetting, Base, Source, IndexedFile
 from app.services.indexer import IndexingService, IndexingStats
+from app.extractors import ImageExtractor
 from app.schemas import Document
 
 
@@ -109,6 +110,27 @@ class TestIndexingService:
 
         with pytest.raises(ValueError, match="Source not found"):
             await service.index_source("nonexistent")
+
+    @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_extract_document_passes_raw_metadata_mode_to_image_extractor(self, db_session, mock_search_service, test_directory, monkeypatch):
+        db_session.add(AppSetting(key="raw_metadata_mode", value="off"))
+        db_session.commit()
+        raw_file = test_directory / "photo.NEF"
+        raw_file.write_bytes(b"raw")
+        seen = {}
+        original_extract = ImageExtractor.extract
+
+        def tracking_extract(self, file_path):
+            seen["raw_metadata_mode"] = self.raw_metadata_mode
+            return original_extract(self, file_path)
+
+        monkeypatch.setattr(ImageExtractor, "extract", tracking_extract)
+        service = IndexingService(db_session, mock_search_service)
+
+        await service._extract_document(str(raw_file), "test_source", "Test Source")
+
+        assert seen["raw_metadata_mode"] == "off"
 
     @pytest.mark.asyncio
     async def test_check_needs_indexing_new_file(self, db_session, test_directory):

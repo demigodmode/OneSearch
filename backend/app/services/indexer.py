@@ -373,6 +373,7 @@ class IndexingService:
         configurable_extractors = [
             "set_index_gps_metadata",
             "set_image_metadata_max_size_mb",
+            "set_raw_metadata_mode",
             "set_epub_extraction_max_size_mb",
             "set_comic_extraction_max_size_mb",
             "set_media_metadata_mode",
@@ -384,6 +385,8 @@ class IndexingService:
             extractor.set_index_gps_metadata(app_settings.index_gps_metadata)
         if hasattr(extractor, "set_image_metadata_max_size_mb"):
             extractor.set_image_metadata_max_size_mb(app_settings.image_metadata_max_size_mb)
+        if hasattr(extractor, "set_raw_metadata_mode"):
+            extractor.set_raw_metadata_mode(app_settings.raw_metadata_mode)
         if hasattr(extractor, "set_epub_extraction_max_size_mb"):
             extractor.set_epub_extraction_max_size_mb(app_settings.epub_extraction_max_size_mb)
         if hasattr(extractor, "set_comic_extraction_max_size_mb"):
