@@ -5,7 +5,7 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.15.0] - 2026-05-16
 
 ### Added
 
@@ -54,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed EPUB extraction so non-text spine items such as cover images are skipped.
 - Fixed CBZ page sorting so numbered pages sort naturally.
 - Fixed image metadata fallback behavior for oversized, unreadable, or unsupported image files.
+
+---
 
 ## [0.14.0] - 2026-05-06
 
@@ -527,6 +529,7 @@ Milestone 1 complete. All core features are in — search, indexing, auth, sched
 
 ---
 
+[0.15.0]: https://github.com/demigodmode/OneSearch/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/demigodmode/OneSearch/compare/v0.13.2...v0.14.0
 [0.13.2]: https://github.com/demigodmode/OneSearch/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/demigodmode/OneSearch/compare/v0.13.0...v0.13.1
