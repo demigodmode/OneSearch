@@ -53,12 +53,13 @@ FROM getmeili/meilisearch:v1.12 AS meilisearch-runtime
 # =============================================================================
 FROM python:3.13-slim
 
-# Install nginx, supervisor, and curl for healthcheck
+# Install runtime services, healthcheck curl, and exiftool for RAW metadata probing
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         nginx \
         supervisor \
-        curl && \
+        curl \
+        libimage-exiftool-perl && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /var/log/supervisor
 

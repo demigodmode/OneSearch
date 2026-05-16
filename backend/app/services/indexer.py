@@ -17,9 +17,10 @@ from sqlalchemy import select, func, case
 
 from ..models import Source, IndexedFile
 from ..schemas import Document
-from ..extractors import extractor_registry
+from ..extractors import MetadataOnlyExtractor, extractor_registry
 from ..config import settings
 from .scanner import FileScanner
+from .app_settings import AppSettingsService
 from .search import SearchService
 
 logger = logging.getLogger(__name__)
@@ -361,8 +362,39 @@ class IndexingService:
         )
 
         if extractor is None:
-            logger.debug(f"No extractor for file: {file_path}")
-            return None
+            app_settings = AppSettingsService(self.db).get_settings()
+            if app_settings.unsupported_file_policy == "skip":
+                logger.debug(f"No extractor for file: {file_path}")
+                return None
+            logger.debug(f"Creating metadata-only document for unsupported file: {file_path}")
+            extractor = MetadataOnlyExtractor(source_id, source_name)
+
+        app_settings = None
+        configurable_extractors = [
+            "set_index_gps_metadata",
+            "set_image_metadata_max_size_mb",
+            "set_raw_metadata_mode",
+            "set_epub_extraction_max_size_mb",
+            "set_comic_extraction_max_size_mb",
+            "set_media_metadata_mode",
+            "set_media_probe_max_size_mb",
+        ]
+        if any(hasattr(extractor, name) for name in configurable_extractors):
+            app_settings = AppSettingsService(self.db).get_settings()
+        if hasattr(extractor, "set_index_gps_metadata"):
+            extractor.set_index_gps_metadata(app_settings.index_gps_metadata)
+        if hasattr(extractor, "set_image_metadata_max_size_mb"):
+            extractor.set_image_metadata_max_size_mb(app_settings.image_metadata_max_size_mb)
+        if hasattr(extractor, "set_raw_metadata_mode"):
+            extractor.set_raw_metadata_mode(app_settings.raw_metadata_mode)
+        if hasattr(extractor, "set_epub_extraction_max_size_mb"):
+            extractor.set_epub_extraction_max_size_mb(app_settings.epub_extraction_max_size_mb)
+        if hasattr(extractor, "set_comic_extraction_max_size_mb"):
+            extractor.set_comic_extraction_max_size_mb(app_settings.comic_extraction_max_size_mb)
+        if hasattr(extractor, "set_media_metadata_mode"):
+            extractor.set_media_metadata_mode(app_settings.media_metadata_mode)
+        if hasattr(extractor, "set_media_probe_max_size_mb"):
+            extractor.set_media_probe_max_size_mb(app_settings.media_probe_max_size_mb)
 
         # Extract with timeout
         document = await extractor.extract_with_timeout(file_path)

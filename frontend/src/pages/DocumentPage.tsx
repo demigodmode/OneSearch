@@ -3,7 +3,9 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
-import { useDocument } from '@/hooks/useApi'
+import { useAppSettings, useDocument } from '@/hooks/useApi'
+import { FormatDetails } from '@/components/document/FormatDetails'
+import { ReadableTextRenderer } from '@/components/document/ReadableTextRenderer'
 import {
   ArrowLeft,
   FileText,
@@ -16,6 +18,9 @@ import {
   HardDrive,
   Calendar,
   FolderOpen,
+  Image as ImageIcon,
+  BookOpen,
+  FileArchive,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -123,12 +128,24 @@ const extensionToLanguage: Record<string, string> = {
 
 // Code file extensions that should use syntax highlighting
 const codeExtensions = new Set(Object.keys(extensionToLanguage))
+const proseDocumentTypes = new Set(['epub', 'rtf', 'subtitle', 'pdf', 'docx', 'pptx'])
+const DEFAULT_LONG_TEXT_THRESHOLD = 20_000
+const DEFAULT_READABLE_PAGE_CHARS = 6000
 
 // Get file type icon
 function FileTypeIcon({ type, className }: { type: string; className?: string }) {
   switch (type) {
     case 'markdown':
       return <FileCode className={className} />
+    case 'image':
+    case 'raw_image':
+      return <ImageIcon className={className} />
+    case 'comic':
+      return <FileArchive className={className} />
+    case 'epub':
+    case 'rtf':
+    case 'subtitle':
+      return <BookOpen className={className} />
     case 'pdf':
     case 'docx':
     case 'xlsx':
@@ -224,6 +241,7 @@ export default function DocumentPage() {
   const fromType = searchParams.get('type')
 
   const { data: document, isLoading, error } = useDocument(id || '')
+  const { data: appSettings } = useAppSettings()
 
   const handleBack = useCallback(() => {
     if (fromQuery) {
@@ -284,6 +302,20 @@ export default function DocumentPage() {
     // Markdown files
     if (type === 'markdown' || extension === 'md' || extension === 'markdown') {
       return <MarkdownRenderer content={content} />
+    }
+
+    // Long prose-style extracted formats
+    const longTextThreshold = appSettings?.long_text_pagination_threshold_chars ?? DEFAULT_LONG_TEXT_THRESHOLD
+    const pageSizeChars = appSettings?.readable_preview_page_chars ?? DEFAULT_READABLE_PAGE_CHARS
+    if (proseDocumentTypes.has(type) || (type === 'text' && content.length > longTextThreshold)) {
+      return (
+        <ReadableTextRenderer
+          key={`${document.id}-${fromQuery || ''}-${pageSizeChars}`}
+          content={content}
+          searchQuery={fromQuery}
+          pageSizeChars={pageSizeChars}
+        />
+      )
     }
 
     // Code files with syntax highlighting
@@ -406,6 +438,8 @@ export default function DocumentPage() {
             </div>
           </div>
         </div>
+
+        <FormatDetails document={document} />
 
         {/* Document content */}
         <div className="bg-card border border-border rounded-lg overflow-hidden">

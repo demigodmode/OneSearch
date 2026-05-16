@@ -11,6 +11,13 @@ from .text import TextExtractor
 from .markdown import MarkdownExtractor
 from .pdf import PDFExtractor
 from .office import DocxExtractor, XlsxExtractor, PptxExtractor
+from .metadata import MetadataOnlyExtractor
+from .subtitles import SubtitleExtractor
+from .rtf import RTFExtractor
+from .epub import EPUBExtractor
+from .comic import ComicExtractor
+from .images import ImageExtractor
+from .media import MediaExtractor
 
 __all__ = [
     "BaseExtractor",
@@ -22,4 +29,11 @@ __all__ = [
     "DocxExtractor",
     "XlsxExtractor",
     "PptxExtractor",
+    "MetadataOnlyExtractor",
+    "SubtitleExtractor",
+    "RTFExtractor",
+    "EPUBExtractor",
+    "ComicExtractor",
+    "ImageExtractor",
+    "MediaExtractor",
 ]

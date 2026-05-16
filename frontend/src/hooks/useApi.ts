@@ -17,12 +17,15 @@ import {
   getDocument,
   getStatus,
   getHealth,
+  getAppSettings,
+  updateAppSettings,
   queryKeys,
 } from '@/lib/api'
 import type {
   SourceCreate,
   SourceUpdate,
   SearchQuery,
+  AppSettingsUpdate,
 } from '@/types/api'
 
 // ============================================================================
@@ -50,6 +53,28 @@ export function useStatus() {
     queryFn: getStatus,
     refetchInterval: 30000,
     staleTime: 10000,
+  })
+}
+
+// ============================================================================
+// App Settings Hooks
+// ============================================================================
+
+export function useAppSettings() {
+  return useQuery({
+    queryKey: queryKeys.appSettings,
+    queryFn: getAppSettings,
+  })
+}
+
+export function useUpdateAppSettings() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: AppSettingsUpdate) => updateAppSettings(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.appSettings })
+    },
   })
 }
 

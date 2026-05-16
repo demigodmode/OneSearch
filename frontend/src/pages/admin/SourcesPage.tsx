@@ -122,6 +122,7 @@ function SourceForm({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="My Documents"
+          title="Friendly name shown in search filters and results."
           required
         />
       </div>
@@ -133,12 +134,10 @@ function SourceForm({
           value={rootPath}
           onChange={(e) => setRootPath(e.target.value)}
           placeholder="/data/documents"
+          title="Path inside the OneSearch container, not necessarily the host path."
           className="font-mono text-sm"
           required
         />
-        <p className="text-xs text-muted-foreground">
-          Container path to the directory (e.g., /data/nas)
-        </p>
       </div>
 
       <div className="space-y-2">
@@ -148,11 +147,9 @@ function SourceForm({
           value={includePatterns}
           onChange={(e) => setIncludePatterns(e.target.value)}
           placeholder="**/*.pdf, **/*.md, **/*.txt"
+          title="Optional comma-separated glob patterns. Empty means include everything not excluded."
           className="font-mono text-sm"
         />
-        <p className="text-xs text-muted-foreground">
-          Comma-separated glob patterns
-        </p>
       </div>
 
       <div className="space-y-2">
@@ -162,11 +159,9 @@ function SourceForm({
           value={excludePatterns}
           onChange={(e) => setExcludePatterns(e.target.value)}
           placeholder="**/node_modules/**, **/.git/**"
+          title="Optional comma-separated glob patterns to skip."
           className="font-mono text-sm"
         />
-        <p className="text-xs text-muted-foreground">
-          Comma-separated glob patterns
-        </p>
       </div>
 
       <div className="space-y-2">
@@ -174,6 +169,7 @@ function SourceForm({
         <select
           id="scan_schedule"
           value={scheduleMode}
+          title="How often OneSearch automatically checks this source for changed files."
           onChange={(e) => setScheduleMode(e.target.value)}
           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -191,9 +187,6 @@ function SourceForm({
             className="font-mono text-sm"
           />
         )}
-        <p className="text-xs text-muted-foreground">
-          How often to automatically re-scan this source
-        </p>
       </div>
 
       <DialogFooter>
@@ -433,7 +426,7 @@ export default function SourcesPage() {
                             ? "text-brand bg-brand/10"
                             : "text-muted-foreground hover:text-brand hover:bg-brand/10"
                         )}
-                        title="Reindex"
+                        title="Scan this source for new, changed, or removed files."
                         aria-label={`Reindex ${source.name}`}
                         onClick={() => handleReindex(source.id)}
                         disabled={reindexingId === source.id}
@@ -442,7 +435,7 @@ export default function SourcesPage() {
                       </button>
                       <button
                         className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-brand hover:bg-brand/10 rounded-lg transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
-                        title="Full reindex"
+                        title="Clear this source from the index and rebuild every matching file from scratch."
                         aria-label={`Full reindex ${source.name}`}
                         onClick={() => setFullReindexSource(source)}
                         disabled={reindexingId === source.id}
@@ -451,7 +444,7 @@ export default function SourcesPage() {
                       </button>
                       <button
                         className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-all active:scale-95"
-                        title="Edit"
+                        title="Edit this source path, patterns, or scan schedule."
                         aria-label={`Edit ${source.name}`}
                         onClick={() => { updateMutation.reset(); setEditingSource(source) }}
                       >
@@ -459,7 +452,7 @@ export default function SourcesPage() {
                       </button>
                       <button
                         className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all active:scale-95"
-                        title="Delete"
+                        title="Delete this source and remove its indexed documents."
                         aria-label={`Delete ${source.name}`}
                         onClick={() => setDeletingSource(source)}
                       >

@@ -65,6 +65,19 @@ class IndexedFile(Base):
         return f"<IndexedFile(id={self.id}, source={self.source_id}, path={self.path}, status={self.status})>"
 
 
+class AppSetting(Base):
+    """
+    Backend-managed application setting override.
+    """
+    __tablename__ = "app_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False)
+
+    def __repr__(self):
+        return f"<AppSetting(key={self.key})>"
+
+
 class User(Base):
     """
     User authentication table

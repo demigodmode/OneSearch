@@ -5,6 +5,56 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added RTF indexing with readable text extraction.
+- Added EPUB indexing with book metadata and ordered spine text extraction.
+- Added subtitle indexing for SRT, WebVTT, and ASS/SSA files.
+- Added CBZ comic indexing with page counts, naturally sorted page lists, and ComicInfo.xml metadata.
+- Added image indexing for JPG, PNG, WebP, GIF, TIFF, and related browser-viewable image formats.
+- Added RAW photo indexing for CR2, CR3, NEF, ARW, RAF, ORF, RW2, and DNG files.
+- Added optional RAW metadata extraction via exiftool, including camera make/model, lens, ISO, aperture, exposure, focal length, dimensions, and date taken.
+- Added optional media metadata indexing for audio/video files with ffprobe when available.
+- Added metadata-only indexing for unsupported file types so unknown files can still be found by filename, path, source, extension, size, and modified time.
+- Added authenticated image previews on document detail pages.
+- Added RAW embedded JPEG previews, including support for selecting the largest embedded JPEG when RAW files contain multiple thumbnails/previews.
+- Added format-aware document detail views for photos, RAW images, media files, comics, EPUB, RTF, and subtitles.
+- Added photo metadata cards for camera, lens, ISO, aperture, exposure, focal length, date taken, and dimensions.
+- Added media metadata cards for title, artist, album, date, duration, codecs, bitrate, dimensions, frame rate, sample rate, and channels when available.
+- Added comic detail cards and page listings for CBZ files.
+- Added long text preview pagination for large extracted text documents.
+- Added search match highlighting and match navigation in readable document previews.
+- Added Admin Settings controls for Appearance, File Previews, Indexing, and Search.
+- Added configurable preview and extraction limits for image/RAW metadata, media probing, EPUB extraction, CBZ extraction, long text pagination, and readable preview page size.
+- Added settings for unsupported-file behavior, RAW metadata extraction, media metadata extraction, GPS metadata indexing, image previews, RAW previews, and preview size limits.
+- Added native tooltips for search filters, settings controls, source form fields, and source actions.
+- Added rich media document type filters to search.
+
+### Changed
+
+- Search filters now show by default instead of only after typing a query.
+- Search type filtering now includes RTF, EPUB, subtitles, comics, images, RAW images, media, and metadata-only files.
+- Settings are organized into compact Appearance, File Previews, Indexing, and Search sections.
+- GPS metadata remains disabled by default and must be explicitly enabled before photo location metadata is indexed.
+- Optional media and RAW metadata probing now fall back cleanly to metadata-only indexing when tools are unavailable or probing fails.
+- Docker runtime now includes exiftool so container installs can extract RAW metadata in Auto mode.
+- Large or unsupported image/RAW files now fall back to metadata-only indexing instead of failing the whole indexing run.
+- Existing document preview behavior is preserved for text, markdown, code, PDF, and Office documents.
+
+### Fixed
+
+- Fixed RAW previews that used a tiny embedded thumbnail when a larger embedded preview was also available.
+- Fixed RAW metadata coverage for RAW files that Pillow can identify but exiftool can describe more completely.
+- Fixed preview handling for live Meilisearch document objects.
+- Fixed long text pagination for very large single-block or newline-heavy text content.
+- Fixed subtitle parser edge cases around cue blocks, WEBVTT notes/styles, and ASS override text.
+- Fixed RTF unicode escape handling.
+- Fixed EPUB extraction so non-text spine items such as cover images are skipped.
+- Fixed CBZ page sorting so numbered pages sort naturally.
+- Fixed image metadata fallback behavior for oversized, unreadable, or unsupported image files.
+
 ## [0.14.0] - 2026-05-06
 
 ### Added

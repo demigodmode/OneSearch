@@ -93,6 +93,108 @@ Maximum size for Office files (docx, xlsx, pptx).
 - Default: `50`
 - Unit: Megabytes
 
+### Rich Media Defaults
+
+Most rich media behavior can also be changed in Admin → Settings. Environment variables set the defaults used before an app setting is saved.
+
+**UNSUPPORTED_FILE_POLICY**
+
+What to do with unknown file types.
+
+- Default: `metadata_only`
+- Options: `metadata_only`, `skip`
+
+**MEDIA_METADATA_MODE**
+
+Whether audio/video files are probed with `ffprobe` when available.
+
+- Default: `auto`
+- Options: `auto`, `off`
+
+**RAW_METADATA_MODE**
+
+Whether RAW photos are probed with `exiftool` when available.
+
+- Default: `auto`
+- Options: `auto`, `off`
+
+**RAW_METADATA_TIMEOUT_SECONDS**
+
+Timeout for `exiftool` RAW metadata probing.
+
+- Default: `10`
+- Unit: Seconds
+
+**INDEX_GPS_METADATA**
+
+Whether GPS metadata from photos is indexed.
+
+- Default: `false`
+- Options: `true`, `false`
+
+**SHOW_PREVIEWS**
+
+Whether document image previews are enabled.
+
+- Default: `true`
+- Options: `true`, `false`
+
+**RAW_PREVIEW_ENABLED**
+
+Whether OneSearch extracts embedded JPEG previews from RAW photos on demand.
+
+- Default: `true`
+- Options: `true`, `false`
+
+**MAX_PREVIEW_SIZE_MB**
+
+Maximum source file size for image/RAW previews.
+
+- Default: `50`
+- Options: `25`, `50`, `100`
+
+**MEDIA_PROBE_MAX_SIZE_MB**
+
+Maximum media file size for ffprobe metadata extraction. `0` means unlimited; the extraction timeout still applies.
+
+- Default: `0`
+- Unit: Megabytes
+
+**IMAGE_METADATA_MAX_SIZE_MB**
+
+Maximum image/RAW file size for metadata extraction.
+
+- Default: `100`
+- Unit: Megabytes
+
+**EPUB_EXTRACTION_MAX_SIZE_MB**
+
+Maximum EPUB archive size for text extraction.
+
+- Default: `100`
+- Unit: Megabytes
+
+**COMIC_EXTRACTION_MAX_SIZE_MB**
+
+Maximum CBZ archive size for metadata/page-list extraction.
+
+- Default: `100`
+- Unit: Megabytes
+
+**READABLE_PREVIEW_PAGE_CHARS**
+
+Approximate generated page size for long readable previews.
+
+- Default: `6000`
+- Unit: Characters
+
+**LONG_TEXT_PAGINATION_THRESHOLD_CHARS**
+
+Plain text longer than this uses the paginated reader.
+
+- Default: `20000`
+- Unit: Characters
+
 ### Authentication
 
 **SESSION_SECRET**
@@ -184,11 +286,27 @@ LOG_LEVEL=INFO
 MAX_TEXT_FILE_SIZE_MB=10
 MAX_PDF_FILE_SIZE_MB=50
 MAX_OFFICE_FILE_SIZE_MB=50
+IMAGE_METADATA_MAX_SIZE_MB=100
+EPUB_EXTRACTION_MAX_SIZE_MB=100
+COMIC_EXTRACTION_MAX_SIZE_MB=100
+
+# Rich media behavior
+UNSUPPORTED_FILE_POLICY=metadata_only
+MEDIA_METADATA_MODE=auto
+RAW_METADATA_MODE=auto
+INDEX_GPS_METADATA=false
+SHOW_PREVIEWS=true
+RAW_PREVIEW_ENABLED=true
+MAX_PREVIEW_SIZE_MB=50
+MEDIA_PROBE_MAX_SIZE_MB=0
+READABLE_PREVIEW_PAGE_CHARS=6000
+LONG_TEXT_PAGINATION_THRESHOLD_CHARS=20000
 
 # Extraction timeouts (in seconds)
 TEXT_EXTRACTION_TIMEOUT=5
 PDF_EXTRACTION_TIMEOUT=30
 OFFICE_EXTRACTION_TIMEOUT=30
+RAW_METADATA_TIMEOUT_SECONDS=10
 
 # Authentication
 SESSION_SECRET=YourSecureRandomSecretHere

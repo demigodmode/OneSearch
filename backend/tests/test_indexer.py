@@ -15,8 +15,9 @@ import json
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Base, Source, IndexedFile
+from app.models import AppSetting, Base, Source, IndexedFile
 from app.services.indexer import IndexingService, IndexingStats
+from app.extractors import ImageExtractor
 from app.schemas import Document
 
 
@@ -109,6 +110,27 @@ class TestIndexingService:
 
         with pytest.raises(ValueError, match="Source not found"):
             await service.index_source("nonexistent")
+
+    @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_extract_document_passes_raw_metadata_mode_to_image_extractor(self, db_session, mock_search_service, test_directory, monkeypatch):
+        db_session.add(AppSetting(key="raw_metadata_mode", value="off"))
+        db_session.commit()
+        raw_file = test_directory / "photo.NEF"
+        raw_file.write_bytes(b"raw")
+        seen = {}
+        original_extract = ImageExtractor.extract
+
+        def tracking_extract(self, file_path):
+            seen["raw_metadata_mode"] = self.raw_metadata_mode
+            return original_extract(self, file_path)
+
+        monkeypatch.setattr(ImageExtractor, "extract", tracking_extract)
+        service = IndexingService(db_session, mock_search_service)
+
+        await service._extract_document(str(raw_file), "test_source", "Test Source")
+
+        assert seen["raw_metadata_mode"] == "off"
 
     @pytest.mark.asyncio
     async def test_check_needs_indexing_new_file(self, db_session, test_directory):
@@ -269,8 +291,116 @@ class TestIndexingService:
         assert len(status["failed_files"]) == 1
 
     @pytest.mark.asyncio
-    async def test_extract_document_unsupported_type(self, db_session):
-        """Test extracting document with unsupported file type"""
+    async def test_extract_document_unsupported_type_creates_metadata_only_document(self, db_session):
+        """Unsupported files should become metadata-only documents by default."""
+        service = IndexingService(db_session, Mock())
+
+        with TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / "test.unsupported"
+            file_path.write_text("test content")
+
+            doc = await service._extract_document(
+                str(file_path),
+                "test_source",
+                "Test Source"
+            )
+
+            assert doc is not None
+            assert doc.type == "file"
+            assert doc.basename == "test.unsupported"
+            assert doc.extension == "unsupported"
+            assert "test.unsupported" in doc.content
+            assert str(file_path.absolute()) in doc.content
+            assert "Test Source" in doc.content
+            assert doc.metadata["metadata_only"] is True
+            assert doc.metadata["unsupported_extension"] is True
+
+    @pytest.mark.asyncio
+    async def test_extract_document_large_unsupported_file_is_metadata_only(self, db_session):
+        """Large unsupported files should still index metadata without reading content."""
+        service = IndexingService(db_session, Mock())
+
+        with TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / "large-archive.unsupported"
+            with open(file_path, "wb") as f:
+                f.seek((11 * 1024 * 1024) - 1)
+                f.write(b"0")
+
+            doc = await service._extract_document(
+                str(file_path),
+                "test_source",
+                "Test Source"
+            )
+
+            assert doc is not None
+            assert doc.type == "file"
+            assert doc.basename == "large-archive.unsupported"
+            assert doc.size_bytes == 11 * 1024 * 1024
+            assert doc.metadata["metadata_only"] is True
+
+    @pytest.mark.asyncio
+    async def test_extract_document_media_metadata_mode_off_uses_metadata_only(self, db_session, monkeypatch):
+        """Media extractor should receive backend media metadata setting from indexer."""
+        db_session.add(AppSetting(key="media_metadata_mode", value="off"))
+        db_session.commit()
+        service = IndexingService(db_session, Mock())
+        called = False
+
+        def fake_run(*args, **kwargs):
+            nonlocal called
+            called = True
+
+        monkeypatch.setattr("app.extractors.media.subprocess.run", fake_run)
+
+        with TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / "song.mp3"
+            file_path.write_bytes(b"fake media")
+
+            doc = await service._extract_document(
+                str(file_path),
+                "test_source",
+                "Test Source"
+            )
+
+            assert called is False
+            assert doc is not None
+            assert doc.type == "media"
+            assert doc.metadata["metadata_only"] is True
+            assert doc.metadata["media_metadata_mode"] == "off"
+
+    @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_extract_document_applies_epub_and_comic_limits_separately(self, db_session):
+        """EPUB and CBZ extractors should receive separate backend size limits."""
+        db_session.add_all([
+            AppSetting(key="epub_extraction_max_size_mb", value="1"),
+            AppSetting(key="comic_extraction_max_size_mb", value="3"),
+        ])
+        db_session.commit()
+        service = IndexingService(db_session, Mock())
+
+        with TemporaryDirectory() as tmp:
+            epub_path = Path(tmp) / "large.epub"
+            comic_path = Path(tmp) / "large.cbz"
+            for file_path in [epub_path, comic_path]:
+                with file_path.open("wb") as f:
+                    f.seek((2 * 1024 * 1024) - 1)
+                    f.write(b"0")
+
+            with pytest.raises(ValueError, match="File too large"):
+                await service._extract_document(str(epub_path), "test_source", "Test Source")
+
+            comic_doc = await service._extract_document(str(comic_path), "test_source", "Test Source")
+            assert comic_doc is not None
+            assert comic_doc.type == "comic"
+            assert comic_doc.metadata["metadata_only"] is True
+            assert "File is not a zip file" in comic_doc.metadata["extraction_error"]
+
+    @pytest.mark.asyncio
+    async def test_extract_document_unsupported_type_respects_skip_policy(self, db_session):
+        """Unsupported files should still be skipped when the policy is skip."""
+        db_session.add(AppSetting(key="unsupported_file_policy", value="skip"))
+        db_session.commit()
         service = IndexingService(db_session, Mock())
 
         with TemporaryDirectory() as tmp:
@@ -337,6 +467,86 @@ class TestIndexingService:
         mock_search_service.delete_documents_by_filter.assert_not_called()
         remaining = db_session.query(IndexedFile).filter_by(source_id="missing_source").count()
         assert remaining == 1
+
+    @pytest.mark.asyncio
+    @patch('app.services.indexer.FileScanner')
+    async def test_index_source_indexes_unsupported_file_as_metadata_only(
+        self,
+        mock_scanner_class,
+        db_session,
+        mock_search_service,
+        test_directory
+    ):
+        """Full indexing should count metadata-only fallback documents as successful."""
+        unsupported_file = test_directory / "photo.rawish"
+        unsupported_file.write_text("binary-ish test data")
+        mock_scanner = Mock()
+        mock_scanner.scan.return_value = [str(unsupported_file)]
+        mock_scanner_class.return_value = mock_scanner
+        source = Source(
+            id="metadata_source",
+            name="Metadata Source",
+            root_path=str(test_directory),
+            include_patterns=json.dumps(["**/*"]),
+            exclude_patterns=json.dumps([])
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        service = IndexingService(db_session, mock_search_service)
+        stats = await service.index_source("metadata_source")
+
+        assert stats.total_scanned == 1
+        assert stats.successful == 1
+        assert stats.skipped == 0
+        indexed_batch = mock_search_service.index_documents.call_args.args[0]
+        assert indexed_batch[0].type == "file"
+        assert indexed_batch[0].metadata["metadata_only"] is True
+        indexed_file = db_session.query(IndexedFile).filter_by(
+            source_id="metadata_source",
+            path=str(unsupported_file),
+        ).one()
+        assert indexed_file.status == "success"
+
+    @pytest.mark.asyncio
+    @patch('app.services.indexer.FileScanner')
+    async def test_index_source_skips_unsupported_file_when_policy_is_skip(
+        self,
+        mock_scanner_class,
+        db_session,
+        mock_search_service,
+        test_directory
+    ):
+        """Full indexing should keep old skipped behavior when configured."""
+        db_session.add(AppSetting(key="unsupported_file_policy", value="skip"))
+        unsupported_file = test_directory / "photo.rawish"
+        unsupported_file.write_text("binary-ish test data")
+        mock_scanner = Mock()
+        mock_scanner.scan.return_value = [str(unsupported_file)]
+        mock_scanner_class.return_value = mock_scanner
+        source = Source(
+            id="skip_source",
+            name="Skip Source",
+            root_path=str(test_directory),
+            include_patterns=json.dumps(["**/*"]),
+            exclude_patterns=json.dumps([])
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        service = IndexingService(db_session, mock_search_service)
+        stats = await service.index_source("skip_source")
+
+        assert stats.total_scanned == 1
+        assert stats.successful == 0
+        assert stats.skipped == 1
+        mock_search_service.index_documents.assert_not_called()
+        indexed_file = db_session.query(IndexedFile).filter_by(
+            source_id="skip_source",
+            path=str(unsupported_file),
+        ).one()
+        assert indexed_file.status == "skipped"
+        assert indexed_file.error_message == "Unsupported file type"
 
     @pytest.mark.asyncio
     @patch('app.services.indexer.FileScanner')

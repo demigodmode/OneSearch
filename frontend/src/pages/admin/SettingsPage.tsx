@@ -1,15 +1,28 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
+import { useEffect, useRef, useState } from 'react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import { PRESETS, type ThemePreset } from '@/contexts/theme'
 import { useTheme } from '@/contexts/useTheme'
 import type { SearchSettings } from '@/contexts/searchSettings'
 import { useSearchSettings } from '@/contexts/useSearchSettings'
+import { useAppSettings, useUpdateAppSettings } from '@/hooks/useApi'
+import type { AppSettings } from '@/types/api'
 import { cn } from '@/lib/utils'
+
+type SettingsPanel = 'appearance' | 'file-previews' | 'indexing' | 'search'
 
 export default function SettingsPage() {
   const { theme, customHue, setPreset, setCustomHue } = useTheme()
   const { settings, updateSettings } = useSearchSettings()
+  const appSettings = useAppSettings()
+  const updateAppSettings = useUpdateAppSettings()
+  const [openPanel, setOpenPanel] = useState<SettingsPanel | null>(null)
+
+  const togglePanel = (panel: SettingsPanel) => {
+    setOpenPanel((current) => (current === panel ? null : panel))
+  }
 
   return (
     <div className="animate-fade-in">
@@ -18,17 +31,65 @@ export default function SettingsPage() {
         <p className="text-sm text-muted-foreground mt-1">Customize your OneSearch instance</p>
       </div>
 
-      <div className="space-y-6">
-        <AppearanceSection
-          theme={theme}
-          customHue={customHue}
-          onPreset={setPreset}
-          onCustomHue={setCustomHue}
-        />
+      <div className="grid max-w-lg grid-cols-2 gap-3">
+        <SettingsPanelButton label="Appearance" isOpen={openPanel === 'appearance'} onClick={() => togglePanel('appearance')} />
+        <SettingsPanelButton label="File Previews" isOpen={openPanel === 'file-previews'} onClick={() => togglePanel('file-previews')} />
+        <SettingsPanelButton label="Indexing" isOpen={openPanel === 'indexing'} onClick={() => togglePanel('indexing')} />
+        <SettingsPanelButton label="Search" isOpen={openPanel === 'search'} onClick={() => togglePanel('search')} />
+      </div>
 
-        <SearchSection settings={settings} onUpdate={updateSettings} />
+      <div className="mt-6 space-y-6">
+        {openPanel === 'appearance' && (
+          <AppearanceSection
+            theme={theme}
+            customHue={customHue}
+            onPreset={setPreset}
+            onCustomHue={setCustomHue}
+          />
+        )}
+
+        {openPanel === 'file-previews' && (
+          <FilePreviewsSection
+            settings={appSettings.data}
+            isLoading={appSettings.isLoading}
+            error={appSettings.error}
+            isSaving={updateAppSettings.isPending}
+            onUpdate={(partial) => updateAppSettings.mutate(partial)}
+          />
+        )}
+
+        {openPanel === 'indexing' && (
+          <IndexingSection
+            settings={appSettings.data}
+            isLoading={appSettings.isLoading}
+            error={appSettings.error}
+            isSaving={updateAppSettings.isPending}
+            onUpdate={(partial) => updateAppSettings.mutate(partial)}
+          />
+        )}
+
+        {openPanel === 'search' && <SearchSection settings={settings} onUpdate={updateSettings} />}
       </div>
     </div>
+  )
+}
+
+function SettingsPanelButton({ label, isOpen, onClick }: { label: string; isOpen: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={isOpen}
+      title={`${isOpen ? 'Collapse' : 'Open'} ${label} settings`}
+      onClick={onClick}
+      className={cn(
+        'rounded-lg border px-4 py-3 text-left text-sm font-semibold transition-colors',
+        isOpen
+          ? 'border-brand bg-brand text-brand-foreground'
+          : 'border-border bg-card text-foreground hover:border-brand/60 hover:bg-secondary'
+      )}
+    >
+      {label}
+    </button>
   )
 }
 
@@ -86,6 +147,7 @@ function AppearanceSection({ theme, customHue, onPreset, onCustomHue }: Appearan
             min={0}
             max={360}
             value={customHue ?? theme.brandH}
+            title="Adjust the app accent color."
             onChange={(e) => onCustomHue(Number(e.target.value))}
             aria-label="Custom accent hue"
             className="flex-1 h-2 rounded-full cursor-pointer"
@@ -117,7 +179,7 @@ function SegmentedButtons<T extends string | number>({
   onChange,
   ariaLabel,
 }: {
-  options: { value: T; label: string }[]
+  options: { value: T; label: string; title?: string }[]
   value: T
   onChange: (v: T) => void
   ariaLabel: string
@@ -129,6 +191,7 @@ function SegmentedButtons<T extends string | number>({
           key={String(opt.value)}
           role="radio"
           aria-checked={value === opt.value}
+          title={opt.title ?? opt.label}
           onClick={() => onChange(opt.value)}
           className={cn(
             'px-3 py-1.5 text-xs font-medium transition-colors',
@@ -144,16 +207,97 @@ function SegmentedButtons<T extends string | number>({
   )
 }
 
-function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+function NumberSetting({
+  label,
+  value,
+  onChange,
+  description,
+  min = 0,
+}: {
+  label: string
+  value: number
+  onChange: (v: number) => void
+  description?: string
+  min?: number
+}) {
+  const [draft, setDraft] = useState(String(value))
+  const skipNextBlurCommit = useRef(false)
+
+  useEffect(() => {
+    setDraft(String(value))
+  }, [value])
+
+  const commit = () => {
+    if (skipNextBlurCommit.current) {
+      skipNextBlurCommit.current = false
+      return
+    }
+    if (draft.trim() === '') {
+      setDraft(String(value))
+      return
+    }
+    const parsed = Number(draft)
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < min) {
+      setDraft(String(value))
+      return
+    }
+    if (parsed !== value) onChange(parsed)
+  }
+
   return (
-    <label className="flex items-center justify-between gap-3 cursor-pointer">
-      <span className="text-sm text-foreground">{label}</span>
+    <label className="block">
+      <span className="block text-xs text-muted-foreground mb-2">{label}</span>
+      <input
+        type="number"
+        min={min}
+        step={1}
+        value={draft}
+        title={description ?? label}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Escape') {
+            skipNextBlurCommit.current = true
+            setDraft(String(value))
+            e.currentTarget.blur()
+          }
+        }}
+        className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+      />
+    </label>
+  )
+}
+
+function Toggle({
+  checked,
+  onChange,
+  label,
+  description,
+  disabled = false,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+  label: string
+  description?: string
+  disabled?: boolean
+}) {
+  return (
+    <label
+      title={description ?? label}
+      className={cn('flex items-start justify-between gap-3', disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer')}
+    >
+      <span>
+        <span className="block text-sm text-foreground">{label}</span>
+      </span>
       <button
+        type="button"
         role="switch"
         aria-checked={checked}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          'relative w-9 h-5 rounded-full transition-colors',
+          'relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5 disabled:cursor-not-allowed',
           checked ? 'bg-brand' : 'bg-secondary'
         )}
       >
@@ -171,6 +315,191 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 interface SearchSectionProps {
   settings: SearchSettings
   onUpdate: (partial: Partial<SearchSettings>) => void
+}
+
+interface AppSettingsSectionProps {
+  settings?: AppSettings
+  isLoading: boolean
+  error: unknown
+  isSaving: boolean
+  onUpdate: (partial: Partial<AppSettings>) => void
+}
+
+function SettingsLoadingState({ isLoading, error, message }: { isLoading: boolean; error: unknown; message: string }) {
+  return (
+    <>
+      {isLoading && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading settings...
+        </div>
+      )}
+
+      {Boolean(error) && (
+        <div className="flex items-start gap-2 text-sm text-destructive">
+          <AlertCircle className="h-4 w-4 mt-0.5" />
+          <span>{message}</span>
+        </div>
+      )}
+    </>
+  )
+}
+
+function IndexingSection({ settings, isLoading, error, isSaving, onUpdate }: AppSettingsSectionProps) {
+  return (
+    <section className="bg-card border border-border rounded-lg p-6 max-w-lg">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">Indexing</h2>
+        {isSaving && <Loader2 className="h-4 w-4 text-brand animate-spin" />}
+      </div>
+
+      <SettingsLoadingState isLoading={isLoading} error={error} message="Unable to load indexing settings." />
+
+      {settings && (
+        <div className="space-y-5">
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Unsupported files</p>
+            <select
+              value={settings.unsupported_file_policy}
+              title="Choose whether unknown file types are skipped or indexed by filename/path metadata."
+              onChange={(e) => onUpdate({ unsupported_file_policy: e.target.value as AppSettings['unsupported_file_policy'] })}
+              className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
+            >
+              <option value="metadata_only">Index filename/path only</option>
+              <option value="skip">Skip unsupported files</option>
+            </select>
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Media metadata extraction</p>
+            <SegmentedButtons
+              options={[
+                { value: 'auto' as const, label: 'Auto', title: 'Use ffprobe when available and fall back if probing fails.' },
+                { value: 'off' as const, label: 'Off', title: 'Do not probe audio/video files for embedded metadata.' },
+              ]}
+              value={settings.media_metadata_mode}
+              onChange={(v) => onUpdate({ media_metadata_mode: v })}
+              ariaLabel="Media metadata extraction"
+            />
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">RAW metadata extraction</p>
+            <SegmentedButtons
+              options={[
+                { value: 'auto' as const, label: 'Auto', title: 'Use exiftool when available to extract searchable RAW camera metadata.' },
+                { value: 'off' as const, label: 'Off', title: 'Skip optional RAW metadata probing and index RAW files with basic file metadata only.' },
+              ]}
+              value={settings.raw_metadata_mode}
+              onChange={(v) => onUpdate({ raw_metadata_mode: v })}
+              ariaLabel="RAW metadata extraction"
+            />
+          </div>
+
+          <Toggle
+            label="Index GPS metadata"
+            description="Off by default because photo GPS metadata can reveal precise location."
+            checked={settings.index_gps_metadata}
+            onChange={(v) => onUpdate({ index_gps_metadata: v })}
+          />
+
+          <div className="grid grid-cols-1 gap-4 border-t border-border pt-5">
+            <NumberSetting
+              label="Max media metadata probe size (MB)"
+              value={settings.media_probe_max_size_mb}
+              min={0}
+              onChange={(v) => onUpdate({ media_probe_max_size_mb: v })}
+              description="0 means unlimited; ffprobe still has a timeout and falls back cleanly."
+            />
+            <NumberSetting
+              label="Max image/RAW metadata size (MB)"
+              value={settings.image_metadata_max_size_mb}
+              min={1}
+              onChange={(v) => onUpdate({ image_metadata_max_size_mb: v })}
+              description="Oversized images still index filename/path metadata."
+            />
+            <NumberSetting
+              label="Max EPUB extraction size (MB)"
+              value={settings.epub_extraction_max_size_mb}
+              min={1}
+              onChange={(v) => onUpdate({ epub_extraction_max_size_mb: v })}
+              description="Oversized ebooks are skipped before archive extraction."
+            />
+            <NumberSetting
+              label="Max CBZ comic extraction size (MB)"
+              value={settings.comic_extraction_max_size_mb}
+              min={1}
+              onChange={(v) => onUpdate({ comic_extraction_max_size_mb: v })}
+              description="Oversized comics are skipped before archive extraction."
+            />
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function FilePreviewsSection({ settings, isLoading, error, isSaving, onUpdate }: AppSettingsSectionProps) {
+  return (
+    <section className="bg-card border border-border rounded-lg p-6 max-w-lg">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">File Previews</h2>
+        {isSaving && <Loader2 className="h-4 w-4 text-brand animate-spin" />}
+      </div>
+
+      <SettingsLoadingState isLoading={isLoading} error={error} message="Unable to load preview settings." />
+
+      {settings && (
+        <div className="space-y-5">
+          <div className="space-y-3">
+            <Toggle
+              label="Show previews"
+              checked={settings.show_previews}
+              onChange={(v) => onUpdate({ show_previews: v })}
+            />
+            <Toggle
+              label="RAW embedded previews"
+              description="Extract embedded JPEG previews from RAW photos on demand."
+              checked={settings.raw_preview_enabled}
+              disabled={!settings.show_previews}
+              onChange={(v) => onUpdate({ raw_preview_enabled: v })}
+            />
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Max preview file size</p>
+            <SegmentedButtons
+              options={[
+                { value: 25 as const, label: '25 MB', title: 'Only serve previews for files up to 25 MB.' },
+                { value: 50 as const, label: '50 MB', title: 'Only serve previews for files up to 50 MB.' },
+                { value: 100 as const, label: '100 MB', title: 'Only serve previews for files up to 100 MB.' },
+              ]}
+              value={settings.max_preview_size_mb}
+              onChange={(v) => onUpdate({ max_preview_size_mb: v })}
+              ariaLabel="Max preview file size"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 border-t border-border pt-5">
+            <NumberSetting
+              label="Readable preview page size (characters)"
+              value={settings.readable_preview_page_chars}
+              min={1000}
+              onChange={(v) => onUpdate({ readable_preview_page_chars: v })}
+              description="Controls generated page length in document detail previews."
+            />
+            <NumberSetting
+              label="Long text pagination threshold (characters)"
+              value={settings.long_text_pagination_threshold_chars}
+              min={1000}
+              onChange={(v) => onUpdate({ long_text_pagination_threshold_chars: v })}
+              description="Plain text longer than this uses the paginated reader."
+            />
+          </div>
+        </div>
+      )}
+    </section>
+  )
 }
 
 function SearchSection({ settings, onUpdate }: SearchSectionProps) {
@@ -203,6 +532,7 @@ function SearchSection({ settings, onUpdate }: SearchSectionProps) {
           <p className="text-xs text-muted-foreground mb-2">Default sort</p>
           <select
             value={settings.sortOrder}
+            title="Default ordering used for search results."
             onChange={(e) => onUpdate({ sortOrder: e.target.value as SearchSettings['sortOrder'] })}
             className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
           >
