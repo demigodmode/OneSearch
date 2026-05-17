@@ -65,7 +65,7 @@ jobs:
           MEILI_URL: http://127.0.0.1:7700
           MEILI_MASTER_KEY: test-master-key
         run: |
-          uv run pytest backend/tests/ -v --tb=short --color=yes --cov=app --cov-report=xml
+          uv run pytest backend/tests/ -v --tb=short --color=yes --cov=app
 
       - name: Run CLI tests
         run: |
@@ -81,9 +81,3 @@ jobs:
           name: onesearch-cli-dist
           path: cli/dist/*
 
-      - name: Upload coverage to Codecov
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: codecov/codecov-action@v5
-        with:
-          files: coverage.xml
-          fail_ci_if_error: false
