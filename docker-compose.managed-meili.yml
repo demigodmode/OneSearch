@@ -1,25 +1,31 @@
 services:
-  # OneSearch with managed Meilisearch inside the app container.
-  # Experimental/opt-in while bundled search backend support is validated.
+  # Compatibility copy of the managed Meilisearch compose file.
+  # Managed mode is now the default in docker-compose.yml; this file is kept
+  # for users who already followed the v0.13-v0.15 managed-mode docs.
+  # New installs should use docker-compose.yml.
   onesearch:
     build:
       context: .
       dockerfile: Dockerfile
 
-    # For a released image, replace build with:
+    # For production, use the pre-built image instead:
     # image: ghcr.io/demigodmode/onesearch:latest
 
     container_name: onesearch-app
     volumes:
-      # Persistent SQLite database
+      # Persistent data (SQLite database)
       - onesearch_data:/app/data
 
       # Persistent managed Meilisearch index data
       - onesearch_index:/app/meili_data
 
       # Example source mounts (uncomment and modify as needed)
+      # Add your local directories or NAS mounts here
+      # Format: /host/path:/container/path:ro (ro = read-only)
+
       # - /mnt/nas/documents:/data/nas_docs:ro
       # - /home/user/Documents:/data/documents:ro
+      # - /path/to/photos:/data/photos:ro
 
     environment:
       - ONESEARCH_MANAGED_MEILI=true
@@ -38,7 +44,10 @@ services:
       start_period: 30s
 
 volumes:
+  # OneSearch database and application data
   onesearch_data:
     driver: local
+
+  # Managed Meilisearch index data
   onesearch_index:
     driver: local
