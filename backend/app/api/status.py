@@ -52,13 +52,13 @@ async def get_status(db: Session = Depends(get_db), current_user: User = Depends
         try:
             source_status = indexing_service.get_source_status(source.id)
             status_list.append(source_status)
-        except Exception as e:
-            logger.error(f"Failed to get status for source {source.id}: {e}")
-            # Return partial status even if one fails
+        except Exception:
+            logger.exception("Failed to get status for source %s", source.id)
+            # Return partial status even if one fails, without exposing internals.
             status_list.append({
                 "source_id": source.id,
                 "source_name": source.name,
-                "error": str(e),
+                "error": "Status unavailable",
             })
 
     return {"sources": status_list}

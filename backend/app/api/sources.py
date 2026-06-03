@@ -33,24 +33,25 @@ router = APIRouter(prefix="/api/sources", tags=["sources"])
 
 def validate_root_path(root_path: Path) -> Path:
     """Validate that root_path exists, is a directory, and is within allowed paths."""
-    if not root_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Root path does not exist: {root_path}"
-        )
-    if not root_path.is_dir():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Root path is not a directory: {root_path}"
-        )
-
-    resolved = root_path.resolve()
-    allowed = [Path(p.strip()).resolve() for p in settings.allowed_source_paths.split(",") if p.strip()]
+    resolved = root_path.expanduser().resolve(strict=False)
+    allowed = [Path(p.strip()).expanduser().resolve(strict=False) for p in settings.allowed_source_paths.split(",") if p.strip()]
     if allowed and not any(resolved == a or a in resolved.parents for a in allowed):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Root path is outside allowed directories ({settings.allowed_source_paths})"
+            detail="Root path is outside allowed directories"
         )
+
+    if not resolved.exists():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Root path does not exist"
+        )
+    if not resolved.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Root path is not a directory"
+        )
+
     return resolved
 
 
