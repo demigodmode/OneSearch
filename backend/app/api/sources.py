@@ -8,6 +8,7 @@ Provides CRUD operations for search sources
 import hashlib
 import json
 import logging
+import os
 from typing import List
 from datetime import datetime, timezone
 
@@ -31,11 +32,31 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
 
+def _configured_allowed_paths() -> list[Path]:
+    return [Path(p.strip()).expanduser() for p in settings.allowed_source_paths.split(",") if p.strip()]
+
+
+def _is_within_path(path: Path, parent: Path) -> bool:
+    try:
+        path_abs = os.path.abspath(os.path.expanduser(os.fspath(path)))
+        parent_abs = os.path.abspath(os.path.expanduser(os.fspath(parent)))
+        return os.path.commonpath([path_abs, parent_abs]) == parent_abs
+    except (OSError, ValueError):
+        return False
+
+
 def validate_root_path(root_path: Path) -> Path:
     """Validate that root_path exists, is a directory, and is within allowed paths."""
+    allowed = _configured_allowed_paths()
+    if allowed and not any(_is_within_path(root_path, allowed_path) for allowed_path in allowed):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Root path is outside allowed directories"
+        )
+
     resolved = root_path.expanduser().resolve(strict=False)
-    allowed = [Path(p.strip()).expanduser().resolve(strict=False) for p in settings.allowed_source_paths.split(",") if p.strip()]
-    if allowed and not any(resolved == a or a in resolved.parents for a in allowed):
+    allowed_resolved = [allowed_path.resolve(strict=False) for allowed_path in allowed]
+    if allowed_resolved and not any(resolved == a or a in resolved.parents for a in allowed_resolved):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Root path is outside allowed directories"
