@@ -5,6 +5,22 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2026-06-03
+
+### Security
+
+- Updated `idna` to address CVE-2026-45409 / GHSA-65pc-fj4g-8rjx.
+- Hardened source path validation so paths outside configured allowed roots are rejected before filesystem existence/type checks.
+- Added canonical path validation for source roots to guard against symlink escapes from allowed directories.
+- Replaced raw internal exception details in status and Meilisearch health fallbacks with generic client-facing messages while preserving server-side logging.
+
+### Changed
+
+- Removed unused Codecov upload from backend CI while keeping local coverage output in test logs.
+- Updated documentation and GitHub Actions maintenance dependencies.
+
+---
+
 ## [0.15.0] - 2026-05-16
 
 ### Added
@@ -529,6 +545,7 @@ Milestone 1 complete. All core features are in — search, indexing, auth, sched
 
 ---
 
+[0.15.1]: https://github.com/demigodmode/OneSearch/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/demigodmode/OneSearch/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/demigodmode/OneSearch/compare/v0.13.2...v0.14.0
 [0.13.2]: https://github.com/demigodmode/OneSearch/compare/v0.13.1...v0.13.2
