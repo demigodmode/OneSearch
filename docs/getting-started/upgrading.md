@@ -49,25 +49,25 @@ docker run -d \
   --name watchtower \
   -v /var/run/docker.sock:/var/run/docker.sock \
   containrrr/watchtower \
-  onesearch-app onesearch-meilisearch \
+  onesearch-app \
   --schedule "0 0 4 * * *"  # Daily at 4 AM
 ```
 
 You can pin to specific tags if you want more control:
 - `latest` - Always get the newest release
-- `0.7` - Stay on the 0.7.x line (minor/patch updates only)
-- `0.7.2` - Pin to a specific version (no auto-updates)
+- `1` - Stay on the 1.x line
+- `1.0` - Stay on the 1.0.x line
+- `1.0.0` - Pin to a specific version (no auto-updates)
 
 ---
 
-## Managed Meilisearch mode
+## v1.0.0: managed Meilisearch is the default setup
 
-Managed Meilisearch is opt-in. Upgrading does not change existing two-container installs; if your compose file has a separate `meilisearch` service, it will keep working that way.
+New installs use a single OneSearch container with managed Meilisearch. Existing two-container installs keep working; do not overwrite your existing compose file unless you intend to migrate.
 
-If you switch to `docker-compose.managed-meili.yml`, OneSearch runs Meilisearch inside the app container and points the backend at `http://127.0.0.1:7700`. Keep these volumes around:
+If you want to migrate, back up your compose/env files, keep the OneSearch data volume mounted at `/app/data`, add the managed index volume at `/app/meili_data`, and run a full reindex for each source after startup.
 
-- `/app/data` for the SQLite database
-- `/app/meili_data` for the bundled Meilisearch index
+If you want to stay on the two-container setup, use `docker-compose.legacy.yml`. That mode is still supported for existing installs and advanced deployments, but you manage Meilisearch version compatibility yourself.
 
 The search index is derived from your configured sources, so it can be rebuilt if needed. The source files and OneSearch database are the important data to preserve. For the step-by-step flow, see [Migrating to managed Meilisearch](migrate-to-managed-meilisearch.md).
 

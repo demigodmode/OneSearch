@@ -34,9 +34,9 @@ curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/.env.exampl
 cp .env.example .env
 ```
 
-### Generate a Meilisearch master key
+### Generate a search master key
 
-You need a secure random key to protect your Meilisearch instance:
+You need a secure random key to protect the managed Meilisearch search API:
 
 **Linux/macOS:**
 ```bash
@@ -107,7 +107,7 @@ Check that services started:
 docker-compose ps
 ```
 
-You should see `onesearch` and `meilisearch` running.
+You should see `onesearch` running. The managed Meilisearch process runs inside that container.
 
 Check logs if something looks wrong:
 
@@ -119,25 +119,23 @@ docker-compose logs -f onesearch
 
 Open http://localhost:8000 in your browser. You should see the OneSearch search page.
 
-### Optional: managed Meilisearch mode
+### Advanced: legacy external Meilisearch mode
 
-The default compose file runs Meilisearch as a separate container. That is still the recommended path for most installs.
+The default compose file runs managed Meilisearch inside the OneSearch container. External Meilisearch is still supported for existing installs, Kubernetes-style deployments, or users who want to manage the search engine separately.
 
-There is also an opt-in managed mode where OneSearch starts Meilisearch inside the app container. It's useful if you want a single app container and don't want to manage a separate Meilisearch service. Existing installs do not need to switch.
-
-To try it, download the managed compose file instead:
+To use the old two-container setup, download the legacy compose file:
 
 ```bash
-curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/docker-compose.managed-meili.yml
+curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/docker-compose.legacy.yml
 ```
 
 Then start with:
 
 ```bash
-docker-compose -f docker-compose.managed-meili.yml up -d
+docker-compose -f docker-compose.legacy.yml up -d
 ```
 
-Managed mode still needs `MEILI_MASTER_KEY` in `.env`. It stores the SQLite database in `/app/data` and the bundled Meilisearch index in `/app/meili_data`, so keep both volumes if you want data to survive restarts. If you're switching an existing install, read [Migrating to managed Meilisearch](migrate-to-managed-meilisearch.md) first.
+External-mode users manage the Meilisearch version and index compatibility themselves. If you're switching an existing two-container install to the default managed setup, read [Migrating to managed Meilisearch](migrate-to-managed-meilisearch.md) first and plan to run a full reindex.
 
 ---
 
