@@ -5,6 +5,19 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added `docker-compose.legacy.yml` for existing and advanced installs that want to keep Meilisearch as a separate service.
+
+### Changed
+
+- Managed Meilisearch is now the default Docker deployment. New installs use a single OneSearch container with the search engine managed internally.
+- The default `docker-compose.yml` now stores the bundled Meilisearch index in `onesearch_index:/app/meili_data`.
+- The legacy external Meilisearch compose setup remains supported, but is no longer the recommended new-install path.
+- Installation, upgrade, and migration docs now distinguish new managed installs from existing two-container installs.
+
 ## [0.15.1] - 2026-06-03
 
 ### Security

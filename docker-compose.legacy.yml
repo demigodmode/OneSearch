@@ -1,5 +1,24 @@
 services:
-  # OneSearch - Unified application with managed Meilisearch
+  # Meilisearch - Fast search engine
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    container_name: onesearch-meilisearch
+    volumes:
+      - meilisearch_data:/meili_data
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - MEILI_ENV=production
+    networks:
+      - onesearch_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--spider", "http://127.0.0.1:7700/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # OneSearch - Unified application (frontend + backend + CLI)
   onesearch:
     # For local development, build from source:
     build:
@@ -14,9 +33,6 @@ services:
       # Persistent data (SQLite database)
       - onesearch_data:/app/data
 
-      # Persistent managed Meilisearch index data
-      - onesearch_index:/app/meili_data
-
       # Example source mounts (uncomment and modify as needed)
       # Add your local directories or NAS mounts here
       # Format: /host/path:/container/path:ro (ro = read-only)
@@ -26,13 +42,18 @@ services:
       # - /path/to/photos:/data/photos:ro
 
     environment:
-      - ONESEARCH_MANAGED_MEILI=true
+      - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       - SESSION_SECRET=${SESSION_SECRET}
       - DATABASE_URL=sqlite:////app/data/onesearch.db
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
       - "8000:8000"
+    depends_on:
+      meilisearch:
+        condition: service_healthy
+    networks:
+      - onesearch_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/health"]
@@ -42,10 +63,14 @@ services:
       start_period: 30s
 
 volumes:
+  # Meilisearch index data
+  meilisearch_data:
+    driver: local
+
   # OneSearch database and application data
   onesearch_data:
     driver: local
 
-  # Managed Meilisearch index data
-  onesearch_index:
-    driver: local
+networks:
+  onesearch_network:
+    driver: bridge

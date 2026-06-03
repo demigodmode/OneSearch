@@ -1,8 +1,8 @@
 # Migrating to managed Meilisearch
 
-Managed Meilisearch runs the search engine inside the OneSearch app container. The regular two-container setup still works, so there is no rush to switch existing installs.
+Managed Meilisearch runs the search engine inside the OneSearch app container and is the default for new OneSearch installs. The older two-container setup still works, so there is no rush to switch existing installs.
 
-Use this guide if you want to try the managed mode introduced in v0.13.
+Use this guide if you already run the older two-container setup and want to migrate to the single-container managed setup. If your existing install is working and you want to keep Meilisearch separate, use `docker-compose.legacy.yml`.
 
 ## Before you start
 
@@ -24,7 +24,7 @@ docker-compose down
 Back up the compose/env files:
 
 ```bash
-cp docker-compose.yml docker-compose.external-meili.backup.yml
+cp docker-compose.yml docker-compose.legacy.backup.yml
 cp .env .env.backup
 ```
 
@@ -48,13 +48,13 @@ docker run --rm \
 
 You can also back up the old Meilisearch volume if you want to keep it around, but managed mode does not reuse the external container's `/meili_data` volume directly.
 
-## 2. Download the managed compose file
+## 2. Download the current compose file
 
 ```bash
-curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/docker-compose.managed-meili.yml
+curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/docker-compose.yml
 ```
 
-If you are running from a git checkout, the file is already in the repo.
+If you are running from a git checkout, the file is already in the repo. In v1.0 and later, `docker-compose.yml` is the managed Meilisearch setup.
 
 ## 3. Check `.env`
 
@@ -78,7 +78,7 @@ volumes:
   - /mnt/nas/documents:/data/documents:ro
 ```
 
-copy the source mounts into the `onesearch` service in `docker-compose.managed-meili.yml`:
+copy the source mounts into the `onesearch` service in the new `docker-compose.yml`:
 
 ```yaml
 volumes:
@@ -92,19 +92,19 @@ Keep source mounts read-only unless you have a specific reason not to.
 ## 5. Start managed mode
 
 ```bash
-docker-compose -f docker-compose.managed-meili.yml up -d
+docker-compose up -d
 ```
 
 Check the container status:
 
 ```bash
-docker-compose -f docker-compose.managed-meili.yml ps
+docker-compose ps
 ```
 
 Follow logs during the first start:
 
 ```bash
-docker-compose -f docker-compose.managed-meili.yml logs -f onesearch
+docker-compose logs -f onesearch
 ```
 
 You should see OneSearch start, then managed Meilisearch become ready.
@@ -153,13 +153,13 @@ Large source trees may take a while to rebuild. Your original files are not modi
 If managed mode does not work for your setup:
 
 ```bash
-docker-compose -f docker-compose.managed-meili.yml down
+docker-compose down
 ```
 
 Start the previous two-container setup again:
 
 ```bash
-docker-compose -f docker-compose.external-meili.backup.yml up -d
+docker-compose -f docker-compose.legacy.backup.yml up -d
 ```
 
 If you did not change your old Meilisearch volume, the external setup should come back with the old index data.
