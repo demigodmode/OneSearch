@@ -94,12 +94,12 @@ class TestHealthCheck:
         assert "error" in result
 
     def test_health_check_error(self, connected_service):
-        connected_service.client.health.side_effect = Exception("timeout")
+        connected_service.client.health.side_effect = Exception("timeout /srv/private/token.txt")
 
         result = connected_service.health_check()
 
         assert result["status"] == "error"
-        assert "timeout" in result["error"]
+        assert result["error"] == "Meilisearch health check failed"
 
     def test_health_check_dict_response(self, connected_service):
         """Handle Meilisearch returning dicts instead of objects"""

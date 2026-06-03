@@ -267,6 +267,25 @@ class TestSourceEndpoints:
         assert response.status_code == 400
         assert "does not exist" in response.json()["detail"].lower()
 
+    def test_create_source_checks_allowed_paths_before_stat(self, client, tmp_path, monkeypatch):
+        """Outside allowed roots should not disclose whether the path exists or is a file."""
+        allowed_dir = tmp_path / "allowed"
+        allowed_dir.mkdir()
+        outside_file = tmp_path / "outside-secret.txt"
+        outside_file.write_text("secret")
+        monkeypatch.setattr("app.api.sources.settings.allowed_source_paths", str(allowed_dir))
+
+        response = client.post("/api/sources", json={
+            "name": "Outside Source",
+            "root_path": str(outside_file),
+        })
+
+        assert response.status_code == 400
+        detail = response.json()["detail"].lower()
+        assert "outside allowed" in detail
+        assert "not a directory" not in detail
+        assert "does not exist" not in detail
+
     def test_create_source_path_is_file(self, client, temp_source_dir):
         """Test creating source with file path (not directory) fails"""
         file_path = str(Path(temp_source_dir) / "test1.txt")
@@ -730,6 +749,23 @@ class TestStatusEndpoint:
         assert "sources" in data
         assert len(data["sources"]) == 1
         assert data["sources"][0]["source_id"] == sample_source.id
+
+    def test_get_all_status_does_not_expose_internal_exception(self, client, sample_source, monkeypatch):
+        """Partial status fallback should not return raw exception details."""
+        class FailingIndexingService:
+            def __init__(self, db, search_service):
+                pass
+
+            def get_source_status(self, source_id):
+                raise RuntimeError("traceback leaked /srv/private/token.txt")
+
+        monkeypatch.setattr("app.api.status.IndexingService", FailingIndexingService)
+
+        response = client.get("/api/status")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["sources"][0]["error"] == "Status unavailable"
 
     def test_get_source_status_success(self, client, sample_source):
         """Test getting status for specific source"""

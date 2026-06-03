@@ -131,8 +131,9 @@ class MeilisearchService:
                 "is_indexing": is_indexing,
             }
 
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+        except Exception:
+            logger.exception("Meilisearch health check failed")
+            return {"status": "error", "error": "Meilisearch health check failed"}
 
     async def index_documents(self, documents: List[Any]) -> Dict[str, Any]:
         """
