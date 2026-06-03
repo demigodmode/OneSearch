@@ -54,8 +54,8 @@ def validate_root_path(root_path: Path) -> Path:
             detail="Root path is outside allowed directories"
         )
 
-    resolved = root_path.expanduser().resolve(strict=False)
-    allowed_resolved = [allowed_path.resolve(strict=False) for allowed_path in allowed]
+    resolved = Path(os.path.realpath(os.path.expanduser(os.fspath(root_path))))
+    allowed_resolved = [Path(os.path.realpath(os.path.expanduser(os.fspath(allowed_path)))) for allowed_path in allowed]
     if allowed_resolved and not any(resolved == a or a in resolved.parents for a in allowed_resolved):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
