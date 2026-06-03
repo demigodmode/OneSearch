@@ -8,7 +8,7 @@ OneSearch is configured through environment variables, typically set in a `.env`
 
 **Required**
 
-The master key for your Meilisearch instance. This protects the search API.
+The master key for the managed or external Meilisearch instance. This protects the search API.
 
 Generate a secure key:
 
@@ -44,14 +44,23 @@ The database stores source configurations and file metadata for incremental inde
 
 ### Meilisearch
 
+**ONESEARCH_MANAGED_MEILI**
+
+Whether OneSearch starts the bundled Meilisearch process inside the app container.
+
+- Default Docker quickstart: `true`
+- Options: `true`, `false`
+
+For the default Docker install, leave `ONESEARCH_MANAGED_MEILI=true` and do not set `MEILI_URL`. OneSearch starts Meilisearch on `127.0.0.1:7700` and points the backend at it internally.
+
 **MEILI_URL**
 
-Meilisearch endpoint.
+Meilisearch endpoint for external Meilisearch mode.
 
-- Default: `http://meilisearch:7700`
-- Example: `http://meilisearch:7700`
+- Required only when `ONESEARCH_MANAGED_MEILI=false`
+- Legacy compose example: `http://meilisearch:7700`
 
-In Docker Compose, use the container name (`meilisearch`). If running Meilisearch separately, use the full URL.
+If you use `docker-compose.legacy.yml`, set `MEILI_URL=http://meilisearch:7700` or point it at your own Meilisearch instance. External-mode users manage Meilisearch version compatibility themselves.
 
 ### Logging
 
@@ -279,7 +288,8 @@ MEILI_MASTER_KEY=YourSecureRandomKeyHere123456789
 
 # Optional - these show the defaults
 DATABASE_URL=sqlite:////app/data/onesearch.db
-MEILI_URL=http://meilisearch:7700
+ONESEARCH_MANAGED_MEILI=true
+# MEILI_URL=http://meilisearch:7700  # Only for docker-compose.legacy.yml or another external Meilisearch instance
 LOG_LEVEL=INFO
 
 # File size limits (in MB)
@@ -396,7 +406,7 @@ If you have powerful hardware:
 
 ### Meilisearch connection failed
 
-Check that `MEILI_MASTER_KEY` matches in both the OneSearch and Meilisearch containers. Both need the same key.
+For the default managed install, check that `ONESEARCH_MANAGED_MEILI=true` and `MEILI_MASTER_KEY` is set. For `docker-compose.legacy.yml` or another external Meilisearch instance, check that `MEILI_URL` points to the external service and that both containers use the same `MEILI_MASTER_KEY`.
 
 ### Files being skipped
 
