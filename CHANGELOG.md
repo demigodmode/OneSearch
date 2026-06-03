@@ -5,7 +5,7 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-06-03
 
 ### Added
 
@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The default `docker-compose.yml` now stores the bundled Meilisearch index in `onesearch_index:/app/meili_data`.
 - The legacy external Meilisearch compose setup remains supported, but is no longer the recommended new-install path.
 - Installation, upgrade, and migration docs now distinguish new managed installs from existing two-container installs.
+
+---
 
 ## [0.15.1] - 2026-06-03
 
@@ -558,6 +560,7 @@ Milestone 1 complete. All core features are in — search, indexing, auth, sched
 
 ---
 
+[1.0.0]: https://github.com/demigodmode/OneSearch/compare/v0.15.1...v1.0.0
 [0.15.1]: https://github.com/demigodmode/OneSearch/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/demigodmode/OneSearch/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/demigodmode/OneSearch/compare/v0.13.2...v0.14.0
