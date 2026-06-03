@@ -65,17 +65,21 @@ Incremental indexing so only changed files get reindexed. Per-source cron schedu
 
 ## Screenshots
 
-Document preview with metadata and syntax highlighting:
+Search across mounted folders and mixed file types:
+
+![Search results](assets/screenshots/search_results.png)
+
+Preview extracted text with highlighted matches:
 
 ![Document preview](assets/screenshots/document_preview.png)
 
-Admin panel - indexing status across all sources:
+Search image and RAW photo metadata:
+
+![Photo metadata](assets/screenshots/photo_metadata.png)
+
+Track source health and indexing status:
 
 ![Admin status](assets/screenshots/admin_status.png)
-
-Accent color theming - pick what feels like yours:
-
-![Admin settings](assets/screenshots/admin_settings.png)
 
 ---
 
