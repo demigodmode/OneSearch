@@ -10,6 +10,7 @@ Manage search sources via API. All endpoints require authentication.
 - `PUT /api/sources/{id}` - Update source
 - `DELETE /api/sources/{id}` - Delete source
 - `POST /api/sources/{id}/reindex` - Trigger reindex
+- `POST /api/sources/{id}/clear-stale` - Remove stale failed-file entries
 
 ## Source Fields
 
@@ -44,6 +45,23 @@ The CLI and web UI accept comma-separated pattern text. The API takes arrays.
 `POST /api/sources/{id}/reindex` triggers an immediate reindex. Add `?full=true` for a full reindex instead of incremental.
 
 Returns `409 Conflict` if the source is already being indexed (either by a manual trigger or a scheduled run).
+
+## Clear stale failed files
+
+`POST /api/sources/{id}/clear-stale` removes failed entries for files that no longer exist on disk. This is useful after moving or deleting files that were already listed as failures.
+
+```bash
+curl -X POST http://localhost:8000/api/sources/documents/clear-stale \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Response:
+
+```json
+{
+  "cleared": 3
+}
+```
 
 See [API Overview](index.md#quick-examples) for examples.
 
