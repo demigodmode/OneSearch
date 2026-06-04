@@ -40,7 +40,7 @@ Uses standard IANA timezone names.
 
 ## How It Works
 
-OneSearch uses APScheduler running in a background thread. Jobs are persisted in the database, so schedules survive restarts. When a scheduled job fires, it runs the same incremental indexing as a manual reindex. Only changed files get processed.
+OneSearch uses APScheduler running in a background thread. The schedule is saved on the source record, and scheduler jobs are rebuilt from those source records on startup. When a scheduled job fires, it runs the same incremental indexing as a manual reindex. Only changed files get processed.
 
 If a source is already being indexed (from a manual trigger or another schedule run), the new run is skipped to avoid conflicts. You'll see a 409 response if you try to manually reindex while a scheduled run is in progress.
 

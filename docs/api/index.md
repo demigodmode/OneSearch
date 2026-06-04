@@ -34,13 +34,13 @@ http://localhost:8000/redoc
 
 Clean, readable documentation better suited for browsing and reference.
 
-**Note**: In Docker deployment, these aren't proxied through nginx, so they're only accessible when running the backend directly during development.
+In the Docker image, these routes are proxied through nginx too, so `http://localhost:8000/docs` works for normal local installs.
 
 ---
 
 ## Authentication
 
-OneSearch uses JWT-based authentication. All API endpoints (except setup and login) require a valid token.
+OneSearch uses JWT-based authentication. Most API endpoints require a valid token. Public endpoints are limited to setup/login helpers and health checks.
 
 ### Getting a Token
 
@@ -55,7 +55,8 @@ Response:
 ```json
 {
   "access_token": "eyJhbGciOi...",
-  "token_type": "bearer"
+  "token_type": "bearer",
+  "expires_in": 86400
 }
 ```
 
@@ -71,6 +72,7 @@ curl http://localhost:8000/api/status \
 ### Auth Endpoints
 
 ```http
+GET  /api/auth/status   # Check whether setup is required (public)
 POST /api/auth/setup    # Create initial admin account (first run only)
 POST /api/auth/login    # Get a token
 GET  /api/auth/me       # Check current user
@@ -106,9 +108,10 @@ POST   /api/sources/{id}/reindex # Trigger reindex
 ### Authentication
 
 ```http
-POST /api/auth/setup          # Initial account creation
-POST /api/auth/login          # Login, get JWT
-GET  /api/auth/me             # Current user info
+GET  /api/auth/status       # Setup status (public)
+POST /api/auth/setup        # Initial account creation
+POST /api/auth/login        # Login, get JWT
+GET  /api/auth/me           # Current user info
 ```
 
 ### Status & Health
@@ -184,7 +187,7 @@ curl -X POST http://localhost:8000/api/sources \
   -d '{
     "name": "Documents",
     "root_path": "/data/documents",
-    "include_patterns": "**/*.pdf,**/*.md",
+    "include_patterns": ["**/*.pdf", "**/*.md"],
     "scan_schedule": "@daily"
   }'
 ```
@@ -220,7 +223,7 @@ curl http://localhost:8000/api/status \
 {
   "q": "docker deployment",
   "source_id": "docs",
-  "type": "md",
+  "type": "markdown",
   "limit": 20,
   "offset": 0
 }
@@ -230,19 +233,17 @@ curl http://localhost:8000/api/status \
 
 ```json
 {
-  "hits": [
+  "results": [
     {
-      "id": "docs--abc123",
-      "source_id": "docs",
-      "source_name": "Documents",
+      "id": "docs--abc123def456",
       "path": "/data/docs/docker-guide.md",
       "basename": "docker-guide.md",
-      "type": "md",
-      "title": "Docker Deployment Guide",
-      "content": "Full document content...",
-      "snippet": "...highlighted <mark>docker</mark> <mark>deployment</mark>...",
+      "source_name": "Documents",
+      "type": "markdown",
       "size_bytes": 12345,
-      "modified_at": 1672531200
+      "modified_at": 1672531200,
+      "snippet": "...highlighted <em>docker</em> deployment notes...",
+      "score": 0.982
     }
   ],
   "total": 42,
@@ -259,13 +260,13 @@ curl http://localhost:8000/api/status \
   "id": "documents",
   "name": "Documents",
   "root_path": "/data/documents",
-  "include_patterns": "**/*.pdf,**/*.md,**/*.txt",
-  "exclude_patterns": "**/node_modules/**,**/.git/**",
+  "include_patterns": ["**/*.pdf", "**/*.md", "**/*.txt"],
+  "exclude_patterns": ["**/node_modules/**", "**/.git/**"],
   "scan_schedule": "@daily",
-  "total_files": 1234,
-  "last_indexed_at": "2026-01-15T10:30:00Z",
-  "last_scan_at": "2026-01-15T02:00:00Z",
-  "next_scan_at": "2026-01-16T02:00:00Z"
+  "created_at": "2026-01-15T10:30:00",
+  "updated_at": "2026-01-15T10:30:00",
+  "last_scan_at": "2026-01-15T02:00:00",
+  "next_scan_at": "2026-01-16T02:00:00"
 }
 ```
 

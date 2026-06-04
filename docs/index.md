@@ -10,7 +10,7 @@ Search across all your files, documents, and notes from a single interface. No c
 
 **Fast full-text search** with typo tolerance and relevance ranking. OneSearch uses Meilisearch under the hood, so searches are typically sub-second even with millions of documents.
 
-**Multiple file types supported**: text files, code (.py, .js, .go, .rs and more), config files (.yaml, .toml, .json, .env and more), markdown, PDFs, and Microsoft Office documents (Word, Excel, PowerPoint).
+**Multiple file types supported**: text, code, config, Markdown, PDFs, Office docs, RTF, EPUB, subtitles, comics, images, RAW photos, audio/video metadata, and metadata-only entries for everything else.
 
 **Multiple sources**: Index local directories, NAS shares, or external drives. Each source can have its own include/exclude patterns.
 
@@ -56,9 +56,9 @@ For detailed setup instructions, see the [Installation Guide](getting-started/in
 
 ## What's New
 
-v0.10.0 is the current stable release. After cycling through cyan, indigo, and amber across three versions, v0.10.0 adds user-selectable accent color theming -- 5 presets plus a custom hue slider in Admin -> Settings. v0.9.x focused on a full UI redesign and v0.8.0 added code and config file types.
+The current Docker setup runs OneSearch and managed Meilisearch in a single container by default. Recent releases also added rich media indexing, authenticated previews, RAW/photo metadata, metadata-only indexing for unsupported files, and full reindex controls in the UI, CLI, and API.
 
-Check the [Changelog](about/changelog.md) for details.
+Check the [Changelog](about/changelog.md) for release-by-release details.
 
 ---
 
@@ -92,7 +92,7 @@ Full API access for custom integrations. All the web UI functionality is availab
 
 **Research library**: Full-text search across PDFs, academic papers, and research notes.
 
-**Media libraries**: Search file names and metadata across large collections (EXIF support coming in Milestone 2).
+**Media libraries**: Search filenames and metadata across large photo, RAW, audio, and video collections.
 
 ---
 

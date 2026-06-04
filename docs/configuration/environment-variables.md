@@ -62,6 +62,26 @@ Meilisearch endpoint for external Meilisearch mode.
 
 If you use `docker-compose.legacy.yml`, set `MEILI_URL=http://meilisearch:7700` or point it at your own Meilisearch instance. External-mode users manage Meilisearch version compatibility themselves.
 
+### Deployment Access
+
+**CORS_ORIGINS**
+
+Comma-separated list of browser origins allowed to call the API.
+
+- Default: localhost development origins (`http://localhost:5173`, `http://localhost:8000`)
+- Example: `https://search.example.com,https://files.example.com`
+
+Most Docker installs behind the bundled nginx do not need to set this. Set it when you host the frontend/API behind a different domain or reverse proxy.
+
+**ALLOWED_SOURCE_PATHS**
+
+Comma-separated parent directories that sources must live under.
+
+- Default: `/data`
+- Example: `/data,/mnt/media`
+
+This is a safety guard. If you try to add a source outside these paths, the API rejects it before indexing. In Docker, make sure this matches the container paths you mount, not host paths.
+
 ### Logging
 
 **LOG_LEVEL**
@@ -291,6 +311,8 @@ DATABASE_URL=sqlite:////app/data/onesearch.db
 ONESEARCH_MANAGED_MEILI=true
 # MEILI_URL=http://meilisearch:7700  # Only for docker-compose.legacy.yml or another external Meilisearch instance
 LOG_LEVEL=INFO
+CORS_ORIGINS=
+ALLOWED_SOURCE_PATHS=/data
 
 # File size limits (in MB)
 MAX_TEXT_FILE_SIZE_MB=10

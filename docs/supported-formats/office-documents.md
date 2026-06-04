@@ -1,34 +1,56 @@
 # Office Documents
 
-Microsoft Office document support in OneSearch.
+OneSearch supports modern Microsoft Office formats and indexes them as separate document types.
 
-!!! note "Coming Soon"
-    Detailed format documentation coming soon.
+## Word (`.docx`)
 
-## Supported Formats
+Indexed as `docx`.
 
-### Word (.docx)
-- Paragraph text extraction
-- Table content extraction
-- Document metadata
+Extracts:
 
-### Excel (.xlsx)
-- All sheets indexed
-- Cell values extracted
-- Workbook metadata
+- paragraph text
+- table text
+- document metadata when available
 
-### PowerPoint (.pptx)
-- Slide text extraction
-- Speaker notes
-- Presentation metadata
+## Excel (`.xlsx`)
 
-## Configuration
+Indexed as `xlsx`.
 
-- `MAX_OFFICE_FILE_SIZE_MB` - Max file size (default: 50MB)
-- `OFFICE_EXTRACTION_TIMEOUT` - Extraction timeout
+Extracts:
 
-## Limitations
+- workbook sheets
+- cell values
+- workbook metadata
 
-- Old formats (.doc, .xls, .ppt) not supported (yet)
-- Password-protected files are skipped
-- Embedded objects not extracted
+To keep huge spreadsheets from getting silly, extraction is capped at 10,000 rows and 100 columns per sheet.
+
+## PowerPoint (`.pptx`)
+
+Indexed as `pptx`.
+
+Extracts:
+
+- slide text
+- speaker notes
+- presentation metadata when available
+
+## Limits
+
+Office extraction uses:
+
+```env
+MAX_OFFICE_FILE_SIZE_MB=50
+OFFICE_EXTRACTION_TIMEOUT=30
+```
+
+Password-protected or corrupt files are handled as extraction failures. OneSearch keeps going and records enough metadata to show what failed.
+
+## Not supported
+
+Old binary Office formats are not handled by these extractors:
+
+- `.doc`
+- `.xls`
+- `.ppt`
+
+Convert those to modern formats if you want full-text indexing.
