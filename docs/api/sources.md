@@ -17,13 +17,27 @@ When creating or updating a source, you can set:
 
 - `name` - Display name for the source
 - `root_path` - Directory path to index (container path in Docker)
-- `include_patterns` - Glob patterns for files to include (comma-separated)
-- `exclude_patterns` - Glob patterns for files to exclude (comma-separated)
+- `include_patterns` - Array of glob patterns for files to include
+- `exclude_patterns` - Array of glob patterns for files to exclude
 - `scan_schedule` - Cron schedule for automatic indexing (optional)
 
 The `scan_schedule` field accepts presets (`@hourly`, `@daily`, `@weekly`) or standard cron expressions (e.g., `0 */6 * * *` for every 6 hours). Set to `null` or omit for manual-only indexing.
 
-Response objects also include `last_scan_at` and `next_scan_at` timestamps.
+Response objects also include `created_at`, `updated_at`, `last_scan_at`, and `next_scan_at` timestamps.
+
+Example create body:
+
+```json
+{
+  "name": "Documents",
+  "root_path": "/data/documents",
+  "include_patterns": ["**/*.pdf", "**/*.md"],
+  "exclude_patterns": ["**/.git/**", "**/node_modules/**"],
+  "scan_schedule": "@daily"
+}
+```
+
+The CLI and web UI accept comma-separated pattern text. The API takes arrays.
 
 ## Reindex
 

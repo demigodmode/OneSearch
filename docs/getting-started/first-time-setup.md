@@ -48,7 +48,7 @@ curl -X POST http://localhost:8000/api/sources \
   -d '{
     "name": "Documents",
     "root_path": "/data/documents",
-    "include_patterns": "**/*.pdf,**/*.md,**/*.txt"
+    "include_patterns": ["**/*.pdf", "**/*.md", "**/*.txt"]
   }'
 ```
 
@@ -135,7 +135,7 @@ onesearch search "docker" --source documents
 Filter by type:
 
 ```bash
-onesearch search "readme" --type md
+onesearch search "readme" --type markdown
 ```
 
 ### API
