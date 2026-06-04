@@ -1,10 +1,10 @@
 # Architecture
 
-OneSearch runs as two Docker containers: the main app (nginx + FastAPI backend) and Meilisearch.
+OneSearch's default Docker setup runs as one container: nginx, the FastAPI backend, and managed Meilisearch supervised together. The legacy two-container setup is still available for installs that want external Meilisearch.
 
 ## High-Level Overview
 
-OneSearch consists of three main components running in Docker containers:
+OneSearch consists of three main runtime pieces:
 
 **nginx** serves the React frontend and proxies API requests to the backend. Users only interact with nginx on port 8000.
 
@@ -12,31 +12,25 @@ OneSearch consists of three main components running in Docker containers:
 
 **Meilisearch** is the search engine. It stores the full-text index and handles search queries with typo tolerance and relevance ranking.
 
-All three communicate over a private Docker network. Meilisearch isn't exposed to the host, so it's only accessible from the backend.
+In the default managed setup, Meilisearch listens on `127.0.0.1:7700` inside the app container and is not exposed to the host.
 
 ## Container Layout
 
 ```
-┌─────────────────────────────────────┐
-│       onesearch container           │
-│  ┌─────────────────────────────────┐│
-│  │         supervisord             ││
-│  │  ┌──────────┐  ┌─────────────┐  ││
-│  │  │  nginx   │  │   uvicorn   │  ││
-│  │  │  :8000   │  │   :8001     │  ││
-│  │  │ frontend │  │   backend   │  ││
-│  │  └──────────┘  └─────────────┘  ││
-│  └─────────────────────────────────┘│
-└─────────────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────┐
-│      meilisearch container          │
-│              :7700                  │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│             onesearch container             │
+│  ┌───────────────────────────────────────┐  │
+│  │              supervisord              │  │
+│  │  ┌──────────┐ ┌─────────┐ ┌────────┐  │  │
+│  │  │  nginx   │ │ uvicorn │ │ meili  │  │  │
+│  │  │  :8000   │ │ :8001   │ │ :7700  │  │  │
+│  │  │ frontend │ │ backend │ │ local  │  │  │
+│  │  └──────────┘ └─────────┘ └────────┘  │  │
+│  └───────────────────────────────────────┘  │
+└─────────────────────────────────────────────┘
 ```
 
-Supervisord manages both nginx and uvicorn inside the OneSearch container. This keeps deployment simple - one container for the app, one for search.
+Supervisord manages nginx, uvicorn, and managed Meilisearch inside the OneSearch container. In legacy mode, Meilisearch runs as a separate container or external service instead.
 
 ---
 
@@ -63,7 +57,7 @@ Reindexing a large library is slow, so OneSearch tracks file metadata in SQLite 
 
 ## Database Schema
 
-OneSearch uses SQLite for metadata. Two main tables:
+OneSearch uses SQLite for metadata. The main tables are:
 
 ### sources
 
@@ -74,10 +68,13 @@ Stores source configurations.
 | id | TEXT | Primary key (user-defined or auto-generated) |
 | name | TEXT | Display name |
 | root_path | TEXT | Container path to index |
-| include_patterns | TEXT | Comma-separated glob patterns |
-| exclude_patterns | TEXT | Comma-separated glob patterns |
-| total_files | INTEGER | Count of indexed files |
-| last_indexed_at | DATETIME | Last reindex timestamp |
+| include_patterns | TEXT | JSON array of glob patterns, stored as text |
+| exclude_patterns | TEXT | JSON array of glob patterns, stored as text |
+| scan_schedule | TEXT | Cron expression or preset (`@hourly`, `@daily`, `@weekly`) |
+| last_scan_at | DATETIME | Last completed scan timestamp |
+| next_scan_at | DATETIME | Next scheduled scan timestamp |
+| created_at | DATETIME | Creation timestamp |
+| updated_at | DATETIME | Last update timestamp |
 
 ### indexed_files
 
@@ -88,11 +85,11 @@ Tracks all indexed files for incremental updates.
 | id | INTEGER | Primary key |
 | source_id | TEXT | Foreign key to sources |
 | path | TEXT | Full file path |
-| size | INTEGER | File size in bytes |
+| size_bytes | INTEGER | File size in bytes |
 | modified_at | DATETIME | File modified timestamp |
 | indexed_at | DATETIME | When we indexed it |
 | hash | TEXT | SHA256 hash of path (for document ID) |
-| status | TEXT | success, failed, pending |
+| status | TEXT | success, failed, skipped |
 | error_message | TEXT | Error if failed |
 
 Unique constraint on `(source_id, path)` prevents duplicates.
@@ -140,6 +137,8 @@ Extractors live in `backend/app/extractors/` and follow a simple pattern:
 - **markdown.py** - Markdown with YAML front-matter parsing
 - **pdf.py** - PDFs using pypdf for text extraction
 - **office.py** - Word, Excel, PowerPoint using python-docx, openpyxl, python-pptx
+- **rtf.py**, **epub.py**, **subtitles.py**, **comic.py** - rich document and archive-like formats
+- **images.py**, **media.py**, **metadata.py** - images, RAW photos, audio/video metadata, and metadata-only fallback
 
 Each extractor:
 - Takes a file path
@@ -147,7 +146,7 @@ Each extractor:
 - Has timeout protection (corrupt or huge files won't hang indexing)
 - Handles errors gracefully (failed files get logged, indexing continues)
 
-Adding new file format support means creating a new extractor and registering it in the factory.
+Adding new file format support means creating a new extractor and registering it with the extractor registry.
 
 ---
 
@@ -233,12 +232,11 @@ No global state library needed. Server state lives in TanStack Query, UI state i
 The unified Docker image contains everything:
 - nginx (compiled frontend)
 - uvicorn (backend)
+- managed Meilisearch
 - CLI tool
-- All dependencies
+- runtime dependencies
 
-Supervisord manages both processes. One container, simple deployment.
-
-Meilisearch runs in a separate container because it's an independent service with its own lifecycle.
+Supervisord manages nginx, uvicorn, and Meilisearch. One container, simple deployment. Legacy external-Meilisearch installs can still run the search engine separately when needed.
 
 ---
 

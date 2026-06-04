@@ -1,36 +1,79 @@
 # Contributing
 
-Thank you for contributing to OneSearch!
+Thanks for helping with OneSearch. Small, focused changes are easiest to review.
 
-!!! note "Coming Soon"
-    Comprehensive contributing guide coming soon.
+## Before you start
 
-## Quick Start
+Check existing issues and discussions so you do not duplicate work. For bigger changes, open an issue first and describe the use case.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests
-5. Submit a pull request
+## Local setup
 
-## Development Setup
+Backend and frontend setup live in separate guides:
 
-See [Backend Development](backend-dev.md) and [Frontend Development](frontend-dev.md).
+- [Backend Development](backend-dev.md)
+- [Frontend Development](frontend-dev.md)
 
-## Code Style
+Quick version:
 
-- Python: Follow PEP 8
-- TypeScript: Follow project ESLint config
-- Write clear commit messages
-- Add tests for new features
+```bash
+git clone https://github.com/demigodmode/OneSearch.git
+cd OneSearch
+```
 
-## Pull Request Process
+Backend:
 
-1. Ensure all tests pass
-2. Update documentation
-3. Add entry to CHANGELOG.md (if user-facing change)
-4. Request review from maintainers
+```bash
+cd backend
+uv sync
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-## Questions?
+Frontend:
 
-Open a [GitHub Discussion](https://github.com/demigodmode/OneSearch/discussions) or [GitHub Issue](https://github.com/demigodmode/OneSearch/issues).
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## Before opening a PR
+
+Run the checks that match your change.
+
+Backend:
+
+```bash
+cd backend
+uv run pytest
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm run lint
+npm run build
+```
+
+Docs:
+
+```bash
+mkdocs build --strict
+```
+
+## PRs
+
+Keep PRs focused. If you changed user-facing behavior, update docs and add a `CHANGELOG.md` entry.
+
+A good PR description can be short. Just tell reviewers what changed and anything they should pay attention to.
+
+## Style notes
+
+- Follow the surrounding code style.
+- Prefer clear tests over clever tests.
+- Do not add broad refactors to feature/bugfix PRs unless they are needed.
+- Keep docs practical. Avoid marketing copy and empty filler.
+
+## Questions
+
+Use [GitHub Discussions](https://github.com/demigodmode/OneSearch/discussions) for questions and [GitHub Issues](https://github.com/demigodmode/OneSearch/issues) for bugs or concrete feature requests.

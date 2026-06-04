@@ -302,7 +302,9 @@ Use pytest fixtures for setup:
 
 ```python
 import pytest
-from pathlib import Path
+
+from app.extractors.text import TextExtractor
+
 
 @pytest.fixture
 def sample_text_file(tmp_path):
@@ -310,22 +312,31 @@ def sample_text_file(tmp_path):
     file_path.write_text("Sample content")
     return str(file_path)
 
+
 def test_text_extractor(sample_text_file):
-    extractor = TextExtractor()
-    doc = await extractor.extract(sample_text_file)
+    extractor = TextExtractor(source_id="test", source_name="Test")
+    doc = extractor.extract(sample_text_file)
     assert doc.content == "Sample content"
+    assert doc.source_id == "test"
 ```
 
-Mock external services (Meilisearch) in tests:
+Mock external services rather than calling a live Meilisearch instance in unit tests:
 
 ```python
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock
 
-@patch('app.services.search.meilisearch_client')
-def test_search(mock_client):
-    mock_client.search.return_value = {"hits": []}
-    # ... test code
+
+def test_search_service_handles_empty_results():
+    meili = AsyncMock()
+    meili.search.return_value = {
+        "hits": [],
+        "estimatedTotalHits": 0,
+        "processingTimeMs": 1,
+    }
+    # Pass the mock into the service under test and assert the app-level response.
 ```
+
+Raw Meilisearch responses use `hits`; OneSearch API responses use `results`.
 
 ---
 
@@ -347,7 +358,7 @@ Quick version:
 1. Create extractor class in `extractors/`
 2. Inherit from `BaseExtractor`
 3. Implement `extract()` method
-4. Register in extractor factory
+4. Register with the extractor registry
 5. Add tests with sample files
 
 ### Debugging

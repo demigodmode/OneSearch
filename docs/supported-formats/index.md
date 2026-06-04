@@ -37,6 +37,11 @@ OneSearch supports searchable text extraction, format metadata, and safe preview
 - [Markdown](markdown.md)
 - [PDF Documents](pdf.md)
 - [Office Documents](office-documents.md)
+- [Images & RAW Photos](images-raw.md)
+- [Audio & Video Media](media.md)
+- [EPUB & Comics](ebooks-comics.md)
+- [Subtitles](subtitles.md)
+- [Metadata-only Files](metadata-only.md)
 
 ## Still Planned
 
