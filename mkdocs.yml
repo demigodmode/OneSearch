@@ -97,6 +97,7 @@ nav:
     - Overview: api/index.md
     - Sources: api/sources.md
     - Search: api/search.md
+    - Preview: api/preview.md
     - Settings: api/settings.md
     - Status & Health: api/status.md
   - Configuration:
