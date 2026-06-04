@@ -115,6 +115,11 @@ nav:
     - Markdown: supported-formats/markdown.md
     - PDF Documents: supported-formats/pdf.md
     - Office Documents: supported-formats/office-documents.md
+    - Images & RAW Photos: supported-formats/images-raw.md
+    - Audio & Video Media: supported-formats/media.md
+    - EPUB & Comics: supported-formats/ebooks-comics.md
+    - Subtitles: supported-formats/subtitles.md
+    - Metadata-only Files: supported-formats/metadata-only.md
   - Development:
     - Overview: development/index.md
     - Contributing: development/contributing.md
