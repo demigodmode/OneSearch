@@ -40,7 +40,7 @@ In the Docker image, these routes are proxied through nginx too, so `http://loca
 
 ## Authentication
 
-OneSearch uses JWT-based authentication. All API endpoints (except setup and login) require a valid token.
+OneSearch uses JWT-based authentication. Most API endpoints require a valid token. Public endpoints are limited to setup/login helpers and health checks.
 
 ### Getting a Token
 
@@ -72,6 +72,7 @@ curl http://localhost:8000/api/status \
 ### Auth Endpoints
 
 ```http
+GET  /api/auth/status   # Check whether setup is required (public)
 POST /api/auth/setup    # Create initial admin account (first run only)
 POST /api/auth/login    # Get a token
 GET  /api/auth/me       # Check current user
@@ -107,9 +108,10 @@ POST   /api/sources/{id}/reindex # Trigger reindex
 ### Authentication
 
 ```http
-POST /api/auth/setup          # Initial account creation
-POST /api/auth/login          # Login, get JWT
-GET  /api/auth/me             # Current user info
+GET  /api/auth/status       # Setup status (public)
+POST /api/auth/setup        # Initial account creation
+POST /api/auth/login        # Login, get JWT
+GET  /api/auth/me           # Current user info
 ```
 
 ### Status & Health
