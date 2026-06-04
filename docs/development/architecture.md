@@ -232,12 +232,11 @@ No global state library needed. Server state lives in TanStack Query, UI state i
 The unified Docker image contains everything:
 - nginx (compiled frontend)
 - uvicorn (backend)
+- managed Meilisearch
 - CLI tool
-- All dependencies
+- runtime dependencies
 
-Supervisord manages both processes. One container, simple deployment.
-
-Meilisearch runs in a separate container because it's an independent service with its own lifecycle.
+Supervisord manages nginx, uvicorn, and Meilisearch. One container, simple deployment. Legacy external-Meilisearch installs can still run the search engine separately when needed.
 
 ---
 
