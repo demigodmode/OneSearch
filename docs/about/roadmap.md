@@ -1,188 +1,99 @@
 # Roadmap
 
-OneSearch is under active development. Here's what's planned for future releases.
+OneSearch has reached the first stable Docker shape: a single app container with managed Meilisearch by default, plus the legacy external-Meilisearch compose file for people who still want that setup.
 
-**Current status**: Milestone 2 nearly complete (v0.9.0--v0.11.0) -- UI redesign done, theme system shipped. Light/dark toggle (#113) is the remaining item before closing out MS-2.
+The next work is less about proving the idea and more about making big libraries easier to live with.
 
----
+## Shipped
 
-## Milestone 1 (Complete)
+Recent milestones that are already in the product:
 
-Released across v0.5.0--v0.7.0.
+- unified Docker image
+- managed Meilisearch as the default install
+- legacy external Meilisearch compose support
+- setup wizard and JWT auth
+- source path restrictions and read-only mount guidance
+- scheduled indexing with per-source cron
+- full reindex support in the UI, CLI, and API
+- Office, PDF, Markdown, text, code, and config indexing
+- RTF, EPUB, subtitles, CBZ comics, images, RAW photos, and media metadata
+- metadata-only indexing for unsupported files
+- document previews, image previews, RAW embedded previews, and format-aware detail views
+- theme/accent settings and search display settings
+- standalone CLI package
 
-- Unified Docker image with CI/CD (v0.5.0)
-- Office document support -- Word, Excel, PowerPoint (v0.6.0)
-- Document preview page with syntax highlighting (v0.6.0)
-- JWT authentication with setup wizard and rate limiting (v0.7.0)
-- Scheduled indexing with APScheduler, per-source cron schedules (v0.7.0)
-- Security hardening pass -- auth enforcement, CORS, path restriction (v0.7.2)
-- Code and config file type classification (v0.8.0)
+See the [changelog](changelog.md) for release-by-release details.
 
----
+## Near-term work
 
-## Milestone 2 (In Progress)
+These are the kinds of improvements that fit the current product without changing what OneSearch is.
 
-UI overhaul and polish. Started in v0.9.0.
+### Search polish
 
-### UI Redesign (Done)
+- date, size, and metadata filters
+- better type filtering in the CLI
+- saved searches or recent searches
+- export results as CSV/JSON from the UI
+- more useful empty states when filters hide everything
 
-- Search page layout -- hero removed, search box is first element (v0.9.0)
-- Admin dashboard redesign (v0.9.0)
-- Source management improvements with container queries (v0.9.0)
-- Status page overhaul -- compact inline status bar (v0.9.0)
-- Document preview -- lazy-loaded with PrismLight (v0.9.0)
-- Accessibility pass -- focus rings, touch targets, reduced motion (v0.9.0)
-- Amber accent palette (v0.9.1)
+### Indexing and formats
 
-### Still Open
+- archive contents beyond CBZ comics, such as `.zip` and `.tar.gz`
+- email formats like `.eml` and `.mbox`
+- better handling for very large spreadsheets
+- clearer failed-file cleanup flows
+- more knobs for rich media extraction defaults
 
-- Light/dark toggle (#113)
+### Operations
 
-### Search Enhancements
+- cleaner backup/restore workflow
+- better status history for scheduled runs
+- basic metrics endpoint or Prometheus-friendly output
+- easier diagnostics bundle for bug reports
 
-- Saved searches
-- Search history
-- Advanced filters (date range, file size, metadata)
-- Export results (CSV/JSON)
+## Larger ideas
 
-### Additional File Types
+These are useful, but they need more design before they should be treated as committed work.
 
-- Archive file contents beyond CBZ comics (.zip, .tar.gz)
-- Email (.eml, .mbox)
-- OCR for scanned/image-only documents
+### Connectors
 
----
+Cloud and remote storage would probably go through rclone or a similar layer:
 
-## Milestone 3
+- Google Drive
+- Dropbox
+- OneDrive
+- S3-compatible storage
 
-### Cloud Storage
+### Smarter search
 
-- Cloud storage connectors via rclone
-  - Google Drive
-  - Dropbox
-  - OneDrive
-  - S3-compatible storage
+- faceted search
+- semantic search with embeddings
+- natural-language filters
+- document summaries
+- auto-tagging
 
-### Advanced Features
+### Access control
 
-- Semantic search using embeddings
-- Obsidian vault support (backlinks, tags)
-- Custom extractor plugins
-- Faceted search
+Right now, if a user can log in, they can search the indexed content. More granular access would need careful design:
 
-### Testing
+- per-source permissions
+- read-only users
+- SSO/LDAP/OAuth
+- audit logs
 
-- E2E and integration test coverage (#20)
+## Not planned right now
 
-### Performance
+A few things come up naturally, but they are not immediate priorities:
 
-- Distributed indexing for large libraries
-- Incremental backups
-- Redis caching
+- mobile apps
+- desktop Electron app
+- browser extension
+- multi-tenant/team workspace features
 
----
+They may happen later if there is real demand, but the main product still needs the homelab/self-hosted basics to stay solid first.
 
-## Milestone 4 & Beyond
+## Suggesting changes
 
-Target: v1.0.0
+Open a [GitHub Discussion](https://github.com/demigodmode/OneSearch/discussions) for rough ideas, or a [GitHub Issue](https://github.com/demigodmode/OneSearch/issues) for a specific bug or feature request.
 
-### Enterprise Features
-
-- SSO integration (LDAP, SAML, OAuth)
-- Teams and organizations (multi-tenant)
-- Advanced analytics
-- API rate limiting
-
-### Ecosystem
-
-- Mobile apps (iOS/Android)
-- Desktop clients (Electron)
-- Browser extensions
-- Webhooks and integrations
-
-### AI & ML
-
-- Document summarization
-- Smart auto-tagging
-- OCR support for images in PDFs
-- Natural language queries ("PDFs from last month about Docker")
-
----
-
-## Feature Requests
-
-Have an idea? We'd love to hear it.
-
-Check [existing issues](https://github.com/demigodmode/OneSearch/issues) first, then open a new issue with the `enhancement` label. Describe your use case and why it's valuable.
-
-[Request a Feature](https://github.com/demigodmode/OneSearch/issues/new)
-
----
-
-## Contributing
-
-Want to help build these features?
-
-- Check [open issues](https://github.com/demigodmode/OneSearch/issues)
-- Read the [Contributing Guide](../development/contributing.md)
-- Join [GitHub Discussions](https://github.com/demigodmode/OneSearch/discussions)
-
-[View Open Issues](https://github.com/demigodmode/OneSearch/issues)
-
----
-
-## Release Schedule
-
-We follow a continuous delivery model:
-
-- Minor releases (v0.6.0, v0.7.0) every 1-2 months with new features
-- Patch releases (v0.6.1, v0.6.2) as needed for bugs and security
-- Major releases (v1.0.0) for significant milestones
-
-All releases follow [Semantic Versioning](https://semver.org/).
-
----
-
-## Stability & Backwards Compatibility
-
-### Milestone 2 (Current)
-
-Core features are stable and production-ready. The API may change in minor releases (v0.x.0). Database migrations are handled automatically.
-
-### v1.0.0 (Stable Release)
-
-Once we reach v1.0.0:
-- Stable, production-ready for all features
-- Backwards compatibility guaranteed
-- API stability with proper versioning
-- Long-term support
-
----
-
-## Community Input
-
-The roadmap isn't set in stone. We prioritize based on:
-
-1. User feedback - what's most requested?
-2. Use cases - what problems need solving?
-3. Complexity - what can ship quickly vs. long-term projects?
-4. Community contributions - what are people building?
-
-Your input matters. Share your thoughts in [GitHub Discussions](https://github.com/demigodmode/OneSearch/discussions).
-
----
-
-## Stay Updated
-
-Follow development progress:
-
-- **GitHub**: Watch the repository
-- **Releases**: Subscribe to [release notifications](https://github.com/demigodmode/OneSearch/releases)
-- **Changelog**: Check the [Changelog](changelog.md)
-
----
-
-## Questions
-
-- [GitHub Issues](https://github.com/demigodmode/OneSearch/issues) - bugs, feature requests
-- [GitHub Discussions](https://github.com/demigodmode/OneSearch/discussions) - questions, ideas
+Good requests explain the use case. “Support email archives because I have 20 years of `.mbox` exports I need to search” is much easier to act on than “add email”.
