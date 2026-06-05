@@ -8,6 +8,7 @@ Extracts content and metadata from markdown documents
 import logging
 import frontmatter
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict, Any
 
 from .base import BaseExtractor, extractor_registry
@@ -92,18 +93,37 @@ class MarkdownExtractor(BaseExtractor):
         except Exception as e:
             # Graceful fallback for unexpected errors (e.g., invalid YAML front-matter)
             logger.warning(
-                f"Unexpected error extracting markdown from {file_path}: {e}. File will be indexed by filename only.",
+                f"Unexpected error extracting markdown from {file_path}: {e}. File will be indexed as plain markdown.",
                 extra={"file_path": file_path, "error": str(e)},
                 exc_info=True
             )
-            # Create minimal document
-            doc = self._create_base_document(file_path, "")
-            doc.title = Path(file_path).stem
+            content = self._read_markdown_text(file_path)
+            content = self._strip_frontmatter_block(content)
+            doc = self._create_base_document(file_path, content)
+            fallback_post = SimpleNamespace(metadata={})
+            doc.title = self._extract_title(fallback_post, content, file_path)
             doc.metadata = {
-                "extraction_error": str(e),
-                "extraction_failed": True,
+                "has_frontmatter": False,
+                "frontmatter_error": str(e),
+                "extraction_failed": False,
             }
             return doc
+
+    def _read_markdown_text(self, file_path: str) -> str:
+        try:
+            return Path(file_path).read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            return Path(file_path).read_text(encoding='latin-1')
+
+    def _strip_frontmatter_block(self, text: str) -> str:
+        lines = text.splitlines()
+        if not lines or lines[0].strip() != '---':
+            return text
+
+        for index, line in enumerate(lines[1:], start=1):
+            if line.strip() == '---':
+                return "\n".join(lines[index + 1:]).lstrip("\n")
+        return text
 
     def _parse_markdown(self, file_path: str) -> tuple[Any, str, Dict[str, Any]]:
         """

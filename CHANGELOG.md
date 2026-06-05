@@ -5,6 +5,20 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added Docker `PUID` and `PGID` support so the runtime user can match host users or shared groups for mounted volumes.
+
+### Fixed
+
+- Fixed live-source indexing crashes when a file disappears after scanning but before extraction.
+- Fixed Meilisearch indexing failures caused by datetime values in nested document metadata.
+- Improved malformed Markdown frontmatter handling so the markdown body is still indexed as plain content.
+
+---
+
 ## [1.0.1] - 2026-06-04
 
 ### Security

@@ -153,7 +153,7 @@ class MeilisearchService:
             doc_dicts = []
             for doc in documents:
                 if hasattr(doc, 'model_dump'):  # Pydantic model
-                    doc_dicts.append(doc.model_dump())
+                    doc_dicts.append(doc.model_dump(mode="json"))
                 elif isinstance(doc, dict):
                     doc_dicts.append(doc)
                 else:

@@ -258,10 +258,11 @@ class TestMarkdownExtractor:
         extractor = MarkdownExtractor("test_source", "Test Source")
         doc = await extractor.extract_with_timeout(str(file_path))
 
-        # Should still produce a document (graceful fallback)
         assert doc is not None
-        # Either parsed successfully or fell back to filename
-        assert doc.title is not None
+        assert doc.title == "Content"
+        assert "Content" in doc.content
+        assert doc.metadata["has_frontmatter"] is False
+        assert "frontmatter_error" in doc.metadata
 
     @pytest.mark.asyncio
     async def test_empty_markdown_file(self, temp_dir):

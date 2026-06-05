@@ -82,6 +82,19 @@ Comma-separated parent directories that sources must live under.
 
 This is a safety guard. If you try to add a source outside these paths, the API rejects it before indexing. In Docker, make sure this matches the container paths you mount, not host paths.
 
+### Runtime User and Mounted Volumes
+
+**PUID** / **PGID**
+
+UID and GID used by the OneSearch backend process inside the container.
+
+- Default: `1000` / `1000`
+- Example: `PUID=1001`, `PGID=100`
+
+Set these when your source directories are readable by a specific host user or shared group, especially on NAS, SMB/NFS, or homelab setups. OneSearch adjusts the internal `onesearch` user at startup, then runs the backend and managed Meilisearch as that identity.
+
+The IDs must be numeric. The container still needs write access to `/app/data` and, in managed mode, `/app/meili_data`.
+
 ### Logging
 
 **LOG_LEVEL**

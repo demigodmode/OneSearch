@@ -47,6 +47,7 @@ MEILISEARCH_COMMAND = " ".join([
 
 MEILISEARCH_PROGRAM = f"""[program:meilisearch]
 command={MEILISEARCH_COMMAND}
+directory=/app/meili_data
 user=onesearch
 autostart=true
 autorestart=true

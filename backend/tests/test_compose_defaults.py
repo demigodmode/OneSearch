@@ -29,3 +29,15 @@ def test_managed_alias_matches_default_mode():
     assert "ONESEARCH_MANAGED_MEILI=true" in text
     assert "MEILI_URL=http://meilisearch:7700" not in text
     assert "onesearch_index:/app/meili_data" in text
+
+
+def test_compose_files_expose_runtime_uid_gid_defaults():
+    for compose_file in [
+        "docker-compose.yml",
+        "docker-compose.managed-meili.yml",
+        "docker-compose.legacy.yml",
+    ]:
+        text = Path(compose_file).read_text()
+
+        assert "PUID=${PUID:-1000}" in text
+        assert "PGID=${PGID:-1000}" in text

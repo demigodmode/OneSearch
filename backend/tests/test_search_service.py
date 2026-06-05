@@ -5,10 +5,13 @@
 Tests for MeilisearchService - mocked, no running instance needed
 """
 import json
+from datetime import datetime
+
 import pytest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from app.schemas import Document
 from app.services.search import MeilisearchService, INDEX_NAME
 
 
@@ -128,6 +131,30 @@ class TestIndexDocuments:
 
         assert result["task_uid"] == 1
         connected_service.index.add_documents.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_index_pydantic_models_uses_json_safe_values(self, connected_service):
+        doc = Document(
+            id="doc-date",
+            source_id="src",
+            source_name="Source",
+            path="/tmp/note.md",
+            basename="note.md",
+            extension="md",
+            type="markdown",
+            size_bytes=10,
+            modified_at=1,
+            indexed_at=2,
+            content="note",
+            metadata={"frontmatter": {"published": datetime(2026, 6, 5, 12, 30)}}
+        )
+        task = _fake_task(task_uid=7)
+        connected_service.index.add_documents.return_value = task
+
+        await connected_service.index_documents([doc])
+
+        indexed_docs = connected_service.index.add_documents.call_args.args[0]
+        assert indexed_docs[0]["metadata"]["frontmatter"]["published"] == "2026-06-05T12:30:00"
 
     @pytest.mark.asyncio
     async def test_index_dicts(self, connected_service):
