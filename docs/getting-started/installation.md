@@ -93,6 +93,8 @@ The `:ro` flag mounts volumes as read-only, which is recommended for safety.
 
 Use the container path (like `/data/documents`) when adding sources later, not the host path.
 
+If your mounted files are readable by a specific host user or shared group, set `PUID` and `PGID` in `.env` to those numeric IDs. This is common for NAS, SMB/NFS, and homelab service-group setups.
+
 ### Start OneSearch
 
 ```bash

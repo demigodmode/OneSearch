@@ -15,6 +15,7 @@ def test_managed_meili_config_starts_meilisearch_and_points_api_at_localhost():
     assert "MEILI_URL=\"http://127.0.0.1:7700\"" in config
     assert "MEILI_MASTER_KEY=\"%(ENV_MEILI_MASTER_KEY)s\"" in config
     assert "MEILI_ENV=\"production\"" in config
+    assert "directory=/app/meili_data" in config
     assert "command=/app/start-backend.sh" in config
 
 

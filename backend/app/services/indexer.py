@@ -160,7 +160,7 @@ class IndexingService:
             documents_to_index = []
             files_processed = 0
 
-            for file_path in current_files:
+            for file_path in list(current_files):
                 files_processed += 1
                 try:
                     # Check if file needs indexing

@@ -470,6 +470,54 @@ class TestIndexingService:
 
     @pytest.mark.asyncio
     @patch('app.services.indexer.FileScanner')
+    async def test_index_source_handles_file_deleted_after_scan(
+        self,
+        mock_scanner_class,
+        db_session,
+        mock_search_service,
+        test_directory
+    ):
+        """Files that disappear after scanning should not crash a live-source indexing run."""
+        disappearing_file = test_directory / "gone.txt"
+        disappearing_path = str(disappearing_file)
+        disappearing_file.write_text("temporary content")
+        indexed_file = IndexedFile(
+            source_id="live_source",
+            path=disappearing_path,
+            size_bytes=disappearing_file.stat().st_size,
+            modified_at=datetime.fromtimestamp(disappearing_file.stat().st_mtime),
+            indexed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            status="success",
+        )
+        source = Source(
+            id="live_source",
+            name="Live Source",
+            root_path=str(test_directory),
+            include_patterns=json.dumps(["**/*.txt"]),
+            exclude_patterns=json.dumps([])
+        )
+        db_session.add_all([source, indexed_file])
+        db_session.commit()
+        disappearing_file.unlink()
+        mock_scanner = Mock()
+        mock_scanner.scan.return_value = [disappearing_path]
+        mock_scanner_class.return_value = mock_scanner
+
+        service = IndexingService(db_session, mock_search_service)
+        stats = await service.index_source("live_source")
+
+        assert stats.total_scanned == 1
+        assert stats.failed == 0
+        assert stats.deleted_files == 1
+        mock_search_service.delete_document.assert_awaited_once()
+        remaining = db_session.query(IndexedFile).filter_by(
+            source_id="live_source",
+            path=disappearing_path,
+        ).first()
+        assert remaining is None
+
+    @pytest.mark.asyncio
+    @patch('app.services.indexer.FileScanner')
     async def test_index_source_indexes_unsupported_file_as_metadata_only(
         self,
         mock_scanner_class,

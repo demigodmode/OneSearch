@@ -29,6 +29,8 @@ services:
       - ONESEARCH_MANAGED_MEILI=true
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       - SESSION_SECRET=${SESSION_SECRET}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
       - DATABASE_URL=sqlite:////app/data/onesearch.db
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
