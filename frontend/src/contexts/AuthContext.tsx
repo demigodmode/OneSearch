@@ -65,6 +65,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [])
 
   useEffect(() => {
+    // Initial auth state comes from token/API state outside React.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     checkAuth()
   }, [checkAuth])
 

@@ -224,6 +224,8 @@ function NumberSetting({
   const skipNextBlurCommit = useRef(false)
 
   useEffect(() => {
+    // Keep the editable text field in sync when the saved setting changes externally.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft(String(value))
   }, [value])
 
