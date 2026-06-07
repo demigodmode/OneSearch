@@ -1,6 +1,6 @@
 [project]
 name = "onesearch-cli"
-version = "1.0.3"
+version = "1.0.4"
 description = "Standalone CLI client for a running OneSearch server"
 readme = "README.md"
 license = {text = "AGPL-3.0-only"}
