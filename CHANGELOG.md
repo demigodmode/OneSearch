@@ -5,6 +5,15 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Updated focused frontend dependencies for Radix UI, TanStack Query, date-fns, tailwind-merge, TypeScript ESLint, autoprefixer, and PostCSS while leaving major framework/tooling migrations for separate tracked issues.
+- Updated the MkDocs git revision date plugin requirement to allow 1.5.3.
+
+---
+
 ## [1.0.2] - 2026-06-06
 
 ### Added
