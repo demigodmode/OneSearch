@@ -31,9 +31,14 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'query-vendor': ['@tanstack/react-query'],
+        manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, '/')
+          if (/\/node_modules\/(react|react-dom|react-router-dom)(\/|$)/.test(normalizedId)) {
+            return 'react-vendor'
+          }
+          if (/\/node_modules\/@tanstack\/react-query(\/|$)/.test(normalizedId)) {
+            return 'query-vendor'
+          }
         },
       },
     },
