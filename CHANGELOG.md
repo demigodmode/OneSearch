@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated the Docker frontend build stage to Node 22 for ESLint 10 tooling compatibility.
 - Upgraded frontend build tooling to Vite 8 and @vitejs/plugin-react 6.
 - Preserved the lazy-loaded DocumentPage split by keeping markdown and syntax-highlighter packages out of the eager React vendor chunk under Vite 8.
+- Hardened EPUB and CBZ extraction with uncompressed archive entry limits and clean metadata-only fallback for oversized compressed archives.
 
 ---
 
