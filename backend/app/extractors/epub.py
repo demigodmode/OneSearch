@@ -8,19 +8,22 @@ import posixpath
 import re
 from html.parser import HTMLParser
 from pathlib import Path
-from zipfile import BadZipFile, ZipFile
 from xml.etree import ElementTree as ET
+from zipfile import BadZipFile, ZipFile
 
-from .base import BaseExtractor, extractor_registry
-from .metadata import MetadataOnlyExtractor
 from ..config import settings
 from ..schemas import Document
+from .base import BaseExtractor, extractor_registry
+from .metadata import MetadataOnlyExtractor
 
 _CONTAINER_NS = {"container": "urn:oasis:names:tc:opendocument:xmlns:container"}
 _OPF_NS = {
     "opf": "http://www.idpf.org/2007/opf",
     "dc": "http://purl.org/dc/elements/1.1/",
 }
+_MAX_EPUB_CONTROL_ENTRY_BYTES = 4 * 1024 * 1024
+_MAX_EPUB_CHAPTER_BYTES = 4 * 1024 * 1024
+_MAX_EPUB_TOTAL_CHAPTER_BYTES = 32 * 1024 * 1024
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -90,10 +93,16 @@ class EPUBExtractor(BaseExtractor):
     def _extract_epub(self, file_path: str) -> tuple[str, dict]:
         with ZipFile(file_path) as zf:
             opf_path = self._get_opf_path(zf)
-            opf_root = ET.fromstring(zf.read(opf_path))
+            opf_root = ET.fromstring(_read_zip_entry(zf, opf_path, _MAX_EPUB_CONTROL_ENTRY_BYTES))
             metadata = self._extract_metadata(opf_root)
             chapter_paths = self._spine_chapter_paths(opf_root, opf_path)
-            chapter_texts = [self._read_chapter_text(zf, path) for path in chapter_paths]
+            total_chapter_bytes = 0
+            chapter_texts: list[str] = []
+            for path in chapter_paths:
+                total_chapter_bytes += _zip_entry_size(zf, path)
+                if total_chapter_bytes > _MAX_EPUB_TOTAL_CHAPTER_BYTES:
+                    raise ValueError("EPUB archive chapter content too large")
+                chapter_texts.append(self._read_chapter_text(zf, path))
 
         metadata["chapter_count"] = len(chapter_paths)
         summary = self._metadata_summary(metadata)
@@ -101,7 +110,7 @@ class EPUBExtractor(BaseExtractor):
         return content, metadata
 
     def _get_opf_path(self, zf: ZipFile) -> str:
-        root = ET.fromstring(zf.read("META-INF/container.xml"))
+        root = ET.fromstring(_read_zip_entry(zf, "META-INF/container.xml", _MAX_EPUB_CONTROL_ENTRY_BYTES))
         rootfile = root.find(".//container:rootfile", _CONTAINER_NS)
         if rootfile is None:
             raise ValueError("EPUB container has no rootfile")
@@ -147,7 +156,7 @@ class EPUBExtractor(BaseExtractor):
         return chapter_paths
 
     def _read_chapter_text(self, zf: ZipFile, chapter_path: str) -> str:
-        data = zf.read(chapter_path).decode("utf-8", errors="replace")
+        data = _read_zip_entry(zf, chapter_path, _MAX_EPUB_CHAPTER_BYTES).decode("utf-8", errors="replace")
         parser = _HTMLTextExtractor()
         parser.feed(data)
         return parser.text()
@@ -166,6 +175,17 @@ class EPUBExtractor(BaseExtractor):
             for key, label in labels.items()
             if key in metadata
         )
+
+
+def _zip_entry_size(zf: ZipFile, name: str) -> int:
+    return zf.getinfo(name).file_size
+
+
+def _read_zip_entry(zf: ZipFile, name: str, max_bytes: int) -> bytes:
+    entry_size = _zip_entry_size(zf, name)
+    if entry_size > max_bytes:
+        raise ValueError(f"EPUB archive entry too large: {name}")
+    return zf.read(name)
 
 
 def _normalize_text(text: str) -> str:

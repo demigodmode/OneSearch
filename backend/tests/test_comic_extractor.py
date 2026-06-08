@@ -10,6 +10,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 
+import app.extractors.comic as comic_module
 from app.extractors import ComicExtractor, extractor_registry
 
 
@@ -78,6 +79,49 @@ async def test_extract_cbz_without_comic_info_uses_filename_title(temp_dir):
     assert "pages/001-cover.jpg" in doc.content
     assert doc.metadata["page_count"] == 2
     assert "title" not in doc.metadata
+
+
+@pytest.mark.asyncio
+async def test_cbz_comic_info_limit_falls_back_to_metadata_only(temp_dir, monkeypatch):
+    monkeypatch.setattr(comic_module, "_MAX_COMIC_INFO_BYTES", 64, raising=False)
+    file_path = temp_dir / "oversized-comic-info.cbz"
+    with ZipFile(file_path, "w", ZIP_DEFLATED) as zf:
+        zf.writestr("001.jpg", b"fake jpg")
+        zf.writestr(
+            "ComicInfo.xml",
+            "<ComicInfo><Title>Huge Metadata</Title><Summary>" + ("A" * 1024) + "</Summary></ComicInfo>",
+        )
+
+    doc = await ComicExtractor("src", "Comics").extract_with_timeout(str(file_path))
+
+    assert doc.type == "comic"
+    assert doc.title == "oversized-comic-info"
+    assert doc.metadata["metadata_only"] is True
+    assert doc.metadata["extraction_failed"] is True
+    assert "CBZ archive" in doc.metadata["extraction_error"]
+
+
+@pytest.mark.asyncio
+async def test_cbz_page_count_limit_falls_back_to_metadata_only(temp_dir, monkeypatch):
+    monkeypatch.setattr(comic_module, "_MAX_CBZ_PAGE_FILES", 2, raising=False)
+
+    def fail_if_sorted(value):
+        raise AssertionError(f"over-limit page list should not be sorted: {value}")
+
+    monkeypatch.setattr(comic_module, "_natural_sort_key", fail_if_sorted)
+    file_path = temp_dir / "too-many-pages.cbz"
+    with ZipFile(file_path, "w", ZIP_DEFLATED) as zf:
+        zf.writestr("001.jpg", b"fake jpg")
+        zf.writestr("002.jpg", b"fake jpg")
+        zf.writestr("003.jpg", b"fake jpg")
+
+    doc = await ComicExtractor("src", "Comics").extract_with_timeout(str(file_path))
+
+    assert doc.type == "comic"
+    assert doc.title == "too-many-pages"
+    assert doc.metadata["metadata_only"] is True
+    assert doc.metadata["extraction_failed"] is True
+    assert "CBZ archive" in doc.metadata["extraction_error"]
 
 
 @pytest.mark.asyncio

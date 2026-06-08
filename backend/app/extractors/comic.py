@@ -6,13 +6,13 @@ CBZ comic archive metadata extractor.
 """
 import re
 from pathlib import Path
-from zipfile import BadZipFile, ZipFile
 from xml.etree import ElementTree as ET
+from zipfile import BadZipFile, ZipFile
 
-from .base import BaseExtractor, extractor_registry
-from .metadata import MetadataOnlyExtractor
 from ..config import settings
 from ..schemas import Document
+from .base import BaseExtractor, extractor_registry
+from .metadata import MetadataOnlyExtractor
 
 _IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", ".tiff"}
 _COMIC_INFO_FIELDS = {
@@ -24,6 +24,8 @@ _COMIC_INFO_FIELDS = {
     "Year": "year",
     "Summary": "summary",
 }
+_MAX_COMIC_INFO_BYTES = 1 * 1024 * 1024
+_MAX_CBZ_PAGE_FILES = 10_000
 
 
 class ComicExtractor(BaseExtractor):
@@ -50,7 +52,7 @@ class ComicExtractor(BaseExtractor):
             metadata["extraction_failed"] = False
             doc.metadata = metadata
             return doc
-        except (BadZipFile, ET.ParseError, OSError, KeyError) as e:
+        except (BadZipFile, ET.ParseError, OSError, KeyError, ValueError) as e:
             doc = MetadataOnlyExtractor(self.source_id, self.source_name).extract(file_path)
             doc.type = "comic"
             doc.title = Path(file_path).stem
@@ -69,14 +71,14 @@ class ComicExtractor(BaseExtractor):
 
     def _extract_cbz(self, file_path: str) -> tuple[str, dict]:
         with ZipFile(file_path) as zf:
-            names = [name for name in zf.namelist() if not name.endswith("/")]
-            page_files = sorted(
-                (
-                    name for name in names
-                    if Path(name).suffix.lower() in _IMAGE_EXTENSIONS
-                ),
-                key=_natural_sort_key,
-            )
+            page_files: list[str] = []
+            for info in zf.infolist():
+                if info.is_dir() or Path(info.filename).suffix.lower() not in _IMAGE_EXTENSIONS:
+                    continue
+                page_files.append(info.filename)
+                if len(page_files) > _MAX_CBZ_PAGE_FILES:
+                    raise ValueError("CBZ archive has too many page files")
+            page_files.sort(key=_natural_sort_key)
             metadata = self._comic_info_metadata(zf)
 
         metadata["page_count"] = len(page_files)
@@ -86,13 +88,13 @@ class ComicExtractor(BaseExtractor):
 
     def _comic_info_metadata(self, zf: ZipFile) -> dict:
         comic_info_name = next(
-            (name for name in zf.namelist() if name.lower().endswith("comicinfo.xml")),
+            (info.filename for info in zf.infolist() if not info.is_dir() and info.filename.lower().endswith("comicinfo.xml")),
             None,
         )
         if comic_info_name is None:
             return {}
 
-        root = ET.fromstring(zf.read(comic_info_name))
+        root = ET.fromstring(_read_zip_entry(zf, comic_info_name, _MAX_COMIC_INFO_BYTES))
         metadata: dict[str, str] = {}
         for xml_name, metadata_key in _COMIC_INFO_FIELDS.items():
             value = root.findtext(xml_name)
@@ -117,6 +119,13 @@ class ComicExtractor(BaseExtractor):
         lines.append(f"Page count: {len(page_files)}")
         lines.extend(page_files)
         return "\n".join(lines)
+
+
+def _read_zip_entry(zf: ZipFile, name: str, max_bytes: int) -> bytes:
+    entry_size = zf.getinfo(name).file_size
+    if entry_size > max_bytes:
+        raise ValueError(f"CBZ archive entry too large: {name}")
+    return zf.read(name)
 
 
 def _natural_sort_key(value: str) -> list[int | str]:
