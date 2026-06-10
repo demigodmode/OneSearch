@@ -66,7 +66,7 @@ volumes:
   - /mnt/nas/photos:/data/photos:ro
 ```
 
-When adding sources, use `/data/documents` and `/data/photos`, not the host paths.
+When adding sources, use `/data/documents` and `/data/photos`, not the host paths. The source form's **Test** button can confirm whether OneSearch can see and read the path before you save it.
 
 See [Volume Mounts](volume-mounts.md) for more examples.
 
