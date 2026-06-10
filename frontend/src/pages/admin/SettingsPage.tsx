@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, Loader2 } from 'lucide-react'
-import { PRESETS, type ThemePreset } from '@/contexts/theme'
+import { PRESETS, type ThemeMode, type ThemePreset } from '@/contexts/theme'
 import { useTheme } from '@/contexts/useTheme'
 import type { SearchSettings } from '@/contexts/searchSettings'
 import { useSearchSettings } from '@/contexts/useSearchSettings'
@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils'
 type SettingsPanel = 'appearance' | 'file-previews' | 'indexing' | 'search'
 
 export default function SettingsPage() {
-  const { theme, customHue, setPreset, setCustomHue } = useTheme()
+  const { theme, themeMode, customHue, setPreset, setCustomHue, setThemeMode } = useTheme()
   const { settings, updateSettings } = useSearchSettings()
   const appSettings = useAppSettings()
   const updateAppSettings = useUpdateAppSettings()
@@ -42,9 +42,11 @@ export default function SettingsPage() {
         {openPanel === 'appearance' && (
           <AppearanceSection
             theme={theme}
+            themeMode={themeMode}
             customHue={customHue}
             onPreset={setPreset}
             onCustomHue={setCustomHue}
+            onThemeMode={setThemeMode}
           />
         )}
 
@@ -95,17 +97,33 @@ function SettingsPanelButton({ label, isOpen, onClick }: { label: string; isOpen
 
 interface AppearanceSectionProps {
   theme: ThemePreset
+  themeMode: ThemeMode
   customHue: number | null
   onPreset: (preset: ThemePreset) => void
   onCustomHue: (hue: number) => void
+  onThemeMode: (mode: ThemeMode) => void
 }
 
-function AppearanceSection({ theme, customHue, onPreset, onCustomHue }: AppearanceSectionProps) {
+function AppearanceSection({ theme, themeMode, customHue, onPreset, onCustomHue, onThemeMode }: AppearanceSectionProps) {
   return (
     <section className="bg-card border border-border rounded-lg p-6 max-w-lg">
       <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-4">
         Appearance
       </h2>
+
+      <div className="mb-6">
+        <p className="text-xs text-muted-foreground mb-3">Mode</p>
+        <SegmentedButtons<ThemeMode>
+          ariaLabel="Theme mode"
+          value={themeMode}
+          onChange={onThemeMode}
+          options={[
+            { value: 'system', label: 'System', title: 'Match your browser or operating system preference' },
+            { value: 'light', label: 'Light' },
+            { value: 'dark', label: 'Dark' },
+          ]}
+        />
+      </div>
 
       {/* Preset swatches */}
       <div className="mb-6">

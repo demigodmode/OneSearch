@@ -1,6 +1,8 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
+export type ThemeMode = 'system' | 'light' | 'dark'
+
 export interface ThemePreset {
   id: string
   name: string
