@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a source Root Path Test action that checks allowed roots, existence, directory status, and readability before saving a source.
 - Added Light, Dark, and System appearance modes while preserving accent color presets.
 - Softened the focused search box border and glow.
+- Added a friendly custom interval scan schedule option while keeping advanced cron available.
 
 ---
 

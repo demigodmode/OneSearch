@@ -19,6 +19,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
+type ScheduleMode = 'manual' | '@hourly' | '@daily' | '@weekly' | 'interval' | 'advanced'
+
+type IntervalUnit = 'minutes' | 'hours' | 'days'
+
 // Human-readable schedule labels
 function formatSchedule(schedule?: string | null): string {
   if (!schedule) return 'Manual'
@@ -27,6 +31,17 @@ function formatSchedule(schedule?: string | null): string {
     case '@daily': return 'Daily'
     case '@weekly': return 'Weekly'
     default: return schedule
+  }
+}
+
+function intervalToCron(value: number, unit: IntervalUnit): string {
+  switch (unit) {
+    case 'minutes':
+      return `*/${value} * * * *`
+    case 'hours':
+      return `0 */${value} * * *`
+    case 'days':
+      return `0 2 */${value} * *`
   }
 }
 
@@ -70,13 +85,15 @@ function SourceForm({
   const testPathMutation = useTestSourcePath()
 
   // Schedule state
-  const getInitialScheduleMode = () => {
+  const getInitialScheduleMode = (): ScheduleMode => {
     const s = source?.scan_schedule
     if (!s) return 'manual'
-    if (['@hourly', '@daily', '@weekly'].includes(s)) return s
-    return 'custom'
+    if (['@hourly', '@daily', '@weekly'].includes(s)) return s as ScheduleMode
+    return 'advanced'
   }
-  const [scheduleMode, setScheduleMode] = useState(getInitialScheduleMode)
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(getInitialScheduleMode)
+  const [intervalValue, setIntervalValue] = useState(6)
+  const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>('hours')
   const [customCron, setCustomCron] = useState(
     source?.scan_schedule && !['@hourly', '@daily', '@weekly'].includes(source.scan_schedule)
       ? source.scan_schedule
@@ -96,7 +113,9 @@ function SourceForm({
     e.preventDefault()
 
     let scan_schedule: string | null = null
-    if (scheduleMode === 'custom') {
+    if (scheduleMode === 'interval') {
+      scan_schedule = intervalToCron(intervalValue, intervalUnit)
+    } else if (scheduleMode === 'advanced') {
       scan_schedule = customCron.trim() || null
     } else if (scheduleMode !== 'manual') {
       scan_schedule = scheduleMode // @hourly, @daily, @weekly
@@ -114,7 +133,8 @@ function SourceForm({
   }
 
   const isEdit = !!source
-  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim()
+  const intervalIsValid = Number.isInteger(intervalValue) && intervalValue > 0
+  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (scheduleMode === 'interval' && !intervalIsValid)
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -203,22 +223,56 @@ function SourceForm({
           id="scan_schedule"
           value={scheduleMode}
           title="How often OneSearch automatically checks this source for changed files."
-          onChange={(e) => setScheduleMode(e.target.value)}
+          onChange={(e) => setScheduleMode(e.target.value as ScheduleMode)}
           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <option value="manual">Manual only</option>
           <option value="@hourly">Every hour</option>
           <option value="@daily">Daily (2:00 AM)</option>
           <option value="@weekly">Weekly (Sunday 2:00 AM)</option>
-          <option value="custom">Custom cron...</option>
+          <option value="interval">Custom interval...</option>
+          <option value="advanced">Advanced cron...</option>
         </select>
-        {scheduleMode === 'custom' && (
-          <Input
-            value={customCron}
-            onChange={(e) => setCustomCron(e.target.value)}
-            placeholder="0 */6 * * *"
-            className="font-mono text-sm"
-          />
+        {scheduleMode === 'interval' && (
+          <div className="space-y-2 rounded-lg border border-border bg-secondary/30 p-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Every</span>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                value={intervalValue}
+                onChange={(e) => setIntervalValue(Number(e.target.value))}
+                className="w-24"
+                aria-label="Custom interval value"
+              />
+              <select
+                value={intervalUnit}
+                onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)}
+                className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Custom interval unit"
+              >
+                <option value="minutes">minutes</option>
+                <option value="hours">hours</option>
+                <option value="days">days</option>
+              </select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Saves as <code className="font-mono">{intervalIsValid ? intervalToCron(intervalValue, intervalUnit) : 'invalid interval'}</code>. Daily intervals run at 2:00 AM.
+            </p>
+          </div>
+        )}
+        {scheduleMode === 'advanced' && (
+          <div className="space-y-2">
+            <Input
+              value={customCron}
+              onChange={(e) => setCustomCron(e.target.value)}
+              placeholder="0 */6 * * *"
+              className="font-mono text-sm"
+              aria-label="Advanced cron schedule"
+            />
+            <p className="text-xs text-muted-foreground">Use standard five-field cron syntax.</p>
+          </div>
         )}
       </div>
 
