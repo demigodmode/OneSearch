@@ -1,0 +1,54 @@
+name: Feature request
+description: Suggest an improvement or new capability for OneSearch
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. Please describe the use case, not just the implementation.
+
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      placeholder: "Add support for indexing XYZ files"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - File format support
+        - Indexing / scanning
+        - Search
+        - Preview
+        - Admin UI
+        - Docker / deployment
+        - CLI
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What are you trying to do, and how would this help?
+      placeholder: |
+        I want to...
+        This would help because...
+        Today I work around it by...
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Optional details, examples, related tools, deployment context, or implementation ideas.
+    validations:
+      required: false
