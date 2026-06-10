@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Softened the focused search box border and glow.
 - Added a friendly custom interval scan schedule option while keeping advanced cron available.
 - Added Podman deployment notes covering `podman compose`, rootless permissions, SELinux labels, and container source paths.
+- Added a tracked Podman managed-Meilisearch smoke script for release validation.
 
 ### Fixed
 
