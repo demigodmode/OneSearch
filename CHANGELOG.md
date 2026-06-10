@@ -11,14 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added a source Root Path Test action that checks allowed roots, existence, directory status, and readability before saving a source.
 - Added Light, Dark, and System appearance modes while preserving accent color presets.
-- Softened the focused search box border and glow.
 - Added a friendly custom interval scan schedule option while keeping advanced cron available.
 - Added Podman deployment notes covering `podman compose`, rootless permissions, SELinux labels, and container source paths.
 - Added a tracked Podman managed-Meilisearch smoke script for release validation.
 
+### Changed
+
+- Softened the focused search box border and glow.
+- Clarified that custom interval schedules currently run on cron clock boundaries.
+- Fully qualified Docker Hub base images in the Dockerfile for Podman compatibility.
+
 ### Fixed
 
 - Fixed relative schedule times in the UI by treating API timestamps without timezone suffixes as UTC.
+- Fixed custom interval schedule editing so saved interval cron patterns reopen as interval controls instead of advanced cron.
+- Fixed the custom interval number field so it can be cleared normally while still validating before save.
 
 ---
 
