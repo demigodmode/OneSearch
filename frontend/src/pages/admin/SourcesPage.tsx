@@ -23,6 +23,17 @@ type ScheduleMode = 'manual' | '@hourly' | '@daily' | '@weekly' | 'interval' | '
 
 type IntervalUnit = 'minutes' | 'hours' | 'days'
 
+function intervalUnitMax(unit: IntervalUnit): number {
+  switch (unit) {
+    case 'minutes':
+      return 59
+    case 'hours':
+      return 23
+    case 'days':
+      return 31
+  }
+}
+
 // Human-readable schedule labels
 function formatSchedule(schedule?: string | null): string {
   if (!schedule) return 'Manual'
@@ -30,8 +41,18 @@ function formatSchedule(schedule?: string | null): string {
     case '@hourly': return 'Hourly'
     case '@daily': return 'Daily'
     case '@weekly': return 'Weekly'
-    default: return schedule
   }
+
+  const minuteInterval = schedule.match(/^\*\/(\d+) \* \* \* \*$/)
+  if (minuteInterval) return `Every ${minuteInterval[1]} minute${minuteInterval[1] === '1' ? '' : 's'}`
+
+  const hourInterval = schedule.match(/^0 \*\/(\d+) \* \* \*$/)
+  if (hourInterval) return `Every ${hourInterval[1]} hour${hourInterval[1] === '1' ? '' : 's'}`
+
+  const dayInterval = schedule.match(/^0 2 \*\/(\d+) \* \*$/)
+  if (dayInterval) return `Every ${dayInterval[1]} day${dayInterval[1] === '1' ? '' : 's'}`
+
+  return schedule
 }
 
 function intervalToCron(value: number, unit: IntervalUnit): string {
@@ -133,7 +154,7 @@ function SourceForm({
   }
 
   const isEdit = !!source
-  const intervalIsValid = Number.isInteger(intervalValue) && intervalValue > 0
+  const intervalIsValid = Number.isInteger(intervalValue) && intervalValue > 0 && intervalValue <= intervalUnitMax(intervalUnit)
   const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (scheduleMode === 'interval' && !intervalIsValid)
 
   return (
@@ -240,6 +261,7 @@ function SourceForm({
               <Input
                 type="number"
                 min={1}
+                max={intervalUnitMax(intervalUnit)}
                 step={1}
                 value={intervalValue}
                 onChange={(e) => setIntervalValue(Number(e.target.value))}
@@ -258,7 +280,7 @@ function SourceForm({
               </select>
             </div>
             <p className="text-xs text-muted-foreground">
-              Saves as <code className="font-mono">{intervalIsValid ? intervalToCron(intervalValue, intervalUnit) : 'invalid interval'}</code>. Daily intervals run at 2:00 AM.
+              Saves as <code className="font-mono">{intervalIsValid ? intervalToCron(intervalValue, intervalUnit) : `choose 1-${intervalUnitMax(intervalUnit)}`}</code>. Daily intervals run at 2:00 AM.
             </p>
           </div>
         )}
