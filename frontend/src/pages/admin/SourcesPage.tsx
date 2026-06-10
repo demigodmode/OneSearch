@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useState } from 'react'
-import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock } from 'lucide-react'
-import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource } from '@/hooks/useApi'
-import type { Source, SourceCreate, SourceUpdate } from '@/types/api'
+import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock, CheckCircle } from 'lucide-react'
+import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath } from '@/hooks/useApi'
+import type { Source, SourceCreate, SourceUpdate, SourcePathTestResponse } from '@/types/api'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import {
   Dialog,
@@ -66,6 +66,8 @@ function SourceForm({
   const [excludePatterns, setExcludePatterns] = useState(
     source?.exclude_patterns?.join(', ') || ''
   )
+  const [pathTestResult, setPathTestResult] = useState<SourcePathTestResponse | null>(null)
+  const testPathMutation = useTestSourcePath()
 
   // Schedule state
   const getInitialScheduleMode = () => {
@@ -80,6 +82,15 @@ function SourceForm({
       ? source.scan_schedule
       : ''
   )
+
+  const handleTestPath = () => {
+    const candidate = rootPath.trim()
+    if (!candidate) return
+    testPathMutation.mutate(candidate, {
+      onSuccess: setPathTestResult,
+      onError: () => setPathTestResult(null),
+    })
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -103,6 +114,7 @@ function SourceForm({
   }
 
   const isEdit = !!source
+  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim()
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -132,12 +144,33 @@ function SourceForm({
         <Input
           id="root_path"
           value={rootPath}
-          onChange={(e) => setRootPath(e.target.value)}
+          onChange={(e) => {
+            setRootPath(e.target.value)
+            setPathTestResult(null)
+          }}
           placeholder="/data/documents"
           title="Path inside the OneSearch container, not necessarily the host path."
           className="font-mono text-sm"
           required
         />
+        <p className="text-xs text-muted-foreground">
+          Use the path OneSearch can see inside the container, usually under the configured allowed source roots.
+        </p>
+        {pathTestResult && (
+          <Alert
+            variant={pathTestResult.ok ? 'default' : 'destructive'}
+            className={pathTestResult.ok ? 'border-success/50 text-foreground [&>svg]:text-success' : undefined}
+          >
+            {pathTestResult.ok ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+            <AlertDescription>
+              <p>{pathTestResult.message}</p>
+              {pathTestResult.hint && <p className="mt-1 text-xs opacity-80">{pathTestResult.hint}</p>}
+              <p className="mt-2 text-xs opacity-80">
+                Allowed: {pathTestResult.inside_allowed_roots ? 'yes' : 'no'} · Exists: {pathTestResult.exists ? 'yes' : 'no'} · Directory: {pathTestResult.is_directory ? 'yes' : 'no'} · Readable: {pathTestResult.readable ? 'yes' : 'no'}
+              </p>
+            </AlertDescription>
+          </Alert>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -190,10 +223,14 @@ function SourceForm({
       </div>
 
       <DialogFooter>
+        <Button type="button" variant="secondary" onClick={handleTestPath} disabled={isLoading || testPathMutation.isPending || !rootPath.trim()}>
+          {testPathMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Test
+        </Button>
         <Button type="button" variant="outline" onClick={onCancel} disabled={isLoading}>
           Cancel
         </Button>
-        <Button type="submit" disabled={isLoading || !name.trim() || !rootPath.trim()}>
+        <Button type="submit" disabled={isSubmitDisabled}>
           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {isEdit ? 'Save Changes' : 'Add Source'}
         </Button>

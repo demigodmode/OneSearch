@@ -11,6 +11,7 @@ import {
   getSource,
   createSource,
   updateSource,
+  testSourcePath,
   deleteSource,
   reindexSource,
   searchDocuments,
@@ -131,6 +132,15 @@ export function useUpdateSource() {
       queryClient.invalidateQueries({ queryKey: queryKeys.sources })
       queryClient.invalidateQueries({ queryKey: queryKeys.source(id) })
     },
+  })
+}
+
+/**
+ * Hook to test a source path before saving
+ */
+export function useTestSourcePath() {
+  return useMutation({
+    mutationFn: (rootPath: string) => testSourcePath({ root_path: rootPath }),
   })
 }
 

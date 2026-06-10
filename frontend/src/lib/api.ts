@@ -11,6 +11,8 @@ import type {
   Source,
   SourceCreate,
   SourceUpdate,
+  SourcePathTestRequest,
+  SourcePathTestResponse,
   SearchQuery,
   SearchResponse,
   StatusResponse,
@@ -183,6 +185,16 @@ export async function updateSource(
 ): Promise<Source> {
   return apiFetch<Source>(`/sources/${encodeURIComponent(id)}`, {
     method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+/**
+ * Test a candidate source path before saving
+ */
+export async function testSourcePath(data: SourcePathTestRequest): Promise<SourcePathTestResponse> {
+  return apiFetch<SourcePathTestResponse>('/sources/test-path', {
+    method: 'POST',
     body: JSON.stringify(data),
   })
 }
