@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a friendly custom interval scan schedule option while keeping advanced cron available.
 - Added Podman deployment notes covering `podman compose`, rootless permissions, SELinux labels, and container source paths.
 
+### Fixed
+
+- Fixed relative schedule times in the UI by treating API timestamps without timezone suffixes as UTC.
+
 ---
 
 ## [1.0.5] - 2026-06-08
