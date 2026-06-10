@@ -9,22 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Added a source Root Path Test action that checks allowed roots, existence, directory status, and readability before saving a source.
-- Added Light, Dark, and System appearance modes while preserving accent color presets.
-- Added a friendly custom interval scan schedule option while keeping advanced cron available.
+- Added source path preflight testing so users can check a root path before saving it. The test reports whether OneSearch can see the path, whether it is inside allowed roots, whether it exists, whether it is a directory, and whether the container can read it.
+- Added clearer Docker path guidance in the source form and docs, including host-path hints for common `/mnt/...` and Windows drive-letter mistakes.
+- Added Light, Dark, and System appearance modes in Settings while preserving accent color presets and custom hue controls.
+- Added a friendlier custom interval scan schedule UI for minutes, hours, and days, while keeping advanced cron available for power users.
 - Added Podman deployment notes covering `podman compose`, rootless permissions, SELinux labels, and container source paths.
-- Added a tracked Podman managed-Meilisearch smoke script for release validation.
+- Added a tracked Podman managed-Meilisearch smoke script that builds the image, starts managed Meilisearch, checks health, tests a mounted source path, indexes a fixture, and verifies search.
 
 ### Changed
 
-- Softened the focused search box border and glow.
+- Softened the focused search box border and glow so keyboard focus is visible without overpowering the page.
 - Clarified that custom interval schedules currently run on cron clock boundaries.
-- Fully qualified Docker Hub base images in the Dockerfile for Podman compatibility.
+- Fully qualified Docker Hub base images in the Dockerfile so Docker builds still work and stricter Podman installs do not rely on short-name registry configuration.
 
 ### Fixed
 
 - Fixed relative schedule times in the UI by treating API timestamps without timezone suffixes as UTC.
-- Fixed custom interval schedule editing so saved interval cron patterns reopen as interval controls instead of advanced cron.
+- Fixed custom interval schedule editing so saved interval cron patterns reopen as interval controls instead of dropping users into advanced cron.
 - Fixed the custom interval number field so it can be cleared normally while still validating before save.
 
 ---
