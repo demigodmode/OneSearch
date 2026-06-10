@@ -14,7 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Light, Dark, and System appearance modes in Settings while preserving accent color presets and custom hue controls. (#38)
 - Added a friendlier custom interval scan schedule UI for minutes, hours, and days, while keeping advanced cron available for power users. (#131)
 - Added Podman deployment notes covering `podman compose`, rootless permissions, SELinux labels, and container source paths.
-- Added a tracked Podman managed-Meilisearch smoke script that builds the image, starts managed Meilisearch, checks health, tests a mounted source path, indexes a fixture, and verifies search.
 
 ### Changed
 
