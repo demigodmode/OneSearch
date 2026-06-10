@@ -15,7 +15,7 @@ Check your versions:
 
 ```bash
 docker --version
-docker-compose --version
+docker compose version
 ```
 
 ---
@@ -34,9 +34,9 @@ curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/.env.exampl
 cp .env.example .env
 ```
 
-### Generate a search master key
+### Generate required secrets
 
-You need a secure random key to protect the managed Meilisearch search API:
+You need a secure random key to protect the managed Meilisearch search API, and a separate session secret for login tokens:
 
 **Linux/macOS:**
 ```bash
@@ -53,13 +53,14 @@ openssl rand -base64 32
 openssl rand -base64 32
 ```
 
-Edit `.env` and paste your key:
+Edit `.env` and paste both values:
 
 ```env
-MEILI_MASTER_KEY=your-generated-key-here
+MEILI_MASTER_KEY=your-generated-meili-key-here
+SESSION_SECRET=your-generated-session-secret-here
 ```
 
-Keep this key secure. Don't commit it to version control.
+Keep these secrets secure. Don't commit them to version control.
 
 ### Update docker-compose.yml
 
@@ -91,7 +92,7 @@ services:
 
 The `:ro` flag mounts volumes as read-only, which is recommended for safety.
 
-Use the container path (like `/data/documents`) when adding sources later, not the host path.
+Use the container path (like `/data/documents`) when adding sources later, not the host path. The source form's **Test** button can confirm whether OneSearch can see and read the mounted path before you save it.
 
 Using Podman instead of Docker? See the [Podman notes](../configuration/podman.md) for `podman compose`, rootless permissions, and SELinux mount labels.
 
@@ -100,7 +101,7 @@ If your mounted files are readable by a specific host user or shared group, set 
 ### Start OneSearch
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### Verify it's running
@@ -108,7 +109,7 @@ docker-compose up -d
 Check that services started:
 
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 You should see `onesearch` running. The managed Meilisearch process runs inside that container.
@@ -116,7 +117,7 @@ You should see `onesearch` running. The managed Meilisearch process runs inside 
 Check logs if something looks wrong:
 
 ```bash
-docker-compose logs -f onesearch
+docker compose logs -f onesearch
 ```
 
 ### Access the web interface
@@ -136,7 +137,7 @@ curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/docker-comp
 Then start with:
 
 ```bash
-docker-compose -f docker-compose.legacy.yml up -d
+docker compose -f docker-compose.legacy.yml up -d
 ```
 
 External-mode users manage the Meilisearch version and index compatibility themselves. If you're switching an existing two-container install to the default managed setup, read [Migrating to managed Meilisearch](migrate-to-managed-meilisearch.md) first and plan to run a full reindex.
@@ -160,7 +161,7 @@ cd OneSearch
 cp .env.example .env
 ```
 
-Edit `.env` and set your Meilisearch master key (see Option 1 above for how to generate one).
+Edit `.env` and set `MEILI_MASTER_KEY` and `SESSION_SECRET` (see Option 1 above for how to generate them).
 
 ### Add volume mounts (optional)
 
@@ -177,7 +178,7 @@ services:
 ### Build and start
 
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 This builds the unified OneSearch image (takes 5-10 minutes the first time), pulls Meilisearch, and starts everything.
@@ -185,7 +186,7 @@ This builds the unified OneSearch image (takes 5-10 minutes the first time), pul
 Watch the logs:
 
 ```bash
-docker-compose logs -f onesearch
+docker compose logs -f onesearch
 ```
 
 Look for:
@@ -226,13 +227,14 @@ To remove OneSearch:
 
 ```bash
 # Stop and remove containers
-docker-compose down
+docker compose down
 
 # Remove volumes (deletes indexed data, not your files)
-docker-compose down -v
+docker compose down -v
 
 # Remove images
 docker rmi ghcr.io/demigodmode/onesearch:latest
+# Only needed if you used the legacy external Meilisearch image:
 docker rmi getmeili/meilisearch:v1.12
 ```
 

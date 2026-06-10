@@ -25,7 +25,7 @@ If you opened the document from search, matching terms are highlighted where the
 
 Use this page to add, edit, delete, and reindex sources.
 
-This is also where you set per-source schedules. Use container paths such as `/data/documents` when running in Docker.
+This is also where you set per-source schedules. Use container paths such as `/data/documents` when running in Docker, and use the Root Path **Test** button to confirm OneSearch can see and read the path before saving.
 
 ## Admin → Status
 
@@ -37,7 +37,7 @@ The page refreshes automatically, which is useful during a long first index.
 
 Settings is where app-level preferences live:
 
-- appearance and theme accent
+- Light, Dark, or System appearance mode plus theme accent
 - preview behavior and size limits
 - indexing behavior for unsupported files, RAW metadata, media metadata, and GPS metadata
 - search page display preferences

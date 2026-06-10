@@ -29,11 +29,11 @@ curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/docker-comp
 curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/.env.example
 cp .env.example .env
 
-# 2. Set Meilisearch key (generate with: openssl rand -base64 32)
-# Edit .env and add: MEILI_MASTER_KEY=your-key-here
+# 2. Set secrets (generate each with: openssl rand -base64 32)
+# Edit .env and set MEILI_MASTER_KEY and SESSION_SECRET
 
 # 3. Start it
-docker-compose up -d
+docker compose up -d
 ```
 
 Access the web interface at http://localhost:8000
@@ -77,13 +77,13 @@ That's it - all other dependencies are bundled in the containers.
 
 ## Architecture
 
-OneSearch consists of three main components running in Docker containers:
+The default Docker install runs one OneSearch container with three supervised processes inside it:
 
 - **nginx** - Serves the React frontend and proxies API requests
 - **Backend (FastAPI)** - Handles indexing and search requests
-- **Meilisearch** - Fast search engine with typo tolerance
+- **Managed Meilisearch** - Fast search engine with typo tolerance
 
-The backend talks to Meilisearch over a private Docker network, so Meilisearch isn't exposed to the host. SQLite stores source configurations and file metadata.
+Meilisearch listens only inside the container, so it is not exposed to the host. SQLite stores source configurations and file metadata.
 
 ---
 

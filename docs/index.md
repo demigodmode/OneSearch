@@ -16,13 +16,13 @@ Search across all your files, documents, and notes from a single interface. No c
 
 **Incremental indexing**: Only changed files get reindexed, so updates are fast. Full reindex available when you need it.
 
-**Scheduled indexing**: Set per-source cron schedules (hourly, daily, weekly, or custom) so sources stay up to date automatically.
+**Scheduled indexing**: Set per-source schedules with presets, friendly custom intervals, or advanced cron so sources stay up to date automatically.
 
 **Authentication**: JWT-based login with a setup wizard. Rate-limited to prevent brute force.
 
 **Three ways to use it**: Web UI for browsing and searching, REST API for integrations, and CLI for automation.
 
-**Themeable**: pick an accent color preset or dial in a custom hue from Admin -> Settings. Persists across reloads.
+**Themeable**: choose Light, Dark, or System mode, then pick an accent color preset or dial in a custom hue from Admin → Settings. Persists across reloads.
 
 **Privacy first**: Everything runs locally. No outbound connections, no telemetry, no cloud services. Your data never leaves your network.
 
@@ -42,10 +42,11 @@ curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/docker-comp
 # Download and configure environment
 curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/.env.example
 cp .env.example .env
-# Edit .env and set MEILI_MASTER_KEY (generate with: openssl rand -base64 32)
+# Edit .env and set MEILI_MASTER_KEY and SESSION_SECRET
+# Generate each secret with: openssl rand -base64 32
 
 # Start it up
-docker-compose up -d
+docker compose up -d
 ```
 
 Open http://localhost:8000, create your admin account in the setup wizard, and you're ready to go.
@@ -56,7 +57,7 @@ For detailed setup instructions, see the [Installation Guide](getting-started/in
 
 ## What's New
 
-The current Docker setup runs OneSearch and managed Meilisearch in a single container by default. Recent releases also added rich media indexing, authenticated previews, RAW/photo metadata, metadata-only indexing for unsupported files, and full reindex controls in the UI, CLI, and API.
+The current Docker setup runs OneSearch and managed Meilisearch in a single container by default. Recent releases also added source path preflight testing, Light/Dark/System theme modes, friendlier scan schedules, rich media indexing, authenticated previews, RAW/photo metadata, metadata-only indexing for unsupported files, and full reindex controls in the UI, CLI, and API.
 
 Check the [Changelog](about/changelog.md) for release-by-release details.
 

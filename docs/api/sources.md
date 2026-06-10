@@ -9,6 +9,7 @@ Manage search sources via API. All endpoints require authentication.
 - `GET /api/sources/{id}` - Get source details
 - `PUT /api/sources/{id}` - Update source
 - `DELETE /api/sources/{id}` - Delete source
+- `POST /api/sources/test-path` - Test a candidate root path before saving
 - `POST /api/sources/{id}/reindex` - Trigger reindex
 - `POST /api/sources/{id}/clear-stale` - Remove stale failed-file entries
 
@@ -16,13 +17,14 @@ Manage search sources via API. All endpoints require authentication.
 
 When creating or updating a source, you can set:
 
+- `id` - Optional source ID on create. If omitted, OneSearch generates one from the name.
 - `name` - Display name for the source
 - `root_path` - Directory path to index (container path in Docker)
 - `include_patterns` - Array of glob patterns for files to include
 - `exclude_patterns` - Array of glob patterns for files to exclude
 - `scan_schedule` - Cron schedule for automatic indexing (optional)
 
-The `scan_schedule` field accepts presets (`@hourly`, `@daily`, `@weekly`) or standard cron expressions (e.g., `0 */6 * * *` for every 6 hours). Set to `null` or omit for manual-only indexing.
+The `scan_schedule` field accepts presets (`@hourly`, `@daily`, `@weekly`) or standard five-field cron expressions (e.g., `0 */6 * * *` for every 6 hours on cron clock boundaries). Set to `null` or omit for manual-only indexing. The web UI's friendly interval controls save cron expressions into this same field.
 
 Response objects also include `created_at`, `updated_at`, `last_scan_at`, and `next_scan_at` timestamps.
 
@@ -39,6 +41,36 @@ Example create body:
 ```
 
 The CLI and web UI accept comma-separated pattern text. The API takes arrays.
+
+## Test a source path
+
+`POST /api/sources/test-path` checks a candidate root path without saving it.
+
+```bash
+curl -X POST http://localhost:8000/api/sources/test-path \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"root_path": "/data/documents"}'
+```
+
+Example response:
+
+```json
+{
+  "path": "/data/documents",
+  "ok": true,
+  "exists": true,
+  "is_directory": true,
+  "readable": true,
+  "inside_allowed_roots": true,
+  "allowed_roots": ["/data"],
+  "looks_like_host_path": false,
+  "message": "Path is ready to use.",
+  "hint": null
+}
+```
+
+Use this for Docker/Podman mount troubleshooting before creating or updating a source. It can also flag host-looking paths such as Windows drive paths or common Linux host paths that are not visible inside the container.
 
 ## Reindex
 

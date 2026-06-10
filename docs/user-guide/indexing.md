@@ -68,7 +68,7 @@ Check **Admin → Status** for failed file details.
 
 ## Schedules
 
-Sources can be manual-only or scheduled. Presets are hourly, daily, and weekly, with custom cron available if you need it.
+Sources can be manual-only or scheduled. Presets are hourly, daily, and weekly. The web UI also offers custom interval controls for common minute/hour/day schedules and advanced cron for exact control.
 
 Schedules run incremental indexing. If a source is already being indexed, another run for that source is skipped instead of running two scans at once.
 

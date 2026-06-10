@@ -38,12 +38,15 @@ OneSearch currently supports:
 
 | Type | Extensions | Features |
 |------|------------|----------|
-| Text | .txt, .log, .conf, .cfg, .ini | Full-text search, encoding detection |
-| Markdown | .md, .markdown | Full-text search, YAML front-matter parsing |
+| Text, code, config | .txt, .log, .py, .js, .yaml, .json, and more | Full-text search, encoding detection |
+| Markdown | .md, .markdown | Full-text search, YAML front-matter parsing, rendered preview |
 | PDF | .pdf | Text extraction, metadata |
-| Word | .docx | Paragraph and table extraction |
-| Excel | .xlsx | Cell values across all sheets |
-| PowerPoint | .pptx | Slide text and speaker notes |
+| Office | .docx, .xlsx, .pptx | Document, spreadsheet, slide, and notes extraction |
+| RTF, EPUB, subtitles | .rtf, .epub, .srt, .vtt, .ass | Readable text and format metadata |
+| Comics | .cbz | Page listing and ComicInfo metadata |
+| Images and RAW photos | .jpg, .png, .webp, .tiff, .cr2, .cr3, .nef, .dng, and more | Image/EXIF metadata and authenticated previews |
+| Audio/video media | .mp4, .mkv, .mov, .mp3, .flac, .wav, and more | Optional ffprobe metadata |
+| Unsupported files | any other extension | Optional filename/path metadata-only indexing |
 
 See [Supported Formats](../supported-formats/index.md) for details.
 
@@ -73,13 +76,15 @@ Incremental reindex is fast for regular updates. Full reindex rebuilds everythin
 
 ### Search Page
 
-The main page has a search box (press `Cmd/Ctrl + K` to focus it), filters for source and file type, and clickable result cards with highlighted snippets. Pagination lets you browse through results.
+The main page has a search box (press `Ctrl+K` or `Cmd+K` to focus it), filters for source and file type, and clickable result cards with highlighted snippets. Pagination lets you browse through results.
 
 ### Admin Section
 
-**Sources**: Manage sources - add, edit, delete, trigger incremental reindexing, or run a full reindex when rebuilding the search index.
+**Sources**: Manage sources - test root paths, add, edit, delete, trigger incremental reindexing, or run a full reindex when rebuilding the search index.
 
 **Status**: Monitor indexing progress, view per-source statistics, and check failed files.
+
+**Settings**: Choose Light, Dark, or System mode, adjust accent colors, configure previews/indexing behavior, and tune search display preferences.
 
 See the [Web Interface Guide](web-interface.md) for details.
 

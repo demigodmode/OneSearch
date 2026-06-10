@@ -29,7 +29,9 @@ Go to **Admin → Sources**, click **Add Source**, then fill in:
 - **Path**: the container path, such as `/data/documents`
 - **Include patterns**: optional comma-separated globs
 - **Exclude patterns**: optional comma-separated globs
-- **Schedule**: manual, hourly, daily, weekly, or custom cron
+- **Schedule**: manual, hourly, daily, weekly, custom interval, or advanced cron
+
+Use **Test** next to Root Path before saving. It checks whether the path is inside allowed roots, exists, is a directory, and is readable by OneSearch from inside the container. If you accidentally enter a host path, the test can point you back toward the mounted container path.
 
 After saving, run a reindex from the same page unless you set a schedule and are happy to wait for the next run.
 

@@ -1,12 +1,12 @@
 # Backend Development
 
-The OneSearch backend is built with FastAPI and Python 3.11+.
+The OneSearch backend is built with FastAPI and Python 3.10+.
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.11 or later
+- Python 3.10 or later
 - uv (recommended) or pip
 - Docker + Docker Compose (for Meilisearch)
 
@@ -37,16 +37,22 @@ pip install -e .
 
 ### Start Meilisearch
 
-The backend needs Meilisearch running:
+The default Docker setup runs managed Meilisearch inside the OneSearch container. For backend-only development, you still need a Meilisearch instance reachable from the backend process.
+
+The simplest local option is to run Meilisearch directly with Docker:
 
 ```bash
-docker-compose up -d meilisearch
+docker run --rm -p 7700:7700 \
+  -e MEILI_MASTER_KEY=your-key-here \
+  getmeili/meilisearch:v1.12
 ```
 
-Set your Meilisearch master key in `.env`:
+Set matching backend environment values in `.env`:
 
 ```env
 MEILI_MASTER_KEY=your-key-here
+MEILI_URL=http://localhost:7700
+SESSION_SECRET=dev-session-secret
 ```
 
 ### Run the Development Server
@@ -77,9 +83,12 @@ backend/
 │   ├── models.py            # SQLAlchemy ORM models
 │   ├── schemas.py           # Pydantic request/response schemas
 │   ├── api/                 # API endpoints
-│   │   ├── search.py        # POST /api/search
-│   │   ├── sources.py       # CRUD for /api/sources
-│   │   └── status.py        # GET /api/health, /api/status
+│   │   ├── auth.py          # setup/login/JWT endpoints
+│   │   ├── preview.py       # authenticated document previews
+│   │   ├── search.py        # POST /api/search, GET /api/documents/{id}
+│   │   ├── settings.py      # app-level settings
+│   │   ├── sources.py       # CRUD, path tests, reindex, clear-stale
+│   │   └── status.py        # GET /api/status, GET /api/status/{source_id}
 │   ├── services/            # Business logic
 │   │   ├── indexer.py       # Orchestrates indexing
 │   │   ├── scanner.py       # File system walker
@@ -147,11 +156,17 @@ This updates `pyproject.toml` and `uv.lock`. Always commit the lock file.
 
 API routes live in `app/api/`. Each module handles a resource:
 
-**search.py** - Search endpoint
+**auth.py** - Setup, login, logout, and current-user endpoints
 
-**sources.py** - Source CRUD operations
+**search.py** - Search endpoint and document lookup
 
-**status.py** - Health checks and status
+**sources.py** - Source CRUD, source path tests, reindexing, and stale failure cleanup
+
+**settings.py** - Backend-managed indexing and preview settings
+
+**preview.py** - Authenticated document preview streaming
+
+**status.py** - Per-source indexing status
 
 Example endpoint structure:
 
@@ -198,7 +213,7 @@ from ..schemas import Document
 
 class BaseExtractor(ABC):
     @abstractmethod
-    async def extract(self, file_path: str) -> Document:
+    def extract(self, file_path: str) -> Document:
         pass
 ```
 
@@ -206,8 +221,8 @@ Example extractor:
 
 ```python
 class TextExtractor(BaseExtractor):
-    async def extract(self, file_path: str) -> Document:
-        # Read file with timeout
+    def extract(self, file_path: str) -> Document:
+        # Read file; timeout protection is handled by extract_with_timeout()
         # Detect encoding
         # Return normalized Document
         return Document(
@@ -445,13 +460,13 @@ uv run alembic upgrade head
 
 ### Meilisearch connection errors
 
-Verify Meilisearch is running:
+Verify the development Meilisearch instance is reachable:
 
 ```bash
-docker-compose ps meilisearch
+curl http://localhost:7700/health
 ```
 
-Check the master key matches in both `.env` and `docker-compose.yml`.
+Check that `MEILI_URL` points to the running Meilisearch instance and that `MEILI_MASTER_KEY` matches on both sides.
 
 ---
 

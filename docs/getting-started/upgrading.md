@@ -8,10 +8,10 @@ Guide for upgrading OneSearch to newer versions.
 
 ```bash
 # Pull latest image
-docker-compose pull
+docker compose pull
 
 # Restart services
-docker-compose up -d
+docker compose up -d
 ```
 
 ### Building from Source
@@ -21,7 +21,7 @@ docker-compose up -d
 git pull origin main
 
 # Rebuild and restart
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 ---
@@ -40,7 +40,7 @@ OneSearch is compatible with Docker auto-update tools. Database migrations run a
 - **Watchtower** - Automatically pulls and updates containers on a schedule
 - **Diun** - Sends notifications when new images are available (doesn't auto-update)
 - **Ouroboros** - Similar to Watchtower
-- **Custom scripts** - Cron jobs running `docker-compose pull && docker-compose up -d`
+- **Custom scripts** - Cron jobs running `docker compose pull && docker compose up -d`
 
 **Example with Watchtower:**
 
@@ -56,8 +56,8 @@ docker run -d \
 You can pin to specific tags if you want more control:
 - `latest` - Always get the newest release
 - `1` - Stay on the 1.x line
-- `1.0` - Stay on the 1.0.x line
-- `1.0.0` - Pin to a specific version (no auto-updates)
+- `1.1` - Stay on the 1.1.x line
+- `1.1.0` - Pin to a specific version (no auto-updates)
 
 ---
 

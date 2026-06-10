@@ -266,6 +266,17 @@ Maximum failed login attempts per minute before requests get rejected.
 - Default: `5`
 - Unit: Attempts per minute
 
+### Indexing internals
+
+**MEILISEARCH_BATCH_SIZE**
+
+How many documents OneSearch sends to Meilisearch in each batch.
+
+- Default: `100`
+- Unit: Documents
+
+Larger batches can improve throughput on bigger machines but use more memory. Smaller batches are gentler on low-memory systems.
+
 ### Scheduling
 
 **SCHEDULER_ENABLED**
@@ -448,7 +459,7 @@ For the default managed install, check that `ONESEARCH_MANAGED_MEILI=true` and `
 Check file size limits. Files exceeding the max size are skipped and logged.
 
 ```bash
-docker-compose logs -f onesearch | grep "exceeds"
+docker compose logs -f onesearch | grep "exceeds"
 ```
 
 ### Extraction timeouts

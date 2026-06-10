@@ -124,6 +124,8 @@ Every document in Meilisearch follows this structure:
 
 **Filterable fields:** source_id, type, extension, modified_at
 
+**Sortable fields:** modified_at, size_bytes, basename
+
 ---
 
 ## Extractor System
@@ -161,9 +163,12 @@ backend/app/
 ├── models.py            # SQLAlchemy ORM models
 ├── schemas.py           # Pydantic request/response schemas
 ├── api/                 # API route handlers
-│   ├── search.py        # POST /api/search
-│   ├── sources.py       # CRUD for /api/sources
-│   └── status.py        # GET /api/health, /api/status
+│   ├── auth.py          # setup/login/JWT endpoints
+│   ├── preview.py       # authenticated document previews
+│   ├── search.py        # POST /api/search, GET /api/documents/{id}
+│   ├── settings.py      # app-level settings
+│   ├── sources.py       # CRUD, path tests, reindex, clear-stale
+│   └── status.py        # GET /api/status, GET /api/status/{source_id}
 ├── services/            # Business logic
 │   ├── indexer.py       # Orchestrates indexing
 │   ├── scanner.py       # File system walker
@@ -184,18 +189,25 @@ React SPA using functional components and hooks:
 ```
 frontend/src/
 ├── main.tsx             # Entry point
-├── App.tsx              # Router + TanStack Query provider
+├── App.tsx              # Router + providers
 ├── pages/
 │   ├── SearchPage.tsx   # Main search (/)
 │   ├── DocumentPage.tsx # Document preview
+│   ├── LoginPage.tsx    # Login
+│   ├── SetupPage.tsx    # First-run setup
 │   └── admin/
 │       ├── SourcesPage.tsx   # Manage sources
-│       └── StatusPage.tsx    # Indexing status
+│       ├── StatusPage.tsx    # Indexing status
+│       └── SettingsPage.tsx  # Appearance, preview, indexing, search settings
 ├── components/
-│   ├── SearchBox.tsx
-│   ├── ResultCard.tsx
-│   ├── SourceForm.tsx
-│   └── ui/              # shadcn/ui components
+│   ├── AdminLayout.tsx
+│   ├── MainLayout.tsx
+│   ├── ProtectedRoute.tsx
+│   ├── OneSearchLogo.tsx
+│   ├── document/        # document detail renderers
+│   └── ui/              # shadcn-style components copied into the repo
+├── contexts/            # auth, theme, and search settings contexts
+├── hooks/               # API/query hooks
 ├── lib/
 │   ├── api.ts           # API client (fetch wrappers)
 │   └── utils.ts         # Utilities
@@ -210,8 +222,6 @@ frontend/src/
 **React hooks** (useState, useEffect) manage local UI state - form inputs, modals, etc.
 
 No global state library needed. Server state lives in TanStack Query, UI state in component hooks.
-
----
 
 ---
 

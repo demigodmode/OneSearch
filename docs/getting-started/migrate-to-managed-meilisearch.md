@@ -18,7 +18,7 @@ A few things to know:
 From the directory with your current `docker-compose.yml` and `.env`:
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 Back up the compose/env files:
@@ -92,19 +92,19 @@ Keep source mounts read-only unless you have a specific reason not to.
 ## 5. Start managed mode
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 Check the container status:
 
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 Follow logs during the first start:
 
 ```bash
-docker-compose logs -f onesearch
+docker compose logs -f onesearch
 ```
 
 You should see OneSearch start, then managed Meilisearch become ready.
@@ -153,13 +153,13 @@ Large source trees may take a while to rebuild. Your original files are not modi
 If managed mode does not work for your setup:
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 Start the previous two-container setup again:
 
 ```bash
-docker-compose -f docker-compose.legacy.backup.yml up -d
+docker compose -f docker-compose.legacy.backup.yml up -d
 ```
 
 If you did not change your old Meilisearch volume, the external setup should come back with the old index data.

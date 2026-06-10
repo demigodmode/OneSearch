@@ -76,6 +76,7 @@ GET  /api/auth/status   # Check whether setup is required (public)
 POST /api/auth/setup    # Create initial admin account (first run only)
 POST /api/auth/login    # Get a token
 GET  /api/auth/me       # Check current user
+POST /api/auth/logout   # Logout acknowledgement
 ```
 
 Tokens expire after 24 hours by default (configurable via `SESSION_EXPIRE_HOURS`). Login is rate-limited to 5 attempts per minute by default (`AUTH_RATE_LIMIT`).
@@ -86,13 +87,15 @@ See [Authentication Guide](../administration/authentication.md) for more details
 
 ## Endpoints
 
-### Search
+### Search and Documents
 
 ```http
 POST /api/search
+GET  /api/documents/{id}
+GET  /api/documents/{id}/preview
 ```
 
-Search indexed documents with optional filters.
+Search indexed documents with optional filters, fetch full indexed document records, or stream authenticated previews for supported image/RAW documents.
 
 ### Sources
 
@@ -102,7 +105,9 @@ POST   /api/sources              # Create
 GET    /api/sources/{id}         # Get details
 PUT    /api/sources/{id}         # Update
 DELETE /api/sources/{id}         # Delete
-POST   /api/sources/{id}/reindex # Trigger reindex
+POST   /api/sources/test-path     # Test a candidate root path before saving
+POST   /api/sources/{id}/reindex  # Trigger reindex
+POST   /api/sources/{id}/clear-stale # Clear stale failed-file entries
 ```
 
 ### Authentication
@@ -112,6 +117,7 @@ GET  /api/auth/status       # Setup status (public)
 POST /api/auth/setup        # Initial account creation
 POST /api/auth/login        # Login, get JWT
 GET  /api/auth/me           # Current user info
+POST /api/auth/logout       # Logout acknowledgement
 ```
 
 ### Status & Health
@@ -136,12 +142,9 @@ All responses are JSON.
 
 ### Success
 
-```json
-{
-  "data": { ... },
-  "message": "Success"
-}
-```
+Successful responses are JSON objects or arrays matching the endpoint. For example, `GET /api/sources` returns an array of source objects, while `POST /api/search` returns a search response with `results`, `total`, `limit`, `offset`, and `processing_time_ms`.
+
+Some action endpoints also include a short message, such as reindex responses with `message` and `stats`.
 
 ### Error
 
@@ -192,6 +195,17 @@ curl -X POST http://localhost:8000/api/sources \
   }'
 ```
 
+### Test a Source Path
+
+```bash
+curl -X POST http://localhost:8000/api/sources/test-path \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"root_path": "/data/documents"}'
+```
+
+This does not create or update a source. It reports whether OneSearch can see the path from inside the container, whether it is inside allowed roots, whether it exists, whether it is a directory, and whether it is readable.
+
 ### Trigger Reindex
 
 ```bash
@@ -228,6 +242,8 @@ curl http://localhost:8000/api/status \
   "offset": 0
 }
 ```
+
+The `type` field accepts any indexed OneSearch document type. Common values include `text`, `markdown`, `code`, `config`, `pdf`, `docx`, `xlsx`, `pptx`, `rtf`, `epub`, `subtitle`, `comic`, `image`, `raw_image`, `media`, and `file`.
 
 ### Search Response
 

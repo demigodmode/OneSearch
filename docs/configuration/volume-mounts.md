@@ -83,7 +83,7 @@ All the examples above use `:ro` (read-only). OneSearch never modifies your file
 Any time you add or change a volume mount in `docker-compose.yml`, you need to restart the stack for it to take effect:
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 If you're using the [parent directory approach](#recommended-mount-parent-directories), you only have to do this once.
@@ -104,3 +104,5 @@ volumes:
 Use `/data/documents` in OneSearch, not `/mnt/nas/documents`.
 
 If Test says the path exists but is not readable, check filesystem permissions and the container user. For Docker installs, `PUID` and `PGID` can be set in `.env` so OneSearch runs with a user/group that can read your mounted folders.
+
+For Podman on SELinux systems such as Fedora or RHEL, the mount may also need a `:Z` or `:z` label. See [Podman](podman.md) for examples.
