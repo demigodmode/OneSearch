@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from typing import List
 from datetime import datetime, timezone
 
@@ -21,7 +22,7 @@ from pathlib import Path
 from ..config import settings
 from ..db.database import get_db
 from ..models import Source, IndexedFile, User
-from ..schemas import SourceCreate, SourceUpdate, SourceResponse
+from ..schemas import SourceCreate, SourceUpdate, SourceResponse, SourcePathTestRequest, SourcePathTestResponse
 from ..services.search import SearchService, meili_service
 from ..services.indexer import IndexingService
 from ..services.scheduler import validate_schedule, get_source_lock, calculate_next_run_time
@@ -43,6 +44,96 @@ def _is_within_path(path: Path, parent: Path) -> bool:
         return os.path.commonpath([path_abs, parent_abs]) == parent_abs
     except (OSError, ValueError):
         return False
+
+
+def _display_path(path: Path) -> str:
+    return str(path).replace("\\", "/")
+
+
+def _allowed_roots_hint(allowed: list[Path]) -> str | None:
+    if not allowed:
+        return None
+    return "Allowed source roots: " + ", ".join(_display_path(path) for path in allowed)
+
+
+def _looks_like_windows_host_path(path_text: str) -> bool:
+    return bool(re.match(r"^[A-Za-z]:[\\/]", path_text)) or "\\" in path_text
+
+
+def _looks_like_linux_host_path(path_text: str) -> bool:
+    normalized = path_text.replace("\\", "/")
+    host_prefixes = ("/mnt/", "/media/", "/home/", "/Users/", "/Volumes/")
+    return normalized.startswith(host_prefixes)
+
+
+def build_source_path_test_response(root_path: str) -> SourcePathTestResponse:
+    """Return source path diagnostics without creating or updating a source."""
+    raw_path = root_path.strip()
+    allowed = _configured_allowed_paths()
+    allowed_roots = [_display_path(path) for path in allowed]
+    hint = _allowed_roots_hint(allowed)
+    path = Path(raw_path)
+    looks_like_host_path = _looks_like_windows_host_path(raw_path)
+
+    if allowed and not any(_is_within_path(path, allowed_path) for allowed_path in allowed):
+        looks_like_host_path = looks_like_host_path or _looks_like_linux_host_path(raw_path)
+        message = "Root path is outside allowed source roots."
+        if _looks_like_windows_host_path(raw_path):
+            message = "This looks like a host path. OneSearch can only see container paths mounted into the container."
+        return SourcePathTestResponse(
+            path=raw_path,
+            ok=False,
+            exists=False,
+            is_directory=False,
+            readable=False,
+            inside_allowed_roots=False,
+            allowed_roots=allowed_roots,
+            looks_like_host_path=looks_like_host_path,
+            message=message,
+            hint=hint,
+        )
+
+    resolved = Path(os.path.realpath(os.path.expanduser(os.fspath(path))))
+    allowed_resolved = [Path(os.path.realpath(os.path.expanduser(os.fspath(allowed_path)))) for allowed_path in allowed]
+    if allowed_resolved and not any(resolved == allowed_path or allowed_path in resolved.parents for allowed_path in allowed_resolved):
+        return SourcePathTestResponse(
+            path=raw_path,
+            ok=False,
+            exists=False,
+            is_directory=False,
+            readable=False,
+            inside_allowed_roots=False,
+            allowed_roots=allowed_roots,
+            looks_like_host_path=looks_like_host_path or _looks_like_linux_host_path(raw_path),
+            message="Root path is outside allowed source roots.",
+            hint=hint,
+        )
+
+    exists = resolved.exists()
+    is_directory = exists and resolved.is_dir()
+    readable = is_directory and os.access(resolved, os.R_OK | os.X_OK)
+
+    if not exists:
+        message = "Root path does not exist."
+    elif not is_directory:
+        message = "Root path is not a directory."
+    elif not readable:
+        message = "Path exists but OneSearch cannot read it. Check Docker volume permissions or PUID/PGID."
+    else:
+        message = "Path is ready to use."
+
+    return SourcePathTestResponse(
+        path=raw_path,
+        ok=exists and is_directory and readable,
+        exists=exists,
+        is_directory=is_directory,
+        readable=readable,
+        inside_allowed_roots=True,
+        allowed_roots=allowed_roots,
+        looks_like_host_path=looks_like_host_path,
+        message=message,
+        hint=hint if not (exists and is_directory and readable) else None,
+    )
 
 
 def validate_root_path(root_path: Path) -> Path:
@@ -96,6 +187,15 @@ async def list_sources(db: Session = Depends(get_db), current_user: User = Depen
     stmt = select(Source).order_by(Source.created_at.desc())
     sources = db.execute(stmt).scalars().all()
     return [SourceResponse.from_orm_model(s) for s in sources]
+
+
+@router.post("/test-path", response_model=SourcePathTestResponse)
+async def test_source_path(
+    request_data: SourcePathTestRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Test a source path before saving it."""
+    return build_source_path_test_response(request_data.root_path)
 
 
 @router.get("/{source_id}", response_model=SourceResponse)

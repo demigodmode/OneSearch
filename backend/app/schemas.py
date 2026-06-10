@@ -52,6 +52,25 @@ class SourceUpdate(BaseModel):
     scan_schedule: Optional[str] = Field(default=None, max_length=100)
 
 
+class SourcePathTestRequest(BaseModel):
+    """Schema for testing a source path before saving it."""
+    root_path: str
+
+
+class SourcePathTestResponse(BaseModel):
+    """Diagnostics for a candidate source root path."""
+    path: str
+    ok: bool
+    exists: bool
+    is_directory: bool
+    readable: bool
+    inside_allowed_roots: bool
+    allowed_roots: List[str]
+    looks_like_host_path: bool = False
+    message: str
+    hint: Optional[str] = None
+
+
 class SourceResponse(SourceBase):
     """Schema for source response"""
     model_config = ConfigDict(from_attributes=True)
