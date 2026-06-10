@@ -170,10 +170,10 @@ Email the maintainers (see GitHub profile) with details. We'll respond within 48
 
 ```bash
 # Stop OneSearch
-docker-compose down
+docker compose down
 
 # Delete volumes (removes index and database)
-docker-compose down -v
+docker compose down -v
 ```
 
 This deletes your search index and source configurations. Your original files are never touched.

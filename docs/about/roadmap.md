@@ -12,15 +12,16 @@ Recent milestones that are already in the product:
 - managed Meilisearch as the default install
 - legacy external Meilisearch compose support
 - setup wizard and JWT auth
-- source path restrictions and read-only mount guidance
-- scheduled indexing with per-source cron
+- source path restrictions, read-only mount guidance, and source path preflight testing
+- scheduled indexing with presets, friendly interval controls, and advanced cron
 - full reindex support in the UI, CLI, and API
 - Office, PDF, Markdown, text, code, and config indexing
 - RTF, EPUB, subtitles, CBZ comics, images, RAW photos, and media metadata
 - metadata-only indexing for unsupported files
 - document previews, image previews, RAW embedded previews, and format-aware detail views
-- theme/accent settings and search display settings
+- Light, Dark, and System theme modes, accent settings, and search display settings
 - standalone CLI package
+- Podman deployment notes for rootless and SELinux setups
 
 See the [changelog](changelog.md) for release-by-release details.
 

@@ -10,13 +10,28 @@ When adding or editing a source in the web UI, you'll see a schedule picker with
 - **Hourly**: Runs every hour on the hour (`0 * * * *`)
 - **Daily**: Runs at 2 AM (`0 2 * * *`)
 - **Weekly**: Runs at 2 AM on Sundays (`0 2 * * 0`)
-- **Custom**: Enter your own cron expression
+- **Custom interval...**: Choose every N minutes, hours, or days without writing cron by hand.
+- **Advanced cron...**: Enter your own cron expression.
 
-The daily and weekly presets run at 2 AM to avoid interfering with daytime usage, but you can always use a custom cron if you prefer different timing.
+The daily and weekly presets run at 2 AM to avoid interfering with daytime usage. Daily custom intervals also run at 2 AM. Minute and hourly intervals are saved as cron expressions and run on cron clock boundaries, not N minutes or hours after you click save.
 
-## Custom Cron Expressions
+## Custom Intervals
+
+Custom intervals are a friendlier way to create common cron schedules:
+
+| UI choice | Saved cron | Meaning |
+|-----------|------------|---------|
+| Every 15 minutes | `*/15 * * * *` | Runs when the minute is divisible by 15 |
+| Every 6 hours | `0 */6 * * *` | Runs at 00:00, 06:00, 12:00, and 18:00 |
+| Every 3 days | `0 2 */3 * *` | Runs at 2 AM on matching calendar days |
+
+These are still cron schedules. For example, “Every 6 hours” does not mean six hours after you saved the source; it means the next matching cron boundary.
+
+## Advanced Cron Expressions
 
 Standard five-field cron format: `minute hour day month weekday`
+
+Use **Advanced cron...** when you want exact control.
 
 Some examples:
 

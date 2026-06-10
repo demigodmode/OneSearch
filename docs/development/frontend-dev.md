@@ -6,7 +6,7 @@ The OneSearch frontend is a React 18 + TypeScript single-page application.
 
 ### Prerequisites
 
-- Node.js 18 or later
+- Node.js 22 recommended. The Docker build uses Node 22, and current Vite/tooling should be tested against that line.
 - npm (comes with Node.js)
 
 ### Initial Setup
@@ -40,20 +40,25 @@ Make sure the backend is running separately for full functionality.
 frontend/
 ├── src/
 │   ├── main.tsx             # Entry point (renders App)
-│   ├── App.tsx              # Router setup + TanStack Query provider
+│   ├── App.tsx              # Router setup + providers
 │   ├── pages/               # Page components
 │   │   ├── SearchPage.tsx   # Main search (/)
 │   │   ├── DocumentPage.tsx # Document preview (/document/:id)
+│   │   ├── LoginPage.tsx    # Login
+│   │   ├── SetupPage.tsx    # First-run setup
 │   │   └── admin/
 │   │       ├── SourcesPage.tsx   # Source management
-│   │       └── StatusPage.tsx    # Indexing status
-│   ├── components/          # Reusable components
-│   │   ├── SearchBox.tsx
-│   │   ├── FilterPanel.tsx
-│   │   ├── ResultCard.tsx
-│   │   ├── SourceForm.tsx
-│   │   ├── SourceTable.tsx
-│   │   └── ui/              # shadcn/ui components
+│   │       ├── StatusPage.tsx    # Indexing status
+│   │       └── SettingsPage.tsx  # Appearance/indexing/search settings
+│   ├── components/          # Reusable components and layouts
+│   │   ├── AdminLayout.tsx
+│   │   ├── MainLayout.tsx
+│   │   ├── ProtectedRoute.tsx
+│   │   ├── OneSearchLogo.tsx
+│   │   ├── document/        # Document detail renderers
+│   │   └── ui/              # shadcn-style components copied into the repo
+│   ├── contexts/            # Auth, theme, and search settings contexts
+│   ├── hooks/               # API/query hooks
 │   ├── lib/                 # Utilities
 │   │   ├── api.ts           # API client functions
 │   │   └── utils.ts         # Helper functions
@@ -405,9 +410,9 @@ export function SettingsPage() {
 ### Adding a shadcn/ui Component
 
 ```bash
-npx shadcn-ui@latest add button
-npx shadcn-ui@latest add input
-npx shadcn-ui@latest add dialog
+npx shadcn@latest add button
+npx shadcn@latest add input
+npx shadcn@latest add dialog
 ```
 
 This copies the component into `src/components/ui/`.

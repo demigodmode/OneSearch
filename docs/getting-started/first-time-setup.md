@@ -23,9 +23,11 @@ Click **Add Source** and fill in:
 - **Include Patterns**: Which files to index (e.g., `**/*.pdf,**/*.md,**/*.txt`)
 - **Exclude Patterns**: What to skip (optional, e.g., `**/node_modules/**,**/.git/**`)
 
-Click **Add Source** and you're done.
+Click **Test** next to Root Path before saving. This confirms whether OneSearch can see the path from inside the container, whether it is inside allowed roots, whether it exists, whether it is a directory, and whether it is readable.
 
-**Important**: Use the container path, not your host path. If you mounted `/home/user/docs` to `/data/docs` in docker-compose.yml, use `/data/docs` here.
+Click **Add Source** when the path looks good.
+
+**Important**: Use the container path, not your host path. If you mounted `/home/user/docs` to `/data/docs` in `docker-compose.yml`, use `/data/docs` here.
 
 ### Using the CLI
 
@@ -208,7 +210,7 @@ curl -X POST "http://localhost:8000/api/sources/documents/reindex?full=true" \
 
 Error: `Source path does not exist: /data/documents`
 
-Make sure you mounted the directory in docker-compose.yml:
+Make sure you mounted the directory in `docker-compose.yml`:
 
 ```yaml
 volumes:
@@ -218,7 +220,7 @@ volumes:
 Restart after adding mounts:
 
 ```bash
-docker-compose down && docker-compose up -d
+docker compose down && docker compose up -d
 ```
 
 ### No search results
@@ -234,14 +236,14 @@ Possible causes:
 Network mounts (NAS over SMB/NFS) are slower than local storage. Large PDFs take longer to process than text files. Check the logs if it seems stuck:
 
 ```bash
-docker-compose logs -f onesearch
+docker compose logs -f onesearch
 ```
 
 ---
 
 ## Set Up a Schedule (Optional)
 
-Instead of manually triggering reindex every time, you can set up automatic schedules. When adding or editing a source, pick a preset (Hourly, Daily, Weekly) or enter a custom cron expression.
+Instead of manually triggering reindex every time, you can set up automatic schedules. When adding or editing a source, pick a preset (Hourly, Daily, Weekly), use **Custom interval...** for common minute/hour/day schedules, or use **Advanced cron...** for exact cron expressions.
 
 See [Scheduling](../user-guide/scheduling.md) for more details.
 

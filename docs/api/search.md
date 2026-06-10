@@ -27,7 +27,7 @@ Request body:
 Only `q` is required.
 
 - `source_id` filters to one source.
-- `type` filters by OneSearch document type, such as `text`, `markdown`, `pdf`, `docx`, `image`, or `media`.
+- `type` filters by OneSearch document type, such as `text`, `markdown`, `code`, `config`, `pdf`, `docx`, `xlsx`, `pptx`, `rtf`, `epub`, `subtitle`, `comic`, `image`, `raw_image`, `media`, or `file`.
 - `limit` is 1-100. Default is 20.
 - `offset` is for pagination.
 - `sort` can be `relevance`, `modified_at:desc`, `modified_at:asc`, `size_bytes:desc`, or `basename:asc`.

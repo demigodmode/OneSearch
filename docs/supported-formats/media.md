@@ -33,7 +33,6 @@ If `ffprobe` is missing or fails, files fall back to metadata-only indexing.
 ```env
 MEDIA_METADATA_MODE=auto
 MEDIA_PROBE_MAX_SIZE_MB=0
-OFFICE_EXTRACTION_TIMEOUT=30
 ```
 
 `MEDIA_PROBE_MAX_SIZE_MB=0` means there is no size cap for probing. The timeout still applies.
