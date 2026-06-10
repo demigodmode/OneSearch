@@ -73,6 +73,23 @@ export interface Source extends SourceBase {
   next_scan_at?: string | null
 }
 
+export interface SourcePathTestRequest {
+  root_path: string
+}
+
+export interface SourcePathTestResponse {
+  path: string
+  ok: boolean
+  exists: boolean
+  is_directory: boolean
+  readable: boolean
+  inside_allowed_roots: boolean
+  allowed_roots: string[]
+  looks_like_host_path: boolean
+  message: string
+  hint?: string | null
+}
+
 // ============================================================================
 // Search Types
 // ============================================================================

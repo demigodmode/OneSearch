@@ -15,9 +15,14 @@ export function cn(...inputs: ClassValue[]) {
 /**
  * Format a future ISO date as relative time (e.g., "in 3h", "in 2d")
  */
+function parseApiDate(isoString: string): Date {
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(isoString)
+  return new Date(hasTimezone ? isoString : `${isoString}Z`)
+}
+
 export function formatRelativeTime(isoString?: string | null): string | null {
   if (!isoString) return null
-  const date = new Date(isoString)
+  const date = parseApiDate(isoString)
   const now = new Date()
   const diffMs = date.getTime() - now.getTime()
   if (diffMs < 0) return 'overdue'

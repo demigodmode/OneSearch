@@ -149,8 +149,10 @@
   }
 
   .search-input:focus-within {
-    @apply border-brand/50;
-    box-shadow: 0 0 20px -8px hsl(var(--brand) / 0.25);
+    @apply border-brand/35;
+    box-shadow:
+      0 0 0 1px hsl(var(--brand) / 0.10),
+      0 10px 30px -24px hsl(var(--brand) / 0.28);
   }
 
   /* Card hover */

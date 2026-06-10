@@ -7,7 +7,7 @@
 # =============================================================================
 # Stage 1: Build Frontend
 # =============================================================================
-FROM node:22-alpine AS frontend-builder
+FROM docker.io/library/node:22-alpine AS frontend-builder
 
 WORKDIR /app
 
@@ -26,7 +26,7 @@ RUN npm run build
 # =============================================================================
 # Stage 2: Build Backend + CLI
 # =============================================================================
-FROM python:3.13-slim AS backend-builder
+FROM docker.io/library/python:3.13-slim AS backend-builder
 
 # Install uv for fast package management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -46,12 +46,12 @@ RUN uv pip install --system ./backend ./cli
 # =============================================================================
 # Stage 3: Meilisearch binary
 # =============================================================================
-FROM getmeili/meilisearch:v1.12 AS meilisearch-runtime
+FROM docker.io/getmeili/meilisearch:v1.12 AS meilisearch-runtime
 
 # =============================================================================
 # Stage 4: Runtime
 # =============================================================================
-FROM python:3.13-slim
+FROM docker.io/library/python:3.13-slim
 
 # Install runtime services, healthcheck curl, and exiftool for RAW metadata probing
 RUN apt-get update && \

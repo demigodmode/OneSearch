@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useState } from 'react'
-import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock } from 'lucide-react'
-import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource } from '@/hooks/useApi'
-import type { Source, SourceCreate, SourceUpdate } from '@/types/api'
+import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock, CheckCircle } from 'lucide-react'
+import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath } from '@/hooks/useApi'
+import type { Source, SourceCreate, SourceUpdate, SourcePathTestResponse } from '@/types/api'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import {
   Dialog,
@@ -19,6 +19,21 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
+type ScheduleMode = 'manual' | '@hourly' | '@daily' | '@weekly' | 'interval' | 'advanced'
+
+type IntervalUnit = 'minutes' | 'hours' | 'days'
+
+function intervalUnitMax(unit: IntervalUnit): number {
+  switch (unit) {
+    case 'minutes':
+      return 59
+    case 'hours':
+      return 23
+    case 'days':
+      return 31
+  }
+}
+
 // Human-readable schedule labels
 function formatSchedule(schedule?: string | null): string {
   if (!schedule) return 'Manual'
@@ -26,8 +41,44 @@ function formatSchedule(schedule?: string | null): string {
     case '@hourly': return 'Hourly'
     case '@daily': return 'Daily'
     case '@weekly': return 'Weekly'
-    default: return schedule
   }
+
+  const minuteInterval = schedule.match(/^\*\/(\d+) \* \* \* \*$/)
+  if (minuteInterval) return `Every ${minuteInterval[1]} minute${minuteInterval[1] === '1' ? '' : 's'}`
+
+  const hourInterval = schedule.match(/^0 \*\/(\d+) \* \* \*$/)
+  if (hourInterval) return `Every ${hourInterval[1]} hour${hourInterval[1] === '1' ? '' : 's'}`
+
+  const dayInterval = schedule.match(/^0 2 \*\/(\d+) \* \*$/)
+  if (dayInterval) return `Every ${dayInterval[1]} day${dayInterval[1] === '1' ? '' : 's'}`
+
+  return schedule
+}
+
+function intervalToCron(value: number, unit: IntervalUnit): string {
+  switch (unit) {
+    case 'minutes':
+      return `*/${value} * * * *`
+    case 'hours':
+      return `0 */${value} * * *`
+    case 'days':
+      return `0 2 */${value} * *`
+  }
+}
+
+function parseIntervalCron(schedule?: string | null): { value: string; unit: IntervalUnit } | null {
+  if (!schedule) return null
+
+  const minuteInterval = schedule.match(/^\*\/(\d+) \* \* \* \*$/)
+  if (minuteInterval) return { value: minuteInterval[1], unit: 'minutes' }
+
+  const hourInterval = schedule.match(/^0 \*\/(\d+) \* \* \*$/)
+  if (hourInterval) return { value: hourInterval[1], unit: 'hours' }
+
+  const dayInterval = schedule.match(/^0 2 \*\/(\d+) \* \*$/)
+  if (dayInterval) return { value: dayInterval[1], unit: 'days' }
+
+  return null
 }
 
 // Format date for display
@@ -66,26 +117,43 @@ function SourceForm({
   const [excludePatterns, setExcludePatterns] = useState(
     source?.exclude_patterns?.join(', ') || ''
   )
+  const [pathTestResult, setPathTestResult] = useState<SourcePathTestResponse | null>(null)
+  const testPathMutation = useTestSourcePath()
 
   // Schedule state
-  const getInitialScheduleMode = () => {
+  const initialInterval = parseIntervalCron(source?.scan_schedule)
+  const getInitialScheduleMode = (): ScheduleMode => {
     const s = source?.scan_schedule
     if (!s) return 'manual'
-    if (['@hourly', '@daily', '@weekly'].includes(s)) return s
-    return 'custom'
+    if (['@hourly', '@daily', '@weekly'].includes(s)) return s as ScheduleMode
+    if (initialInterval) return 'interval'
+    return 'advanced'
   }
-  const [scheduleMode, setScheduleMode] = useState(getInitialScheduleMode)
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(getInitialScheduleMode)
+  const [intervalValue, setIntervalValue] = useState(initialInterval?.value ?? '6')
+  const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>(initialInterval?.unit ?? 'hours')
   const [customCron, setCustomCron] = useState(
     source?.scan_schedule && !['@hourly', '@daily', '@weekly'].includes(source.scan_schedule)
       ? source.scan_schedule
       : ''
   )
 
+  const handleTestPath = () => {
+    const candidate = rootPath.trim()
+    if (!candidate) return
+    testPathMutation.mutate(candidate, {
+      onSuccess: setPathTestResult,
+      onError: () => setPathTestResult(null),
+    })
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
     let scan_schedule: string | null = null
-    if (scheduleMode === 'custom') {
+    if (scheduleMode === 'interval') {
+      scan_schedule = intervalToCron(Number(intervalValue), intervalUnit)
+    } else if (scheduleMode === 'advanced') {
       scan_schedule = customCron.trim() || null
     } else if (scheduleMode !== 'manual') {
       scan_schedule = scheduleMode // @hourly, @daily, @weekly
@@ -103,6 +171,9 @@ function SourceForm({
   }
 
   const isEdit = !!source
+  const parsedIntervalValue = Number(intervalValue)
+  const intervalIsValid = intervalValue.trim() !== '' && Number.isInteger(parsedIntervalValue) && parsedIntervalValue > 0 && parsedIntervalValue <= intervalUnitMax(intervalUnit)
+  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (scheduleMode === 'interval' && !intervalIsValid)
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -132,12 +203,33 @@ function SourceForm({
         <Input
           id="root_path"
           value={rootPath}
-          onChange={(e) => setRootPath(e.target.value)}
+          onChange={(e) => {
+            setRootPath(e.target.value)
+            setPathTestResult(null)
+          }}
           placeholder="/data/documents"
           title="Path inside the OneSearch container, not necessarily the host path."
           className="font-mono text-sm"
           required
         />
+        <p className="text-xs text-muted-foreground">
+          Use the path OneSearch can see inside the container, usually under the configured allowed source roots.
+        </p>
+        {pathTestResult && (
+          <Alert
+            variant={pathTestResult.ok ? 'default' : 'destructive'}
+            className={pathTestResult.ok ? 'border-success/50 text-foreground [&>svg]:text-success' : undefined}
+          >
+            {pathTestResult.ok ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+            <AlertDescription>
+              <p>{pathTestResult.message}</p>
+              {pathTestResult.hint && <p className="mt-1 text-xs opacity-80">{pathTestResult.hint}</p>}
+              <p className="mt-2 text-xs opacity-80">
+                Allowed: {pathTestResult.inside_allowed_roots ? 'yes' : 'no'} · Exists: {pathTestResult.exists ? 'yes' : 'no'} · Directory: {pathTestResult.is_directory ? 'yes' : 'no'} · Readable: {pathTestResult.readable ? 'yes' : 'no'}
+              </p>
+            </AlertDescription>
+          </Alert>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -170,30 +262,69 @@ function SourceForm({
           id="scan_schedule"
           value={scheduleMode}
           title="How often OneSearch automatically checks this source for changed files."
-          onChange={(e) => setScheduleMode(e.target.value)}
+          onChange={(e) => setScheduleMode(e.target.value as ScheduleMode)}
           className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <option value="manual">Manual only</option>
           <option value="@hourly">Every hour</option>
           <option value="@daily">Daily (2:00 AM)</option>
           <option value="@weekly">Weekly (Sunday 2:00 AM)</option>
-          <option value="custom">Custom cron...</option>
+          <option value="interval">Custom interval...</option>
+          <option value="advanced">Advanced cron...</option>
         </select>
-        {scheduleMode === 'custom' && (
-          <Input
-            value={customCron}
-            onChange={(e) => setCustomCron(e.target.value)}
-            placeholder="0 */6 * * *"
-            className="font-mono text-sm"
-          />
+        {scheduleMode === 'interval' && (
+          <div className="space-y-2 rounded-lg border border-border bg-secondary/30 p-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Every</span>
+              <Input
+                type="number"
+                min={1}
+                max={intervalUnitMax(intervalUnit)}
+                step={1}
+                value={intervalValue}
+                onChange={(e) => setIntervalValue(e.target.value)}
+                className="w-24"
+                aria-label="Custom interval value"
+              />
+              <select
+                value={intervalUnit}
+                onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)}
+                className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Custom interval unit"
+              >
+                <option value="minutes">minutes</option>
+                <option value="hours">hours</option>
+                <option value="days">days</option>
+              </select>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Saves as <code className="font-mono">{intervalIsValid ? intervalToCron(parsedIntervalValue, intervalUnit) : `choose 1-${intervalUnitMax(intervalUnit)}`}</code>. Runs on cron clock boundaries, not from save time. Daily intervals run at 2:00 AM.
+            </p>
+          </div>
+        )}
+        {scheduleMode === 'advanced' && (
+          <div className="space-y-2">
+            <Input
+              value={customCron}
+              onChange={(e) => setCustomCron(e.target.value)}
+              placeholder="0 */6 * * *"
+              className="font-mono text-sm"
+              aria-label="Advanced cron schedule"
+            />
+            <p className="text-xs text-muted-foreground">Use standard five-field cron syntax.</p>
+          </div>
         )}
       </div>
 
       <DialogFooter>
+        <Button type="button" variant="secondary" onClick={handleTestPath} disabled={isLoading || testPathMutation.isPending || !rootPath.trim()}>
+          {testPathMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Test
+        </Button>
         <Button type="button" variant="outline" onClick={onCancel} disabled={isLoading}>
           Cancel
         </Button>
-        <Button type="submit" disabled={isLoading || !name.trim() || !rootPath.trim()}>
+        <Button type="submit" disabled={isSubmitDisabled}>
           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {isEdit ? 'Save Changes' : 'Add Source'}
         </Button>

@@ -5,6 +5,30 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added source path preflight testing so users can check a root path before saving it. The test reports whether OneSearch can see the path, whether it is inside allowed roots, whether it exists, whether it is a directory, and whether the container can read it. (#183)
+- Added clearer Docker path guidance in the source form and docs, including host-path hints for common `/mnt/...` and Windows drive-letter mistakes. (#183)
+- Added Light, Dark, and System appearance modes in Settings while preserving accent color presets and custom hue controls. (#38)
+- Added a friendlier custom interval scan schedule UI for minutes, hours, and days, while keeping advanced cron available for power users. (#131)
+- Added Podman deployment notes covering `podman compose`, rootless permissions, SELinux labels, and container source paths.
+
+### Changed
+
+- Softened the focused search box border and glow so keyboard focus is visible without overpowering the page. (#132)
+- Clarified that custom interval schedules currently run on cron clock boundaries. (#131)
+- Fully qualified Docker Hub base images in the Dockerfile so Docker builds still work and stricter Podman installs do not rely on short-name registry configuration.
+
+### Fixed
+
+- Fixed relative schedule times in the UI by treating API timestamps without timezone suffixes as UTC.
+- Fixed custom interval schedule editing so saved interval cron patterns reopen as interval controls instead of dropping users into advanced cron. (#131)
+- Fixed the custom interval number field so it can be cleared normally while still validating before save. (#131)
+
+---
+
 ## [1.0.5] - 2026-06-08
 
 ### Changed

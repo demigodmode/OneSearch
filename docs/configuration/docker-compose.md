@@ -66,9 +66,9 @@ volumes:
   - /mnt/nas/photos:/data/photos:ro
 ```
 
-When adding sources, use `/data/documents` and `/data/photos`, not the host paths.
+When adding sources, use `/data/documents` and `/data/photos`, not the host paths. The source form's **Test** button can confirm whether OneSearch can see and read the path before you save it.
 
-See [Volume Mounts](volume-mounts.md) for more examples.
+See [Volume Mounts](volume-mounts.md) for more examples. If you run with Podman, also see [Podman](podman.md) for rootless and SELinux notes.
 
 ## Legacy external Meilisearch
 

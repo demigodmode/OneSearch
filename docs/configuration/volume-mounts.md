@@ -10,6 +10,8 @@ When you add a source in the UI, you give it a **container path**: the path as s
 
 The mount has to exist before OneSearch starts. You can't add a path via the UI that hasn't been mounted. The container can't see it.
 
+When adding or editing a source, use **Test** next to the Root Path field before saving. It checks whether the path is inside the allowed roots, exists, is a directory, and is readable by OneSearch.
+
 ---
 
 ## Approaches
@@ -46,7 +48,7 @@ services:
       - /mnt/nas/projects:/data/projects:ro
 ```
 
-In the UI you'd add `/data/documents` and `/data/projects`. To add a new location later, you'd need to edit compose and restart.
+In the UI you'd add `/data/documents` and `/data/projects`. To add a new location later, you'd need to edit compose and restart. Use the source form's **Test** button to confirm the container path is visible before saving.
 
 Good fit for: tightly controlled setups, or if you want to be explicit about what the container can see.
 
@@ -85,3 +87,20 @@ docker-compose up -d
 ```
 
 If you're using the [parent directory approach](#recommended-mount-parent-directories), you only have to do this once.
+
+---
+
+## Troubleshooting source paths
+
+If Test says the path is outside allowed roots, check `ALLOWED_SOURCE_PATHS` and make sure you are using the container path, not the host path.
+
+For example, with this mount:
+
+```yaml
+volumes:
+  - /mnt/nas/documents:/data/documents:ro
+```
+
+Use `/data/documents` in OneSearch, not `/mnt/nas/documents`.
+
+If Test says the path exists but is not readable, check filesystem permissions and the container user. For Docker installs, `PUID` and `PGID` can be set in `.env` so OneSearch runs with a user/group that can read your mounted folders.

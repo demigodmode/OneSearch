@@ -104,6 +104,7 @@ nav:
     - Environment Variables: configuration/environment-variables.md
     - Docker Compose: configuration/docker-compose.md
     - Volume Mounts: configuration/volume-mounts.md
+    - Podman: configuration/podman.md
     - Performance Tuning: configuration/performance-tuning.md
   - Administration:
     - Authentication: administration/authentication.md

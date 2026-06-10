@@ -18,8 +18,8 @@ services:
       - onesearch_index:/app/meili_data
 
       # Example source mounts (uncomment and modify as needed)
-      # Add your local directories or NAS mounts here
       # Format: /host/path:/container/path:ro (ro = read-only)
+      # Then add the container path, such as /data/nas_docs, as the source Root Path in the UI.
 
       # - /mnt/nas/documents:/data/nas_docs:ro
       # - /home/user/Documents:/data/documents:ro
