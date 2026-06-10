@@ -113,7 +113,7 @@ function SourceForm({
     return 'advanced'
   }
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(getInitialScheduleMode)
-  const [intervalValue, setIntervalValue] = useState(6)
+  const [intervalValue, setIntervalValue] = useState('6')
   const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>('hours')
   const [customCron, setCustomCron] = useState(
     source?.scan_schedule && !['@hourly', '@daily', '@weekly'].includes(source.scan_schedule)
@@ -135,7 +135,7 @@ function SourceForm({
 
     let scan_schedule: string | null = null
     if (scheduleMode === 'interval') {
-      scan_schedule = intervalToCron(intervalValue, intervalUnit)
+      scan_schedule = intervalToCron(Number(intervalValue), intervalUnit)
     } else if (scheduleMode === 'advanced') {
       scan_schedule = customCron.trim() || null
     } else if (scheduleMode !== 'manual') {
@@ -154,7 +154,8 @@ function SourceForm({
   }
 
   const isEdit = !!source
-  const intervalIsValid = Number.isInteger(intervalValue) && intervalValue > 0 && intervalValue <= intervalUnitMax(intervalUnit)
+  const parsedIntervalValue = Number(intervalValue)
+  const intervalIsValid = intervalValue.trim() !== '' && Number.isInteger(parsedIntervalValue) && parsedIntervalValue > 0 && parsedIntervalValue <= intervalUnitMax(intervalUnit)
   const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (scheduleMode === 'interval' && !intervalIsValid)
 
   return (
@@ -264,7 +265,7 @@ function SourceForm({
                 max={intervalUnitMax(intervalUnit)}
                 step={1}
                 value={intervalValue}
-                onChange={(e) => setIntervalValue(Number(e.target.value))}
+                onChange={(e) => setIntervalValue(e.target.value)}
                 className="w-24"
                 aria-label="Custom interval value"
               />
@@ -280,7 +281,7 @@ function SourceForm({
               </select>
             </div>
             <p className="text-xs text-muted-foreground">
-              Saves as <code className="font-mono">{intervalIsValid ? intervalToCron(intervalValue, intervalUnit) : `choose 1-${intervalUnitMax(intervalUnit)}`}</code>. Daily intervals run at 2:00 AM.
+              Saves as <code className="font-mono">{intervalIsValid ? intervalToCron(parsedIntervalValue, intervalUnit) : `choose 1-${intervalUnitMax(intervalUnit)}`}</code>. Daily intervals run at 2:00 AM.
             </p>
           </div>
         )}
