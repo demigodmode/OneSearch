@@ -298,7 +298,7 @@ function SourceForm({
               </select>
             </div>
             <p className="text-xs text-muted-foreground">
-              Saves as <code className="font-mono">{intervalIsValid ? intervalToCron(parsedIntervalValue, intervalUnit) : `choose 1-${intervalUnitMax(intervalUnit)}`}</code>. Daily intervals run at 2:00 AM.
+              Saves as <code className="font-mono">{intervalIsValid ? intervalToCron(parsedIntervalValue, intervalUnit) : `choose 1-${intervalUnitMax(intervalUnit)}`}</code>. Runs on cron clock boundaries, not from save time. Daily intervals run at 2:00 AM.
             </p>
           </div>
         )}
