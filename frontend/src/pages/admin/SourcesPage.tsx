@@ -66,6 +66,21 @@ function intervalToCron(value: number, unit: IntervalUnit): string {
   }
 }
 
+function parseIntervalCron(schedule?: string | null): { value: string; unit: IntervalUnit } | null {
+  if (!schedule) return null
+
+  const minuteInterval = schedule.match(/^\*\/(\d+) \* \* \* \*$/)
+  if (minuteInterval) return { value: minuteInterval[1], unit: 'minutes' }
+
+  const hourInterval = schedule.match(/^0 \*\/(\d+) \* \* \*$/)
+  if (hourInterval) return { value: hourInterval[1], unit: 'hours' }
+
+  const dayInterval = schedule.match(/^0 2 \*\/(\d+) \* \*$/)
+  if (dayInterval) return { value: dayInterval[1], unit: 'days' }
+
+  return null
+}
+
 // Format date for display
 function formatDate(isoString: string): string {
   const date = new Date(isoString)
@@ -106,15 +121,17 @@ function SourceForm({
   const testPathMutation = useTestSourcePath()
 
   // Schedule state
+  const initialInterval = parseIntervalCron(source?.scan_schedule)
   const getInitialScheduleMode = (): ScheduleMode => {
     const s = source?.scan_schedule
     if (!s) return 'manual'
     if (['@hourly', '@daily', '@weekly'].includes(s)) return s as ScheduleMode
+    if (initialInterval) return 'interval'
     return 'advanced'
   }
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(getInitialScheduleMode)
-  const [intervalValue, setIntervalValue] = useState('6')
-  const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>('hours')
+  const [intervalValue, setIntervalValue] = useState(initialInterval?.value ?? '6')
+  const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>(initialInterval?.unit ?? 'hours')
   const [customCron, setCustomCron] = useState(
     source?.scan_schedule && !['@hourly', '@daily', '@weekly'].includes(source.scan_schedule)
       ? source.scan_schedule
