@@ -89,7 +89,7 @@ See [Performance Tuning](../configuration/performance-tuning.md).
 
 ## Failed files stay in the status page
 
-If the files were deleted or moved after scanning, use **Clear stale** on the status page for that source.
+Use **Clean** on the status page for that source. It removes missing failed files and retries files that still exist. Files that still cannot be indexed stay visible with their latest error.
 
 For deeper drift, run a full reindex:
 

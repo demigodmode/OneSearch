@@ -107,7 +107,7 @@ PUT    /api/sources/{id}         # Update
 DELETE /api/sources/{id}         # Delete
 POST   /api/sources/test-path     # Test a candidate root path before saving
 POST   /api/sources/{id}/reindex  # Trigger reindex
-POST   /api/sources/{id}/clear-stale # Clear stale failed-file entries
+POST   /api/sources/{id}/clear-stale # Clean failed-file entries
 ```
 
 ### Authentication

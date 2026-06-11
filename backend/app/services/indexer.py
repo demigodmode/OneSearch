@@ -9,18 +9,19 @@ import hashlib
 import json
 import logging
 import time
-from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
-from sqlalchemy.orm import Session
-from sqlalchemy import select, func, case
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from ..models import Source, IndexedFile
-from ..schemas import Document
-from ..extractors import MetadataOnlyExtractor, extractor_registry
+from sqlalchemy import case, func, select
+from sqlalchemy.orm import Session
+
 from ..config import settings
-from .scanner import FileScanner
+from ..extractors import MetadataOnlyExtractor, extractor_registry
+from ..models import IndexedFile, Source
+from ..schemas import Document
 from .app_settings import AppSettingsService
+from .scanner import FileScanner
 from .search import SearchService
 
 logger = logging.getLogger(__name__)
@@ -400,6 +401,34 @@ class IndexingService:
         document = await extractor.extract_with_timeout(file_path)
 
         return document
+
+    async def retry_failed_file(self, source: Source, file_path: str) -> str:
+        """
+        Retry indexing a single failed file.
+
+        Returns one of: success, skipped, failed.
+        """
+        try:
+            document = await self._extract_document(file_path, source.id, source.name)
+            if document is None:
+                self._update_indexed_file(
+                    source.id,
+                    file_path,
+                    status="skipped",
+                    error="Unsupported file type",
+                )
+                return "skipped"
+
+            await self.search_service.index_documents([document])
+            self._update_indexed_file(source.id, file_path, status="success")
+            return "success"
+        except Exception as e:
+            logger.warning(
+                f"Failed to clean failed file '{Path(file_path).name}': {type(e).__name__}: {e}",
+                extra={"file_path": file_path, "error": str(e)},
+            )
+            self._update_indexed_file(source.id, file_path, status="failed", error=str(e))
+            return "failed"
 
     def _update_indexed_file(
         self,

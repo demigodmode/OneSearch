@@ -10,22 +10,28 @@ import json
 import logging
 import os
 import re
-from typing import List
 from datetime import datetime, timezone
-
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from sqlalchemy.orm import Session
-from sqlalchemy import select, func
-
 from pathlib import Path
+from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..db.database import get_db
-from ..models import Source, IndexedFile, User
-from ..schemas import SourceCreate, SourceUpdate, SourceResponse, SourcePathTestRequest, SourcePathTestResponse
-from ..services.search import SearchService, meili_service
+from ..models import IndexedFile, Source, User
+from ..schemas import (
+    SourceCreate,
+    SourcePathTestRequest,
+    SourcePathTestResponse,
+    SourceResponse,
+    SourceUpdate,
+)
 from ..services.indexer import IndexingService
-from ..services.scheduler import validate_schedule, get_source_lock, calculate_next_run_time
+from ..services.scanner import FileScanner
+from ..services.scheduler import calculate_next_run_time, get_source_lock, validate_schedule
+from ..services.search import meili_service
 from .auth import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -450,8 +456,8 @@ async def reindex_source(
     logger.info(f"Starting reindex for source: {source_id}")
 
     try:
-        from starlette.concurrency import run_in_threadpool
         from sqlalchemy.orm import sessionmaker
+        from starlette.concurrency import run_in_threadpool
 
         db_bind = db.get_bind()
 
@@ -510,31 +516,71 @@ async def clear_stale_failed_files(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Clear stale failed file entries for a source.
+    Clean failed file entries for a source.
 
-    Removes failed entries from DB and Meilisearch where the file no longer exists on disk.
-    Useful for cleaning up entries left behind by files deleted or moved after scanning.
+    Missing files are removed. Existing failed files are retried through the normal
+    indexing path. Files that still fail remain visible with a fresh error.
     """
     source = db.get(Source, source_id)
     if not source:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Source '{source_id}' not found")
 
-    failed_files = db.execute(
-        select(IndexedFile).where(IndexedFile.source_id == source_id, IndexedFile.status == "failed")
-    ).scalars().all()
+    lock = get_source_lock(source_id)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Indexing already in progress for source '{source_id}'"
+        )
 
-    cleared = 0
-    for indexed_file in failed_files:
-        if not Path(indexed_file.path).exists():
-            path_hash = hashlib.sha256(indexed_file.path.encode()).hexdigest()[:12]
-            doc_id = f"{source_id}--{path_hash}"
-            try:
-                await meili_service.delete_document(doc_id)
-            except Exception as e:
-                logger.warning(f"Meilisearch delete failed for {doc_id}: {e}")
-            db.delete(indexed_file)
-            cleared += 1
+    try:
+        failed_files = db.execute(
+            select(IndexedFile).where(IndexedFile.source_id == source_id, IndexedFile.status == "failed")
+        ).scalars().all()
 
-    db.commit()
-    logger.info(f"Cleared {cleared} stale failed files for source '{source_id}'")
-    return {"cleared": cleared}
+        include_patterns = json.loads(source.include_patterns) if source.include_patterns else None
+        exclude_patterns = json.loads(source.exclude_patterns) if source.exclude_patterns else None
+        current_files = set(FileScanner(
+            root_path=source.root_path,
+            include_patterns=include_patterns,
+            exclude_patterns=exclude_patterns,
+        ).scan())
+
+        indexing_service = IndexingService(db, meili_service)
+        cleared = 0
+        reindexed = 0
+        still_failed = 0
+        skipped = 0
+
+        for indexed_file in failed_files:
+            if not Path(indexed_file.path).exists() or indexed_file.path not in current_files:
+                path_hash = hashlib.sha256(indexed_file.path.encode()).hexdigest()[:12]
+                doc_id = f"{source_id}--{path_hash}"
+                try:
+                    await meili_service.delete_document(doc_id)
+                except Exception as e:
+                    logger.warning(f"Meilisearch delete failed for stale failed file {indexed_file.path}: {e}")
+                db.delete(indexed_file)
+                cleared += 1
+                continue
+
+            result = await indexing_service.retry_failed_file(source, indexed_file.path)
+            if result == "success":
+                reindexed += 1
+            elif result == "skipped":
+                skipped += 1
+            else:
+                still_failed += 1
+
+        db.commit()
+        logger.info(
+            f"Cleaned failed files for source '{source_id}': "
+            f"{cleared} cleared, {reindexed} reindexed, {still_failed} still failed, {skipped} skipped"
+        )
+        return {
+            "cleared": cleared,
+            "reindexed": reindexed,
+            "still_failed": still_failed,
+            "skipped": skipped,
+        }
+    finally:
+        lock.release()

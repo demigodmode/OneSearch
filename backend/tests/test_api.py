@@ -10,24 +10,24 @@ IMPORTANT: These tests require Meilisearch to be running for full coverage.
 
 Tests that depend on Meilisearch will be skipped if it's not available.
 """
-import pytest
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.main import app
-from app.models import Base, Source, IndexedFile, User
-from app.db.database import get_db
+from app.api.auth import create_access_token, hash_password
 from app.config import settings
+from app.db.database import get_db
+from app.main import app
+from app.models import AppSetting, Base, IndexedFile, Source, User
 from app.services.search import meili_service
-from app.api.auth import hash_password, create_access_token
-
 
 # In-memory SQLite database for testing
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
@@ -572,6 +572,183 @@ class TestReindexEndpoint:
         assert "total_scanned" in data["stats"]
         assert "successful" in data["stats"]
         assert "failed" in data["stats"]
+
+
+class TestCleanFailedFilesEndpoint:
+    """Tests for /api/sources/{id}/clear-stale endpoint"""
+
+    def test_clean_failed_files_removes_missing_file(self, client, sample_source, db_session, monkeypatch):
+        failed = IndexedFile(
+            source_id=sample_source.id,
+            path=str(Path(sample_source.root_path) / "missing.txt"),
+            size_bytes=100,
+            modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            status="failed",
+            error_message="old error",
+        )
+        db_session.add(failed)
+        db_session.commit()
+        failed_id = failed.id
+
+        delete_document = AsyncMock(return_value={})
+        monkeypatch.setattr("app.api.sources.meili_service.delete_document", delete_document)
+
+        response = client.post(f"/api/sources/{sample_source.id}/clear-stale")
+
+        assert response.status_code == 200
+        assert response.json() == {"cleared": 1, "reindexed": 0, "still_failed": 0, "skipped": 0}
+        assert db_session.get(IndexedFile, failed_id) is None
+        delete_document.assert_awaited_once()
+
+    def test_clean_failed_files_reindexes_existing_file(self, client, sample_source, db_session, monkeypatch):
+        path = Path(sample_source.root_path) / "retry.txt"
+        path.write_text("retry me")
+        failed = IndexedFile(
+            source_id=sample_source.id,
+            path=str(path),
+            size_bytes=100,
+            modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            status="failed",
+            error_message="old error",
+        )
+        db_session.add(failed)
+        db_session.commit()
+
+        index_documents = AsyncMock(return_value={})
+        monkeypatch.setattr("app.api.sources.meili_service.index_documents", index_documents)
+
+        response = client.post(f"/api/sources/{sample_source.id}/clear-stale")
+
+        assert response.status_code == 200
+        assert response.json() == {"cleared": 0, "reindexed": 1, "still_failed": 0, "skipped": 0}
+        db_session.refresh(failed)
+        assert failed.status == "success"
+        assert failed.error_message is None
+        index_documents.assert_awaited_once()
+
+    def test_clean_failed_files_clears_existing_file_now_excluded(self, client, sample_source, db_session, monkeypatch):
+        path = Path(sample_source.root_path) / "excluded.txt"
+        path.write_text("excluded")
+        sample_source.exclude_patterns = json.dumps(["**/excluded.txt"])
+        failed = IndexedFile(
+            source_id=sample_source.id,
+            path=str(path),
+            size_bytes=100,
+            modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            status="failed",
+            error_message="old error",
+        )
+        db_session.add(failed)
+        db_session.commit()
+        failed_id = failed.id
+
+        delete_document = AsyncMock(return_value={})
+        index_documents = AsyncMock(return_value={})
+        monkeypatch.setattr("app.api.sources.meili_service.delete_document", delete_document)
+        monkeypatch.setattr("app.api.sources.meili_service.index_documents", index_documents)
+
+        response = client.post(f"/api/sources/{sample_source.id}/clear-stale")
+
+        assert response.status_code == 200
+        assert response.json() == {"cleared": 1, "reindexed": 0, "still_failed": 0, "skipped": 0}
+        assert db_session.get(IndexedFile, failed_id) is None
+        delete_document.assert_awaited_once()
+        index_documents.assert_not_awaited()
+
+    def test_clean_failed_files_clears_existing_file_outside_current_root(self, client, sample_source, db_session, tmp_path, monkeypatch):
+        old_path = Path(sample_source.root_path) / "old-root.txt"
+        old_path.write_text("old root")
+        new_root = tmp_path / "new-root"
+        new_root.mkdir()
+        sample_source.root_path = str(new_root)
+        failed = IndexedFile(
+            source_id=sample_source.id,
+            path=str(old_path),
+            size_bytes=100,
+            modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            status="failed",
+            error_message="old error",
+        )
+        db_session.add(failed)
+        db_session.commit()
+        failed_id = failed.id
+
+        delete_document = AsyncMock(return_value={})
+        index_documents = AsyncMock(return_value={})
+        monkeypatch.setattr("app.api.sources.meili_service.delete_document", delete_document)
+        monkeypatch.setattr("app.api.sources.meili_service.index_documents", index_documents)
+
+        response = client.post(f"/api/sources/{sample_source.id}/clear-stale")
+
+        assert response.status_code == 200
+        assert response.json() == {"cleared": 1, "reindexed": 0, "still_failed": 0, "skipped": 0}
+        assert db_session.get(IndexedFile, failed_id) is None
+        delete_document.assert_awaited_once()
+        index_documents.assert_not_awaited()
+
+    def test_clean_failed_files_returns_conflict_when_source_is_indexing(self, client, sample_source):
+        from app.services.scheduler import get_source_lock
+
+        lock = get_source_lock(sample_source.id)
+        assert lock.acquire(blocking=False)
+        try:
+            response = client.post(f"/api/sources/{sample_source.id}/clear-stale")
+        finally:
+            lock.release()
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == f"Indexing already in progress for source '{sample_source.id}'"
+
+    def test_clean_failed_files_marks_unsupported_existing_file_as_skipped(self, client, sample_source, db_session):
+        db_session.add(AppSetting(key="unsupported_file_policy", value="skip"))
+        sample_source.include_patterns = json.dumps(["**/*"])
+        path = Path(sample_source.root_path) / "unsupported.binxyz"
+        path.write_text("unsupported")
+        failed = IndexedFile(
+            source_id=sample_source.id,
+            path=str(path),
+            size_bytes=100,
+            modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            status="failed",
+            error_message="old error",
+        )
+        db_session.add(failed)
+        db_session.commit()
+
+        response = client.post(f"/api/sources/{sample_source.id}/clear-stale")
+
+        assert response.status_code == 200
+        assert response.json() == {"cleared": 0, "reindexed": 0, "still_failed": 0, "skipped": 1}
+        db_session.refresh(failed)
+        assert failed.status == "skipped"
+        assert failed.error_message == "Unsupported file type"
+
+    def test_clean_failed_files_keeps_existing_file_when_retry_fails(self, client, sample_source, db_session, monkeypatch):
+        path = Path(sample_source.root_path) / "broken.txt"
+        path.write_text("broken")
+        failed = IndexedFile(
+            source_id=sample_source.id,
+            path=str(path),
+            size_bytes=100,
+            modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            status="failed",
+            error_message="old error",
+        )
+        db_session.add(failed)
+        db_session.commit()
+
+        async def raise_retry_failure(self, file_path, source_id, source_name):
+            raise ValueError("still broken")
+
+        monkeypatch.setattr("app.services.indexer.IndexingService._extract_document", raise_retry_failure)
+
+        response = client.post(f"/api/sources/{sample_source.id}/clear-stale")
+
+        assert response.status_code == 200
+        assert response.json() == {"cleared": 0, "reindexed": 0, "still_failed": 1, "skipped": 0}
+        db_session.refresh(failed)
+        assert failed.status == "failed"
+        assert failed.error_message == "still broken"
 
 
 class TestSearchEndpoint:

@@ -11,7 +11,7 @@ Manage search sources via API. All endpoints require authentication.
 - `DELETE /api/sources/{id}` - Delete source
 - `POST /api/sources/test-path` - Test a candidate root path before saving
 - `POST /api/sources/{id}/reindex` - Trigger reindex
-- `POST /api/sources/{id}/clear-stale` - Remove stale failed-file entries
+- `POST /api/sources/{id}/clear-stale` - Clean failed-file entries
 
 ## Source Fields
 
@@ -78,9 +78,9 @@ Use this for Docker/Podman mount troubleshooting before creating or updating a s
 
 Returns `409 Conflict` if the source is already being indexed (either by a manual trigger or a scheduled run).
 
-## Clear stale failed files
+## Clean failed files
 
-`POST /api/sources/{id}/clear-stale` removes failed entries for files that no longer exist on disk. This is useful after moving or deleting files that were already listed as failures.
+`POST /api/sources/{id}/clear-stale` cleans failed entries. Missing files are removed from tracking, while existing failed files are retried through the normal indexing path. Files that still fail remain in the failed list with their latest error.
 
 ```bash
 curl -X POST http://localhost:8000/api/sources/documents/clear-stale \
@@ -91,7 +91,10 @@ Response:
 
 ```json
 {
-  "cleared": 3
+  "cleared": 1,
+  "reindexed": 3,
+  "still_failed": 0,
+  "skipped": 0
 }
 ```
 

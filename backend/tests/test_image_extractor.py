@@ -220,6 +220,31 @@ def test_raw_metadata_mode_off_skips_exiftool(temp_dir, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_decompression_bomb_image_falls_back_to_metadata_only(temp_dir, monkeypatch):
+    file_path = temp_dir / "huge.jpg"
+    file_path.write_bytes(b"fake image data")
+
+    def raise_decompression_bomb(self, path):
+        assert path == str(file_path)
+        raise Image.DecompressionBombError(
+            "Image size (199756800 pixels) exceeds limit of 178956970 pixels, "
+            "could be decompression bomb DOS attack."
+        )
+
+    monkeypatch.setattr(ImageExtractor, "_extract_image_metadata", raise_decompression_bomb)
+
+    doc = await ImageExtractor("src", "Photos").extract_with_timeout(str(file_path))
+
+    assert doc.type == "image"
+    assert doc.title == "huge"
+    assert doc.basename == "huge.jpg"
+    assert doc.metadata["metadata_only"] is True
+    assert doc.metadata["extraction_failed"] is True
+    assert "decompression bomb" in doc.metadata["extraction_error"]
+    assert "huge.jpg" in doc.content
+
+
+@pytest.mark.asyncio
 async def test_raw_extension_falls_back_to_raw_image_metadata_only(temp_dir):
     file_path = temp_dir / "IMG_0001.CR3"
     file_path.write_bytes(b"fake raw data")
