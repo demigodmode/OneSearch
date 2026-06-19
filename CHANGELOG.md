@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Upgraded React and React DOM to v19. (#144)
+- Upgraded Tailwind CSS to v4 and migrated the frontend theme setup. (#150)
 
 ---
 
