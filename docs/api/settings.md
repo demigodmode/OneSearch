@@ -46,6 +46,9 @@ curl -X PUT http://localhost:8000/api/settings \
 | `raw_preview_enabled` | boolean | Enables embedded JPEG previews for RAW photos. |
 | `max_preview_size_mb` | `25`, `50`, `100` | Preview source file size limit. |
 | `media_probe_max_size_mb` | integer | `0` means no size cap for media probing. Timeout still applies. |
+| `max_text_file_size_mb` | integer | Text/code/config extraction size limit. |
+| `max_pdf_file_size_mb` | integer | PDF extraction size limit. |
+| `max_office_file_size_mb` | integer | DOCX/XLSX/PPTX extraction size limit. |
 | `image_metadata_max_size_mb` | integer | Image/RAW metadata extraction limit. |
 | `epub_extraction_max_size_mb` | integer | EPUB extraction limit. |
 | `comic_extraction_max_size_mb` | integer | CBZ extraction limit. |
@@ -54,4 +57,4 @@ curl -X PUT http://localhost:8000/api/settings \
 
 ## Reindexing after changes
 
-Indexing settings affect future indexing. If you turn RAW metadata on or change unsupported-file behavior, run a full reindex for existing documents you want refreshed.
+Indexing settings affect future indexing. If you turn RAW metadata on, change unsupported-file behavior, or raise a size limit, use **Clean** on failed files or run a full reindex for existing documents you want refreshed.

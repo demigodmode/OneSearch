@@ -432,6 +432,27 @@ function IndexingSection({ settings, isLoading, error, isSaving, onUpdate }: App
               description="0 means unlimited; ffprobe still has a timeout and falls back cleanly."
             />
             <NumberSetting
+              label="Max text extraction size (MB)"
+              value={settings.max_text_file_size_mb}
+              min={1}
+              onChange={(v) => onUpdate({ max_text_file_size_mb: v })}
+              description="Raise this, then use Clean or reindex to retry too-large text failures."
+            />
+            <NumberSetting
+              label="Max PDF extraction size (MB)"
+              value={settings.max_pdf_file_size_mb}
+              min={1}
+              onChange={(v) => onUpdate({ max_pdf_file_size_mb: v })}
+              description="Raise this, then use Clean or reindex to retry too-large PDF failures."
+            />
+            <NumberSetting
+              label="Max office extraction size (MB)"
+              value={settings.max_office_file_size_mb}
+              min={1}
+              onChange={(v) => onUpdate({ max_office_file_size_mb: v })}
+              description="Applies to DOCX, XLSX, and PPTX extraction."
+            />
+            <NumberSetting
               label="Max image/RAW metadata size (MB)"
               value={settings.image_metadata_max_size_mb}
               min={1}

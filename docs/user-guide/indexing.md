@@ -64,7 +64,7 @@ Common reasons:
 - file is corrupt or encrypted
 - source mount is no longer available
 
-Check **Admin → Status** for failed file details.
+Check **Admin → Status** for failed file details. If a file is too large, raise the matching size limit in **Admin → Settings → Indexing**, then use **Clean** on the source or run a reindex.
 
 ## Schedules
 

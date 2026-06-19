@@ -108,7 +108,7 @@ Use `DEBUG` for troubleshooting, `INFO` for normal operation, `WARNING` or `ERRO
 
 ### File Size Limits
 
-These control which files get indexed based on size.
+These set the default indexing size limits. The text, PDF, and Office limits can also be changed at runtime in **Admin → Settings → Indexing**; saved app settings override these environment defaults.
 
 **MAX_TEXT_FILE_SIZE_MB**
 

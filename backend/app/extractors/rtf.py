@@ -25,6 +25,9 @@ class RTFExtractor(BaseExtractor):
     MAX_FILE_SIZE = settings.max_text_file_size_mb * 1024 * 1024
     TIMEOUT = settings.text_extraction_timeout
 
+    def set_max_text_file_size_mb(self, max_size_mb: int) -> None:
+        self.MAX_FILE_SIZE = max_size_mb * 1024 * 1024
+
     def extract(self, file_path: str) -> Document:
         self._check_file_size(file_path)
         path = Path(file_path)
