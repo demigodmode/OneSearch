@@ -10,12 +10,13 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Literal
 
-from PIL import Image, ExifTags, UnidentifiedImageError
-from .base import BaseExtractor, extractor_registry
-from .metadata import MetadataOnlyExtractor
+from PIL import ExifTags, Image, UnidentifiedImageError
+
 from ..config import settings
 from ..schemas import Document
 from ..services.app_settings import default_app_settings
+from .base import BaseExtractor, extractor_registry
+from .metadata import MetadataOnlyExtractor
 
 _STANDARD_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", ".tiff"]
 _RAW_IMAGE_EXTENSIONS = [".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2", ".dng"]
@@ -65,7 +66,7 @@ class ImageExtractor(BaseExtractor):
         image_error: Exception | None = None
         try:
             metadata = self._extract_image_metadata(file_path)
-        except (UnidentifiedImageError, OSError) as e:
+        except (Image.DecompressionBombError, UnidentifiedImageError, OSError) as e:
             image_error = e
 
         if is_raw and self._raw_metadata_enabled():

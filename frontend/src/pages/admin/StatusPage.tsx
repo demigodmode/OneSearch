@@ -64,7 +64,7 @@ function FailedFilesList({ files, sourceId }: { files: FailedFile[], sourceId: s
           disabled={clearing}
           className="text-xs px-2 py-1 rounded bg-secondary/50 hover:bg-secondary disabled:opacity-50 transition-colors"
         >
-          {clearing ? <><Loader2 className="inline h-3 w-3 mr-1 animate-spin" />Clearing…</> : 'Clear stale'}
+          {clearing ? <><Loader2 className="inline h-3 w-3 mr-1 animate-spin" />Cleaning…</> : 'Clean'}
         </button>
       </div>
       <div className="space-y-2 max-h-48 overflow-y-auto scrollbar-thin">

@@ -224,11 +224,10 @@ export async function reindexSource(id: string, full: boolean = false): Promise<
 }
 
 /**
- * Clear stale failed file entries for a source
- * Removes entries where the file no longer exists on disk
+ * Clean failed file entries for a source
  */
-export async function clearStaleFailed(id: string): Promise<{ cleared: number }> {
-  return apiFetch<{ cleared: number }>(`/sources/${encodeURIComponent(id)}/clear-stale`, { method: 'POST' })
+export async function clearStaleFailed(id: string): Promise<{ cleared: number; reindexed: number; still_failed: number; skipped: number }> {
+  return apiFetch<{ cleared: number; reindexed: number; still_failed: number; skipped: number }>(`/sources/${encodeURIComponent(id)}/clear-stale`, { method: 'POST' })
 }
 
 // ============================================================================
