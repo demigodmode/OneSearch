@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgraded React and React DOM to v19. (#144)
 - Upgraded Tailwind CSS to v4 and migrated the frontend theme setup. (#150)
 
+### Added
+
+- Added runtime app settings for text, PDF, and Office extraction size limits so too-large failures can be fixed from Admin Settings and retried with Clean or reindex. (#130, #230)
+
 ### Fixed
 
 - Fixed exclude patterns for nested descendants inside matching directories, including hidden folders such as Syncthing `.stfolder`, `.stignore`, and `.stversions` directories. (#225)

@@ -723,6 +723,44 @@ class TestCleanFailedFilesEndpoint:
         assert failed.status == "skipped"
         assert failed.error_message == "Unsupported file type"
 
+    def test_clean_failed_files_uses_updated_text_size_limit(self, client, sample_source, db_session, monkeypatch):
+        path = Path(sample_source.root_path) / "large.txt"
+        path.write_bytes((b"large text searchable after size setting\n" * 32768)[:1_500_000])
+        db_session.add(AppSetting(key="max_text_file_size_mb", value="1"))
+        failed = IndexedFile(
+            source_id=sample_source.id,
+            path=str(path),
+            size_bytes=0,
+            modified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            status="failed",
+            error_message="File too large",
+        )
+        db_session.add(failed)
+        db_session.commit()
+
+        index_documents = AsyncMock(return_value={})
+        monkeypatch.setattr("app.api.sources.meili_service.index_documents", index_documents)
+
+        response = client.post(f"/api/sources/{sample_source.id}/clear-stale")
+        assert response.status_code == 200
+        assert response.json() == {"cleared": 0, "reindexed": 0, "still_failed": 1, "skipped": 0}
+        db_session.refresh(failed)
+        assert failed.status == "failed"
+        assert "File too large" in failed.error_message
+        index_documents.assert_not_awaited()
+
+        response = client.put("/api/settings", json={"max_text_file_size_mb": 2})
+        assert response.status_code == 200
+
+        response = client.post(f"/api/sources/{sample_source.id}/clear-stale")
+
+        assert response.status_code == 200
+        assert response.json() == {"cleared": 0, "reindexed": 1, "still_failed": 0, "skipped": 0}
+        db_session.refresh(failed)
+        assert failed.status == "success"
+        assert failed.error_message is None
+        index_documents.assert_awaited_once()
+
     def test_clean_failed_files_keeps_existing_file_when_retry_fails(self, client, sample_source, db_session, monkeypatch):
         path = Path(sample_source.root_path) / "broken.txt"
         path.write_text("broken")

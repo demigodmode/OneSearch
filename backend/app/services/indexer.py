@@ -373,6 +373,9 @@ class IndexingService:
         app_settings = None
         configurable_extractors = [
             "set_index_gps_metadata",
+            "set_max_text_file_size_mb",
+            "set_max_pdf_file_size_mb",
+            "set_max_office_file_size_mb",
             "set_image_metadata_max_size_mb",
             "set_raw_metadata_mode",
             "set_epub_extraction_max_size_mb",
@@ -384,6 +387,12 @@ class IndexingService:
             app_settings = AppSettingsService(self.db).get_settings()
         if hasattr(extractor, "set_index_gps_metadata"):
             extractor.set_index_gps_metadata(app_settings.index_gps_metadata)
+        if hasattr(extractor, "set_max_text_file_size_mb"):
+            extractor.set_max_text_file_size_mb(app_settings.max_text_file_size_mb)
+        if hasattr(extractor, "set_max_pdf_file_size_mb"):
+            extractor.set_max_pdf_file_size_mb(app_settings.max_pdf_file_size_mb)
+        if hasattr(extractor, "set_max_office_file_size_mb"):
+            extractor.set_max_office_file_size_mb(app_settings.max_office_file_size_mb)
         if hasattr(extractor, "set_image_metadata_max_size_mb"):
             extractor.set_image_metadata_max_size_mb(app_settings.image_metadata_max_size_mb)
         if hasattr(extractor, "set_raw_metadata_mode"):

@@ -20,6 +20,9 @@ def test_get_settings_returns_defaults(client):
         "raw_preview_enabled": True,
         "max_preview_size_mb": 50,
         "media_probe_max_size_mb": 0,
+        "max_text_file_size_mb": 10,
+        "max_pdf_file_size_mb": 50,
+        "max_office_file_size_mb": 50,
         "image_metadata_max_size_mb": 100,
         "epub_extraction_max_size_mb": 100,
         "comic_extraction_max_size_mb": 100,
@@ -38,6 +41,9 @@ def test_update_settings_persists_values(client):
         "raw_preview_enabled": False,
         "max_preview_size_mb": 25,
         "media_probe_max_size_mb": 500,
+        "max_text_file_size_mb": 25,
+        "max_pdf_file_size_mb": 125,
+        "max_office_file_size_mb": 150,
         "image_metadata_max_size_mb": 250,
         "epub_extraction_max_size_mb": 200,
         "comic_extraction_max_size_mb": 300,
@@ -81,6 +87,9 @@ def test_update_settings_accepts_partial_payload(client):
     assert body["raw_preview_enabled"] is True
     assert body["max_preview_size_mb"] == 50
     assert body["media_probe_max_size_mb"] == 0
+    assert body["max_text_file_size_mb"] == 10
+    assert body["max_pdf_file_size_mb"] == 50
+    assert body["max_office_file_size_mb"] == 50
     assert body["image_metadata_max_size_mb"] == 100
     assert body["epub_extraction_max_size_mb"] == 100
     assert body["comic_extraction_max_size_mb"] == 100
@@ -97,6 +106,9 @@ def test_update_settings_rejects_invalid_preview_size(client):
 def test_update_settings_rejects_invalid_limit_values(client):
     for payload in [
         {"media_probe_max_size_mb": -1},
+        {"max_text_file_size_mb": 0},
+        {"max_pdf_file_size_mb": 0},
+        {"max_office_file_size_mb": 0},
         {"image_metadata_max_size_mb": 0},
         {"epub_extraction_max_size_mb": 0},
         {"comic_extraction_max_size_mb": 0},

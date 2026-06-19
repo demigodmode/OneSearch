@@ -36,6 +36,9 @@ class PDFExtractor(BaseExtractor):
     # Timeout from settings
     TIMEOUT = settings.pdf_extraction_timeout
 
+    def set_max_pdf_file_size_mb(self, max_size_mb: int) -> None:
+        self.MAX_FILE_SIZE = max_size_mb * 1024 * 1024
+
     def extract(self, file_path: str) -> Document:
         """
         Extract text and metadata from PDF file

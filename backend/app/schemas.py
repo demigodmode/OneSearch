@@ -196,6 +196,9 @@ class AppSettingsResponse(BaseModel):
     raw_preview_enabled: bool = True
     max_preview_size_mb: Literal[25, 50, 100] = 50
     media_probe_max_size_mb: int = Field(default=0, ge=0)
+    max_text_file_size_mb: int = Field(default=10, ge=1)
+    max_pdf_file_size_mb: int = Field(default=50, ge=1)
+    max_office_file_size_mb: int = Field(default=50, ge=1)
     image_metadata_max_size_mb: int = Field(default=100, ge=1)
     epub_extraction_max_size_mb: int = Field(default=100, ge=1)
     comic_extraction_max_size_mb: int = Field(default=100, ge=1)
@@ -213,6 +216,9 @@ class AppSettingsUpdate(BaseModel):
     raw_preview_enabled: Optional[bool] = None
     max_preview_size_mb: Optional[Literal[25, 50, 100]] = None
     media_probe_max_size_mb: Optional[int] = Field(default=None, ge=0)
+    max_text_file_size_mb: Optional[int] = Field(default=None, ge=1)
+    max_pdf_file_size_mb: Optional[int] = Field(default=None, ge=1)
+    max_office_file_size_mb: Optional[int] = Field(default=None, ge=1)
     image_metadata_max_size_mb: Optional[int] = Field(default=None, ge=1)
     epub_extraction_max_size_mb: Optional[int] = Field(default=None, ge=1)
     comic_extraction_max_size_mb: Optional[int] = Field(default=None, ge=1)

@@ -146,6 +146,9 @@ export interface AppSettings {
   raw_preview_enabled: boolean
   max_preview_size_mb: 25 | 50 | 100
   media_probe_max_size_mb: number
+  max_text_file_size_mb: number
+  max_pdf_file_size_mb: number
+  max_office_file_size_mb: number
   image_metadata_max_size_mb: number
   epub_extraction_max_size_mb: number
   comic_extraction_max_size_mb: number
