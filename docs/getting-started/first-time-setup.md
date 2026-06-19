@@ -172,6 +172,9 @@ Patterns use glob syntax to match file paths. Here are common patterns:
 | `**/.git/**` | Git repository data |
 | `**/__pycache__/**` | Python cache |
 | `**/.*` | Hidden files |
+| `**/.st*/**` | Syncthing folders such as `.stfolder`, `.stignore`, and `.stversions` |
+
+Directory excludes such as `**/node_modules/**` skip all descendants of matching folders, not just direct children. The web UI and CLI split pattern text on commas, so prefer separate comma-separated patterns over brace groups that contain commas.
 
 Separate multiple patterns with commas: `**/*.pdf,**/*.md,**/*.txt`
 

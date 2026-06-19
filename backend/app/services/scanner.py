@@ -5,10 +5,11 @@
 File system scanner with glob pattern filtering
 Walks directory trees and yields files matching include/exclude patterns
 """
+import fnmatch
+import logging
 import os
 from pathlib import Path
-from typing import List, Optional, Iterator
-import logging
+from typing import Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -82,20 +83,19 @@ class FileScanner:
 
         # Check if file should be excluded based on path matching exclude patterns
         def should_exclude(file_path: Path) -> bool:
-            """Check if file path matches any exclude pattern"""
+            """Check if file path matches any exclude pattern."""
+            try:
+                relative_path = file_path.relative_to(self.root_path)
+            except ValueError:
+                return False
+
+            candidates = [relative_path.as_posix()]
+            candidates.extend(parent.as_posix() for parent in relative_path.parents if str(parent) != ".")
+
             for pattern in self.exclude_patterns:
-                # Check if the file itself matches
-                if file_path.match(pattern):
-                    return True
-                # Check if any parent directory matches the pattern
-                # This handles patterns like **/node_modules/** correctly
-                try:
-                    relative_path = file_path.relative_to(self.root_path)
-                    # Check each part of the path
-                    if relative_path.match(pattern):
+                for candidate in candidates:
+                    if _match_exclude_pattern(candidate, pattern):
                         return True
-                except ValueError:
-                    pass
             return False
 
         # Filter and yield files
@@ -158,6 +158,20 @@ class FileScanner:
             extension_counts[ext] = extension_counts.get(ext, 0) + 1
 
         return extension_counts
+
+
+def _match_exclude_pattern(candidate: str, pattern: str) -> bool:
+    """Match a relative file or ancestor path against an exclude glob."""
+    patterns = [pattern]
+    if pattern.startswith("**/"):
+        patterns.append(pattern[3:])
+    if pattern.endswith("/**"):
+        base = pattern[:-3]
+        patterns.append(base)
+        if base.startswith("**/"):
+            patterns.append(base[3:])
+
+    return any(fnmatch.fnmatchcase(candidate, p) for p in patterns)
 
 
 def validate_glob_patterns(patterns: List[str]) -> tuple[bool, Optional[str]]:

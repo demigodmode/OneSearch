@@ -148,6 +148,48 @@ class TestFileScanner:
 
             assert len(files) == 0
 
+    def test_exclude_pattern_excludes_nested_descendants(self):
+        """Directory excludes should exclude all descendants, not just direct children."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "node_modules" / "pkg").mkdir(parents=True)
+            (root / "nested" / "node_modules" / "pkg").mkdir(parents=True)
+            (root / "keep").mkdir()
+            (root / "node_modules" / "pkg" / "package.json").write_text("{}")
+            (root / "nested" / "node_modules" / "pkg" / "package.json").write_text("{}")
+            (root / "keep" / "package.json").write_text("{}")
+
+            scanner = FileScanner(
+                str(root),
+                include_patterns=["**/*"],
+                exclude_patterns=["**/node_modules/**"],
+            )
+            files = [Path(f).relative_to(root).as_posix() for f in scanner.scan()]
+
+            assert files == ["keep/package.json"]
+
+    def test_exclude_pattern_excludes_hidden_directory_descendants(self):
+        """Hidden directory excludes should work for Syncthing-style folders."""
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".stfolder" / "nested").mkdir(parents=True)
+            (root / ".stignore" / "nested").mkdir(parents=True)
+            (root / ".stversions" / "nested").mkdir(parents=True)
+            (root / "keep").mkdir()
+            (root / ".stfolder" / "nested" / "marker.txt").write_text("sync")
+            (root / ".stignore" / "nested" / "marker.txt").write_text("sync")
+            (root / ".stversions" / "nested" / "marker.txt").write_text("sync")
+            (root / "keep" / "marker.txt").write_text("keep")
+
+            scanner = FileScanner(
+                str(root),
+                include_patterns=["**/*"],
+                exclude_patterns=["**/.st*/**"],
+            )
+            files = [Path(f).relative_to(root).as_posix() for f in scanner.scan()]
+
+            assert files == ["keep/marker.txt"]
+
     def test_default_exclude_patterns(self, test_directory):
         """Test that default exclude patterns work correctly"""
         # Scanner with defaults should exclude .git and node_modules

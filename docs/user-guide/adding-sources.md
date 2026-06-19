@@ -82,6 +82,9 @@ curl -X POST http://localhost:8000/api/sources \
 | `**/.git/**` | skip Git internals |
 | `**/node_modules/**` | skip Node dependencies |
 | `**/__pycache__/**` | skip Python cache directories |
+| `**/.st*/**` | skip Syncthing folders such as `.stfolder`, `.stignore`, and `.stversions` |
+
+Directory excludes such as `**/node_modules/**` apply to all descendants of matching folders, not just direct children. The web UI and CLI split pattern text on commas, so prefer separate comma-separated patterns over brace groups that contain commas.
 
 If you leave includes empty, OneSearch scans everything it supports. Default excludes already skip common dependency/build folders when no custom excludes are provided.
 
