@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Upgraded React and React DOM to v19. (#144)
 - Upgraded Tailwind CSS to v4 and migrated the frontend theme setup. (#150)
+- Clarified include/exclude pattern examples so UI and CLI users avoid comma-containing brace globs. (#232)
 
 ### Added
 

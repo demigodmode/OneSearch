@@ -77,7 +77,7 @@ curl -X POST http://localhost:8000/api/sources \
 | Pattern | What it does |
 |---------|--------------|
 | `**/*.pdf` | all PDFs below the source root |
-| `**/*.{md,txt}` | Markdown and text files |
+| `**/*.md, **/*.txt` | Markdown and text files when entered in the web UI or CLI |
 | `docs/**/*` | everything under a `docs` folder |
 | `**/.git/**` | skip Git internals |
 | `**/node_modules/**` | skip Node dependencies |
