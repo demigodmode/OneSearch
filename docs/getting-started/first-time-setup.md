@@ -160,7 +160,7 @@ Patterns use glob syntax to match file paths. Here are common patterns:
 | Pattern | Matches |
 |---------|---------|
 | `**/*.pdf` | All PDFs in any directory |
-| `**/*.{md,txt}` | All Markdown and text files |
+| `**/*.md, **/*.txt` | Markdown and text files when entered in the web UI or CLI |
 | `*.log` | Log files in root only |
 | `docs/**/*` | Everything under docs/ |
 
@@ -174,7 +174,7 @@ Patterns use glob syntax to match file paths. Here are common patterns:
 | `**/.*` | Hidden files |
 | `**/.st*/**` | Syncthing folders such as `.stfolder`, `.stignore`, and `.stversions` |
 
-Directory excludes such as `**/node_modules/**` skip all descendants of matching folders, not just direct children. The web UI and CLI split pattern text on commas, so prefer separate comma-separated patterns over brace groups that contain commas.
+Directory excludes such as `**/node_modules/**` skip all descendants of matching folders, not just direct children. The web UI and CLI split pattern text on commas, so prefer separate comma-separated patterns such as `**/*.md, **/*.txt` over brace groups that contain commas.
 
 Separate multiple patterns with commas: `**/*.pdf,**/*.md,**/*.txt`
 
