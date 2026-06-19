@@ -4,10 +4,11 @@ The preview endpoint streams safe previews for indexed image documents. It is ma
 
 Authentication is required.
 
-## Endpoint
+## Endpoints
 
 ```http
 GET /api/documents/{document_id}/preview
+GET /api/documents/{document_id}/download
 ```
 
 Use the document ID from a search result or from `GET /api/documents/{document_id}`.
@@ -17,6 +18,16 @@ curl -L http://localhost:8000/api/documents/documents--abc123def456/preview \
   -H "Authorization: Bearer $TOKEN" \
   --output preview.jpg
 ```
+
+To download the original indexed file:
+
+```bash
+curl -L http://localhost:8000/api/documents/documents--abc123def456/download \
+  -H "Authorization: Bearer $TOKEN" \
+  --output original-file
+```
+
+Downloads are authenticated and validate that the indexed path still belongs to the configured source before streaming the file. They are not controlled by the preview on/off setting.
 
 ## Supported previews
 
@@ -29,7 +40,7 @@ RAW previews do not decode sensor data. OneSearch scans for embedded JPEG previe
 
 ## Common errors
 
-Preview errors return a structured `detail` object:
+Preview and download errors return a structured `detail` object:
 
 ```json
 {
