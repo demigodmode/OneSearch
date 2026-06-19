@@ -4,7 +4,7 @@ Thanks for your interest in OneSearch! This project protects `main` with branch 
 
 ## Prerequisites
 - Python 3.11+ with [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- Node 18+ with npm
+- Node 22 with npm. Current frontend tooling requires modern Node engines; use Node 22.13+ to match Vite/ESLint and the Docker build line.
 - Docker + Docker Compose (for Meilisearch and containerized dev)
 
 ## Local Development
