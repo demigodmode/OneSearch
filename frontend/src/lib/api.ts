@@ -302,38 +302,16 @@ export async function getDocumentPreviewBlob(id: string): Promise<Blob> {
   return response.blob()
 }
 
-export function getDocumentDownloadUrl(id: string): string {
-  return `${API_BASE}/documents/${encodeURIComponent(id)}/download`
+interface DocumentDownloadLink {
+  url: string
+  expires_in: number
+  filename: string
 }
 
-export async function getDocumentDownloadBlob(id: string): Promise<Blob> {
-  const token = getToken()
-  const response = await fetch(getDocumentDownloadUrl(id), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+export async function getDocumentDownloadLink(id: string): Promise<DocumentDownloadLink> {
+  return apiFetch<DocumentDownloadLink>(`/documents/${encodeURIComponent(id)}/download-link`, {
+    method: 'POST',
   })
-
-  if (!response.ok) {
-    if (response.status === 401) {
-      clearToken()
-      window.location.href = '/login'
-      throw new ApiError('Session expired', 401)
-    }
-
-    let detail = `Download unavailable (${response.status})`
-    try {
-      const data = await response.json()
-      if (typeof data.detail === 'string') {
-        detail = data.detail
-      } else if (data.detail?.message) {
-        detail = data.detail.message
-      }
-    } catch {
-      // Response body not JSON
-    }
-    throw new ApiError(detail, response.status, detail)
-  }
-
-  return response.blob()
 }
 
 // ============================================================================

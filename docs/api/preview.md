@@ -1,14 +1,15 @@
 # Preview API
 
-The preview endpoint streams safe previews for indexed image documents. It is mainly used by the web UI, but custom clients can call it too.
+The preview endpoint streams safe previews for indexed image documents. The same API also lets the web UI download original indexed files without buffering them in JavaScript first.
 
-Authentication is required.
+Authentication is required for previews and for creating download links.
 
 ## Endpoints
 
 ```http
-GET /api/documents/{document_id}/preview
-GET /api/documents/{document_id}/download
+GET  /api/documents/{document_id}/preview
+POST /api/documents/{document_id}/download-link
+GET  /api/documents/{document_id}/download?token=...
 ```
 
 Use the document ID from a search result or from `GET /api/documents/{document_id}`.
@@ -19,15 +20,20 @@ curl -L http://localhost:8000/api/documents/documents--abc123def456/preview \
   --output preview.jpg
 ```
 
-To download the original indexed file:
+To download the original indexed file, first create a short-lived download link:
 
 ```bash
-curl -L http://localhost:8000/api/documents/documents--abc123def456/download \
-  -H "Authorization: Bearer $TOKEN" \
-  --output original-file
+curl -X POST http://localhost:8000/api/documents/documents--abc123def456/download-link \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
-Downloads are authenticated and validate that the indexed path still belongs to the configured source before streaming the file. They are not controlled by the preview on/off setting.
+The response includes a `url` that is valid for a short time and scoped to that one document. Open that URL to stream the file:
+
+```bash
+curl -L "$DOWNLOAD_URL" --output original-file
+```
+
+Downloads validate that the indexed path still belongs to the configured source before streaming the file. They are not controlled by the preview on/off setting.
 
 ## Supported previews
 
@@ -61,6 +67,10 @@ Common codes:
 | `path_outside_source` | The indexed path is outside its configured source root. |
 | `file_not_found` | The source file moved or was deleted after indexing. |
 | `preview_too_large` | The source file is larger than the configured preview limit. |
+| `download_token_missing` | The download URL is missing its short-lived token. |
+| `download_token_expired` | The download URL has expired. Create a new link. |
+| `download_token_invalid` | The download token is malformed or not signed by this instance. |
+| `download_token_wrong_document` | The download token is for a different document ID. |
 | `raw_preview_disabled` | RAW previews are disabled. |
 | `raw_preview_unavailable` | No embedded RAW preview could be extracted. |
 | `unsupported_preview_type` | The document type does not have a streamed preview. |

@@ -157,22 +157,29 @@ def test_preview_streams_indexed_standard_image(client, source, temp_source, mon
     assert response.content == image_path.read_bytes()
 
 
-def test_download_requires_authentication(unauthenticated_client):
-    response = unauthenticated_client.get("/api/documents/anything/download")
+def test_download_link_requires_authentication(unauthenticated_client):
+    response = unauthenticated_client.post("/api/documents/anything/download-link")
 
     assert response.status_code == 401
 
 
-def test_download_requires_indexed_document(client, monkeypatch):
+def test_download_link_requires_indexed_document(client, monkeypatch):
     async def missing_document(document_id):
         return None
 
     monkeypatch.setattr("app.api.preview.meili_service.get_document", missing_document)
 
-    response = client.get("/api/documents/missing/download")
+    response = client.post("/api/documents/missing/download-link")
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "document_not_found"
+
+
+def test_download_requires_signed_token(client):
+    response = client.get("/api/documents/photos--image123/download")
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "download_token_missing"
 
 
 def test_download_rejects_path_outside_indexed_source(client, source, temp_source, monkeypatch):
@@ -189,10 +196,9 @@ def test_download_rejects_path_outside_indexed_source(client, source, temp_sourc
 
         monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
 
-        response = client.get("/api/documents/photos--image123/download")
-
-    assert response.status_code == 403
-    assert response.json()["detail"]["code"] == "path_outside_source"
+        link_response = client.post("/api/documents/photos--image123/download-link")
+        assert link_response.status_code == 403
+        assert link_response.json()["detail"]["code"] == "path_outside_source"
 
 
 def test_download_returns_missing_file_error(client, source, temp_source, monkeypatch):
@@ -207,13 +213,13 @@ def test_download_returns_missing_file_error(client, source, temp_source, monkey
 
     monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
 
-    response = client.get("/api/documents/photos--image123/download")
+    response = client.post("/api/documents/photos--image123/download-link")
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "file_not_found"
 
 
-def test_download_returns_original_file_as_attachment(client, source, temp_source, monkeypatch):
+def test_download_streams_original_file_from_signed_link(client, source, temp_source, monkeypatch):
     _, image_path, _ = temp_source
 
     async def get_document(document_id):
@@ -221,12 +227,35 @@ def test_download_returns_original_file_as_attachment(client, source, temp_sourc
 
     monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
 
-    response = client.get("/api/documents/photos--image123/download")
+    link_response = client.post("/api/documents/photos--image123/download-link")
+    assert link_response.status_code == 200
+    body = link_response.json()
+    assert body["expires_in"] == 60
+    assert "/api/documents/photos--image123/download?token=" in body["url"]
+
+    response = client.get(body["url"])
 
     assert response.status_code == 200
     assert response.content == image_path.read_bytes()
     assert response.headers["content-disposition"].startswith("attachment;")
     assert 'filename="photo.jpg"' in response.headers["content-disposition"]
+
+
+def test_download_rejects_token_for_different_document(client, source, temp_source, monkeypatch):
+    _, image_path, _ = temp_source
+
+    async def get_document(document_id):
+        return image_doc(source, image_path)
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+
+    link_response = client.post("/api/documents/photos--image123/download-link")
+    token = link_response.json()["url"].split("token=", 1)[1]
+
+    response = client.get(f"/api/documents/photos--other/download?token={token}")
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "download_token_wrong_document"
 
 
 def test_preview_accepts_meilisearch_document_object(client, source, temp_source, monkeypatch):

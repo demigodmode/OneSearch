@@ -93,10 +93,11 @@ See [Authentication Guide](../administration/authentication.md) for more details
 POST /api/search
 GET  /api/documents/{id}
 GET  /api/documents/{id}/preview
-GET  /api/documents/{id}/download
+POST /api/documents/{id}/download-link
+GET  /api/documents/{id}/download?token=...
 ```
 
-Search indexed documents with optional filters, fetch full indexed document records, stream authenticated previews for supported image/RAW documents, or download the original indexed file.
+Search indexed documents with optional filters, fetch full indexed document records, stream authenticated previews for supported image/RAW documents, or create short-lived links to download original indexed files.
 
 ### Sources
 

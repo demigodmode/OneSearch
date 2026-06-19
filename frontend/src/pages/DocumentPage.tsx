@@ -52,7 +52,7 @@ import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
 import r from 'react-syntax-highlighter/dist/esm/languages/prism/r'
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown'
 import { cn, formatSize, formatFullDate } from '@/lib/utils'
-import { getDocumentDownloadBlob } from '@/lib/api'
+import { getDocumentDownloadLink } from '@/lib/api'
 
 SyntaxHighlighter.registerLanguage('javascript', javascript)
 SyntaxHighlighter.registerLanguage('jsx', jsx)
@@ -278,15 +278,13 @@ export default function DocumentPage() {
     setDownloadError(null)
 
     try {
-      const blob = await getDocumentDownloadBlob(document.id)
-      const objectUrl = URL.createObjectURL(blob)
+      const download = await getDocumentDownloadLink(document.id)
       const link = window.document.createElement('a')
-      link.href = objectUrl
-      link.download = document.basename || 'download'
+      link.href = download.url
+      link.download = download.filename || document.basename || 'download'
       window.document.body.appendChild(link)
       link.click()
       link.remove()
-      URL.revokeObjectURL(objectUrl)
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : 'Download failed')
     } finally {
