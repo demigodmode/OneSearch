@@ -86,6 +86,33 @@ async def get_document_preview(
     return FileResponse(file_path, media_type=media_type, filename=file_path.name)
 
 
+@router.get("/documents/{document_id}/download")
+async def download_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Download the original file for an indexed document."""
+    document = await meili_service.get_document(document_id)
+    if document is None:
+        _preview_error(status.HTTP_404_NOT_FOUND, "document_not_found", "Document not found")
+
+    document = _document_to_dict(document)
+
+    source = db.get(Source, document.get("source_id"))
+    if source is None:
+        _preview_error(status.HTTP_404_NOT_FOUND, "source_not_found", "Document source not found")
+
+    file_path = _validated_document_path(document, source)
+    filename = str(document.get("basename") or file_path.name)
+
+    return FileResponse(
+        file_path,
+        filename=filename,
+        content_disposition_type="attachment",
+    )
+
+
 def _document_to_dict(document) -> dict:
     if isinstance(document, dict):
         return document

@@ -157,6 +157,78 @@ def test_preview_streams_indexed_standard_image(client, source, temp_source, mon
     assert response.content == image_path.read_bytes()
 
 
+def test_download_requires_authentication(unauthenticated_client):
+    response = unauthenticated_client.get("/api/documents/anything/download")
+
+    assert response.status_code == 401
+
+
+def test_download_requires_indexed_document(client, monkeypatch):
+    async def missing_document(document_id):
+        return None
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", missing_document)
+
+    response = client.get("/api/documents/missing/download")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "document_not_found"
+
+
+def test_download_rejects_path_outside_indexed_source(client, source, temp_source, monkeypatch):
+    _, image_path, _ = temp_source
+    with TemporaryDirectory() as outside_tmp:
+        outside_file = Path(outside_tmp) / "escape.txt"
+        outside_file.write_text("nope", encoding="utf-8")
+
+        async def get_document(document_id):
+            doc = image_doc(source, image_path)
+            doc["path"] = str(outside_file)
+            doc["basename"] = outside_file.name
+            return doc
+
+        monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+
+        response = client.get("/api/documents/photos--image123/download")
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "path_outside_source"
+
+
+def test_download_returns_missing_file_error(client, source, temp_source, monkeypatch):
+    root, image_path, _ = temp_source
+    missing_path = root / "missing.pdf"
+
+    async def get_document(document_id):
+        doc = image_doc(source, image_path)
+        doc["path"] = str(missing_path)
+        doc["basename"] = missing_path.name
+        return doc
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+
+    response = client.get("/api/documents/photos--image123/download")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "file_not_found"
+
+
+def test_download_returns_original_file_as_attachment(client, source, temp_source, monkeypatch):
+    _, image_path, _ = temp_source
+
+    async def get_document(document_id):
+        return image_doc(source, image_path)
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+
+    response = client.get("/api/documents/photos--image123/download")
+
+    assert response.status_code == 200
+    assert response.content == image_path.read_bytes()
+    assert response.headers["content-disposition"].startswith("attachment;")
+    assert 'filename="photo.jpg"' in response.headers["content-disposition"]
+
+
 def test_preview_accepts_meilisearch_document_object(client, source, temp_source, monkeypatch):
     _, image_path, _ = temp_source
 
