@@ -36,6 +36,9 @@ class MarkdownExtractor(BaseExtractor):
     # Timeout from settings
     TIMEOUT = settings.text_extraction_timeout
 
+    def set_max_text_file_size_mb(self, max_size_mb: int) -> None:
+        self.MAX_FILE_SIZE = max_size_mb * 1024 * 1024
+
     def extract(self, file_path: str) -> Document:
         """
         Extract markdown content and parse YAML front-matter

@@ -369,6 +369,22 @@ class TestIndexingService:
             assert doc.metadata["media_metadata_mode"] == "off"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("filename", ["large.md", "large.rtf", "large.srt"])
+    async def test_extract_document_applies_text_limit_to_text_family_extractors(self, db_session, filename):
+        """Markdown, RTF, and subtitles should use the runtime text size limit."""
+        db_session.add(AppSetting(key="max_text_file_size_mb", value="1"))
+        db_session.commit()
+        service = IndexingService(db_session, Mock())
+
+        with TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / filename
+            with file_path.open("wb") as f:
+                f.seek((2 * 1024 * 1024) - 1)
+                f.write(b"0")
+
+            with pytest.raises(ValueError, match="File too large"):
+                await service._extract_document(str(file_path), "test_source", "Test Source")
+
     @pytest.mark.asyncio
     async def test_extract_document_applies_epub_and_comic_limits_separately(self, db_session):
         """EPUB and CBZ extractors should receive separate backend size limits."""
