@@ -21,6 +21,7 @@ import {
   Image as ImageIcon,
   BookOpen,
   FileArchive,
+  Download,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -51,6 +52,7 @@ import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
 import r from 'react-syntax-highlighter/dist/esm/languages/prism/r'
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown'
 import { cn, formatSize, formatFullDate } from '@/lib/utils'
+import { getDocumentDownloadBlob } from '@/lib/api'
 
 SyntaxHighlighter.registerLanguage('javascript', javascript)
 SyntaxHighlighter.registerLanguage('jsx', jsx)
@@ -234,6 +236,8 @@ export default function DocumentPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [copied, setCopied] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
 
   // Get search context for back navigation
   const fromQuery = searchParams.get('q')
@@ -264,6 +268,29 @@ export default function DocumentPage() {
       } catch {
         // Clipboard API not available (e.g. non-HTTPS context)
       }
+    }
+  }
+
+  const handleDownload = async () => {
+    if (!document || isDownloading) return
+
+    setIsDownloading(true)
+    setDownloadError(null)
+
+    try {
+      const blob = await getDocumentDownloadBlob(document.id)
+      const objectUrl = URL.createObjectURL(blob)
+      const link = window.document.createElement('a')
+      link.href = objectUrl
+      link.download = document.basename || 'download'
+      window.document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(objectUrl)
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Download failed')
+    } finally {
+      setIsDownloading(false)
     }
   }
 
@@ -428,6 +455,15 @@ export default function DocumentPage() {
               {copied ? 'Copied!' : 'Copy path'}
             </button>
 
+            <button
+              onClick={handleDownload}
+              disabled={isDownloading}
+              className="flex items-center gap-2 px-3 py-2 text-sm rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-all duration-150 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Download className="h-4 w-4" />
+              {isDownloading ? 'Downloading…' : 'Download'}
+            </button>
+
             <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
               <span className="uppercase font-mono bg-secondary px-2 py-0.5 rounded text-xs">
                 {document.type}
@@ -437,6 +473,9 @@ export default function DocumentPage() {
               )}
             </div>
           </div>
+          {downloadError && (
+            <p className="mt-2 text-sm text-destructive">{downloadError}</p>
+          )}
         </div>
 
         <FormatDetails document={document} />
