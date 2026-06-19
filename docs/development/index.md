@@ -14,7 +14,7 @@ Welcome to OneSearch development documentation!
 ## Tech Stack
 
 - **Backend:** Python 3.10+, FastAPI, SQLAlchemy
-- **Frontend:** React 18, TypeScript, Vite, TanStack Query
+- **Frontend:** React 19, TypeScript, Vite, TanStack Query, Tailwind CSS 4
 - **Search:** Meilisearch
 - **Database:** SQLite
 - **Deployment:** Docker, Docker Compose

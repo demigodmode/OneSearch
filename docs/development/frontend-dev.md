@@ -1,12 +1,12 @@
 # Frontend Development
 
-The OneSearch frontend is a React 18 + TypeScript single-page application.
+The OneSearch frontend is a React 19 + TypeScript single-page application.
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 22 recommended. The Docker build uses Node 22, and current Vite/tooling should be tested against that line.
+- Node.js 22.13+ recommended. Current Vite/ESLint tooling requires modern Node engines, and the Docker build uses Node 22.
 - npm (comes with Node.js)
 
 ### Initial Setup
@@ -69,14 +69,15 @@ frontend/
 ├── package.json
 ├── tsconfig.json            # TypeScript config
 ├── vite.config.ts           # Vite config
-└── tailwind.config.js       # Tailwind config
+├── postcss.config.js        # PostCSS config using @tailwindcss/postcss
+└── src/index.css            # Tailwind 4 CSS-first theme/config
 ```
 
 ---
 
 ## Tech Stack
 
-**React 18** - UI library with hooks and functional components
+**React 19** - UI library with hooks and functional components
 
 **TypeScript** - Type safety catches bugs early
 
@@ -88,7 +89,7 @@ frontend/
 
 **shadcn/ui** - Accessible UI components (copied into project, not npm deps)
 
-**Tailwind CSS** - Utility-first styling
+**Tailwind CSS 4** - Utility-first styling with CSS-first theme configuration in `src/index.css`
 
 **Lucide React** - Icon library
 
@@ -328,7 +329,9 @@ function SearchPage() {
 
 ### Styling
 
-OneSearch uses Tailwind CSS for styling:
+OneSearch uses Tailwind CSS 4 for styling. Theme tokens, custom colors, radii, fonts, and animations live in `src/index.css` using Tailwind's CSS-first `@theme` setup; there is no `tailwind.config.js`.
+
+Use utility classes in components:
 
 ```typescript
 function Button({ children, onClick }) {
