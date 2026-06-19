@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an authenticated Download action for indexed documents in the web UI. (#224)
 - Added runtime app settings for text, PDF, and Office extraction size limits so too-large failures can be fixed from Admin Settings and retried with Clean or reindex. (#130, #230)
 
 ### Fixed

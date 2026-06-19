@@ -302,6 +302,18 @@ export async function getDocumentPreviewBlob(id: string): Promise<Blob> {
   return response.blob()
 }
 
+interface DocumentDownloadLink {
+  url: string
+  expires_in: number
+  filename: string
+}
+
+export async function getDocumentDownloadLink(id: string): Promise<DocumentDownloadLink> {
+  return apiFetch<DocumentDownloadLink>(`/documents/${encodeURIComponent(id)}/download-link`, {
+    method: 'POST',
+  })
+}
+
 // ============================================================================
 // Authentication
 // ============================================================================

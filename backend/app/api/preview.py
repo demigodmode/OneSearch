@@ -5,9 +5,12 @@
 Authenticated preview API for indexed image documents.
 """
 import asyncio
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import jwt
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
@@ -15,7 +18,7 @@ from ..db.database import get_db
 from ..models import Source, User
 from ..services.app_settings import AppSettingsService
 from ..services.search import meili_service
-from .auth import get_current_user
+from .auth import ALGORITHM, get_current_user, get_secret_key
 
 router = APIRouter(prefix="/api", tags=["preview"])
 
@@ -27,6 +30,8 @@ _BROWSER_IMAGE_TYPES = {
     "gif": "image/gif",
 }
 _RAW_IMAGE_EXTENSIONS = {"cr2", "cr3", "nef", "arw", "raf", "orf", "rw2", "dng"}
+_DOWNLOAD_TOKEN_EXPIRE_SECONDS = 60
+_DOWNLOAD_TOKEN_PURPOSE = "document_download"
 
 
 @router.get("/documents/{document_id}/preview")
@@ -84,6 +89,90 @@ async def get_document_preview(
         )
 
     return FileResponse(file_path, media_type=media_type, filename=file_path.name)
+
+
+@router.post("/documents/{document_id}/download-link")
+async def create_document_download_link(
+    document_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a short-lived signed URL for downloading an indexed document."""
+    document, file_path = await _validated_indexed_file(document_id, db)
+    token = _create_download_token(current_user.id, document_id)
+    url = request.url_for("download_document", document_id=document_id).include_query_params(token=token)
+    return {
+        "url": str(url),
+        "expires_in": _DOWNLOAD_TOKEN_EXPIRE_SECONDS,
+        "filename": str(document.get("basename") or file_path.name),
+    }
+
+
+@router.get("/documents/{document_id}/download")
+async def download_document(
+    document_id: str,
+    token: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Download the original file for an indexed document using a short-lived token."""
+    _validate_download_token(token, document_id)
+    document, file_path = await _validated_indexed_file(document_id, db)
+    filename = str(document.get("basename") or file_path.name)
+
+    return FileResponse(
+        file_path,
+        filename=filename,
+        content_disposition_type="attachment",
+    )
+
+
+async def _validated_indexed_file(document_id: str, db: Session) -> tuple[dict, Path]:
+    document = await meili_service.get_document(document_id)
+    if document is None:
+        _preview_error(status.HTTP_404_NOT_FOUND, "document_not_found", "Document not found")
+
+    document = _document_to_dict(document)
+
+    source = db.get(Source, document.get("source_id"))
+    if source is None:
+        _preview_error(status.HTTP_404_NOT_FOUND, "source_not_found", "Document source not found")
+
+    file_path = _validated_document_path(document, source)
+    return document, file_path
+
+
+def _create_download_token(user_id: int, document_id: str) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "doc": document_id,
+        "purpose": _DOWNLOAD_TOKEN_PURPOSE,
+        "iat": now,
+        "exp": now + timedelta(seconds=_DOWNLOAD_TOKEN_EXPIRE_SECONDS),
+    }
+    return jwt.encode(payload, get_secret_key(), algorithm=ALGORITHM)
+
+
+def _validate_download_token(token: str | None, document_id: str) -> dict[str, Any]:
+    if not token:
+        _preview_error(status.HTTP_401_UNAUTHORIZED, "download_token_missing", "Download token is required")
+
+    try:
+        payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        _preview_error(status.HTTP_401_UNAUTHORIZED, "download_token_expired", "Download token expired")
+    except jwt.InvalidTokenError:
+        _preview_error(status.HTTP_401_UNAUTHORIZED, "download_token_invalid", "Invalid download token")
+
+    if payload.get("purpose") != _DOWNLOAD_TOKEN_PURPOSE:
+        _preview_error(status.HTTP_403_FORBIDDEN, "download_token_wrong_purpose", "Invalid download token purpose")
+    if payload.get("doc") != document_id:
+        _preview_error(status.HTTP_403_FORBIDDEN, "download_token_wrong_document", "Download token is for a different document")
+    if not payload.get("sub"):
+        _preview_error(status.HTTP_401_UNAUTHORIZED, "download_token_invalid", "Invalid download token")
+
+    return payload
 
 
 def _document_to_dict(document) -> dict:
