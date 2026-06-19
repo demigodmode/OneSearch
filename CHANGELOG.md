@@ -5,6 +5,18 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Expanded failed-file cleanup into a **Clean** action that removes missing or no-longer-matching failed files, retries files that still belong to the source, reports resolved/still-failed/skipped counts, and uses the per-source indexing lock to avoid racing scheduled or manual indexing.
+
+### Fixed
+
+- Fixed oversized Pillow decompression-bomb images getting stuck as hard failures by falling back to metadata-only image indexing.
+
+---
+
 ## [1.1.0] - 2026-06-10
 
 ### Added
