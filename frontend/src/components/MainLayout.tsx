@@ -10,6 +10,10 @@ import { OneSearchLogo } from '@/components/OneSearchLogo'
 export default function MainLayout() {
   const { user, logout } = useAuth()
 
+  const resetSearch = () => {
+    window.dispatchEvent(new Event('onesearch:reset-search'))
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -17,7 +21,7 @@ export default function MainLayout() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
-            <Link to="/" className="flex items-center gap-2.5 group">
+            <Link to="/" onClick={resetSearch} className="flex items-center gap-2.5 group">
               <div className="p-1 rounded-lg bg-brand/10 group-hover:bg-brand/20 transition-colors">
                 <OneSearchLogo className="h-6 w-6" aria-hidden="true" />
               </div>

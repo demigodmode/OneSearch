@@ -92,6 +92,7 @@ function ResultCard({
 export default function SearchPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const searchParamString = searchParams.toString()
   const [query, setQuery] = useState(searchParams.get('q') || '')
   const [debouncedQuery, setDebouncedQuery] = useState(searchParams.get('q') || '')
   const [sourceFilter, setSourceFilter] = useState<string>(searchParams.get('source') || '')
@@ -105,6 +106,15 @@ export default function SearchPage() {
   const limit = settings.resultsPerPage
   const snippetLengthValue = SNIPPET_LENGTH_MAP[settings.snippetLength]
 
+  const resetSearch = useCallback(() => {
+    setQuery('')
+    setDebouncedQuery('')
+    setSourceFilter('')
+    setTypeFilter('')
+    setPage(0)
+    setSelectedIndex(-1)
+  }, [])
+
   const handleViewDocument = useCallback((documentId: string) => {
     const params = new URLSearchParams()
     if (debouncedQuery) params.set('q', debouncedQuery)
@@ -114,14 +124,32 @@ export default function SearchPage() {
     navigate(`/document/${encodeURIComponent(documentId)}${queryString ? `?${queryString}` : ''}`)
   }, [debouncedQuery, sourceFilter, typeFilter, navigate])
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(searchParamString)
+      setQuery(params.get('q') || '')
+      setDebouncedQuery(params.get('q') || '')
+      setSourceFilter(params.get('source') || '')
+      setTypeFilter(params.get('type') || '')
+      setPage(0)
+      setSelectedIndex(-1)
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [searchParamString])
+
+  useEffect(() => {
+    window.addEventListener('onesearch:reset-search', resetSearch)
+    return () => window.removeEventListener('onesearch:reset-search', resetSearch)
+  }, [resetSearch])
+
   // Debounce search query
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       setDebouncedQuery(query)
       setPage(0)
       setSelectedIndex(-1)
     }, 300)
-    return () => clearTimeout(timer)
+    return () => window.clearTimeout(timer)
   }, [query])
 
   const { data: sources } = useSources()
