@@ -7,6 +7,23 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build, e.g. v1.2.0"
+        required: false
+        default: ""
+      version:
+        description: "Version tags to publish, e.g. 1.2.0"
+        required: false
+        default: ""
+      publish_latest:
+        description: "Also publish the latest tag"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 env:
   REGISTRY_GHCR: ghcr.io
@@ -27,6 +44,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -54,7 +73,7 @@ jobs:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ env.PYPI_API_TOKEN }}
         run: |
-          uv run --with twine python -m twine upload cli/dist/*
+          uv run --with twine python -m twine upload --skip-existing cli/dist/*
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -107,9 +126,26 @@ jobs:
         run: |
           {
             echo 'tags<<EOF'
-            printf '%s\n' "${{ steps.meta-ghcr.outputs.tags }}"
-            if [ -n "${{ steps.meta-dockerhub.outputs.tags }}" ]; then
-              printf '%s\n' "${{ steps.meta-dockerhub.outputs.tags }}"
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
+              version="${{ inputs.version }}"
+              minor="${version%.*}"
+              printf '%s/%s:%s\n' "${{ env.REGISTRY_GHCR }}" "${{ env.IMAGE_NAME }}" "$version"
+              printf '%s/%s:%s\n' "${{ env.REGISTRY_GHCR }}" "${{ env.IMAGE_NAME }}" "$minor"
+              if [ "${{ inputs.publish_latest }}" = "true" ]; then
+                printf '%s/%s:latest\n' "${{ env.REGISTRY_GHCR }}" "${{ env.IMAGE_NAME }}"
+              fi
+              if [ -n "${{ env.DOCKERHUB_USERNAME }}" ] && [ -n "${{ env.DOCKERHUB_TOKEN }}" ]; then
+                printf '%s/%s:%s\n' "${{ env.REGISTRY_DOCKER }}" "${{ env.IMAGE_NAME }}" "$version"
+                printf '%s/%s:%s\n' "${{ env.REGISTRY_DOCKER }}" "${{ env.IMAGE_NAME }}" "$minor"
+                if [ "${{ inputs.publish_latest }}" = "true" ]; then
+                  printf '%s/%s:latest\n' "${{ env.REGISTRY_DOCKER }}" "${{ env.IMAGE_NAME }}"
+                fi
+              fi
+            else
+              printf '%s\n' "${{ steps.meta-ghcr.outputs.tags }}"
+              if [ -n "${{ steps.meta-dockerhub.outputs.tags }}" ]; then
+                printf '%s\n' "${{ steps.meta-dockerhub.outputs.tags }}"
+              fi
             fi
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
@@ -119,7 +155,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.event_name == 'release' }}
+          push: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.version != '') }}
           tags: ${{ steps.image-tags.outputs.tags }}
           labels: ${{ steps.meta-ghcr.outputs.labels }}
           cache-from: type=local,src=/tmp/.buildx-cache
