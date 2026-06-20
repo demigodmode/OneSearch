@@ -29,7 +29,7 @@ The default managed install stores app data in:
 
 ## File size limits
 
-Large files are where extraction gets expensive. Tune these in `.env`:
+Large files are where extraction gets expensive. Text, PDF, and Office limits can be changed in **Admin → Settings → Indexing**. The matching environment variables set their defaults before an app setting is saved:
 
 ```env
 MAX_TEXT_FILE_SIZE_MB=10
@@ -40,7 +40,7 @@ EPUB_EXTRACTION_MAX_SIZE_MB=100
 COMIC_EXTRACTION_MAX_SIZE_MB=100
 ```
 
-Lower the limits if indexing is getting stuck on giant files. Raise them only if you know those files are worth indexing.
+Lower the limits if indexing is getting stuck on giant files. Raise them only if you know those files are worth indexing, then use **Clean** or reindex affected sources.
 
 ## Rich media settings
 

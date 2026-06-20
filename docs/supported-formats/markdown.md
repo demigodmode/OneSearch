@@ -40,11 +40,6 @@ Markdown previews render as formatted content in the document page. Search terms
 
 ## Limits
 
-Markdown uses the text file size and timeout settings:
-
-```env
-MAX_TEXT_FILE_SIZE_MB=10
-TEXT_EXTRACTION_TIMEOUT=5
-```
+Markdown uses the text extraction limit shown in **Admin → Settings → Indexing**. `MAX_TEXT_FILE_SIZE_MB` provides the default value, and `TEXT_EXTRACTION_TIMEOUT` controls how long extraction can run.
 
 If parsing fails, OneSearch falls back to indexing the filename/path instead of failing the whole source.

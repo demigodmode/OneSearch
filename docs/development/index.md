@@ -31,9 +31,8 @@ Welcome to OneSearch development documentation!
 ### Backend
 
 ```bash
-cd backend
 uv sync
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --app-dir backend --reload
 ```
 
 ### Frontend

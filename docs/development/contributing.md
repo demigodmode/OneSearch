@@ -23,10 +23,23 @@ cd OneSearch
 Backend:
 
 ```bash
-cd backend
 uv sync
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+DATABASE_URL=sqlite:///./onesearch-dev.db \
+MEILI_URL=http://localhost:7700 \
+MEILI_MASTER_KEY=dev-meili-key \
+SESSION_SECRET=dev-session-secret \
+uv run uvicorn app.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
 ```
+
+For search/indexing to work with that backend-only command, run Meilisearch separately with the same key:
+
+```bash
+docker run --rm -p 7700:7700 \
+  -e MEILI_MASTER_KEY=dev-meili-key \
+  getmeili/meilisearch:v1.12
+```
+
+`docker compose up -d` is still useful for full-stack checks, but the default compose file runs OneSearch as a container with managed Meilisearch inside it. It does not provide a separate Meilisearch service for a backend process running directly from your checkout.
 
 Frontend:
 
@@ -43,8 +56,7 @@ Run the checks that match your change.
 Backend:
 
 ```bash
-cd backend
-uv run pytest
+uv run pytest backend/tests
 ```
 
 Frontend:

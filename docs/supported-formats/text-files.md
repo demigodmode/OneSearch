@@ -56,4 +56,4 @@ Configuration and data files.
 - Automatic encoding detection (UTF-8, Latin-1, etc.)
 - Full-text indexing
 - Filter by type (`text`, `code`, `config`) in the search UI
-- Size limits configurable via `MAX_TEXT_FILE_SIZE_MB`
+- Size limits configurable in **Admin → Settings → Indexing**; `MAX_TEXT_FILE_SIZE_MB` sets the default for new installs

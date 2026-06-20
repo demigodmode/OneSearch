@@ -77,12 +77,11 @@ Good coverage:
 Run a focused test while working:
 
 ```bash
-cd backend
-uv run pytest tests/test_example_extractor.py -v
+uv run pytest backend/tests/test_example_extractor.py -v
 ```
 
 Then run the broader backend suite before opening a PR:
 
 ```bash
-uv run pytest
+uv run pytest backend/tests
 ```

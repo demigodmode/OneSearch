@@ -27,10 +27,10 @@ curl -X POST http://localhost:8000/api/documents/documents--abc123def456/downloa
   -H "Authorization: Bearer $TOKEN"
 ```
 
-The response includes a `url` that is valid for a short time and scoped to that one document. Open that URL to stream the file:
+The response includes a short-lived, document-scoped `url`. It is same-origin and relative, so clients should resolve it against the OneSearch base URL before opening it outside the browser:
 
 ```bash
-curl -L "$DOWNLOAD_URL" --output original-file
+curl -L "http://localhost:8000$DOWNLOAD_URL" --output original-file
 ```
 
 Downloads validate that the indexed path still belongs to the configured source before streaming the file. They are not controlled by the preview on/off setting.

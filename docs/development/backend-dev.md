@@ -8,7 +8,7 @@ The OneSearch backend is built with FastAPI and Python 3.10+.
 
 - Python 3.10 or later
 - uv (recommended) or pip
-- Docker + Docker Compose (for Meilisearch)
+- Docker, if you want to run a local Meilisearch container
 
 ### Initial Setup
 
@@ -37,7 +37,7 @@ pip install -e .
 
 ### Start Meilisearch
 
-The default Docker setup runs managed Meilisearch inside the OneSearch container. For backend-only development, you still need a Meilisearch instance reachable from the backend process.
+The default Docker setup runs managed Meilisearch inside the OneSearch container. For backend-only development, you still need a Meilisearch instance reachable from the backend process. `docker compose up -d` is good for full-stack container testing, but it does not provide a separate Meilisearch service for a backend process running directly from your checkout.
 
 The simplest local option is to run Meilisearch directly with Docker:
 
@@ -47,9 +47,10 @@ docker run --rm -p 7700:7700 \
   getmeili/meilisearch:v1.12
 ```
 
-Set matching backend environment values in `.env`:
+Set matching backend environment values in `backend/.env`:
 
 ```env
+DATABASE_URL=sqlite:///./onesearch-dev.db
 MEILI_MASTER_KEY=your-key-here
 MEILI_URL=http://localhost:7700
 SESSION_SECRET=dev-session-secret

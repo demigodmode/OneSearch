@@ -1,80 +1,124 @@
 # Contributing to OneSearch
 
-Thanks for your interest in OneSearch! This project protects `main` with branch rules—please work in feature branches and open pull requests for review.
+Thanks for helping with OneSearch. Keep changes focused and easy to review. If a change affects users, update the docs and changelog with it.
+
+`main` is protected, so use a branch and open a pull request.
 
 ## Prerequisites
-- Python 3.11+ with [uv](https://docs.astral.sh/uv/) (recommended) or pip
-- Node 22 with npm. Current frontend tooling requires modern Node engines; use Node 22.13+ to match Vite/ESLint and the Docker build line.
-- Docker + Docker Compose (for Meilisearch and containerized dev)
 
-## Local Development
+- Python 3.10+ with [uv](https://docs.astral.sh/uv/)
+- Node 22.13+ with npm
+- Docker for a local Meilisearch container; Docker Compose for full-stack container checks
 
-### Backend
+## Local setup
+
+From the repo root:
+
 ```bash
-cd backend
-
-# Using uv (recommended)
 uv sync
-uv run uvicorn app.main:app --reload
-
-# Or using pip
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
-uvicorn app.main:app --reload
 ```
-API docs: http://localhost:8000/docs
 
-### Frontend
-1. `cd frontend`
-2. Install deps: `npm install`
-3. Start dev server: `npm run dev` (http://localhost:5173)
+That installs the backend and CLI workspace packages plus shared test tools.
 
-## Testing
-- Start Meilisearch for API tests: `docker-compose up -d meilisearch`
-- Backend tests: `cd backend && pytest`
-- Frontend lint/build: `cd frontend && npm run lint && npm run build`
+Run the backend API:
 
-## Pull Requests
-- Base branch: `main`; use `feature/<topic>` or `fix/<issue>` branches.
-- Keep PRs focused and include tests for new behavior and regressions.
-- Update docs (README/local_docs) when you change user-facing behavior.
-- Ensure CI passes before requesting review.
+```bash
+DATABASE_URL=sqlite:///./onesearch-dev.db \
+MEILI_URL=http://localhost:7700 \
+MEILI_MASTER_KEY=dev-meili-key \
+SESSION_SECRET=dev-session-secret \
+uv run uvicorn app.main:app --app-dir backend --reload --host 0.0.0.0 --port 8000
+```
 
-## Style & Standards
-- Python: target `py311`, line length 100 (see `pyproject.toml`); match existing style.
-- JS/TS: follow project eslint/prettier defaults (via `npm run lint`).
-- Security: do not commit secrets; prefer environment variables.
+For search/indexing to work in backend-only development, run Meilisearch separately with the same key:
 
-## License and Copyright
+```bash
+docker run --rm -p 7700:7700 \
+  -e MEILI_MASTER_KEY=dev-meili-key \
+  getmeili/meilisearch:v1.12
+```
 
-By contributing to OneSearch, you agree that your contributions will be licensed under the GNU Affero General Public License v3.0 (AGPL-3.0-only).
+If you run `docker compose up -d` instead, the default compose file builds the full OneSearch container and runs managed Meilisearch inside it. That is useful for stack testing, but it is not the same as running the backend process directly from your checkout.
 
-### Developer Certificate of Origin
+Run the frontend:
 
-By submitting a pull request, you certify that:
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-1. The contribution was created in whole or in part by you and you have the right to submit it under the AGPL-3.0-only license; or
-2. The contribution is based upon previous work that, to the best of your knowledge, is covered under an appropriate open source license and you have the right under that license to submit that work with modifications, whether created in whole or in part by you, under the AGPL-3.0-only license; or
-3. The contribution was provided directly to you by some other person who certified (1) or (2) and you have not modified it.
-4. You understand and agree that this project and the contribution are public and that a record of the contribution (including all personal information you submit with it) is maintained indefinitely and may be redistributed consistent with this project or the open source license(s) involved.
+The frontend dev server runs at <http://localhost:5173> and proxies API calls to <http://localhost:8000>.
 
-### Copyright Headers
+## Tests and checks
 
-All new source files must include the following copyright header at the top:
+Run the smallest useful check while working. Before a mixed backend/frontend/docs PR, run:
 
-**Python files:**
+```bash
+uv run pytest backend/tests cli/tests
+cd frontend && npm run lint && npm run build
+cd .. && mkdocs build --strict
+```
+
+For Docker-facing changes, also build the image:
+
+```bash
+docker build -t onesearch:dev .
+```
+
+Backend-only examples:
+
+```bash
+uv run pytest backend/tests/test_api.py -q
+uv run pytest backend/tests/test_scanner.py -q
+```
+
+Docs-only changes should still pass:
+
+```bash
+mkdocs build --strict
+```
+
+## Pull requests
+
+- Base PRs on `main`.
+- Use a focused branch like `feature/document-download` or `fix/exclude-patterns`.
+- Include tests for bug fixes and new behavior when practical.
+- Update user docs for user-facing behavior changes.
+- Add a `CHANGELOG.md` entry for release-worthy changes.
+
+A PR description can be short. Say what changed, why it matters, and anything reviewers should pay attention to.
+
+## Style
+
+- Follow nearby code style instead of introducing a new pattern.
+- Python uses the shared Ruff config in `pyproject.toml`.
+- Frontend code should pass `npm run lint` and `npm run build`.
+- Keep docs direct and useful. Avoid filler.
+- Do not commit secrets or machine-specific config.
+
+## License and copyright
+
+By contributing to OneSearch, you agree that your contribution is licensed under AGPL-3.0-only.
+
+New source files should include the matching header:
+
+Python:
+
 ```python
 # Copyright (C) 2025 demigodmode
 # SPDX-License-Identifier: AGPL-3.0-only
 ```
 
-**JavaScript/TypeScript files:**
+JavaScript/TypeScript:
+
 ```javascript
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 ```
 
-**CSS files:**
+CSS:
+
 ```css
 /* Copyright (C) 2025 demigodmode
  * SPDX-License-Identifier: AGPL-3.0-only

@@ -36,12 +36,7 @@ Extracts:
 
 ## Limits
 
-Office extraction uses:
-
-```env
-MAX_OFFICE_FILE_SIZE_MB=50
-OFFICE_EXTRACTION_TIMEOUT=30
-```
+Office extraction uses the Office size limit shown in **Admin → Settings → Indexing**. `MAX_OFFICE_FILE_SIZE_MB` provides the default value, and `OFFICE_EXTRACTION_TIMEOUT` controls how long extraction can run.
 
 Password-protected or corrupt files are handled as extraction failures. OneSearch keeps going and records enough metadata to show what failed.
 
