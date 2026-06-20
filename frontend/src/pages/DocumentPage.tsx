@@ -259,14 +259,32 @@ export default function DocumentPage() {
     }
   }, [navigate, fromQuery, fromSource, fromType])
 
+  const copyText = async (text: string) => {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text)
+      return
+    }
+
+    const textArea = window.document.createElement('textarea')
+    textArea.value = text
+    textArea.setAttribute('readonly', '')
+    textArea.style.position = 'fixed'
+    textArea.style.left = '-9999px'
+    window.document.body.appendChild(textArea)
+    textArea.select()
+    const copied = window.document.execCommand('copy')
+    textArea.remove()
+    if (!copied) throw new Error('Copy failed')
+  }
+
   const handleCopyPath = async () => {
     if (document?.path) {
       try {
-        await navigator.clipboard.writeText(document.path)
+        await copyText(document.path)
         setCopied(true)
         setTimeout(() => setCopied(false), 2000)
       } catch {
-        // Clipboard API not available (e.g. non-HTTPS context)
+        setCopied(false)
       }
     }
   }

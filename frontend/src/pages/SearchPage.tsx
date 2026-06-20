@@ -98,6 +98,7 @@ export default function SearchPage() {
   const [typeFilter, setTypeFilter] = useState<string>(searchParams.get('type') || '')
   const [page, setPage] = useState(0)
   const [selectedIndex, setSelectedIndex] = useState(-1)
+  const [showSearchSkeleton, setShowSearchSkeleton] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const { settings } = useSearchSettings()
@@ -136,6 +137,13 @@ export default function SearchPage() {
   }), [debouncedQuery, sourceFilter, typeFilter, limit, page, settings.sortOrder, snippetLengthValue])
 
   const { data: searchData, isLoading, error } = useSearch(searchQuery)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setShowSearchSkeleton(isLoading)
+    }, isLoading ? 180 : 0)
+    return () => window.clearTimeout(timer)
+  }, [isLoading])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -314,7 +322,7 @@ export default function SearchPage() {
                 {error instanceof Error ? error.message : 'An unexpected error occurred'}
               </p>
             </div>
-          ) : isLoading ? (
+          ) : isLoading && showSearchSkeleton ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between text-sm text-muted-foreground mb-4">
                 <span>Searching for "<span className="text-foreground">{debouncedQuery}</span>"...</span>

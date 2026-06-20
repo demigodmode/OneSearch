@@ -8,9 +8,10 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, urlencode
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
@@ -94,16 +95,15 @@ async def get_document_preview(
 @router.post("/documents/{document_id}/download-link")
 async def create_document_download_link(
     document_id: str,
-    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Create a short-lived signed URL for downloading an indexed document."""
     document, file_path = await _validated_indexed_file(document_id, db)
     token = _create_download_token(current_user.id, document_id)
-    url = request.url_for("download_document", document_id=document_id).include_query_params(token=token)
+    url = f"/api/documents/{quote(document_id, safe='')}/download?{urlencode({'token': token})}"
     return {
-        "url": str(url),
+        "url": url,
         "expires_in": _DOWNLOAD_TOKEN_EXPIRE_SECONDS,
         "filename": str(document.get("basename") or file_path.name),
     }

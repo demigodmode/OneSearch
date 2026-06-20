@@ -231,7 +231,7 @@ def test_download_streams_original_file_from_signed_link(client, source, temp_so
     assert link_response.status_code == 200
     body = link_response.json()
     assert body["expires_in"] == 60
-    assert "/api/documents/photos--image123/download?token=" in body["url"]
+    assert body["url"].startswith("/api/documents/photos--image123/download?token=")
 
     response = client.get(body["url"])
 
