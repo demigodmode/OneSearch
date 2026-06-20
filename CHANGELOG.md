@@ -7,20 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added authenticated document downloads from the document page. OneSearch now creates short-lived signed download links, validates that the indexed file still belongs to its configured source, and lets the browser stream the original file directly instead of buffering it in JavaScript. (#224)
+- Added Admin → Settings → Indexing controls for text, PDF, and Office extraction size limits, with saved settings applied at runtime instead of requiring an app restart. (#230)
+- Made too-large text/PDF/Office failures easier to recover from: raise the matching size limit in settings, then use **Clean** or reindex to retry the affected files. (#130)
+
 ### Changed
 
 - Upgraded React and React DOM to v19. (#144)
-- Upgraded Tailwind CSS to v4 and migrated the frontend theme setup. (#150)
-- Clarified include/exclude pattern examples so UI and CLI users avoid comma-containing brace globs. (#232)
-
-### Added
-
-- Added an authenticated Download action for indexed documents in the web UI. (#224)
-- Added runtime app settings for text, PDF, and Office extraction size limits so too-large failures can be fixed from Admin Settings and retried with Clean or reindex. (#130, #230)
+- Upgraded Tailwind CSS to v4 and moved the frontend theme setup to Tailwind’s CSS-first configuration in `src/index.css`. (#150)
+- Updated backend dependencies including `python-multipart`, `starlette`, and `pypdf`. (#226, #228, #229)
+- Updated frontend development docs for the React 19 and Tailwind 4 setup. (#144, #150)
+- Updated contributor and development docs for the current uv workspace commands, Node 22 frontend tooling, Docker Compose modes, and backend-only Meilisearch setup.
+- Clarified include/exclude pattern examples so UI and CLI users avoid comma-containing brace globs such as `**/*.{md,txt}`. Use separate comma-separated patterns instead, like `**/*.md, **/*.txt`. (#232)
 
 ### Fixed
 
-- Fixed exclude patterns for nested descendants inside matching directories, including hidden folders such as Syncthing `.stfolder`, `.stignore`, and `.stversions` directories. (#225)
+- Fixed exclude patterns for nested descendants inside matching directories. Patterns such as `**/node_modules/**` and `**/.st*/**` now exclude files below matching nested folders instead of only matching the folder path itself. (#225)
+- Fixed Syncthing-style hidden folders and files such as `.stfolder`, `.stignore`, and `.stversions` not being excluded reliably. (#225)
+- Fixed runtime text extraction limits being missed by Markdown, RTF, and subtitle extractors after changing the new text size setting. (#130, #230)
+- Fixed document downloads from smoke/LAN deployments by returning same-origin relative signed URLs instead of absolute URLs tied to the backend request host. (#224)
+- Fixed **Copy path** on non-HTTPS/LAN browser sessions by adding a clipboard fallback.
+- Fixed the OneSearch header logo not resetting the current search when clicked from an already-open no-results search page.
+- Reduced the brief search result skeleton flash for very fast no-result searches.
 
 ---
 
