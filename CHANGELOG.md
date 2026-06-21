@@ -5,6 +5,16 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-06-21
+
+### Security
+
+- Updated PyJWT to 2.13.0.
+- Pinned frontend Babel core to a patched version.
+- Hardened source path validation for blank input and symlink escape cases.
+
+---
+
 ## [1.2.0] - 2026-06-20
 
 ### Added
@@ -679,6 +689,7 @@ Milestone 1 complete. All core features are in — search, indexing, auth, sched
 
 ---
 
+[1.2.1]: https://github.com/demigodmode/OneSearch/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/demigodmode/OneSearch/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/demigodmode/OneSearch/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/demigodmode/OneSearch/compare/v1.0.5...v1.1.0
