@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Tests for source path preflight diagnostics."""
+import pytest
+from fastapi import HTTPException
+
+from app.api.sources import validate_root_path
 from app.config import settings
 
 
@@ -111,3 +115,51 @@ def test_source_path_test_reports_unreadable_directory(client, tmp_path, monkeyp
     assert data["is_directory"] is True
     assert data["readable"] is False
     assert data["message"] == "Path exists but OneSearch cannot read it. Check Docker volume permissions or PUID/PGID."
+
+
+def test_source_path_test_rejects_blank_path(client):
+    response = client.post("/api/sources/test-path", json={"root_path": "   "})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is False
+    assert data["exists"] is False
+    assert data["is_directory"] is False
+    assert data["readable"] is False
+    assert data["inside_allowed_roots"] is False
+    assert data["message"] == "Root path is required."
+
+
+def test_validate_root_path_rejects_blank_path():
+    try:
+        validate_root_path("   ")
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert exc.detail == "Root path is required"
+    else:
+        raise AssertionError("blank root path was accepted")
+
+
+def test_source_path_test_rejects_symlink_escape(client, tmp_path):
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = allowed / "escape"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlink creation is not available: {exc}")
+
+    original_allowed = settings.allowed_source_paths
+    settings.allowed_source_paths = str(allowed)
+    try:
+        response = client.post("/api/sources/test-path", json={"root_path": str(link)})
+    finally:
+        settings.allowed_source_paths = original_allowed
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is False
+    assert data["inside_allowed_roots"] is False
+    assert data["message"] == "Root path is outside allowed source roots."

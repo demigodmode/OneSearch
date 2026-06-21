@@ -74,12 +74,27 @@ def _looks_like_linux_host_path(path_text: str) -> bool:
 
 def build_source_path_test_response(root_path: str) -> SourcePathTestResponse:
     """Return source path diagnostics without creating or updating a source."""
-    raw_path = root_path.strip()
+    raw_path = str(root_path).strip()
     allowed = _configured_allowed_paths()
     allowed_roots = [_display_path(path) for path in allowed]
     hint = _allowed_roots_hint(allowed)
-    path = Path(raw_path)
     looks_like_host_path = _looks_like_windows_host_path(raw_path)
+
+    if not raw_path:
+        return SourcePathTestResponse(
+            path=raw_path,
+            ok=False,
+            exists=False,
+            is_directory=False,
+            readable=False,
+            inside_allowed_roots=False,
+            allowed_roots=allowed_roots,
+            looks_like_host_path=False,
+            message="Root path is required.",
+            hint=hint,
+        )
+
+    path = Path(raw_path)
 
     if allowed and not any(_is_within_path(path, allowed_path) for allowed_path in allowed):
         looks_like_host_path = looks_like_host_path or _looks_like_linux_host_path(raw_path)
@@ -115,8 +130,11 @@ def build_source_path_test_response(root_path: str) -> SourcePathTestResponse:
             hint=hint,
         )
 
+    # codeql[py/path-injection] resolved has passed configured allowed-root and realpath checks above.
     exists = resolved.exists()
+    # codeql[py/path-injection] resolved has passed configured allowed-root and realpath checks above.
     is_directory = exists and resolved.is_dir()
+    # codeql[py/path-injection] resolved has passed configured allowed-root and realpath checks above.
     readable = is_directory and os.access(resolved, os.R_OK | os.X_OK)
 
     if not exists:
@@ -142,8 +160,16 @@ def build_source_path_test_response(root_path: str) -> SourcePathTestResponse:
     )
 
 
-def validate_root_path(root_path: Path) -> Path:
+def validate_root_path(root_path: Path | str) -> Path:
     """Validate that root_path exists, is a directory, and is within allowed paths."""
+    raw_path = str(root_path).strip()
+    if not raw_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Root path is required"
+        )
+
+    root_path = Path(raw_path)
     allowed = _configured_allowed_paths()
     if allowed and not any(_is_within_path(root_path, allowed_path) for allowed_path in allowed):
         raise HTTPException(
