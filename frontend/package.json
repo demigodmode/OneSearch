@@ -50,6 +50,7 @@
     "vite": "^8.0.16"
   },
   "overrides": {
+    "@babel/core": "^7.29.6",
     "esbuild": "^0.25.0",
     "prismjs": "^1.30.0"
   }
