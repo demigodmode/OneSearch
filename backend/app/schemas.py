@@ -29,6 +29,14 @@ class Document(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)  # Additional metadata
 
 
+class ScheduleConfig(BaseModel):
+    """A resolved or stored schedule: either a cron expression/preset or a true interval."""
+    schedule_type: Literal["cron", "interval"] = "cron"
+    scan_schedule: Optional[str] = Field(default=None, max_length=100)
+    interval_value: Optional[int] = Field(default=None, gt=0)
+    interval_unit: Optional[Literal["minutes", "hours", "days"]] = None
+
+
 class SourceBase(BaseModel):
     """Base schema for Source"""
     name: str
@@ -36,6 +44,10 @@ class SourceBase(BaseModel):
     include_patterns: Optional[List[str]] = None
     exclude_patterns: Optional[List[str]] = None
     scan_schedule: Optional[str] = Field(default=None, max_length=100)
+    schedule_type: Literal["cron", "interval"] = "cron"
+    interval_value: Optional[int] = Field(default=None, gt=0)
+    interval_unit: Optional[Literal["minutes", "hours", "days"]] = None
+    use_default_schedule: bool = False
 
 
 class SourceCreate(SourceBase):
@@ -50,6 +62,10 @@ class SourceUpdate(BaseModel):
     include_patterns: Optional[List[str]] = None
     exclude_patterns: Optional[List[str]] = None
     scan_schedule: Optional[str] = Field(default=None, max_length=100)
+    schedule_type: Optional[Literal["cron", "interval"]] = None
+    interval_value: Optional[int] = Field(default=None, gt=0)
+    interval_unit: Optional[Literal["minutes", "hours", "days"]] = None
+    use_default_schedule: Optional[bool] = None
 
 
 class SourcePathTestRequest(BaseModel):
@@ -80,9 +96,10 @@ class SourceResponse(SourceBase):
     updated_at: datetime
     last_scan_at: Optional[datetime] = None
     next_scan_at: Optional[datetime] = None
+    effective_schedule: Optional["ScheduleConfig"] = None
 
     @classmethod
-    def from_orm_model(cls, source):
+    def from_orm_model(cls, source, effective_schedule: Optional["ScheduleConfig"] = None):
         """Create SourceResponse from ORM model, deserializing JSON fields"""
         import json
         return cls(
@@ -92,10 +109,15 @@ class SourceResponse(SourceBase):
             include_patterns=json.loads(source.include_patterns) if source.include_patterns else None,
             exclude_patterns=json.loads(source.exclude_patterns) if source.exclude_patterns else None,
             scan_schedule=source.scan_schedule,
+            schedule_type=source.schedule_type,
+            interval_value=source.interval_value,
+            interval_unit=source.interval_unit,
+            use_default_schedule=source.use_default_schedule,
             created_at=source.created_at,
             updated_at=source.updated_at,
             last_scan_at=source.last_scan_at,
             next_scan_at=source.next_scan_at,
+            effective_schedule=effective_schedule,
         )
 
 
@@ -204,6 +226,7 @@ class AppSettingsResponse(BaseModel):
     comic_extraction_max_size_mb: int = Field(default=100, ge=1)
     readable_preview_page_chars: int = Field(default=6000, ge=1000)
     long_text_pagination_threshold_chars: int = Field(default=20000, ge=1000)
+    default_scan_schedule: Optional[ScheduleConfig] = None
 
 
 class AppSettingsUpdate(BaseModel):
@@ -224,6 +247,7 @@ class AppSettingsUpdate(BaseModel):
     comic_extraction_max_size_mb: Optional[int] = Field(default=None, ge=1)
     readable_preview_page_chars: Optional[int] = Field(default=None, ge=1000)
     long_text_pagination_threshold_chars: Optional[int] = Field(default=None, ge=1000)
+    default_scan_schedule: Optional[ScheduleConfig] = None
 
 
 class MessageResponse(BaseModel):

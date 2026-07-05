@@ -28,6 +28,7 @@ def test_get_settings_returns_defaults(client):
         "comic_extraction_max_size_mb": 100,
         "readable_preview_page_chars": 6000,
         "long_text_pagination_threshold_chars": 20000,
+        "default_scan_schedule": None,
     }
 
 
@@ -54,11 +55,12 @@ def test_update_settings_persists_values(client):
     response = client.put("/api/settings", json=update)
 
     assert response.status_code == 200
-    assert response.json() == update
+    expected_response = {**update, "default_scan_schedule": None}
+    assert response.json() == expected_response
 
     second_response = client.get("/api/settings")
     assert second_response.status_code == 200
-    assert second_response.json() == update
+    assert second_response.json() == expected_response
 
 
 def test_legacy_archive_setting_applies_to_epub_and_comic_when_new_keys_are_absent(client, db_session):

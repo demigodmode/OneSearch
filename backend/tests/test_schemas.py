@@ -27,6 +27,10 @@ class TestSourceResponseFromOrm:
             include_patterns=json.dumps(["**/*.txt"]),
             exclude_patterns=json.dumps(["**/node_modules/**"]),
             scan_schedule="@daily",
+            schedule_type="cron",
+            interval_value=None,
+            interval_unit=None,
+            use_default_schedule=False,
             created_at=now,
             updated_at=now,
             last_scan_at=None,
@@ -142,3 +146,23 @@ class TestSearchQuery:
     def test_negative_offset_fails(self):
         with pytest.raises(Exception):
             SearchQuery(q="x", offset=-1)
+
+
+class TestScheduleConfig:
+
+    def test_schedule_config_defaults_to_cron(self):
+        from app.schemas import ScheduleConfig
+
+        config = ScheduleConfig()
+
+        assert config.schedule_type == "cron"
+        assert config.scan_schedule is None
+        assert config.interval_value is None
+        assert config.interval_unit is None
+
+    def test_schedule_config_rejects_non_positive_interval(self):
+        from pydantic import ValidationError
+        from app.schemas import ScheduleConfig
+
+        with pytest.raises(ValidationError):
+            ScheduleConfig(schedule_type="interval", interval_value=0, interval_unit="hours")
