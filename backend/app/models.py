@@ -29,6 +29,10 @@ class Source(Base):
     include_patterns = Column(Text, nullable=True)  # JSON array as text
     exclude_patterns = Column(Text, nullable=True)  # JSON array as text
     scan_schedule = Column(String, nullable=True)  # Cron expression or preset (@hourly, @daily, @weekly)
+    schedule_type = Column(String, nullable=False, default="cron", server_default="cron")  # "cron" or "interval"
+    interval_value = Column(Integer, nullable=True)  # Used when schedule_type == "interval"
+    interval_unit = Column(String, nullable=True)  # "minutes" | "hours" | "days"
+    use_default_schedule = Column(Boolean, nullable=False, default=False, server_default="0")
     last_scan_at = Column(DateTime, nullable=True)
     next_scan_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_utcnow, nullable=False)
