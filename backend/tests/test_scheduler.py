@@ -13,6 +13,10 @@ from app.services.scheduler import (
     validate_schedule,
     resolve_cron,
     calculate_next_run_time,
+    calculate_interval_next_run_time,
+    calculate_next_run_time_for_schedule,
+    validate_interval,
+    resolve_effective_schedule,
     SCHEDULE_PRESETS,
     SchedulerService,
     get_source_lock,
@@ -198,13 +202,11 @@ class TestSchedulerService:
         monkeypatch.setattr(settings, "scheduler_enabled", True)
 
         mock_sched = MockScheduler.return_value
-        # _sync_all_jobs needs a session factory, mock it
-        svc._session_factory = Mock(return_value=Mock(
-            query=Mock(return_value=Mock(
-                filter=Mock(return_value=Mock(all=Mock(return_value=[])))
-            )),
-            close=Mock(),
-        ))
+        # _sync_all_jobs needs a session factory, mock it to return empty sources
+        mock_db = Mock()
+        mock_db.query.return_value.all.return_value = []
+        mock_db.close = Mock()
+        svc._session_factory = Mock(return_value=mock_db)
 
         svc.start()
 
@@ -233,12 +235,19 @@ class TestSchedulerService:
         mock_sched.get_job.return_value = mock_job
         svc.scheduler = mock_sched
 
-        mock_db = Mock()
         mock_source = Mock()
+        mock_source.id = "src1"
+        mock_source.use_default_schedule = False
+        mock_source.schedule_type = "cron"
+        mock_source.scan_schedule = "@hourly"
+        mock_source.interval_value = None
+        mock_source.interval_unit = None
+
+        mock_db = Mock()
         mock_db.get.return_value = mock_source
         svc._session_factory = Mock(return_value=mock_db)
 
-        svc.update_source_schedule("src1", "@hourly")
+        svc.update_source_schedule("src1")
 
         mock_sched.add_job.assert_called_once()
 
@@ -247,12 +256,19 @@ class TestSchedulerService:
         mock_sched.running = True
         svc.scheduler = mock_sched
 
-        mock_db = Mock()
         mock_source = Mock()
+        mock_source.id = "src1"
+        mock_source.use_default_schedule = False
+        mock_source.schedule_type = "cron"
+        mock_source.scan_schedule = None
+        mock_source.interval_value = None
+        mock_source.interval_unit = None
+
+        mock_db = Mock()
         mock_db.get.return_value = mock_source
         svc._session_factory = Mock(return_value=mock_db)
 
-        svc.update_source_schedule("src1", None)
+        svc.update_source_schedule("src1")
 
         mock_sched.remove_job.assert_called_once_with("index-src1")
 
@@ -260,7 +276,7 @@ class TestSchedulerService:
         svc.scheduler = None
 
         # Should not raise
-        svc.update_source_schedule("src1", "@daily")
+        svc.update_source_schedule("src1")
 
     @patch("app.services.scheduler.meili_service")
     @patch("app.services.scheduler.IndexingService")
@@ -343,9 +359,9 @@ class TestSchedulerService:
         mock_sched.running = True
         svc.scheduler = mock_sched
 
-        # No sources have schedules
+        # No sources at all
         mock_db = Mock()
-        mock_db.query.return_value.filter.return_value.all.return_value = []
+        mock_db.query.return_value.all.return_value = []
         svc._session_factory = Mock(return_value=mock_db)
 
         # But scheduler has a stale job
@@ -356,3 +372,103 @@ class TestSchedulerService:
         svc._sync_all_jobs()
 
         mock_sched.remove_job.assert_called_once_with("index-deleted-source")
+
+
+class TestIntervalSchedules:
+
+    def test_validate_interval_valid(self):
+        assert validate_interval(3, "hours") is True
+        assert validate_interval(1, "minutes") is True
+        assert validate_interval(30, "days") is True
+
+    def test_validate_interval_invalid(self):
+        assert validate_interval(0, "hours") is False
+        assert validate_interval(-1, "hours") is False
+        assert validate_interval(3, "weeks") is False
+        assert validate_interval(None, "hours") is False
+
+    def test_calculate_interval_next_run_time_hours(self):
+        result = calculate_interval_next_run_time(3, "hours")
+
+        assert result is not None
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        assert result > now
+        assert result < now + timedelta(hours=3, minutes=1)
+
+    def test_calculate_interval_next_run_time_invalid_returns_none(self):
+        assert calculate_interval_next_run_time(0, "hours") is None
+        assert calculate_interval_next_run_time(3, "fortnights") is None
+
+    def test_calculate_next_run_time_for_schedule_dispatches_interval(self):
+        result = calculate_next_run_time_for_schedule("interval", None, 2, "hours")
+
+        assert result is not None
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        assert result < now + timedelta(hours=2, minutes=1)
+
+    def test_calculate_next_run_time_for_schedule_dispatches_cron(self):
+        result = calculate_next_run_time_for_schedule("cron", "@hourly", None, None)
+
+        assert result is not None
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        assert result < now + timedelta(hours=1, minutes=2)
+
+    def test_calculate_next_run_time_for_schedule_manual_returns_none(self):
+        assert calculate_next_run_time_for_schedule("cron", None, None, None) is None
+
+
+class TestResolveEffectiveSchedule:
+
+    def _make_source(self, **overrides):
+        source = Mock()
+        source.use_default_schedule = False
+        source.schedule_type = "cron"
+        source.scan_schedule = None
+        source.interval_value = None
+        source.interval_unit = None
+        for key, value in overrides.items():
+            setattr(source, key, value)
+        return source
+
+    def test_uses_own_schedule_when_not_following_default(self):
+        source = self._make_source(schedule_type="interval", interval_value=6, interval_unit="hours")
+        db = Mock()
+
+        resolved = resolve_effective_schedule(source, db)
+
+        assert resolved == {
+            "schedule_type": "interval",
+            "scan_schedule": None,
+            "interval_value": 6,
+            "interval_unit": "hours",
+        }
+
+    @patch("app.services.app_settings.AppSettingsService")
+    def test_uses_global_default_when_following_default(self, MockAppSettingsService):
+        from app.schemas import ScheduleConfig
+
+        source = self._make_source(
+            use_default_schedule=True,
+            schedule_type="cron",
+            scan_schedule="0 */6 * * *",  # this stored value must be ignored
+        )
+        db = Mock()
+        MockAppSettingsService.return_value.get_settings.return_value.default_scan_schedule = ScheduleConfig(
+            schedule_type="interval", interval_value=3, interval_unit="hours",
+        )
+
+        resolved = resolve_effective_schedule(source, db)
+
+        assert resolved["schedule_type"] == "interval"
+        assert resolved["interval_value"] == 3
+        assert resolved["interval_unit"] == "hours"
+
+    @patch("app.services.app_settings.AppSettingsService")
+    def test_defaults_to_manual_when_no_global_default_configured(self, MockAppSettingsService):
+        source = self._make_source(use_default_schedule=True)
+        db = Mock()
+        MockAppSettingsService.return_value.get_settings.return_value.default_scan_schedule = None
+
+        resolved = resolve_effective_schedule(source, db)
+
+        assert resolved == {"schedule_type": "cron", "scan_schedule": None, "interval_value": None, "interval_unit": None}

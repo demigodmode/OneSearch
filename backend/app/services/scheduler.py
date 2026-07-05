@@ -13,6 +13,7 @@ from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.orm import sessionmaker, Session
 
 from ..config import settings
@@ -69,6 +70,78 @@ def calculate_next_run_time(schedule: str) -> Optional[datetime]:
         return None
 
 
+VALID_INTERVAL_UNITS = ("minutes", "hours", "days")
+
+
+def validate_interval(value: Optional[int], unit: Optional[str]) -> bool:
+    """Check if an interval value/unit pair is valid."""
+    return (
+        isinstance(value, int)
+        and value > 0
+        and unit in VALID_INTERVAL_UNITS
+    )
+
+
+def build_interval_trigger(value: int, unit: str) -> IntervalTrigger:
+    """Build an APScheduler IntervalTrigger from a value/unit pair."""
+    return IntervalTrigger(**{unit: value}, timezone=settings.schedule_timezone)
+
+
+def calculate_interval_next_run_time(value: int, unit: str) -> Optional[datetime]:
+    """Calculate the next run time for a true interval schedule, naive UTC datetime."""
+    if not validate_interval(value, unit):
+        return None
+    trigger = build_interval_trigger(value, unit)
+    next_time = trigger.get_next_fire_time(None, datetime.now(timezone.utc))
+    if next_time:
+        return next_time.replace(tzinfo=None)
+    return None
+
+
+def calculate_next_run_time_for_schedule(
+    schedule_type: str,
+    scan_schedule: Optional[str],
+    interval_value: Optional[int],
+    interval_unit: Optional[str],
+) -> Optional[datetime]:
+    """Dispatch to the cron or interval next-run-time calculator based on schedule_type."""
+    if schedule_type == "interval":
+        return calculate_interval_next_run_time(interval_value, interval_unit)
+    if not scan_schedule:
+        return None
+    return calculate_next_run_time(scan_schedule)
+
+
+def resolve_effective_schedule(source: Source, db: Session) -> dict:
+    """
+    Resolve the schedule that actually drives a source's next run: its own
+    schedule, or the global default when use_default_schedule is set.
+    Returns a dict shaped like ScheduleConfig (schedule_type, scan_schedule,
+    interval_value, interval_unit). A "cron" type with scan_schedule=None
+    means "manual only".
+    """
+    from ..services.app_settings import AppSettingsService
+
+    if source.use_default_schedule:
+        default = AppSettingsService(db).get_settings().default_scan_schedule
+        if default is None:
+            return {"schedule_type": "cron", "scan_schedule": None, "interval_value": None, "interval_unit": None}
+        return default.model_dump()
+
+    return {
+        "schedule_type": source.schedule_type,
+        "scan_schedule": source.scan_schedule,
+        "interval_value": source.interval_value,
+        "interval_unit": source.interval_unit,
+    }
+
+
+def _schedule_is_manual(resolved: dict) -> bool:
+    if resolved["schedule_type"] == "interval":
+        return not validate_interval(resolved.get("interval_value"), resolved.get("interval_unit"))
+    return not resolved.get("scan_schedule")
+
+
 class SchedulerService:
     """
     Manages APScheduler for background source indexing.
@@ -107,18 +180,18 @@ class SchedulerService:
         """Load schedules from DB and sync with APScheduler state."""
         db = self._session_factory()
         try:
-            sources = db.query(Source).filter(
-                Source.scan_schedule.isnot(None),
-                Source.scan_schedule != "",
-            ).all()
+            sources = db.query(Source).all()
 
             expected_ids = set()
             for source in sources:
+                resolved = resolve_effective_schedule(source, db)
+                if _schedule_is_manual(resolved):
+                    continue
                 job_id = f"index-{source.id}"
                 expected_ids.add(job_id)
-                self._add_or_update_job(source.id, source.scan_schedule, db)
+                self._add_or_update_job(source.id, resolved, db)
 
-            # Clean up jobs for sources that no longer have schedules
+            # Clean up jobs for sources that no longer have an active schedule
             for job in self.scheduler.get_jobs():
                 if job.id.startswith("index-") and job.id not in expected_ids:
                     self.scheduler.remove_job(job.id)
@@ -126,45 +199,79 @@ class SchedulerService:
         finally:
             db.close()
 
-    def update_source_schedule(self, source_id: str, schedule: Optional[str]):
-        """Called when a source's schedule is created/updated/cleared."""
+    def update_source_schedule(self, source_id: str):
+        """Called when a source's own schedule fields or use_default_schedule change."""
         if not self.scheduler or not self.scheduler.running:
             return
 
         job_id = f"index-{source_id}"
+        db = self._session_factory()
+        try:
+            source = db.get(Source, source_id)
+            if not source:
+                try:
+                    self.scheduler.remove_job(job_id)
+                except Exception:
+                    pass
+                return
 
-        if not schedule:
-            try:
-                self.scheduler.remove_job(job_id)
-                logger.info(f"Removed scheduled job for source '{source_id}'")
-            except Exception:
-                pass
-            # Clear next_scan_at
-            db = self._session_factory()
-            try:
-                source = db.get(Source, source_id)
-                if source:
-                    source.next_scan_at = None
-                    db.commit()
-            finally:
-                db.close()
+            resolved = resolve_effective_schedule(source, db)
+            if _schedule_is_manual(resolved):
+                try:
+                    self.scheduler.remove_job(job_id)
+                    logger.info(f"Removed scheduled job for source '{source_id}'")
+                except Exception:
+                    pass
+                source.next_scan_at = None
+                db.commit()
+                return
+
+            self._add_or_update_job(source_id, resolved, db)
+        finally:
+            db.close()
+
+    def sync_default_schedule_sources(self):
+        """Called when the global default_scan_schedule setting changes. Re-syncs
+        only sources with use_default_schedule=True; custom sources are untouched."""
+        if not self.scheduler or not self.scheduler.running:
             return
 
         db = self._session_factory()
         try:
-            self._add_or_update_job(source_id, schedule, db)
+            sources = db.query(Source).filter(Source.use_default_schedule.is_(True)).all()
+            for source in sources:
+                resolved = resolve_effective_schedule(source, db)
+                job_id = f"index-{source.id}"
+                if _schedule_is_manual(resolved):
+                    try:
+                        self.scheduler.remove_job(job_id)
+                    except Exception:
+                        pass
+                    source.next_scan_at = None
+                    db.commit()
+                else:
+                    self._add_or_update_job(source.id, resolved, db)
         finally:
             db.close()
 
-    def _add_or_update_job(self, source_id: str, schedule: str, db: Session):
+    def _add_or_update_job(self, source_id: str, resolved: dict, db: Session):
         job_id = f"index-{source_id}"
-        cron_expr = resolve_cron(schedule)
+        schedule_type = resolved["schedule_type"]
 
-        try:
-            trigger = CronTrigger.from_crontab(cron_expr, timezone=settings.schedule_timezone)
-        except (ValueError, KeyError) as e:
-            logger.error(f"Invalid cron '{cron_expr}' for source '{source_id}': {e}")
-            return
+        if schedule_type == "interval":
+            if not validate_interval(resolved.get("interval_value"), resolved.get("interval_unit")):
+                logger.error(f"Invalid interval for source '{source_id}': {resolved}")
+                return
+            trigger = build_interval_trigger(resolved["interval_value"], resolved["interval_unit"])
+            schedule_label = f"every {resolved['interval_value']} {resolved['interval_unit']}"
+        else:
+            cron_expr = resolve_cron(resolved.get("scan_schedule") or "")
+            try:
+                trigger = CronTrigger.from_crontab(cron_expr, timezone=settings.schedule_timezone)
+            except (ValueError, KeyError) as e:
+                logger.error(f"Invalid cron '{cron_expr}' for source '{source_id}': {e}")
+                return
+            schedule_label = cron_expr
 
         self.scheduler.add_job(
             func=self._run_indexing_job,
@@ -183,9 +290,9 @@ class SchedulerService:
             if source:
                 source.next_scan_at = job.next_run_time.replace(tzinfo=None)
                 db.commit()
-            logger.info(f"Scheduled indexing for '{source_id}': {cron_expr} (next: {job.next_run_time})")
+            logger.info(f"Scheduled indexing for '{source_id}': {schedule_label} (next: {job.next_run_time})")
         else:
-            logger.warning(f"Scheduled indexing for '{source_id}': {cron_expr} (next run time unknown)")
+            logger.warning(f"Scheduled indexing for '{source_id}': {schedule_label} (next run time unknown)")
 
     def _run_indexing_job(self, source_id: str):
         """Job function called by APScheduler in a background thread."""
