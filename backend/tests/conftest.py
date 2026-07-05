@@ -120,3 +120,73 @@ def sample_source(db_session, temp_source_dir):
     db_session.commit()
     db_session.refresh(source)
     return source
+
+
+@pytest.fixture
+def client_with_scheduler(db_session, test_user):
+    """Create test client with scheduler attached to app state"""
+    from sqlalchemy.orm import sessionmaker
+    from app.services.scheduler import calculate_next_run_time_for_schedule
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    # Create mock scheduler that uses the same engine as the test session
+    class MockScheduler:
+        def __init__(self, engine):
+            self.engine = engine
+            self._session_factory = sessionmaker(bind=engine)
+
+        def update_source_schedule(self, source_id):
+            """Simulate scheduler updating next_scan_at by opening a new session"""
+            from app.models import Source
+            from app.services.scheduler import resolve_effective_schedule
+
+            db = self._session_factory()
+            try:
+                source = db.get(Source, source_id)
+                if not source:
+                    return
+
+                resolved = resolve_effective_schedule(source, db)
+
+                # Only set next_scan_at if schedule is not manual
+                schedule_type = resolved.get("schedule_type")
+                if schedule_type == "interval":
+                    from app.services.scheduler import validate_interval
+                    if not validate_interval(resolved.get("interval_value"), resolved.get("interval_unit")):
+                        return
+                    next_time = calculate_next_run_time_for_schedule(
+                        "interval", None, resolved.get("interval_value"), resolved.get("interval_unit")
+                    )
+                else:
+                    scan_schedule = resolved.get("scan_schedule")
+                    if not scan_schedule:
+                        next_time = None
+                    else:
+                        next_time = calculate_next_run_time_for_schedule(
+                            "cron", scan_schedule, None, None
+                        )
+
+                source.next_scan_at = next_time
+                db.commit()
+            finally:
+                db.close()
+
+    mock_scheduler = MockScheduler(db_session.get_bind())
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    # Attach mock scheduler to app state
+    with TestClient(app) as test_client:
+        test_client.app.state.scheduler = mock_scheduler
+        test_client.headers.update(test_user["headers"])
+        yield test_client
+
+    app.dependency_overrides.clear()
+    # Clean up scheduler attachment
+    if hasattr(app.state, "scheduler"):
+        delattr(app.state, "scheduler")

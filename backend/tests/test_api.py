@@ -399,6 +399,11 @@ class TestSourceScheduling:
         next_scan = datetime.fromisoformat(next_scan_str)
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         assert next_scan > now
+        assert data["schedule_type"] == "cron"
+        assert data["use_default_schedule"] is False
+        assert data["effective_schedule"] == {
+            "schedule_type": "cron", "scan_schedule": "@hourly", "interval_value": None, "interval_unit": None,
+        }
 
     def test_create_source_without_schedule_no_next_scan(self, client, temp_source_dir):
         """Creating a source without a schedule should not set next_scan_at"""
@@ -521,6 +526,157 @@ class TestSourceScheduling:
 
         assert data["scan_schedule"] == "0 */6 * * *"
         assert data["next_scan_at"] is not None
+
+    def test_create_source_with_true_interval(self, client, temp_source_dir):
+        response = client.post("/api/sources", json={
+            "name": "Interval Source",
+            "root_path": temp_source_dir,
+            "schedule_type": "interval",
+            "interval_value": 3,
+            "interval_unit": "hours",
+        })
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["schedule_type"] == "interval"
+        assert data["interval_value"] == 3
+        assert data["interval_unit"] == "hours"
+        assert data["effective_schedule"]["schedule_type"] == "interval"
+        assert data["next_scan_at"] is not None
+
+    def test_create_source_rejects_invalid_interval(self, client, temp_source_dir):
+        response = client.post("/api/sources", json={
+            "name": "Bad Interval Source",
+            "root_path": temp_source_dir,
+            "schedule_type": "interval",
+            "interval_value": 0,
+            "interval_unit": "hours",
+        })
+
+        # Pydantic validation rejects interval_value <= 0 with 422
+        assert response.status_code == 422
+
+    def test_source_following_default_schedule_ignores_own_schedule(self, client, temp_source_dir):
+        client.put("/api/settings", json={
+            "default_scan_schedule": {"schedule_type": "interval", "interval_value": 4, "interval_unit": "hours"},
+        })
+
+        response = client.post("/api/sources", json={
+            "name": "Follows Default",
+            "root_path": temp_source_dir,
+            "use_default_schedule": True,
+            "schedule_type": "cron",
+            "scan_schedule": "@daily",
+        })
+
+        assert response.status_code == 201
+        data = response.json()
+        assert data["use_default_schedule"] is True
+        assert data["scan_schedule"] == "@daily"  # own schedule preserved, not used
+        assert data["effective_schedule"] == {
+            "schedule_type": "interval", "scan_schedule": None, "interval_value": 4, "interval_unit": "hours",
+        }
+
+    def test_toggling_off_default_schedule_restores_own_schedule(self, client, temp_source_dir):
+        client.put("/api/settings", json={
+            "default_scan_schedule": {"schedule_type": "cron", "scan_schedule": "@daily"},
+        })
+        create_response = client.post("/api/sources", json={
+            "name": "Toggle Source",
+            "root_path": temp_source_dir,
+            "use_default_schedule": True,
+            "schedule_type": "cron",
+            "scan_schedule": "@weekly",
+        })
+        source_id = create_response.json()["id"]
+
+        response = client.put(f"/api/sources/{source_id}", json={"use_default_schedule": False})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["use_default_schedule"] is False
+        assert data["scan_schedule"] == "@weekly"
+        assert data["effective_schedule"]["scan_schedule"] == "@weekly"
+        # Verify next_scan_at updated to own schedule (not the default)
+        assert data["next_scan_at"] is not None
+
+    def test_toggling_on_default_schedule_applies_default(self, client, temp_source_dir):
+        """Test that toggling use_default_schedule on changes effective schedule to default"""
+        # Create with default disabled (own cron schedule)
+        create_response = client.post("/api/sources", json={
+            "name": "Toggle To Default",
+            "root_path": temp_source_dir,
+            "use_default_schedule": False,
+            "schedule_type": "cron",
+            "scan_schedule": "@weekly",
+        })
+        source_id = create_response.json()["id"]
+
+        # Set default schedule
+        client.put("/api/settings", json={
+            "default_scan_schedule": {"schedule_type": "interval", "interval_value": 2, "interval_unit": "hours"},
+        })
+
+        # Toggle to use default
+        response = client.put(f"/api/sources/{source_id}", json={"use_default_schedule": True})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["use_default_schedule"] is True
+        assert data["effective_schedule"]["schedule_type"] == "interval"
+        assert data["effective_schedule"]["interval_value"] == 2
+
+    def test_create_source_with_scheduler_computes_next_scan_at(self, client_with_scheduler, temp_source_dir):
+        """Test that next_scan_at is correctly computed by scheduler when using default schedule"""
+        # Set default schedule with interval
+        client_with_scheduler.put("/api/settings", json={
+            "default_scan_schedule": {"schedule_type": "interval", "interval_value": 3, "interval_unit": "hours"},
+        })
+
+        # Create source using default schedule
+        response = client_with_scheduler.post("/api/sources", json={
+            "name": "Source With Scheduler",
+            "root_path": temp_source_dir,
+            "use_default_schedule": True,
+            "schedule_type": "cron",
+            "scan_schedule": "@daily",
+        })
+
+        assert response.status_code == 201
+        data = response.json()
+        # Verify the scheduler computed next_scan_at (not None)
+        assert data["next_scan_at"] is not None
+        assert data["effective_schedule"]["schedule_type"] == "interval"
+        assert data["effective_schedule"]["interval_value"] == 3
+
+    def test_update_source_toggle_default_with_scheduler_computes_next_scan_at(self, client_with_scheduler, temp_source_dir):
+        """Test that next_scan_at is correctly recomputed when toggling default schedule on"""
+        # Create source with custom schedule (no default yet)
+        create_response = client_with_scheduler.post("/api/sources", json={
+            "name": "Toggle Source",
+            "root_path": temp_source_dir,
+            "use_default_schedule": False,
+            "schedule_type": "cron",
+            "scan_schedule": "@weekly",
+        })
+        source_id = create_response.json()["id"]
+        original_next = create_response.json()["next_scan_at"]
+
+        # Set default schedule
+        client_with_scheduler.put("/api/settings", json={
+            "default_scan_schedule": {"schedule_type": "interval", "interval_value": 2, "interval_unit": "hours"},
+        })
+
+        # Toggle to use default (scheduler should update next_scan_at)
+        response = client_with_scheduler.put(f"/api/sources/{source_id}", json={"use_default_schedule": True})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["use_default_schedule"] is True
+        # Verify next_scan_at was recomputed by scheduler (should be different from original)
+        assert data["next_scan_at"] is not None
+        assert data["effective_schedule"]["schedule_type"] == "interval"
+        assert data["effective_schedule"]["interval_value"] == 2
 
 
 class TestReindexEndpoint:

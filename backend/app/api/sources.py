@@ -22,6 +22,7 @@ from ..config import settings
 from ..db.database import get_db
 from ..models import IndexedFile, Source, User
 from ..schemas import (
+    ScheduleConfig,
     SourceCreate,
     SourcePathTestRequest,
     SourcePathTestResponse,
@@ -30,7 +31,13 @@ from ..schemas import (
 )
 from ..services.indexer import IndexingService
 from ..services.scanner import FileScanner
-from ..services.scheduler import calculate_next_run_time, get_source_lock, validate_schedule
+from ..services.scheduler import (
+    calculate_next_run_time_for_schedule,
+    get_source_lock,
+    resolve_effective_schedule,
+    validate_interval,
+    validate_schedule,
+)
 from ..services.search import meili_service
 from .auth import get_current_user
 
@@ -218,7 +225,10 @@ async def list_sources(db: Session = Depends(get_db), current_user: User = Depen
     """
     stmt = select(Source).order_by(Source.created_at.desc())
     sources = db.execute(stmt).scalars().all()
-    return [SourceResponse.from_orm_model(s) for s in sources]
+    return [
+        SourceResponse.from_orm_model(s, effective_schedule=ScheduleConfig(**resolve_effective_schedule(s, db)))
+        for s in sources
+    ]
 
 
 @router.post("/test-path", response_model=SourcePathTestResponse)
@@ -250,7 +260,8 @@ async def get_source(source_id: str, db: Session = Depends(get_db), current_user
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Source '{source_id}' not found"
         )
-    return SourceResponse.from_orm_model(source)
+    effective_schedule = resolve_effective_schedule(source, db)
+    return SourceResponse.from_orm_model(source, effective_schedule=ScheduleConfig(**effective_schedule))
 
 
 @router.post("", response_model=SourceResponse, status_code=status.HTTP_201_CREATED)
@@ -281,21 +292,30 @@ async def create_source(request: Request, source_data: SourceCreate, db: Session
     # Validate root_path exists and is within allowed directories
     root_path = validate_root_path(Path(source_data.root_path))
 
-    # Validate schedule if provided
-    if source_data.scan_schedule and not validate_schedule(source_data.scan_schedule):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid scan schedule: {source_data.scan_schedule}"
-        )
+    # Validate schedule if provided and not following the global default
+    if not source_data.use_default_schedule:
+        if source_data.schedule_type == "interval":
+            if not validate_interval(source_data.interval_value, source_data.interval_unit):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid interval: {source_data.interval_value} {source_data.interval_unit}"
+                )
+        elif source_data.scan_schedule and not validate_schedule(source_data.scan_schedule):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid scan schedule: {source_data.scan_schedule}"
+            )
 
     # Serialize patterns to JSON
     include_patterns = json.dumps(source_data.include_patterns) if source_data.include_patterns else None
     exclude_patterns = json.dumps(source_data.exclude_patterns) if source_data.exclude_patterns else None
 
-    # Calculate next_scan_at if schedule provided
     next_scan_at = None
-    if source_data.scan_schedule:
-        next_scan_at = calculate_next_run_time(source_data.scan_schedule)
+    if not source_data.use_default_schedule:
+        next_scan_at = calculate_next_run_time_for_schedule(
+            source_data.schedule_type, source_data.scan_schedule,
+            source_data.interval_value, source_data.interval_unit,
+        )
 
     # Create source
     source = Source(
@@ -305,6 +325,10 @@ async def create_source(request: Request, source_data: SourceCreate, db: Session
         include_patterns=include_patterns,
         exclude_patterns=exclude_patterns,
         scan_schedule=source_data.scan_schedule or None,
+        schedule_type=source_data.schedule_type,
+        interval_value=source_data.interval_value,
+        interval_unit=source_data.interval_unit,
+        use_default_schedule=source_data.use_default_schedule,
         next_scan_at=next_scan_at,
     )
 
@@ -315,10 +339,12 @@ async def create_source(request: Request, source_data: SourceCreate, db: Session
     logger.info(f"Created source: {source_id} at {source.root_path}")
 
     # Register schedule with the scheduler (keeps APScheduler in sync)
-    if source.scan_schedule and hasattr(request.app.state, "scheduler"):
-        request.app.state.scheduler.update_source_schedule(source_id, source.scan_schedule)
+    if hasattr(request.app.state, "scheduler"):
+        request.app.state.scheduler.update_source_schedule(source_id)
+        db.refresh(source)
 
-    return SourceResponse.from_orm_model(source)
+    effective_schedule = resolve_effective_schedule(source, db)
+    return SourceResponse.from_orm_model(source, effective_schedule=ScheduleConfig(**effective_schedule))
 
 
 @router.put("/{source_id}", response_model=SourceResponse)
@@ -366,16 +392,39 @@ async def update_source(
         source.exclude_patterns = json.dumps(source_data.exclude_patterns)
 
     # Handle schedule updates
+    schedule_fields_changed = bool(
+        {"scan_schedule", "schedule_type", "interval_value", "interval_unit", "use_default_schedule"}
+        & source_data.model_fields_set
+    )
+
     if "scan_schedule" in source_data.model_fields_set:
-        new_schedule = source_data.scan_schedule or None
-        if new_schedule and not validate_schedule(new_schedule):
+        source.scan_schedule = source_data.scan_schedule or None
+    if "schedule_type" in source_data.model_fields_set:
+        source.schedule_type = source_data.schedule_type
+    if "interval_value" in source_data.model_fields_set:
+        source.interval_value = source_data.interval_value
+    if "interval_unit" in source_data.model_fields_set:
+        source.interval_unit = source_data.interval_unit
+    if "use_default_schedule" in source_data.model_fields_set:
+        source.use_default_schedule = source_data.use_default_schedule
+
+    if schedule_fields_changed and not source.use_default_schedule:
+        if source.schedule_type == "interval":
+            if not validate_interval(source.interval_value, source.interval_unit):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid interval: {source.interval_value} {source.interval_unit}"
+                )
+        elif source.scan_schedule and not validate_schedule(source.scan_schedule):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid scan schedule: {new_schedule}"
+                detail=f"Invalid scan schedule: {source.scan_schedule}"
             )
-        source.scan_schedule = new_schedule
-        # Calculate next_scan_at directly so response is always accurate
-        source.next_scan_at = calculate_next_run_time(new_schedule) if new_schedule else None
+
+    if schedule_fields_changed and not source.use_default_schedule:
+        source.next_scan_at = calculate_next_run_time_for_schedule(
+            source.schedule_type, source.scan_schedule, source.interval_value, source.interval_unit,
+        )
 
     # Update timestamp
     source.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -384,12 +433,14 @@ async def update_source(
     db.refresh(source)
 
     # Sync schedule with scheduler (keeps APScheduler in sync)
-    if "scan_schedule" in source_data.model_fields_set and hasattr(request.app.state, "scheduler"):
-        request.app.state.scheduler.update_source_schedule(source_id, source.scan_schedule)
+    if schedule_fields_changed and hasattr(request.app.state, "scheduler"):
+        request.app.state.scheduler.update_source_schedule(source_id)
+        db.refresh(source)
 
     logger.info(f"Updated source: {source_id}")
 
-    return SourceResponse.from_orm_model(source)
+    effective_schedule = resolve_effective_schedule(source, db)
+    return SourceResponse.from_orm_model(source, effective_schedule=ScheduleConfig(**effective_schedule))
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
