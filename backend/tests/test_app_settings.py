@@ -127,3 +127,52 @@ def test_settings_requires_auth(client):
     response = client.get("/api/settings")
 
     assert response.status_code == 401
+
+
+def test_get_settings_default_scan_schedule_defaults_to_none(client):
+    response = client.get("/api/settings")
+
+    assert response.status_code == 200
+    assert response.json()["default_scan_schedule"] is None
+
+
+def test_update_default_scan_schedule_cron(client):
+    response = client.put("/api/settings", json={
+        "default_scan_schedule": {"schedule_type": "cron", "scan_schedule": "@daily"},
+    })
+
+    assert response.status_code == 200
+    assert response.json()["default_scan_schedule"] == {
+        "schedule_type": "cron",
+        "scan_schedule": "@daily",
+        "interval_value": None,
+        "interval_unit": None,
+    }
+
+    second_response = client.get("/api/settings")
+    assert second_response.json()["default_scan_schedule"]["scan_schedule"] == "@daily"
+
+
+def test_update_default_scan_schedule_interval(client):
+    response = client.put("/api/settings", json={
+        "default_scan_schedule": {"schedule_type": "interval", "interval_value": 3, "interval_unit": "hours"},
+    })
+
+    assert response.status_code == 200
+    body = response.json()["default_scan_schedule"]
+    assert body["schedule_type"] == "interval"
+    assert body["interval_value"] == 3
+    assert body["interval_unit"] == "hours"
+
+    second_response = client.get("/api/settings")
+    second_body = second_response.json()["default_scan_schedule"]
+    assert second_body["interval_value"] == 3
+    assert second_body["interval_unit"] == "hours"
+
+
+def test_update_default_scan_schedule_rejects_non_positive_interval(client):
+    response = client.put("/api/settings", json={
+        "default_scan_schedule": {"schedule_type": "interval", "interval_value": 0, "interval_unit": "hours"},
+    })
+
+    assert response.status_code == 422

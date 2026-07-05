@@ -4,13 +4,14 @@
 """
 Backend-managed application settings.
 """
+import json
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import AppSetting
-from ..schemas import AppSettingsResponse, AppSettingsUpdate
+from ..schemas import AppSettingsResponse, AppSettingsUpdate, ScheduleConfig
 
 
 SETTING_KEYS = (
@@ -31,6 +32,7 @@ SETTING_KEYS = (
     "comic_extraction_max_size_mb",
     "readable_preview_page_chars",
     "long_text_pagination_threshold_chars",
+    "default_scan_schedule",
 )
 
 
@@ -53,16 +55,21 @@ def default_app_settings() -> AppSettingsResponse:
         comic_extraction_max_size_mb=settings.comic_extraction_max_size_mb,
         readable_preview_page_chars=settings.readable_preview_page_chars,
         long_text_pagination_threshold_chars=settings.long_text_pagination_threshold_chars,
+        default_scan_schedule=None,
     )
 
 
 def _serialize(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
+    if isinstance(value, dict):
+        return json.dumps(value)
     return str(value)
 
 
 def _coerce_value(key: str, value: str) -> Any:
+    if key == "default_scan_schedule":
+        return json.loads(value) if value else None
     if key in {"index_gps_metadata", "show_previews", "raw_preview_enabled"}:
         return value.lower() == "true"
     if key in {
