@@ -176,3 +176,19 @@ def test_update_default_scan_schedule_rejects_non_positive_interval(client):
     })
 
     assert response.status_code == 422
+
+
+def test_update_default_scan_schedule_resyncs_sources(client_with_scheduler):
+    response = client_with_scheduler.put("/api/settings", json={
+        "default_scan_schedule": {"schedule_type": "cron", "scan_schedule": "@daily"},
+    })
+
+    assert response.status_code == 200
+    assert client_with_scheduler.app.state.scheduler.sync_default_schedule_sources_calls == 1
+
+
+def test_update_settings_without_schedule_change_does_not_resync(client_with_scheduler):
+    response = client_with_scheduler.put("/api/settings", json={"index_gps_metadata": True})
+
+    assert response.status_code == 200
+    assert client_with_scheduler.app.state.scheduler.sync_default_schedule_sources_calls == 0

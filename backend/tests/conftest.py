@@ -139,6 +139,11 @@ def client_with_scheduler(db_session, test_user):
         def __init__(self, engine):
             self.engine = engine
             self._session_factory = sessionmaker(bind=engine)
+            self.sync_default_schedule_sources_calls = 0
+
+        def sync_default_schedule_sources(self):
+            """Track calls so tests can assert the resync was triggered"""
+            self.sync_default_schedule_sources_calls += 1
 
         def update_source_schedule(self, source_id):
             """Simulate scheduler updating next_scan_at by opening a new session"""

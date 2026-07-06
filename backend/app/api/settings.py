@@ -4,7 +4,7 @@
 """
 Application settings API endpoints.
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from ..db.database import get_db
@@ -27,9 +27,15 @@ def get_settings(
 
 @router.put("/settings", response_model=AppSettingsResponse)
 def update_settings(
+    request: Request,
     update: AppSettingsUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Update backend-managed indexing and preview settings."""
-    return AppSettingsService(db).update_settings(update)
+    result = AppSettingsService(db).update_settings(update)
+
+    if "default_scan_schedule" in update.model_fields_set and hasattr(request.app.state, "scheduler"):
+        request.app.state.scheduler.sync_default_schedule_sources()
+
+    return result
