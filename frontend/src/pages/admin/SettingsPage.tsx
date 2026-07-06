@@ -8,10 +8,11 @@ import { useTheme } from '@/contexts/useTheme'
 import type { SearchSettings } from '@/contexts/searchSettings'
 import { useSearchSettings } from '@/contexts/useSearchSettings'
 import { useAppSettings, useUpdateAppSettings } from '@/hooks/useApi'
-import type { AppSettings } from '@/types/api'
+import type { AppSettings, ScheduleConfig } from '@/types/api'
 import { cn } from '@/lib/utils'
+import { SchedulePicker, formatScheduleConfig } from '@/components/SchedulePicker'
 
-type SettingsPanel = 'appearance' | 'file-previews' | 'indexing' | 'search'
+type SettingsPanel = 'appearance' | 'file-previews' | 'indexing' | 'scheduling' | 'search'
 
 export default function SettingsPage() {
   const { theme, themeMode, customHue, setPreset, setCustomHue, setThemeMode } = useTheme()
@@ -31,10 +32,11 @@ export default function SettingsPage() {
         <p className="text-sm text-muted-foreground mt-1">Customize your OneSearch instance</p>
       </div>
 
-      <div className="grid max-w-lg grid-cols-2 gap-3">
+      <div className="grid max-w-lg grid-cols-2 gap-3 sm:grid-cols-3">
         <SettingsPanelButton label="Appearance" isOpen={openPanel === 'appearance'} onClick={() => togglePanel('appearance')} />
         <SettingsPanelButton label="File Previews" isOpen={openPanel === 'file-previews'} onClick={() => togglePanel('file-previews')} />
         <SettingsPanelButton label="Indexing" isOpen={openPanel === 'indexing'} onClick={() => togglePanel('indexing')} />
+        <SettingsPanelButton label="Scheduling" isOpen={openPanel === 'scheduling'} onClick={() => togglePanel('scheduling')} />
         <SettingsPanelButton label="Search" isOpen={openPanel === 'search'} onClick={() => togglePanel('search')} />
       </div>
 
@@ -62,6 +64,16 @@ export default function SettingsPage() {
 
         {openPanel === 'indexing' && (
           <IndexingSection
+            settings={appSettings.data}
+            isLoading={appSettings.isLoading}
+            error={appSettings.error}
+            isSaving={updateAppSettings.isPending}
+            onUpdate={(partial) => updateAppSettings.mutate(partial)}
+          />
+        )}
+
+        {openPanel === 'scheduling' && (
+          <SchedulingSection
             settings={appSettings.data}
             isLoading={appSettings.isLoading}
             error={appSettings.error}
@@ -474,6 +486,33 @@ function IndexingSection({ settings, isLoading, error, isSaving, onUpdate }: App
               description="Oversized comics are skipped before archive extraction."
             />
           </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function SchedulingSection({ settings, isLoading, error, isSaving, onUpdate }: AppSettingsSectionProps) {
+  return (
+    <section className="bg-card border border-border rounded-lg p-6 max-w-lg">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">Scheduling</h2>
+        {isSaving && <Loader2 className="h-4 w-4 text-brand animate-spin" />}
+      </div>
+
+      <SettingsLoadingState isLoading={isLoading} error={error} message="Unable to load scheduling settings." />
+
+      {settings && (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Sources with "Use global default schedule" enabled follow whatever schedule is set here.
+            Currently: <strong>{formatScheduleConfig(settings.default_scan_schedule)}</strong>.
+          </p>
+          <SchedulePicker
+            value={settings.default_scan_schedule}
+            onChange={(config: ScheduleConfig) => onUpdate({ default_scan_schedule: config })}
+            idPrefix="default-schedule"
+          />
         </div>
       )}
     </section>
