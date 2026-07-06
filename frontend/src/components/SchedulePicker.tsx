@@ -145,9 +145,9 @@ export function SchedulePicker({
               className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label="Custom interval unit"
             >
-              <option value="minutes">minutes</option>
-              <option value="hours">hours</option>
-              <option value="days">days</option>
+              <option value="minutes">minute(s)</option>
+              <option value="hours">hour(s)</option>
+              <option value="days">day(s)</option>
             </select>
           </div>
           <p className="text-xs text-muted-foreground">

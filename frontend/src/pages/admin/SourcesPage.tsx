@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { useState } from 'react'
-import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock, CheckCircle } from 'lucide-react'
+import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock, CheckCircle, Link2 } from 'lucide-react'
 import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath, useAppSettings } from '@/hooks/useApi'
 import type { Source, SourceCreate, SourceUpdate, SourcePathTestResponse } from '@/types/api'
 import { cn, formatRelativeTime } from '@/lib/utils'
@@ -463,6 +463,11 @@ export default function SourcesPage() {
                     <div className="flex items-center gap-1.5">
                       <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                       <span className="text-sm text-muted-foreground">{formatScheduleConfig(source.effective_schedule)}</span>
+                      {source.use_default_schedule && (
+                        <span title="Following the global default schedule (Settings → Scheduling)">
+                          <Link2 className="h-3.5 w-3.5 text-brand" aria-label="Following the global default schedule" />
+                        </span>
+                      )}
                     </div>
                     {source.next_scan_at && (
                       <span className="text-xs text-muted-foreground/70 ml-5">
