@@ -196,7 +196,7 @@ function SourceForm({
             checked={useDefaultSchedule}
             onChange={(e) => setUseDefaultSchedule(e.target.checked)}
           />
-          Use global default schedule
+          Use global default
         </label>
 
         {useDefaultSchedule ? (
@@ -464,8 +464,8 @@ export default function SourcesPage() {
                       <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                       <span className="text-sm text-muted-foreground">{formatScheduleConfig(source.effective_schedule)}</span>
                       {source.use_default_schedule && (
-                        <span title="Following the global default schedule (Settings → Scheduling)">
-                          <Link2 className="h-3.5 w-3.5 text-brand" aria-label="Following the global default schedule" />
+                        <span title="Following the global default (Settings → Scheduling)">
+                          <Link2 className="h-3.5 w-3.5 text-brand" aria-label="Following the global default" />
                         </span>
                       )}
                     </div>

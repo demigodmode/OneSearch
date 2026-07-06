@@ -505,7 +505,7 @@ function SchedulingSection({ settings, isLoading, error, isSaving, onUpdate }: A
       {settings && (
         <div className="space-y-3">
           <p className="text-xs text-muted-foreground">
-            Sources with "Use global default schedule" enabled follow whatever schedule is set here.
+            This is the schedule sources follow when "Use global default" is enabled.
             Currently: <strong>{formatScheduleConfig(settings.default_scan_schedule)}</strong>.
           </p>
           <SchedulePicker
