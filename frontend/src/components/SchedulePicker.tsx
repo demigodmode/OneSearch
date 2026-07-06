@@ -88,7 +88,11 @@ export function SchedulePicker({
         interval_unit: nextIntervalUnit,
       }
     } else if (nextMode === 'advanced') {
-      config = { schedule_type: 'cron' as ScheduleType, scan_schedule: nextCustomCron.trim() || null, interval_value: null, interval_unit: null }
+      // An empty cron box isn't a deliberate "clear the schedule" choice - that's
+      // what "Manual only" is for. Don't propagate a change until something is typed,
+      // so merely opening this mode doesn't silently overwrite an existing schedule.
+      if (!nextCustomCron.trim()) return
+      config = { schedule_type: 'cron' as ScheduleType, scan_schedule: nextCustomCron.trim(), interval_value: null, interval_unit: null }
     } else if (nextMode === 'manual') {
       config = { schedule_type: 'cron' as ScheduleType, scan_schedule: null, interval_value: null, interval_unit: null }
     } else {
@@ -169,7 +173,11 @@ export function SchedulePicker({
             className="font-mono text-sm"
             aria-label="Advanced cron schedule"
           />
-          <p className="text-xs text-muted-foreground">Use standard five-field cron syntax.</p>
+          <p className="text-xs text-muted-foreground">
+            {customCron.trim()
+              ? 'Use standard five-field cron syntax.'
+              : 'Enter a cron expression, or choose "Manual only" to clear the schedule.'}
+          </p>
         </div>
       )}
     </div>
