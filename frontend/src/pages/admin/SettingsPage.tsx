@@ -11,6 +11,7 @@ import { useAppSettings, useUpdateAppSettings } from '@/hooks/useApi'
 import type { AppSettings, ScheduleConfig } from '@/types/api'
 import { cn } from '@/lib/utils'
 import { SchedulePicker, formatScheduleConfig } from '@/components/SchedulePicker'
+import { Button } from '@/components/ui/button'
 
 type SettingsPanel = 'appearance' | 'file-previews' | 'indexing' | 'scheduling' | 'search'
 
@@ -78,7 +79,7 @@ export default function SettingsPage() {
             isLoading={appSettings.isLoading}
             error={appSettings.error}
             isSaving={updateAppSettings.isPending}
-            onUpdate={(partial) => updateAppSettings.mutate(partial)}
+            onUpdate={(partial) => updateAppSettings.mutateAsync(partial)}
           />
         )}
 
@@ -492,7 +493,42 @@ function IndexingSection({ settings, isLoading, error, isSaving, onUpdate }: App
   )
 }
 
-function SchedulingSection({ settings, isLoading, error, isSaving, onUpdate }: AppSettingsSectionProps) {
+function SchedulingSection({
+  settings,
+  isLoading,
+  error,
+  isSaving,
+  onUpdate,
+}: {
+  settings?: AppSettings
+  isLoading: boolean
+  error: unknown
+  isSaving: boolean
+  onUpdate: (partial: Partial<AppSettings>) => Promise<AppSettings>
+}) {
+  // SchedulePicker emits on every keystroke/mode change, unlike a plain toggle or
+  // dropdown - autosaving each emit (like the other sections do) would overwrite
+  // the saved schedule mid-edit and silently drop invalid in-progress values with
+  // no feedback. Buffer locally and only persist on an explicit Save.
+  const [draft, setDraft] = useState<ScheduleConfig | null | undefined>(settings?.default_scan_schedule)
+  const [dirty, setDirty] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  useEffect(() => {
+    // Keep the draft in sync with the saved setting until the user starts editing.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!dirty) setDraft(settings?.default_scan_schedule)
+  }, [settings?.default_scan_schedule, dirty])
+
+  const handleSave = () => {
+    setSaveError(null)
+    onUpdate({ default_scan_schedule: draft ?? null })
+      .then(() => setDirty(false))
+      .catch((err: unknown) => {
+        setSaveError(err instanceof Error ? err.message : 'Failed to save the schedule.')
+      })
+  }
+
   return (
     <section className="bg-card border border-border rounded-lg p-6 max-w-lg">
       <div className="flex items-center justify-between gap-3 mb-4">
@@ -509,10 +545,20 @@ function SchedulingSection({ settings, isLoading, error, isSaving, onUpdate }: A
             Currently: <strong>{formatScheduleConfig(settings.default_scan_schedule)}</strong>.
           </p>
           <SchedulePicker
-            value={settings.default_scan_schedule}
-            onChange={(config: ScheduleConfig) => onUpdate({ default_scan_schedule: config })}
+            value={draft}
+            onChange={(config: ScheduleConfig) => {
+              setDraft(config)
+              setDirty(true)
+              setSaveError(null)
+            }}
             idPrefix="default-schedule"
           />
+          {saveError && (
+            <p className="text-xs text-destructive">{saveError}</p>
+          )}
+          <Button type="button" size="sm" onClick={handleSave} disabled={!dirty || isSaving}>
+            Save schedule
+          </Button>
         </div>
       )}
     </section>
