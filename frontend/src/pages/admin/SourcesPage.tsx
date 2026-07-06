@@ -18,68 +18,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-
-type ScheduleMode = 'manual' | '@hourly' | '@daily' | '@weekly' | 'interval' | 'advanced'
-
-type IntervalUnit = 'minutes' | 'hours' | 'days'
-
-function intervalUnitMax(unit: IntervalUnit): number {
-  switch (unit) {
-    case 'minutes':
-      return 59
-    case 'hours':
-      return 23
-    case 'days':
-      return 31
-  }
-}
-
-// Human-readable schedule labels
-function formatSchedule(schedule?: string | null): string {
-  if (!schedule) return 'Manual'
-  switch (schedule) {
-    case '@hourly': return 'Hourly'
-    case '@daily': return 'Daily'
-    case '@weekly': return 'Weekly'
-  }
-
-  const minuteInterval = schedule.match(/^\*\/(\d+) \* \* \* \*$/)
-  if (minuteInterval) return `Every ${minuteInterval[1]} minute${minuteInterval[1] === '1' ? '' : 's'}`
-
-  const hourInterval = schedule.match(/^0 \*\/(\d+) \* \* \*$/)
-  if (hourInterval) return `Every ${hourInterval[1]} hour${hourInterval[1] === '1' ? '' : 's'}`
-
-  const dayInterval = schedule.match(/^0 2 \*\/(\d+) \* \*$/)
-  if (dayInterval) return `Every ${dayInterval[1]} day${dayInterval[1] === '1' ? '' : 's'}`
-
-  return schedule
-}
-
-function intervalToCron(value: number, unit: IntervalUnit): string {
-  switch (unit) {
-    case 'minutes':
-      return `*/${value} * * * *`
-    case 'hours':
-      return `0 */${value} * * *`
-    case 'days':
-      return `0 2 */${value} * *`
-  }
-}
-
-function parseIntervalCron(schedule?: string | null): { value: string; unit: IntervalUnit } | null {
-  if (!schedule) return null
-
-  const minuteInterval = schedule.match(/^\*\/(\d+) \* \* \* \*$/)
-  if (minuteInterval) return { value: minuteInterval[1], unit: 'minutes' }
-
-  const hourInterval = schedule.match(/^0 \*\/(\d+) \* \* \*$/)
-  if (hourInterval) return { value: hourInterval[1], unit: 'hours' }
-
-  const dayInterval = schedule.match(/^0 2 \*\/(\d+) \* \*$/)
-  if (dayInterval) return { value: dayInterval[1], unit: 'days' }
-
-  return null
-}
+import { SchedulePicker, formatScheduleConfig, parseFakeIntervalCron } from '@/components/SchedulePicker'
+import type { ScheduleConfig } from '@/types/api'
 
 // Format date for display
 function formatDate(isoString: string): string {
@@ -121,22 +61,16 @@ function SourceForm({
   const testPathMutation = useTestSourcePath()
 
   // Schedule state
-  const initialInterval = parseIntervalCron(source?.scan_schedule)
-  const getInitialScheduleMode = (): ScheduleMode => {
-    const s = source?.scan_schedule
-    if (!s) return 'manual'
-    if (['@hourly', '@daily', '@weekly'].includes(s)) return s as ScheduleMode
-    if (initialInterval) return 'interval'
-    return 'advanced'
-  }
-  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(getInitialScheduleMode)
-  const [intervalValue, setIntervalValue] = useState(initialInterval?.value ?? '6')
-  const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>(initialInterval?.unit ?? 'hours')
-  const [customCron, setCustomCron] = useState(
-    source?.scan_schedule && !['@hourly', '@daily', '@weekly'].includes(source.scan_schedule)
-      ? source.scan_schedule
-      : ''
-  )
+  const [useDefaultSchedule, setUseDefaultSchedule] = useState(source?.use_default_schedule ?? false)
+  const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>({
+    schedule_type: source?.schedule_type ?? 'cron',
+    scan_schedule: source?.scan_schedule ?? null,
+    interval_value: source?.interval_value ?? null,
+    interval_unit: source?.interval_unit ?? null,
+  })
+  const fakeInterval = parseFakeIntervalCron(source?.scan_schedule)
+  const [dismissedMigrationBanner, setDismissedMigrationBanner] = useState(false)
+  const showMigrationBanner = !useDefaultSchedule && !dismissedMigrationBanner && scheduleConfig.schedule_type === 'cron' && !!fakeInterval
 
   const handleTestPath = () => {
     const candidate = rootPath.trim()
@@ -150,30 +84,25 @@ function SourceForm({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
 
-    let scan_schedule: string | null = null
-    if (scheduleMode === 'interval') {
-      scan_schedule = intervalToCron(Number(intervalValue), intervalUnit)
-    } else if (scheduleMode === 'advanced') {
-      scan_schedule = customCron.trim() || null
-    } else if (scheduleMode !== 'manual') {
-      scan_schedule = scheduleMode // @hourly, @daily, @weekly
-    }
-
     const data: SourceCreate | SourceUpdate = {
       name: name.trim(),
       root_path: rootPath.trim(),
       include_patterns: includePatterns ? includePatterns.split(',').map(p => p.trim()).filter(Boolean) : [],
       exclude_patterns: excludePatterns ? excludePatterns.split(',').map(p => p.trim()).filter(Boolean) : [],
-      scan_schedule,
+      use_default_schedule: useDefaultSchedule,
+      schedule_type: scheduleConfig.schedule_type,
+      scan_schedule: scheduleConfig.scan_schedule ?? null,
+      interval_value: scheduleConfig.interval_value ?? null,
+      interval_unit: scheduleConfig.interval_unit ?? null,
     }
 
     onSubmit(data)
   }
 
   const isEdit = !!source
-  const parsedIntervalValue = Number(intervalValue)
-  const intervalIsValid = intervalValue.trim() !== '' && Number.isInteger(parsedIntervalValue) && parsedIntervalValue > 0 && parsedIntervalValue <= intervalUnitMax(intervalUnit)
-  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (scheduleMode === 'interval' && !intervalIsValid)
+  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (
+    !useDefaultSchedule && scheduleConfig.schedule_type === 'interval' && !scheduleConfig.interval_value
+  )
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -257,62 +186,55 @@ function SourceForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="scan_schedule">Scan Schedule</Label>
-        <select
-          id="scan_schedule"
-          value={scheduleMode}
-          title="How often OneSearch automatically checks this source for changed files."
-          onChange={(e) => setScheduleMode(e.target.value as ScheduleMode)}
-          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <option value="manual">Manual only</option>
-          <option value="@hourly">Every hour</option>
-          <option value="@daily">Daily (2:00 AM)</option>
-          <option value="@weekly">Weekly (Sunday 2:00 AM)</option>
-          <option value="interval">Custom interval...</option>
-          <option value="advanced">Advanced cron...</option>
-        </select>
-        {scheduleMode === 'interval' && (
-          <div className="space-y-2 rounded-lg border border-border bg-secondary/30 p-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Every</span>
-              <Input
-                type="number"
-                min={1}
-                max={intervalUnitMax(intervalUnit)}
-                step={1}
-                value={intervalValue}
-                onChange={(e) => setIntervalValue(e.target.value)}
-                className="w-24"
-                aria-label="Custom interval value"
-              />
-              <select
-                value={intervalUnit}
-                onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)}
-                className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label="Custom interval unit"
-              >
-                <option value="minutes">minutes</option>
-                <option value="hours">hours</option>
-                <option value="days">days</option>
-              </select>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Saves as <code className="font-mono">{intervalIsValid ? intervalToCron(parsedIntervalValue, intervalUnit) : `choose 1-${intervalUnitMax(intervalUnit)}`}</code>. Runs on cron clock boundaries, not from save time. Daily intervals run at 2:00 AM.
-            </p>
-          </div>
-        )}
-        {scheduleMode === 'advanced' && (
-          <div className="space-y-2">
-            <Input
-              value={customCron}
-              onChange={(e) => setCustomCron(e.target.value)}
-              placeholder="0 */6 * * *"
-              className="font-mono text-sm"
-              aria-label="Advanced cron schedule"
-            />
-            <p className="text-xs text-muted-foreground">Use standard five-field cron syntax.</p>
-          </div>
+        <Label htmlFor="use_default_schedule">Scan Schedule</Label>
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input
+            id="use_default_schedule"
+            type="checkbox"
+            checked={useDefaultSchedule}
+            onChange={(e) => setUseDefaultSchedule(e.target.checked)}
+          />
+          Use global default schedule
+        </label>
+
+        {useDefaultSchedule ? (
+          <p className="text-xs text-muted-foreground rounded-lg border border-border bg-secondary/30 p-3">
+            Following the global default: <strong>{formatScheduleConfig(source?.effective_schedule)}</strong>.
+            Change it in Settings &rarr; Scheduling.
+          </p>
+        ) : (
+          <>
+            {showMigrationBanner && fakeInterval && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="flex items-center justify-between gap-3">
+                  <span>This looks like a fixed interval — switch to true interval?</span>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setScheduleConfig({
+                          schedule_type: 'interval',
+                          scan_schedule: null,
+                          interval_value: Number(fakeInterval.value),
+                          interval_unit: fakeInterval.unit,
+                        })
+                        setDismissedMigrationBanner(true)
+                      }}
+                    >
+                      Switch
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setDismissedMigrationBanner(true)}>
+                      Dismiss
+                    </Button>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+            <SchedulePicker value={scheduleConfig} onChange={setScheduleConfig} idPrefix="source-schedule" />
+          </>
         )}
       </div>
 
@@ -537,7 +459,7 @@ export default function SourcesPage() {
                   <td className="px-4 py-4 hidden @[800px]:table-cell">
                     <div className="flex items-center gap-1.5">
                       <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">{formatSchedule(source.scan_schedule)}</span>
+                      <span className="text-sm text-muted-foreground">{formatScheduleConfig(source.effective_schedule)}</span>
                     </div>
                     {source.next_scan_at && (
                       <span className="text-xs text-muted-foreground/70 ml-5">
