@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Sources list no longer shows a stale effective schedule after changing the global default in Settings. It now updates immediately instead of requiring a manual page refresh.
 - The "Following the global default" preview on the source edit form now shows the actual current global default when toggling the setting on, instead of whatever the source's own schedule happened to be before the edit.
 - Interval units now read correctly for a value of 1 ("Every 1 minute" instead of "Every 1 minutes").
+- Settings → Scheduling now validates the global default schedule the same way a per-source schedule is validated, instead of silently accepting an invalid cron expression or interval that would then quietly break scheduling for every source following the default.
+- `next_scan_at` is now computed correctly for sources following the global default even without a live scheduler attached (e.g. in test or headless environments), matching how sources with their own schedule already behaved.
+- Fixed a performance issue where resolving each source's effective schedule re-queried app settings once per source instead of once per request.
+- The schedule schema now rejects a true interval with only one of value/unit set instead of silently treating it as no schedule.
+- Selecting "Advanced cron..." with an empty box no longer counts as a schedule change - it no longer risks silently clearing an existing schedule if saved before typing anything.
 
 ---
 
