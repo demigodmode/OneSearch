@@ -6,7 +6,7 @@ Pydantic schemas for request/response validation
 """
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Literal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Document(BaseModel):
@@ -35,6 +35,12 @@ class ScheduleConfig(BaseModel):
     scan_schedule: Optional[str] = Field(default=None, max_length=100)
     interval_value: Optional[int] = Field(default=None, gt=0)
     interval_unit: Optional[Literal["minutes", "hours", "days"]] = None
+
+    @model_validator(mode="after")
+    def _require_both_interval_fields(self):
+        if self.schedule_type == "interval" and (self.interval_value is None) != (self.interval_unit is None):
+            raise ValueError("interval_value and interval_unit must be set together")
+        return self
 
 
 class SourceBase(BaseModel):

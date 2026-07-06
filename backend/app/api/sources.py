@@ -29,6 +29,7 @@ from ..schemas import (
     SourceResponse,
     SourceUpdate,
 )
+from ..services.app_settings import AppSettingsService
 from ..services.indexer import IndexingService
 from ..services.scanner import FileScanner
 from ..services.scheduler import (
@@ -225,8 +226,12 @@ async def list_sources(db: Session = Depends(get_db), current_user: User = Depen
     """
     stmt = select(Source).order_by(Source.created_at.desc())
     sources = db.execute(stmt).scalars().all()
+    default = AppSettingsService(db).get_settings().default_scan_schedule
+    default_schedule = default.model_dump() if default else None
     return [
-        SourceResponse.from_orm_model(s, effective_schedule=ScheduleConfig(**resolve_effective_schedule(s, db)))
+        SourceResponse.from_orm_model(
+            s, effective_schedule=ScheduleConfig(**resolve_effective_schedule(s, db, default_schedule))
+        )
         for s in sources
     ]
 
@@ -310,13 +315,6 @@ async def create_source(request: Request, source_data: SourceCreate, db: Session
     include_patterns = json.dumps(source_data.include_patterns) if source_data.include_patterns else None
     exclude_patterns = json.dumps(source_data.exclude_patterns) if source_data.exclude_patterns else None
 
-    next_scan_at = None
-    if not source_data.use_default_schedule:
-        next_scan_at = calculate_next_run_time_for_schedule(
-            source_data.schedule_type, source_data.scan_schedule,
-            source_data.interval_value, source_data.interval_unit,
-        )
-
     # Create source
     source = Source(
         id=source_id,
@@ -329,12 +327,17 @@ async def create_source(request: Request, source_data: SourceCreate, db: Session
         interval_value=source_data.interval_value,
         interval_unit=source_data.interval_unit,
         use_default_schedule=source_data.use_default_schedule,
-        next_scan_at=next_scan_at,
     )
 
     db.add(source)
     db.commit()
     db.refresh(source)
+
+    # Compute next_scan_at from the resolved effective schedule (own schedule or
+    # the global default) so it's correct even without a live scheduler attached.
+    effective_schedule = resolve_effective_schedule(source, db)
+    source.next_scan_at = calculate_next_run_time_for_schedule(**effective_schedule)
+    db.commit()
 
     logger.info(f"Created source: {source_id} at {source.root_path}")
 
@@ -421,10 +424,9 @@ async def update_source(
                 detail=f"Invalid scan schedule: {source.scan_schedule}"
             )
 
-    if schedule_fields_changed and not source.use_default_schedule:
-        source.next_scan_at = calculate_next_run_time_for_schedule(
-            source.schedule_type, source.scan_schedule, source.interval_value, source.interval_unit,
-        )
+    if schedule_fields_changed:
+        effective_schedule = resolve_effective_schedule(source, db)
+        source.next_scan_at = calculate_next_run_time_for_schedule(**effective_schedule)
 
     # Update timestamp
     source.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)

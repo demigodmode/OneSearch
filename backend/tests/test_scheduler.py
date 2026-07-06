@@ -203,8 +203,10 @@ class TestSchedulerService:
 
         mock_sched = MockScheduler.return_value
         # _sync_all_jobs needs a session factory, mock it to return empty sources
+        # and empty app settings rows (queried via query().filter().all())
         mock_db = Mock()
         mock_db.query.return_value.all.return_value = []
+        mock_db.query.return_value.filter.return_value.all.return_value = []
         mock_db.close = Mock()
         svc._session_factory = Mock(return_value=mock_db)
 
@@ -359,9 +361,10 @@ class TestSchedulerService:
         mock_sched.running = True
         svc.scheduler = mock_sched
 
-        # No sources at all
+        # No sources at all, and empty app settings rows (query().filter().all())
         mock_db = Mock()
         mock_db.query.return_value.all.return_value = []
+        mock_db.query.return_value.filter.return_value.all.return_value = []
         svc._session_factory = Mock(return_value=mock_db)
 
         # But scheduler has a stale job

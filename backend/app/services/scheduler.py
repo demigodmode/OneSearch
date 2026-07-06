@@ -112,21 +112,27 @@ def calculate_next_run_time_for_schedule(
     return calculate_next_run_time(scan_schedule)
 
 
-def resolve_effective_schedule(source: Source, db: Session) -> dict:
+def resolve_effective_schedule(source: Source, db: Session, default_schedule: Optional[dict] = None) -> dict:
     """
     Resolve the schedule that actually drives a source's next run: its own
     schedule, or the global default when use_default_schedule is set.
     Returns a dict shaped like ScheduleConfig (schedule_type, scan_schedule,
     interval_value, interval_unit). A "cron" type with scan_schedule=None
     means "manual only".
-    """
-    from ..services.app_settings import AppSettingsService
 
+    Pass a pre-fetched default_schedule dict (e.g. from
+    AppSettingsService(db).get_settings().default_scan_schedule.model_dump())
+    when resolving many sources at once, to avoid re-querying app settings
+    once per source.
+    """
     if source.use_default_schedule:
-        default = AppSettingsService(db).get_settings().default_scan_schedule
-        if default is None:
+        if default_schedule is None:
+            from ..services.app_settings import AppSettingsService
+            default = AppSettingsService(db).get_settings().default_scan_schedule
+            default_schedule = default.model_dump() if default else None
+        if default_schedule is None:
             return {"schedule_type": "cron", "scan_schedule": None, "interval_value": None, "interval_unit": None}
-        return default.model_dump()
+        return default_schedule
 
     return {
         "schedule_type": source.schedule_type,
@@ -180,11 +186,15 @@ class SchedulerService:
         """Load schedules from DB and sync with APScheduler state."""
         db = self._session_factory()
         try:
+            from ..services.app_settings import AppSettingsService
+            default = AppSettingsService(db).get_settings().default_scan_schedule
+            default_schedule = default.model_dump() if default else None
+
             sources = db.query(Source).all()
 
             expected_ids = set()
             for source in sources:
-                resolved = resolve_effective_schedule(source, db)
+                resolved = resolve_effective_schedule(source, db, default_schedule)
                 if _schedule_is_manual(resolved):
                     continue
                 job_id = f"index-{source.id}"
@@ -238,9 +248,13 @@ class SchedulerService:
 
         db = self._session_factory()
         try:
+            from ..services.app_settings import AppSettingsService
+            default = AppSettingsService(db).get_settings().default_scan_schedule
+            default_schedule = default.model_dump() if default else None
+
             sources = db.query(Source).filter(Source.use_default_schedule.is_(True)).all()
             for source in sources:
-                resolved = resolve_effective_schedule(source, db)
+                resolved = resolve_effective_schedule(source, db, default_schedule)
                 job_id = f"index-{source.id}"
                 if _schedule_is_manual(resolved):
                     try:
