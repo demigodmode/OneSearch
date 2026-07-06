@@ -75,6 +75,7 @@ export function useUpdateAppSettings() {
     mutationFn: (data: AppSettingsUpdate) => updateAppSettings(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.appSettings })
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources })
     },
   })
 }

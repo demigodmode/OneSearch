@@ -1,6 +1,8 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
+/* eslint-disable react-refresh/only-export-components */
+
 import { useState } from 'react'
 import type { IntervalUnit, ScheduleConfig, ScheduleType } from '@/types/api'
 import { Input } from '@/components/ui/input'
@@ -23,7 +25,8 @@ export function formatScheduleConfig(config?: ScheduleConfig | null): string {
   if (!config) return 'Manual'
   if (config.schedule_type === 'interval') {
     if (!config.interval_value || !config.interval_unit) return 'Manual'
-    return `Every ${config.interval_value} ${config.interval_unit}`
+    const unitLabel = config.interval_value === 1 ? config.interval_unit.slice(0, -1) : config.interval_unit
+    return `Every ${config.interval_value} ${unitLabel}`
   }
   return formatCronSchedule(config.scan_schedule)
 }
@@ -149,7 +152,7 @@ export function SchedulePicker({
           </div>
           <p className="text-xs text-muted-foreground">
             {intervalIsValid
-              ? `Runs every ${intervalValue} ${intervalUnit}, starting from when this is saved.`
+              ? `Runs every ${intervalValue} ${parsedIntervalValue === 1 ? intervalUnit.slice(0, -1) : intervalUnit}, starting from when this is saved.`
               : `Choose 1-${intervalUnitMax(intervalUnit)}.`}
           </p>
         </div>

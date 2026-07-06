@@ -3,7 +3,7 @@
 
 import { useState } from 'react'
 import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock, CheckCircle } from 'lucide-react'
-import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath } from '@/hooks/useApi'
+import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath, useAppSettings } from '@/hooks/useApi'
 import type { Source, SourceCreate, SourceUpdate, SourcePathTestResponse } from '@/types/api'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import {
@@ -38,12 +38,14 @@ function formatDate(isoString: string): string {
 // Source form component
 function SourceForm({
   source,
+  defaultSchedule,
   onSubmit,
   onCancel,
   isLoading,
   error,
 }: {
   source?: Source
+  defaultSchedule?: ScheduleConfig | null
   onSubmit: (data: SourceCreate | SourceUpdate) => void
   onCancel: () => void
   isLoading: boolean
@@ -199,7 +201,7 @@ function SourceForm({
 
         {useDefaultSchedule ? (
           <p className="text-xs text-muted-foreground rounded-lg border border-border bg-secondary/30 p-3">
-            Following the global default: <strong>{formatScheduleConfig(source?.effective_schedule)}</strong>.
+            Following the global default: <strong>{formatScheduleConfig(defaultSchedule)}</strong>.
             Change it in Settings &rarr; Scheduling.
           </p>
         ) : (
@@ -302,6 +304,7 @@ export default function SourcesPage() {
 
   // Queries and mutations
   const { data: sources, isLoading: isLoadingSources, error: sourcesError } = useSources()
+  const { data: appSettings } = useAppSettings()
   const createMutation = useCreateSource()
   const updateMutation = useUpdateSource()
   const deleteMutation = useDeleteSource()
@@ -557,6 +560,7 @@ export default function SourcesPage() {
             </DialogDescription>
           </DialogHeader>
           <SourceForm
+            defaultSchedule={appSettings?.default_scan_schedule}
             onSubmit={(data) => handleCreate(data as SourceCreate)}
             onCancel={() => setIsAddDialogOpen(false)}
             isLoading={createMutation.isPending}
@@ -577,6 +581,7 @@ export default function SourcesPage() {
           {editingSource && (
             <SourceForm
               source={editingSource}
+              defaultSchedule={appSettings?.default_scan_schedule}
               onSubmit={handleUpdate}
               onCancel={() => setEditingSource(null)}
               isLoading={updateMutation.isPending}
