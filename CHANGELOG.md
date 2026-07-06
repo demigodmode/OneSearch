@@ -5,6 +5,24 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- True interval-backed scan schedules: "every N minutes/hours/days" now fires exactly N units after the schedule is set, instead of converting to a cron expression that only runs on clock boundaries (e.g. an hourly interval used to always land on the top of the hour, no matter when it was created). Closes #220.
+- A global default scan schedule under Settings → Scheduling. Any source can opt in with a "Use global default" toggle instead of managing its own schedule. A source's own schedule is preserved (not discarded) while following the default, and reappears automatically if the toggle is turned back off. Closes #131.
+- The Sources list now shows a small link icon next to any source following the global default, so you can tell at a glance without opening the edit form.
+- A one-click migration prompt on the source edit form: if a source's existing cron schedule looks like a fixed interval from before true intervals existed (e.g. `0 */3 * * *`), you're offered a one-click "Switch to true interval" conversion.
+- A no-mock integration test exercising `SchedulerService` against a real APScheduler instance and a real temporary database. Closes #99.
+
+### Fixed
+
+- The Sources list no longer shows a stale effective schedule after changing the global default in Settings. It now updates immediately instead of requiring a manual page refresh.
+- The "Following the global default" preview on the source edit form now shows the actual current global default when toggling the setting on, instead of whatever the source's own schedule happened to be before the edit.
+- Interval units now read correctly for a value of 1 ("Every 1 minute" instead of "Every 1 minutes").
+
+---
+
 ## [1.2.1] - 2026-06-21
 
 ### Security
