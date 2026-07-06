@@ -22,13 +22,21 @@ When creating or updating a source, you can set:
 - `root_path` - Directory path to index (container path in Docker)
 - `include_patterns` - Array of glob patterns for files to include
 - `exclude_patterns` - Array of glob patterns for files to exclude
-- `scan_schedule` - Cron schedule for automatic indexing (optional)
+- `schedule_type` - `"cron"` or `"interval"` (default `"cron"`)
+- `scan_schedule` - Cron schedule for automatic indexing (optional, used when `schedule_type` is `"cron"`)
+- `interval_value` - Positive integer interval value (optional, used when `schedule_type` is `"interval"`)
+- `interval_unit` - `"minutes"`, `"hours"`, or `"days"` (optional, used when `schedule_type` is `"interval"`)
+- `use_default_schedule` - boolean. When `true`, the source ignores its own schedule fields and follows the global default schedule from [Settings](settings.md) instead.
 
-The `scan_schedule` field accepts presets (`@hourly`, `@daily`, `@weekly`) or standard five-field cron expressions (e.g., `0 */6 * * *` for every 6 hours on cron clock boundaries). Set to `null` or omit for manual-only indexing. The web UI's friendly interval controls save cron expressions into this same field.
+When `schedule_type` is `"cron"`, `scan_schedule` accepts presets (`@hourly`, `@daily`, `@weekly`) or standard five-field cron expressions (e.g., `0 */6 * * *` for every 6 hours on cron clock boundaries). Set to `null` or omit for manual-only indexing.
 
-Response objects also include `created_at`, `updated_at`, `last_scan_at`, and `next_scan_at` timestamps.
+When `schedule_type` is `"interval"`, the schedule is a true interval trigger, not a cron expression. "Every 6 hours" means 6 hours from when it's saved, not the next clock boundary. Both `interval_value` and `interval_unit` must be set together.
 
-Example create body:
+`use_default_schedule` and a source's own schedule fields aren't mutually exclusive in storage. The source's own schedule is preserved while `use_default_schedule` is `true`, and takes effect again as soon as it's turned back off.
+
+Response objects also include `created_at`, `updated_at`, `last_scan_at`, `next_scan_at`, and `effective_schedule` (an object shaped like `{schedule_type, scan_schedule, interval_value, interval_unit}` describing the schedule actually driving the source right now, whether that's its own or the inherited default).
+
+Example create body using a true interval:
 
 ```json
 {
@@ -36,7 +44,19 @@ Example create body:
   "root_path": "/data/documents",
   "include_patterns": ["**/*.pdf", "**/*.md"],
   "exclude_patterns": ["**/.git/**", "**/node_modules/**"],
-  "scan_schedule": "@daily"
+  "schedule_type": "interval",
+  "interval_value": 6,
+  "interval_unit": "hours"
+}
+```
+
+Example create body following the global default instead:
+
+```json
+{
+  "name": "Documents",
+  "root_path": "/data/documents",
+  "use_default_schedule": true
 }
 ```
 

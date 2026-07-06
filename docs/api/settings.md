@@ -54,6 +54,24 @@ curl -X PUT http://localhost:8000/api/settings \
 | `comic_extraction_max_size_mb` | integer | CBZ extraction limit. |
 | `readable_preview_page_chars` | integer | Approximate page size for long readable previews. |
 | `long_text_pagination_threshold_chars` | integer | Text longer than this uses the paginated reader. |
+| `default_scan_schedule` | object or `null` | The global default schedule. Sources with `use_default_schedule: true` follow this. See [Sources API](sources.md) for the object shape. |
+
+`default_scan_schedule` is validated the same way a per-source schedule is: an invalid cron expression or an interval with a missing/invalid value or unit is rejected with a `400` instead of being saved. Example:
+
+```bash
+curl -X PUT http://localhost:8000/api/settings \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "default_scan_schedule": {
+      "schedule_type": "interval",
+      "interval_value": 6,
+      "interval_unit": "hours"
+    }
+  }'
+```
+
+Changing `default_scan_schedule` immediately re-syncs every source with `use_default_schedule: true`. Sources with their own schedule are untouched.
 
 ## Reindexing after changes
 

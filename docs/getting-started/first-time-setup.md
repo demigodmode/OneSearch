@@ -246,7 +246,7 @@ docker compose logs -f onesearch
 
 ## Set Up a Schedule (Optional)
 
-Instead of manually triggering reindex every time, you can set up automatic schedules. When adding or editing a source, pick a preset (Hourly, Daily, Weekly), use **Custom interval...** for common minute/hour/day schedules, or use **Advanced cron...** for exact cron expressions.
+Instead of manually triggering reindex every time, you can set up automatic schedules. When adding or editing a source, pick a preset (Hourly, Daily, Weekly), use **Custom interval...** for a true minute/hour/day interval, or use **Advanced cron...** for exact cron expressions. You can also toggle **Use global default** to have the source follow one schedule configured under **Settings → Scheduling**, instead of setting its own.
 
 See [Scheduling](../user-guide/scheduling.md) for more details.
 

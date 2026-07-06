@@ -13,7 +13,7 @@ Recent milestones that are already in the product:
 - legacy external Meilisearch compose support
 - setup wizard and JWT auth
 - source path restrictions, read-only mount guidance, and source path preflight testing
-- scheduled indexing with presets, friendly interval controls, and advanced cron
+- scheduled indexing with presets, true interval controls, advanced cron, and a global default schedule sources can inherit
 - full reindex support in the UI, CLI, and API
 - Office, PDF, Markdown, text, code, and config indexing
 - RTF, EPUB, subtitles, CBZ comics, images, RAW photos, and media metadata
@@ -52,9 +52,17 @@ These are the kinds of improvements that fit the current product without changin
 - basic metrics endpoint or Prometheus-friendly output
 - easier diagnostics bundle for bug reports
 
+### Progressive Web App
+
+- installable, offline-friendly PWA support for the web UI, so it behaves more like an app on phones and tablets without a native mobile build
+
 ## Larger ideas
 
 These are useful, but they need more design before they should be treated as committed work.
+
+### Remote indexing agents
+
+The current model handles files on other machines through mounts: NFS/SMB, bind mounts, ZFS datasets. A lightweight agent that runs on a remote machine and indexes back to a central OneSearch instance would help setups where centralizing every mount onto one host isn't practical. This needs real design work before it's committed, particularly around authentication, restricting which paths an agent can index, handling deletes/renames correctly, and making agent failures visible in the UI rather than silent.
 
 ### Connectors
 
@@ -86,7 +94,7 @@ Right now, if a user can log in, they can search the indexed content. More granu
 
 A few things come up naturally, but they are not immediate priorities:
 
-- mobile apps
+- native mobile apps (a PWA is planned instead, see Near-term work above)
 - desktop Electron app
 - browser extension
 - multi-tenant/team workspace features

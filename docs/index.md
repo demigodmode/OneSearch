@@ -16,7 +16,7 @@ Search across all your files, documents, and notes from a single interface. No c
 
 **Incremental indexing**: Only changed files get reindexed, so updates are fast. Full reindex available when you need it.
 
-**Scheduled indexing**: Set per-source schedules with presets, friendly custom intervals, or advanced cron so sources stay up to date automatically.
+**Scheduled indexing**: Set per-source schedules with presets, true intervals, or advanced cron, or have any source follow a single global default so sources stay up to date automatically.
 
 **Authentication**: JWT-based login with a setup wizard. Rate-limited to prevent brute force.
 
@@ -57,7 +57,7 @@ For detailed setup instructions, see the [Installation Guide](getting-started/in
 
 ## What's New
 
-The current Docker setup runs OneSearch and managed Meilisearch in a single container by default. Recent releases also added source path preflight testing, Light/Dark/System theme modes, friendlier scan schedules, rich media indexing, authenticated previews, RAW/photo metadata, metadata-only indexing for unsupported files, and full reindex controls in the UI, CLI, and API.
+The current Docker setup runs OneSearch and managed Meilisearch in a single container by default. Recent releases also added true interval-backed scan schedules and a global default schedule sources can inherit, source path preflight testing, Light/Dark/System theme modes, rich media indexing, authenticated previews, RAW/photo metadata, metadata-only indexing for unsupported files, and full reindex controls in the UI, CLI, and API.
 
 Check the [Changelog](about/changelog.md) for release-by-release details.
 

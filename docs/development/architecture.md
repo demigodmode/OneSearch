@@ -70,7 +70,11 @@ Stores source configurations.
 | root_path | TEXT | Container path to index |
 | include_patterns | TEXT | JSON array of glob patterns, stored as text |
 | exclude_patterns | TEXT | JSON array of glob patterns, stored as text |
-| scan_schedule | TEXT | Cron expression or preset (`@hourly`, `@daily`, `@weekly`) |
+| schedule_type | TEXT | `cron` or `interval`, default `cron` |
+| scan_schedule | TEXT | Cron expression or preset (`@hourly`, `@daily`, `@weekly`), used when `schedule_type` is `cron` |
+| interval_value | INTEGER | Interval value, used when `schedule_type` is `interval` |
+| interval_unit | TEXT | `minutes`, `hours`, or `days`, used when `schedule_type` is `interval` |
+| use_default_schedule | BOOLEAN | When true, the source follows the global default schedule instead of the columns above |
 | last_scan_at | DATETIME | Last completed scan timestamp |
 | next_scan_at | DATETIME | Next scheduled scan timestamp |
 | created_at | DATETIME | Creation timestamp |

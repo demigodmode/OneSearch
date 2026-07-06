@@ -68,11 +68,11 @@ Check **Admin → Status** for failed file details. If a file is too large, rais
 
 ## Schedules
 
-Sources can be manual-only or scheduled. Presets are hourly, daily, and weekly. The web UI also offers custom interval controls for common minute/hour/day schedules and advanced cron for exact control.
+Sources can be manual-only or scheduled. Presets are hourly, daily, and weekly. The web UI also offers true interval controls for minute/hour/day schedules and advanced cron for exact control, plus a global default schedule that any source can opt into instead of managing its own.
 
 Schedules run incremental indexing. If a source is already being indexed, another run for that source is skipped instead of running two scans at once.
 
-See [Scheduling](scheduling.md) for cron examples.
+See [Scheduling](scheduling.md) for cron examples and details on true intervals and the global default.
 
 !!! tip "Changing indexing settings"
     Settings such as unsupported-file behavior, RAW metadata extraction, GPS metadata, and extraction size limits apply to future indexing. Run a full reindex if existing documents need to be refreshed with new settings.
