@@ -33,6 +33,16 @@ export interface Document {
 // Source Types
 // ============================================================================
 
+export type ScheduleType = 'cron' | 'interval'
+export type IntervalUnit = 'minutes' | 'hours' | 'days'
+
+export interface ScheduleConfig {
+  schedule_type: ScheduleType
+  scan_schedule?: string | null
+  interval_value?: number | null
+  interval_unit?: IntervalUnit | null
+}
+
 /**
  * Base source properties
  */
@@ -42,6 +52,10 @@ export interface SourceBase {
   include_patterns?: string[] | null
   exclude_patterns?: string[] | null
   scan_schedule?: string | null
+  schedule_type?: ScheduleType
+  interval_value?: number | null
+  interval_unit?: IntervalUnit | null
+  use_default_schedule?: boolean
 }
 
 /**
@@ -60,6 +74,10 @@ export interface SourceUpdate {
   include_patterns?: string[] | null
   exclude_patterns?: string[] | null
   scan_schedule?: string | null
+  schedule_type?: ScheduleType
+  interval_value?: number | null
+  interval_unit?: IntervalUnit | null
+  use_default_schedule?: boolean
 }
 
 /**
@@ -71,6 +89,7 @@ export interface Source extends SourceBase {
   updated_at: string // ISO datetime string
   last_scan_at?: string | null
   next_scan_at?: string | null
+  effective_schedule?: ScheduleConfig | null
 }
 
 export interface SourcePathTestRequest {
@@ -154,6 +173,7 @@ export interface AppSettings {
   comic_extraction_max_size_mb: number
   readable_preview_page_chars: number
   long_text_pagination_threshold_chars: number
+  default_scan_schedule?: ScheduleConfig | null
 }
 
 export type AppSettingsUpdate = Partial<AppSettings>
