@@ -5,7 +5,8 @@
 Pydantic schemas for request/response validation
 """
 from datetime import datetime
-from typing import Optional, Dict, Any, List, Literal
+from typing import Any, Dict, List, Literal, Optional
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -47,6 +48,9 @@ class SourceBase(BaseModel):
     """Base schema for Source"""
     name: str
     root_path: str
+    location_type: Literal["local", "agent"] = "local"
+    agent_id: Optional[str] = None
+    processing_mode: Optional[Literal["on_agent", "on_server"]] = None
     include_patterns: Optional[List[str]] = None
     exclude_patterns: Optional[List[str]] = None
     scan_schedule: Optional[str] = Field(default=None, max_length=100)
@@ -65,6 +69,9 @@ class SourceUpdate(BaseModel):
     """Schema for updating a source"""
     name: Optional[str] = None
     root_path: Optional[str] = None
+    location_type: Optional[Literal["local", "agent"]] = None
+    agent_id: Optional[str] = None
+    processing_mode: Optional[Literal["on_agent", "on_server"]] = None
     include_patterns: Optional[List[str]] = None
     exclude_patterns: Optional[List[str]] = None
     scan_schedule: Optional[str] = Field(default=None, max_length=100)
@@ -112,6 +119,9 @@ class SourceResponse(SourceBase):
             id=source.id,
             name=source.name,
             root_path=source.root_path,
+            location_type=getattr(source, "location_type", "local"),
+            agent_id=getattr(source, "agent_id", None),
+            processing_mode=getattr(source, "processing_mode", None),
             include_patterns=json.loads(source.include_patterns) if source.include_patterns else None,
             exclude_patterns=json.loads(source.exclude_patterns) if source.exclude_patterns else None,
             scan_schedule=source.scan_schedule,
