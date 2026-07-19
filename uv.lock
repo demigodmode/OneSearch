@@ -7,6 +7,7 @@ members = [
     "onesearch",
     "onesearch-backend",
     "onesearch-cli",
+    "onesearch-shared",
 ]
 
 [[package]]
@@ -848,13 +849,14 @@ wheels = [
 
 [[package]]
 name = "onesearch"
-version = "1.2.1"
+version = "1.3.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
 all = [
     { name = "onesearch-backend" },
     { name = "onesearch-cli" },
+    { name = "onesearch-shared" },
 ]
 backend = [
     { name = "onesearch-backend" },
@@ -879,6 +881,7 @@ requires-dist = [
     { name = "onesearch-backend", marker = "extra == 'backend'", editable = "backend" },
     { name = "onesearch-cli", marker = "extra == 'all'", editable = "cli" },
     { name = "onesearch-cli", marker = "extra == 'cli'", editable = "cli" },
+    { name = "onesearch-shared", marker = "extra == 'all'", editable = "shared" },
 ]
 provides-extras = ["all", "backend", "cli"]
 
@@ -894,7 +897,7 @@ dev = [
 
 [[package]]
 name = "onesearch-backend"
-version = "1.2.1"
+version = "1.3.0"
 source = { editable = "backend" }
 dependencies = [
     { name = "alembic" },
@@ -941,7 +944,7 @@ requires-dist = [
 
 [[package]]
 name = "onesearch-cli"
-version = "1.2.1"
+version = "1.3.0"
 source = { editable = "cli" }
 dependencies = [
     { name = "click" },
@@ -959,6 +962,17 @@ requires-dist = [
     { name = "requests", specifier = ">=2.31.0" },
     { name = "rich", specifier = ">=13.0.0" },
 ]
+
+[[package]]
+name = "onesearch-shared"
+version = "1.3.0"
+source = { editable = "shared" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.0,<3.0" }]
 
 [[package]]
 name = "openpyxl"
