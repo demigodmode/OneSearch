@@ -16,7 +16,7 @@ PROTOCOL_VERSION = 1
 class WireModel(BaseModel):
     """Base for JSON messages that rejects fields unknown to this protocol."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class ProcessingMode(str, Enum):

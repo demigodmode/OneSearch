@@ -179,6 +179,29 @@ def test_open_ended_payloads_still_require_json_values():
         )
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_job_payload_rejects_non_finite_numbers(value):
+    with pytest.raises(ValidationError):
+        AgentJobLease(
+            id="job-1",
+            kind=JobKind.SCAN,
+            lease_token="lease-1",
+            payload={"score": value},
+        )
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_document_metadata_rejects_non_finite_numbers(value):
+    with pytest.raises(ValidationError):
+        NormalizedRemoteDocument(
+            source_id=7,
+            path="a.txt",
+            content="A",
+            modified_at=1,
+            metadata={"score": value},
+        )
+
+
 def test_protocol_compatibility_reports_incompatible_versions():
     supported = ProtocolVersionRange(minimum_version=1, maximum_version=1)
 
