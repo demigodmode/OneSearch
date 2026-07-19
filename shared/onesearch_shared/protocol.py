@@ -48,8 +48,8 @@ class JobFailureReason(str, Enum):
 
 class AgentHeartbeat(WireModel):
     protocol_version: int = Field(default=PROTOCOL_VERSION, ge=1)
-    agent_version: str = Field(min_length=1)
-    platform: str = Field(min_length=1)
+    agent_version: str = Field(min_length=1, max_length=40)
+    platform: str = Field(min_length=1, max_length=80)
     current_job_id: str | None = None
 
 
@@ -62,19 +62,20 @@ class AgentJobLease(WireModel):
     lease_token: str = Field(min_length=1)
 
 
-class AgentEnrollmentRequest(WireModel):
-    protocol_version: int = Field(default=PROTOCOL_VERSION, ge=1)
-    enrollment_token: str = Field(min_length=1)
-    agent_name: str = Field(min_length=1)
-    agent_version: str = Field(min_length=1)
-    platform: str = Field(min_length=1)
-
-
 class AllowedRoot(WireModel):
     root_id: str = Field(min_length=1)
     path: str = Field(min_length=1)
     display_name: str | None = None
     read_only: bool = True
+
+
+class AgentEnrollmentRequest(WireModel):
+    protocol_version: int = Field(default=PROTOCOL_VERSION, ge=1)
+    enrollment_token: str = Field(min_length=1)
+    agent_name: str = Field(min_length=1, max_length=120)
+    agent_version: str = Field(min_length=1, max_length=40)
+    platform: str = Field(min_length=1, max_length=80)
+    allowed_roots: list[AllowedRoot] = Field(min_length=1)
 
 
 class AgentEnrollmentResponse(WireModel):

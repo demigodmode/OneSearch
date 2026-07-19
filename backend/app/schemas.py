@@ -243,6 +243,7 @@ class AppSettingsResponse(BaseModel):
     readable_preview_page_chars: int = Field(default=6000, ge=1000)
     long_text_pagination_threshold_chars: int = Field(default=20000, ge=1000)
     default_scan_schedule: Optional[ScheduleConfig] = None
+    remote_agents_enabled: bool = False
 
 
 class AppSettingsUpdate(BaseModel):
@@ -264,6 +265,39 @@ class AppSettingsUpdate(BaseModel):
     readable_preview_page_chars: Optional[int] = Field(default=None, ge=1000)
     long_text_pagination_threshold_chars: Optional[int] = Field(default=None, ge=1000)
     default_scan_schedule: Optional[ScheduleConfig] = None
+    remote_agents_enabled: bool | None = None
+
+
+class AgentEnrollmentCodeResponse(BaseModel):
+    """One-time code returned only when an administrator creates it."""
+
+    code: str
+    expires_at: datetime
+
+
+class AgentAdminResponse(BaseModel):
+    """Agent details safe for administrative APIs."""
+
+    id: str
+    name: str
+    platform: str
+    version: str
+    protocol_version: int
+    allowed_roots: list[dict]
+    default_processing_mode: str
+    auto_update: bool
+    status: str
+    approved_at: datetime | None
+    last_seen_at: datetime | None
+    disabled_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentHeartbeatResponse(BaseModel):
+    """Current server-side state after a heartbeat."""
+
+    status: str
 
 
 class MessageResponse(BaseModel):

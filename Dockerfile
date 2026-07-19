@@ -36,12 +36,13 @@ WORKDIR /app
 # Copy workspace root files
 COPY pyproject.toml uv.lock ./
 
-# Copy backend and CLI packages
+# Copy backend, CLI, and shared protocol packages
 COPY backend/ ./backend/
 COPY cli/ ./cli/
+COPY shared/ ./shared/
 
 # Install all workspace packages to user directory
-RUN uv pip install --system ./backend ./cli
+RUN uv pip install --system ./shared ./backend ./cli
 
 # =============================================================================
 # Stage 3: Meilisearch binary

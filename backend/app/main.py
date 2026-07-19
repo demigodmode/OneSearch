@@ -9,18 +9,18 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Depends
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from . import __version__
-from .db.database import get_db
+from .api import agent_protocol, agents, auth, preview, search, sources, status
+from .api import settings as settings_api
 from .config import settings
-from .services.search import meili_service
+from .db.database import engine, get_db
 from .services.scheduler import SchedulerService
-from .db.database import engine
-from .api import sources, search, status, auth, settings as settings_api, preview
+from .services.search import meili_service
 
 # Configure logging
 logging.basicConfig(
@@ -150,6 +150,8 @@ app.include_router(search.router)
 app.include_router(status.router)
 app.include_router(settings_api.router)
 app.include_router(preview.router)
+app.include_router(agents.router)
+app.include_router(agent_protocol.router)
 
 
 @app.get("/api/health")

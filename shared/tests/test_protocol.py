@@ -119,18 +119,58 @@ def test_enrollment_round_trip_includes_allowed_roots():
         agent_name="office-pc",
         agent_version="1.4.0",
         platform="windows-amd64",
+        allowed_roots=[AllowedRoot(root_id="documents", path="C:/Users/Ada/Documents")],
     )
     response = AgentEnrollmentResponse(
         agent_id="agent-1",
         agent_token="agent-secret",
         allowed_roots=[
-            AllowedRoot(root_id="documents", path="C:/Users/Ada/Documents", display_name="Documents")
+            AllowedRoot(
+                root_id="documents", path="C:/Users/Ada/Documents", display_name="Documents"
+            )
         ],
     )
 
     assert_json_round_trip(request)
     assert_json_round_trip(response)
     assert response.protocol_version == PROTOCOL_VERSION
+
+
+def test_enrollment_requires_at_least_one_allowed_root():
+    with pytest.raises(ValidationError, match="allowed_roots"):
+        AgentEnrollmentRequest(
+            enrollment_token="enroll-secret",
+            agent_name="office-pc",
+            agent_version="1.4.0",
+            platform="windows-amd64",
+            allowed_roots=[],
+        )
+
+
+@pytest.mark.parametrize(
+    ("model_type", "field", "value"),
+    [
+        (AgentEnrollmentRequest, "agent_name", "a" * 121),
+        (AgentEnrollmentRequest, "agent_version", "v" * 41),
+        (AgentEnrollmentRequest, "platform", "p" * 81),
+        (AgentHeartbeat, "agent_version", "v" * 41),
+        (AgentHeartbeat, "platform", "p" * 81),
+    ],
+)
+def test_agent_identity_fields_match_server_storage_limits(model_type, field, value):
+    data = {"agent_version": "1.4.0", "platform": "windows-amd64"}
+    if model_type is AgentEnrollmentRequest:
+        data.update(
+            {
+                "enrollment_token": "enroll-secret",
+                "agent_name": "office-pc",
+                "allowed_roots": [AllowedRoot(root_id="documents", path="C:/Documents")],
+            }
+        )
+    data[field] = value
+
+    with pytest.raises(ValidationError):
+        model_type.model_validate(data)
 
 
 def test_browse_round_trip_preserves_directory_entries():

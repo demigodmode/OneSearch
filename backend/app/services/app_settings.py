@@ -11,10 +11,10 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import AppSetting
-from ..schemas import AppSettingsResponse, AppSettingsUpdate, ScheduleConfig
-
+from ..schemas import AppSettingsResponse, AppSettingsUpdate
 
 SETTING_KEYS = (
+    "remote_agents_enabled",
     "unsupported_file_policy",
     "media_metadata_mode",
     "raw_metadata_mode",
@@ -56,6 +56,7 @@ def default_app_settings() -> AppSettingsResponse:
         readable_preview_page_chars=settings.readable_preview_page_chars,
         long_text_pagination_threshold_chars=settings.long_text_pagination_threshold_chars,
         default_scan_schedule=None,
+        remote_agents_enabled=False,
     )
 
 
@@ -70,7 +71,12 @@ def _serialize(value: Any) -> str:
 def _coerce_value(key: str, value: str) -> Any:
     if key == "default_scan_schedule":
         return json.loads(value) if value else None
-    if key in {"index_gps_metadata", "show_previews", "raw_preview_enabled"}:
+    if key in {
+        "index_gps_metadata",
+        "show_previews",
+        "raw_preview_enabled",
+        "remote_agents_enabled",
+    }:
         return value.lower() == "true"
     if key in {
         "max_preview_size_mb",
