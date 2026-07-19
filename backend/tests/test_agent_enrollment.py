@@ -113,6 +113,10 @@ def test_expired_code_is_rejected(client, db_session):
     [
         [{"root_id": "docs", "path": ""}],
         [{"root_id": "docs", "path": "C:/Docs"}, {"root_id": "docs", "path": "D:/Docs"}],
+        [
+            {"root_id": "docs", "path": "C:/Docs"},
+            {"root_id": "docs ", "path": "D:/Docs"},
+        ],
     ],
 )
 def test_enrollment_rejects_invalid_allowed_roots_without_consuming_code(client, db_session, roots):

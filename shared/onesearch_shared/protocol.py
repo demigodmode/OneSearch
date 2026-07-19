@@ -8,9 +8,17 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 PROTOCOL_VERSION = 1
+
+
+def _strip_nonempty(value: object) -> object:
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+    return value
 
 
 class WireModel(BaseModel):
@@ -52,6 +60,11 @@ class AgentHeartbeat(WireModel):
     platform: str = Field(min_length=1, max_length=80)
     current_job_id: str | None = None
 
+    @field_validator("agent_version", "platform", mode="before")
+    @classmethod
+    def normalize_identity(cls, value: object) -> object:
+        return _strip_nonempty(value)
+
 
 class AgentJobLease(WireModel):
     id: str = Field(min_length=1)
@@ -68,6 +81,11 @@ class AllowedRoot(WireModel):
     display_name: str | None = None
     read_only: bool = True
 
+    @field_validator("root_id", "path", mode="before")
+    @classmethod
+    def normalize_location(cls, value: object) -> object:
+        return _strip_nonempty(value)
+
 
 class AgentEnrollmentRequest(WireModel):
     protocol_version: int = Field(default=PROTOCOL_VERSION, ge=1)
@@ -76,6 +94,11 @@ class AgentEnrollmentRequest(WireModel):
     agent_version: str = Field(min_length=1, max_length=40)
     platform: str = Field(min_length=1, max_length=80)
     allowed_roots: list[AllowedRoot] = Field(min_length=1)
+
+    @field_validator("agent_name", "agent_version", "platform", mode="before")
+    @classmethod
+    def normalize_identity(cls, value: object) -> object:
+        return _strip_nonempty(value)
 
 
 class AgentEnrollmentResponse(WireModel):

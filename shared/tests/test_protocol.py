@@ -173,6 +173,54 @@ def test_agent_identity_fields_match_server_storage_limits(model_type, field, va
         model_type.model_validate(data)
 
 
+def test_agent_identity_and_allowed_root_fields_are_trimmed():
+    request = AgentEnrollmentRequest(
+        enrollment_token="enroll-secret",
+        agent_name="  office-pc  ",
+        agent_version="  1.4.0  ",
+        platform="  windows-amd64  ",
+        allowed_roots=[AllowedRoot(root_id="  documents  ", path="  C:/Documents  ")],
+    )
+    heartbeat = AgentHeartbeat(agent_version="  1.4.0  ", platform="  windows-amd64  ")
+
+    assert request.agent_name == "office-pc"
+    assert request.agent_version == heartbeat.agent_version == "1.4.0"
+    assert request.platform == heartbeat.platform == "windows-amd64"
+    assert request.allowed_roots[0].root_id == "documents"
+    assert request.allowed_roots[0].path == "C:/Documents"
+
+
+@pytest.mark.parametrize(
+    ("model_type", "field"),
+    [
+        (AgentEnrollmentRequest, "agent_name"),
+        (AgentEnrollmentRequest, "agent_version"),
+        (AgentEnrollmentRequest, "platform"),
+        (AgentHeartbeat, "agent_version"),
+        (AgentHeartbeat, "platform"),
+        (AllowedRoot, "root_id"),
+        (AllowedRoot, "path"),
+    ],
+)
+def test_agent_identity_and_allowed_root_fields_reject_whitespace_only(model_type, field):
+    if model_type is AgentEnrollmentRequest:
+        data = {
+            "enrollment_token": "enroll-secret",
+            "agent_name": "office-pc",
+            "agent_version": "1.4.0",
+            "platform": "windows-amd64",
+            "allowed_roots": [AllowedRoot(root_id="documents", path="C:/Documents")],
+        }
+    elif model_type is AgentHeartbeat:
+        data = {"agent_version": "1.4.0", "platform": "windows-amd64"}
+    else:
+        data = {"root_id": "documents", "path": "C:/Documents"}
+    data[field] = "   "
+
+    with pytest.raises(ValidationError):
+        model_type.model_validate(data)
+
+
 def test_browse_round_trip_preserves_directory_entries():
     request = BrowseRequest(root_id="documents", path="reports")
     response = BrowseResponse(
