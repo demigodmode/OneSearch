@@ -16,7 +16,7 @@ PROTOCOL_VERSION = 1
 class WireModel(BaseModel):
     """Base for JSON messages that rejects fields unknown to this protocol."""
 
-    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, strict=True)
 
 
 class ProcessingMode(str, Enum):
@@ -47,7 +47,7 @@ class JobFailureReason(str, Enum):
 
 
 class AgentHeartbeat(WireModel):
-    protocol_version: int = PROTOCOL_VERSION
+    protocol_version: int = Field(default=PROTOCOL_VERSION, ge=1)
     agent_version: str = Field(min_length=1)
     platform: str = Field(min_length=1)
     current_job_id: str | None = None
@@ -63,7 +63,7 @@ class AgentJobLease(WireModel):
 
 
 class AgentEnrollmentRequest(WireModel):
-    protocol_version: int = PROTOCOL_VERSION
+    protocol_version: int = Field(default=PROTOCOL_VERSION, ge=1)
     enrollment_token: str = Field(min_length=1)
     agent_name: str = Field(min_length=1)
     agent_version: str = Field(min_length=1)
@@ -78,7 +78,7 @@ class AllowedRoot(WireModel):
 
 
 class AgentEnrollmentResponse(WireModel):
-    protocol_version: int = PROTOCOL_VERSION
+    protocol_version: int = Field(default=PROTOCOL_VERSION, ge=1)
     agent_id: str = Field(min_length=1)
     agent_token: str = Field(min_length=1)
     allowed_roots: list[AllowedRoot] = Field(default_factory=list)
@@ -181,6 +181,13 @@ class ProtocolCompatibilityResponse(WireModel):
     agent_protocol_version: int = Field(ge=1)
     supported_range: ProtocolVersionRange
     compatible: bool
+
+    @model_validator(mode="after")
+    def validate_compatibility(self) -> ProtocolCompatibilityResponse:
+        expected = self.supported_range.supports(self.agent_protocol_version)
+        if self.compatible is not expected:
+            raise ValueError("compatible must match agent_protocol_version and supported_range")
+        return self
 
     @classmethod
     def for_version(

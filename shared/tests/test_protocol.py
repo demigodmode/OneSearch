@@ -47,6 +47,61 @@ def test_heartbeat_defaults_to_current_protocol_and_round_trips_strictly():
         )
 
 
+@pytest.mark.parametrize(
+    ("model_type", "data"),
+    [
+        (
+            AgentHeartbeat,
+            {"protocol_version": "1", "agent_version": "1.4.0", "platform": "windows-amd64"},
+        ),
+        (
+            NormalizedRemoteDocument,
+            {"source_id": "7", "path": "a.txt", "content": "A", "modified_at": 1},
+        ),
+    ],
+)
+def test_python_inputs_do_not_coerce_numeric_strings(model_type, data):
+    with pytest.raises(ValidationError):
+        model_type.model_validate(data)
+
+
+@pytest.mark.parametrize(
+    ("model_type", "data"),
+    [
+        (
+            AgentHeartbeat,
+            {"protocol_version": 0, "agent_version": "1.4.0", "platform": "windows-amd64"},
+        ),
+        (
+            AgentEnrollmentRequest,
+            {
+                "protocol_version": 0,
+                "enrollment_token": "enroll-secret",
+                "agent_name": "office-pc",
+                "agent_version": "1.4.0",
+                "platform": "windows-amd64",
+            },
+        ),
+        (
+            AgentEnrollmentResponse,
+            {"protocol_version": 0, "agent_id": "agent-1", "agent_token": "agent-secret"},
+        ),
+    ],
+)
+def test_protocol_versions_must_be_positive(model_type, data):
+    with pytest.raises(ValidationError):
+        model_type.model_validate(data)
+
+
+def test_strict_models_parse_correct_json_enum_values():
+    lease = AgentJobLease.model_validate_json(
+        '{"id":"job-1","kind":"scan","processing_mode":"on_agent","lease_token":"lease-1"}'
+    )
+
+    assert lease.kind is JobKind.SCAN
+    assert lease.processing_mode is ProcessingMode.ON_AGENT
+
+
 def test_wire_enum_values_are_stable():
     assert {mode.value for mode in ProcessingMode} == {"on_agent", "on_server"}
     assert {kind.value for kind in JobKind} == {
@@ -211,6 +266,23 @@ def test_protocol_compatibility_reports_incompatible_versions():
     assert response.agent_protocol_version == 2
     assert response.supported_range == supported
     assert_json_round_trip(response)
+
+
+def test_protocol_compatibility_rejects_contradictory_model_input():
+    with pytest.raises(ValidationError, match="compatible"):
+        ProtocolCompatibilityResponse(
+            agent_protocol_version=2,
+            supported_range=ProtocolVersionRange(minimum_version=1, maximum_version=1),
+            compatible=True,
+        )
+
+
+def test_protocol_compatibility_rejects_contradictory_json_input():
+    with pytest.raises(ValidationError, match="compatible"):
+        ProtocolCompatibilityResponse.model_validate_json(
+            '{"agent_protocol_version":1,"supported_range":'
+            '{"minimum_version":1,"maximum_version":1},"compatible":false}'
+        )
 
 
 def test_protocol_version_range_rejects_reversed_bounds():
