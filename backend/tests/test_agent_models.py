@@ -145,7 +145,12 @@ def test_agent_rejects_unknown_default_processing_mode(agent_db):
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("kind", "unknown"), ("status", "unknown"), ("processing_mode", "elsewhere")],
+    [
+        ("kind", "unknown"),
+        ("status", "unknown"),
+        ("status", "leased"),
+        ("processing_mode", "elsewhere"),
+    ],
 )
 def test_agent_job_rejects_unknown_contract_values(agent_db, field, value):
     agent_db.add(_agent())
@@ -156,6 +161,15 @@ def test_agent_job_rejects_unknown_contract_values(agent_db, field, value):
 
     with pytest.raises(IntegrityError):
         agent_db.commit()
+
+
+@pytest.mark.parametrize("status", ["claimed", "cancelling", "completed"])
+def test_agent_job_accepts_planned_lifecycle_statuses(agent_db, status):
+    agent_db.add(_agent())
+    agent_db.commit()
+    agent_db.add(AgentJob(id=f"job-{status}", agent_id="agent-1", kind="browse", status=status))
+
+    agent_db.commit()
 
 
 def test_agent_job_defaults_foreign_keys_and_active_key_uniqueness(agent_db):
@@ -234,6 +248,9 @@ def test_deleting_source_cascades_jobs_batches_and_indexed_rows(agent_db):
     agent_db.add(AgentBatch(job_id=job.id, idempotency_key="batch-1", checksum="a" * 64))
     agent_db.commit()
 
+    assert source.agent_jobs == [job]
+    assert job.batches
+
     agent_db.delete(source)
     agent_db.commit()
 
@@ -254,6 +271,11 @@ def test_deleting_agent_cascades_remote_sources_and_their_dependents(agent_db):
     agent_db.flush()
     agent_db.add(AgentBatch(job_id=job.id, idempotency_key="batch-1", checksum="a" * 64))
     agent_db.commit()
+
+    assert agent.sources == [source]
+    assert agent.jobs == [job]
+    assert source.agent_jobs == [job]
+    assert job.batches
 
     agent_db.delete(agent)
     agent_db.commit()
@@ -311,7 +333,24 @@ def test_migration_is_head_and_round_trips_only_a_temporary_database(tmp_path):
         connection.commit()
 
     alembic("upgrade", "head")
+    alembic("check")
     with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "INSERT INTO agents "
+            "(id, name, platform, version, protocol_version, created_at, updated_at) "
+            "VALUES ('agent-1', 'Agent', 'linux', '1.0.0', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        )
+        for status in ("claimed", "cancelling"):
+            connection.execute(
+                "INSERT INTO agent_jobs (id, agent_id, kind, status, created_at) "
+                "VALUES (?, 'agent-1', 'browse', ?, CURRENT_TIMESTAMP)",
+                (f"job-{status}", status),
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO agent_jobs (id, agent_id, kind, status, created_at) "
+                "VALUES ('job-leased', 'agent-1', 'browse', 'leased', CURRENT_TIMESTAMP)"
+            )
         row = connection.execute(
             "SELECT location_type, agent_id, processing_mode FROM sources WHERE id='existing'"
         ).fetchone()
@@ -321,6 +360,7 @@ def test_migration_is_head_and_round_trips_only_a_temporary_database(tmp_path):
 
     alembic("downgrade", "361d2b460314")
     alembic("upgrade", "head")
+    alembic("check")
     with sqlite3.connect(database_path) as connection:
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
     assert revision == "a91c5e7d2f40"

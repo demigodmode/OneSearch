@@ -56,8 +56,12 @@ class Agent(Base):
     created_at = Column(DateTime, default=_utcnow, nullable=False)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow, nullable=False)
 
-    sources = relationship("Source", back_populates="agent", passive_deletes=True)
-    jobs = relationship("AgentJob", back_populates="agent", passive_deletes=True)
+    sources = relationship(
+        "Source", back_populates="agent", cascade="all, delete-orphan", passive_deletes=True
+    )
+    jobs = relationship(
+        "AgentJob", back_populates="agent", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class AgentEnrollment(Base):
@@ -122,7 +126,9 @@ class Source(Base):
     # Relationship to indexed files
     indexed_files = relationship("IndexedFile", back_populates="source", cascade="all, delete-orphan")
     agent = relationship("Agent", back_populates="sources")
-    agent_jobs = relationship("AgentJob", back_populates="source", passive_deletes=True)
+    agent_jobs = relationship(
+        "AgentJob", back_populates="source", cascade="all, delete-orphan", passive_deletes=True
+    )
 
     def __repr__(self):
         return f"<Source(id={self.id}, name={self.name}, path={self.root_path})>"
@@ -162,7 +168,8 @@ class AgentJob(Base):
             name="ck_agent_jobs_kind",
         ),
         CheckConstraint(
-            "status IN ('pending', 'leased', 'running', 'succeeded', 'failed', 'cancelled')",
+            "status IN ('pending', 'claimed', 'running', 'cancelling', "
+            "'completed', 'failed', 'cancelled')",
             name="ck_agent_jobs_status",
         ),
         CheckConstraint(

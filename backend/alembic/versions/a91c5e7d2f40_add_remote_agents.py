@@ -108,7 +108,8 @@ def upgrade() -> None:
             name="ck_agent_jobs_kind",
         ),
         sa.CheckConstraint(
-            "status IN ('pending', 'leased', 'running', 'succeeded', 'failed', 'cancelled')",
+            "status IN ('pending', 'claimed', 'running', 'cancelling', "
+            "'completed', 'failed', 'cancelled')",
             name="ck_agent_jobs_status",
         ),
         sa.CheckConstraint(
