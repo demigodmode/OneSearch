@@ -173,13 +173,13 @@ def test_agent_identity_fields_match_server_storage_limits(model_type, field, va
         model_type.model_validate(data)
 
 
-def test_agent_identity_and_allowed_root_fields_are_trimmed():
+def test_agent_identity_and_root_id_fields_are_trimmed():
     request = AgentEnrollmentRequest(
         enrollment_token="enroll-secret",
         agent_name="  office-pc  ",
         agent_version="  1.4.0  ",
         platform="  windows-amd64  ",
-        allowed_roots=[AllowedRoot(root_id="  documents  ", path="  C:/Documents  ")],
+        allowed_roots=[AllowedRoot(root_id="  documents  ", path="C:/My Documents")],
     )
     heartbeat = AgentHeartbeat(agent_version="  1.4.0  ", platform="  windows-amd64  ")
 
@@ -187,7 +187,13 @@ def test_agent_identity_and_allowed_root_fields_are_trimmed():
     assert request.agent_version == heartbeat.agent_version == "1.4.0"
     assert request.platform == heartbeat.platform == "windows-amd64"
     assert request.allowed_roots[0].root_id == "documents"
-    assert request.allowed_roots[0].path == "C:/Documents"
+    assert request.allowed_roots[0].path == "C:/My Documents"
+
+
+@pytest.mark.parametrize("path", [" C:/Documents", "C:/Documents "])
+def test_allowed_root_path_rejects_surrounding_whitespace(path):
+    with pytest.raises(ValidationError):
+        AllowedRoot(root_id="documents", path=path)
 
 
 @pytest.mark.parametrize(

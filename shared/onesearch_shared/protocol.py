@@ -21,6 +21,15 @@ def _strip_nonempty(value: object) -> object:
     return value
 
 
+def _reject_surrounding_whitespace(value: object) -> object:
+    if isinstance(value, str):
+        if not value.strip():
+            raise ValueError("must not be blank")
+        if value != value.strip():
+            raise ValueError("must not contain surrounding whitespace")
+    return value
+
+
 class WireModel(BaseModel):
     """Base for JSON messages that rejects fields unknown to this protocol."""
 
@@ -81,10 +90,15 @@ class AllowedRoot(WireModel):
     display_name: str | None = None
     read_only: bool = True
 
-    @field_validator("root_id", "path", mode="before")
+    @field_validator("root_id", mode="before")
     @classmethod
-    def normalize_location(cls, value: object) -> object:
+    def normalize_root_id(cls, value: object) -> object:
         return _strip_nonempty(value)
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def validate_path(cls, value: object) -> object:
+        return _reject_surrounding_whitespace(value)
 
 
 class AgentEnrollmentRequest(WireModel):
