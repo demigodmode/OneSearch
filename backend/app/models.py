@@ -12,6 +12,8 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
+    Index,
     Integer,
     String,
     Text,
@@ -60,7 +62,11 @@ class Agent(Base):
         "Source", back_populates="agent", cascade="all, delete-orphan", passive_deletes=True
     )
     jobs = relationship(
-        "AgentJob", back_populates="agent", cascade="all, delete-orphan", passive_deletes=True
+        "AgentJob",
+        back_populates="agent",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        overlaps="agent_jobs,source",
     )
 
 
@@ -97,10 +103,11 @@ class Source(Base):
             name="ck_sources_processing_mode",
         ),
         CheckConstraint(
-            "(location_type = 'local' AND agent_id IS NULL) OR "
+            "(location_type = 'local' AND agent_id IS NULL AND processing_mode IS NULL) OR "
             "(location_type = 'agent' AND agent_id IS NOT NULL)",
             name="ck_sources_location_agent",
         ),
+        UniqueConstraint("id", "agent_id", name="uq_sources_id_agent_id"),
     )
 
     id = Column(String, primary_key=True, index=True)
@@ -127,7 +134,11 @@ class Source(Base):
     indexed_files = relationship("IndexedFile", back_populates="source", cascade="all, delete-orphan")
     agent = relationship("Agent", back_populates="sources")
     agent_jobs = relationship(
-        "AgentJob", back_populates="source", cascade="all, delete-orphan", passive_deletes=True
+        "AgentJob",
+        back_populates="source",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        overlaps="agent,jobs",
     )
 
     def __repr__(self):
@@ -176,6 +187,14 @@ class AgentJob(Base):
             "processing_mode IS NULL OR processing_mode IN ('on_agent', 'on_server')",
             name="ck_agent_jobs_processing_mode",
         ),
+        ForeignKeyConstraint(
+            ["source_id", "agent_id"],
+            ["sources.id", "sources.agent_id"],
+            name="fk_agent_jobs_source_agent_sources",
+            ondelete="CASCADE",
+        ),
+        Index("ix_agent_jobs_agent_status_created", "agent_id", "status", "created_at"),
+        Index("ix_agent_jobs_status_lease_expires", "status", "lease_expires_at"),
         UniqueConstraint("active_key", name="uq_agent_jobs_active_key"),
     )
 
@@ -183,9 +202,7 @@ class AgentJob(Base):
     agent_id = Column(
         String, ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    source_id = Column(
-        String, ForeignKey("sources.id", ondelete="CASCADE"), nullable=True, index=True
-    )
+    source_id = Column(String, nullable=True, index=True)
     kind = Column(String, nullable=False)
     reason = Column(String, nullable=True)
     status = Column(String, nullable=False, default="pending", server_default="pending")
@@ -202,8 +219,8 @@ class AgentJob(Base):
     created_at = Column(DateTime, default=_utcnow, nullable=False)
     completed_at = Column(DateTime, nullable=True)
 
-    agent = relationship("Agent", back_populates="jobs")
-    source = relationship("Source", back_populates="agent_jobs")
+    agent = relationship("Agent", back_populates="jobs", overlaps="agent_jobs,source")
+    source = relationship("Source", back_populates="agent_jobs", overlaps="agent,jobs")
     batches = relationship(
         "AgentBatch", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
     )

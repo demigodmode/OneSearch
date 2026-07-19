@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -93,6 +93,15 @@ def test_agent_and_enrollment_persist_with_defaults(agent_db):
     [
         (Source(id="local", name="Local", root_path="/data"), True),
         (Source(id="bad-local", name="Bad", root_path="/data", agent_id="agent-1"), False),
+        (
+            Source(
+                id="bad-local-processing",
+                name="Bad local processing",
+                root_path="/data",
+                processing_mode="on_server",
+            ),
+            False,
+        ),
         (_remote_source(), True),
         (
             Source(
@@ -221,6 +230,43 @@ def test_browse_job_can_exist_without_source_and_rejects_missing_agent(agent_db)
         agent_db.commit()
 
 
+def test_agent_job_source_must_belong_to_the_same_agent(agent_db):
+    agent_db.add_all([_agent("agent-1"), _agent("agent-2")])
+    agent_db.flush()
+    agent_db.add(_remote_source(agent_id="agent-1"))
+    agent_db.commit()
+
+    agent_db.add(
+        AgentJob(
+            id="wrong-agent",
+            agent_id="agent-2",
+            source_id="remote-1",
+            kind="scan",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        agent_db.commit()
+
+
+def test_agent_job_source_accepts_matching_agent(agent_db):
+    agent_db.add(_agent())
+    agent_db.flush()
+    agent_db.add(_remote_source())
+    agent_db.flush()
+    agent_db.add(
+        AgentJob(id="matching-agent", agent_id="agent-1", source_id="remote-1", kind="scan")
+    )
+
+    agent_db.commit()
+
+
+def test_agent_job_query_indexes_are_declared(agent_db):
+    indexes = {index["name"]: index["column_names"] for index in inspect(agent_db.bind).get_indexes("agent_jobs")}
+
+    assert indexes["ix_agent_jobs_agent_status_created"] == ["agent_id", "status", "created_at"]
+    assert indexes["ix_agent_jobs_status_lease_expires"] == ["status", "lease_expires_at"]
+
+
 def test_agent_batch_is_idempotent_per_job(agent_db):
     agent_db.add(_agent())
     agent_db.flush()
@@ -234,7 +280,8 @@ def test_agent_batch_is_idempotent_per_job(agent_db):
         agent_db.commit()
 
 
-def test_deleting_source_cascades_jobs_batches_and_indexed_rows(agent_db):
+@pytest.mark.parametrize("load_relationships", [False, True])
+def test_deleting_source_cascades_jobs_batches_and_indexed_rows(agent_db, load_relationships):
     agent_db.add(_agent())
     agent_db.flush()
     source = _remote_source()
@@ -248,8 +295,9 @@ def test_deleting_source_cascades_jobs_batches_and_indexed_rows(agent_db):
     agent_db.add(AgentBatch(job_id=job.id, idempotency_key="batch-1", checksum="a" * 64))
     agent_db.commit()
 
-    assert source.agent_jobs == [job]
-    assert job.batches
+    if load_relationships:
+        assert source.agent_jobs == [job]
+        assert job.batches
 
     agent_db.delete(source)
     agent_db.commit()
@@ -259,7 +307,8 @@ def test_deleting_source_cascades_jobs_batches_and_indexed_rows(agent_db):
     assert agent_db.query(IndexedFile).count() == 0
 
 
-def test_deleting_agent_cascades_remote_sources_and_their_dependents(agent_db):
+@pytest.mark.parametrize("load_relationships", [False, True])
+def test_deleting_agent_cascades_remote_sources_and_their_dependents(agent_db, load_relationships):
     agent = _agent()
     source = _remote_source()
     agent_db.add(agent)
@@ -272,10 +321,11 @@ def test_deleting_agent_cascades_remote_sources_and_their_dependents(agent_db):
     agent_db.add(AgentBatch(job_id=job.id, idempotency_key="batch-1", checksum="a" * 64))
     agent_db.commit()
 
-    assert agent.sources == [source]
-    assert agent.jobs == [job]
-    assert source.agent_jobs == [job]
-    assert job.batches
+    if load_relationships:
+        assert agent.sources == [source]
+        assert agent.jobs == [job]
+        assert source.agent_jobs == [job]
+        assert job.batches
 
     agent_db.delete(agent)
     agent_db.commit()
@@ -335,11 +385,36 @@ def test_migration_is_head_and_round_trips_only_a_temporary_database(tmp_path):
     alembic("upgrade", "head")
     alembic("check")
     with sqlite3.connect(database_path) as connection:
+        connection.execute("PRAGMA foreign_keys=ON")
         connection.execute(
             "INSERT INTO agents "
             "(id, name, platform, version, protocol_version, created_at, updated_at) "
             "VALUES ('agent-1', 'Agent', 'linux', '1.0.0', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
         )
+        connection.execute(
+            "INSERT INTO agents "
+            "(id, name, platform, version, protocol_version, created_at, updated_at) "
+            "VALUES ('agent-2', 'Agent 2', 'linux', '1.0.0', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        )
+        connection.execute(
+            "INSERT INTO sources "
+            "(id, name, root_path, location_type, agent_id, processing_mode, created_at, updated_at) "
+            "VALUES ('remote', 'Remote', '/data', 'agent', 'agent-1', 'on_agent', "
+            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        )
+        connection.execute(
+            "INSERT INTO agent_jobs (id, agent_id, source_id, kind, created_at) "
+            "VALUES ('job-matching', 'agent-1', 'remote', 'scan', CURRENT_TIMESTAMP)"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "INSERT INTO agent_jobs (id, agent_id, source_id, kind, created_at) "
+                "VALUES ('job-mismatch', 'agent-2', 'remote', 'scan', CURRENT_TIMESTAMP)"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                "UPDATE sources SET processing_mode='on_server' WHERE id='existing'"
+            )
         for status in ("claimed", "cancelling"):
             connection.execute(
                 "INSERT INTO agent_jobs (id, agent_id, kind, status, created_at) "
@@ -355,8 +430,13 @@ def test_migration_is_head_and_round_trips_only_a_temporary_database(tmp_path):
             "SELECT location_type, agent_id, processing_mode FROM sources WHERE id='existing'"
         ).fetchone()
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+        index_names = {
+            index[1] for index in connection.execute("PRAGMA index_list('agent_jobs')").fetchall()
+        }
     assert row == ("local", None, None)
     assert revision == "a91c5e7d2f40"
+    assert "ix_agent_jobs_agent_status_created" in index_names
+    assert "ix_agent_jobs_status_lease_expires" in index_names
 
     alembic("downgrade", "361d2b460314")
     alembic("upgrade", "head")

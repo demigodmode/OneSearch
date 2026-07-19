@@ -49,8 +49,8 @@ class SourceBase(BaseModel):
     name: str
     root_path: str
     location_type: Literal["local", "agent"] = "local"
-    agent_id: Optional[str] = None
-    processing_mode: Optional[Literal["on_agent", "on_server"]] = None
+    agent_id: str | None = None
+    processing_mode: Literal["on_agent", "on_server"] | None = None
     include_patterns: Optional[List[str]] = None
     exclude_patterns: Optional[List[str]] = None
     scan_schedule: Optional[str] = Field(default=None, max_length=100)
@@ -69,9 +69,9 @@ class SourceUpdate(BaseModel):
     """Schema for updating a source"""
     name: Optional[str] = None
     root_path: Optional[str] = None
-    location_type: Optional[Literal["local", "agent"]] = None
-    agent_id: Optional[str] = None
-    processing_mode: Optional[Literal["on_agent", "on_server"]] = None
+    location_type: Literal["local", "agent"] | None = None
+    agent_id: str | None = None
+    processing_mode: Literal["on_agent", "on_server"] | None = None
     include_patterns: Optional[List[str]] = None
     exclude_patterns: Optional[List[str]] = None
     scan_schedule: Optional[str] = Field(default=None, max_length=100)

@@ -78,9 +78,10 @@ def upgrade() -> None:
         )
         batch_op.create_check_constraint(
             "ck_sources_location_agent",
-            "(location_type = 'local' AND agent_id IS NULL) OR "
+            "(location_type = 'local' AND agent_id IS NULL AND processing_mode IS NULL) OR "
             "(location_type = 'agent' AND agent_id IS NOT NULL)",
         )
+        batch_op.create_unique_constraint("uq_sources_id_agent_id", ["id", "agent_id"])
         batch_op.create_index("ix_sources_agent_id", ["agent_id"], unique=False)
 
     op.create_table(
@@ -117,13 +118,28 @@ def upgrade() -> None:
             name="ck_agent_jobs_processing_mode",
         ),
         sa.ForeignKeyConstraint(["agent_id"], ["agents.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["source_id"], ["sources.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["source_id", "agent_id"],
+            ["sources.id", "sources.agent_id"],
+            name="fk_agent_jobs_source_agent_sources",
+            ondelete="CASCADE",
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("active_key", name="uq_agent_jobs_active_key"),
     )
     with op.batch_alter_table("agent_jobs", schema=None) as batch_op:
         batch_op.create_index("ix_agent_jobs_agent_id", ["agent_id"], unique=False)
+        batch_op.create_index(
+            "ix_agent_jobs_agent_status_created",
+            ["agent_id", "status", "created_at"],
+            unique=False,
+        )
         batch_op.create_index("ix_agent_jobs_source_id", ["source_id"], unique=False)
+        batch_op.create_index(
+            "ix_agent_jobs_status_lease_expires",
+            ["status", "lease_expires_at"],
+            unique=False,
+        )
 
     op.create_table(
         "agent_batches",
@@ -146,7 +162,9 @@ def downgrade() -> None:
     op.drop_table("agent_batches")
 
     with op.batch_alter_table("agent_jobs", schema=None) as batch_op:
+        batch_op.drop_index("ix_agent_jobs_status_lease_expires")
         batch_op.drop_index("ix_agent_jobs_source_id")
+        batch_op.drop_index("ix_agent_jobs_agent_status_created")
         batch_op.drop_index("ix_agent_jobs_agent_id")
     op.drop_table("agent_jobs")
 
@@ -155,6 +173,7 @@ def downgrade() -> None:
         batch_op.drop_constraint("ck_sources_location_agent", type_="check")
         batch_op.drop_constraint("ck_sources_processing_mode", type_="check")
         batch_op.drop_constraint("ck_sources_location_type", type_="check")
+        batch_op.drop_constraint("uq_sources_id_agent_id", type_="unique")
         batch_op.drop_constraint("fk_sources_agent_id_agents", type_="foreignkey")
         batch_op.drop_column("processing_mode")
         batch_op.drop_column("agent_id")
