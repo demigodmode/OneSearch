@@ -3,11 +3,12 @@
 import threading
 from datetime import datetime, timezone
 
+import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Agent, AgentJob, Base, Source
-from app.services.agent_jobs import AgentJobService
+from app.services.agent_jobs import AgentJobService, JobConflict, JobLeaseError
 
 
 def _now():
@@ -86,4 +87,57 @@ def test_two_sqlite_sessions_issue_only_one_claim_lease(tmp_path):
     [thread.start() for thread in threads]
     [thread.join() for thread in threads]
     assert sum(lease is not None for lease in leases) == 1
+    engine.dispose()
+
+
+def test_expired_reclaimed_job_rejects_old_lease_mutations(tmp_path):
+    engine, sessions = _database(tmp_path)
+    first = sessions()
+    source = first.get(Source, "source")
+    job = AgentJobService(first, lease_seconds=1).enqueue_scan(source, full=True)
+    first.commit()
+    job_id = job.id
+    old = AgentJobService(first, lease_seconds=1).claim_next("agent")
+    first.commit()
+    job.lease_expires_at = _now().replace(year=_now().year - 1)
+    first.commit()
+    first.close()
+    second = sessions()
+    service = AgentJobService(second, lease_seconds=60)
+    assert service.fail_expired_leases() == 1
+    second.commit()
+    new = service.claim_next("agent")
+    second.commit()
+    with pytest.raises(JobLeaseError):
+        service.extend_lease("agent", job_id, old.lease_token)
+    with pytest.raises(JobLeaseError):
+        service.complete("agent", job_id, old.lease_token, "succeeded")
+    assert new.lease_token != old.lease_token
+    second.close()
+    engine.dispose()
+
+
+def test_cancelling_and_terminal_jobs_reject_stale_normal_mutations(tmp_path):
+    engine, sessions = _database(tmp_path)
+    db = sessions()
+    source = db.get(Source, "source")
+    service = AgentJobService(db)
+    job = service.enqueue_scan(source, full=True)
+    db.commit()
+    lease = service.claim_next("agent")
+    db.commit()
+    service.cancel(job.id)
+    db.commit()
+    with pytest.raises(JobConflict):
+        service.extend_lease("agent", job.id, lease.lease_token)
+    with pytest.raises(JobConflict):
+        service.accept_batch("agent", job.id, lease.lease_token, "late", {"documents": []})
+    with pytest.raises(JobConflict):
+        service.complete("agent", job.id, lease.lease_token, "succeeded")
+    service.acknowledge_cancellation("agent", job.id, lease.lease_token)
+    db.commit()
+    with pytest.raises(JobLeaseError):
+        service.acknowledge_cancellation("agent", job.id, lease.lease_token)
+    assert db.query(AgentJob).filter_by(id=job.id).one().status == "cancelled"
+    db.close()
     engine.dispose()
