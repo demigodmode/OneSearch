@@ -53,7 +53,7 @@ def test_claim_issues_hashed_lease_and_rejects_wrong_agent(db_session, remote):
     service = AgentJobService(db_session, lease_seconds=10)
     job = service.enqueue_scan(source, full=True)
     db_session.commit()
-    service.claim_next(agent.id)
+    lease = service.claim_next(agent.id)
     db_session.commit()
     db_session.refresh(job)
     assert lease.id == job.id and lease.source_id == source.id
@@ -67,7 +67,7 @@ def test_heartbeat_extends_lease_and_expired_lease_reclaims(db_session, remote):
     service = AgentJobService(db_session, lease_seconds=10)
     job = service.enqueue_scan(source, full=True)
     db_session.commit()
-    lease = service.claim_next(agent.id)
+    service.claim_next(agent.id)
     db_session.commit()
     service.extend_lease(agent.id, job.id, lease.lease_token, completed_items=2, total_items=3)
     db_session.commit()
