@@ -264,14 +264,28 @@ class AgentJobService:
         return self.db.get(AgentJob, job_id)
 
     def cancel(self, job_id: str) -> AgentJob:
+        now = _now()
+        pending = self.db.execute(
+            update(AgentJob)
+            .where(AgentJob.id == job_id, AgentJob.status == "pending")
+            .values(
+                status="cancelled",
+                completed_at=now,
+                active_key=None,
+                lease_token_hash=None,
+                lease_expires_at=None,
+            )
+        )
+        if pending.rowcount == 0:
+            self.db.execute(
+                update(AgentJob)
+                .where(AgentJob.id == job_id, AgentJob.status.in_(("claimed", "running")))
+                .values(status="cancelling")
+            )
         job = self.db.get(AgentJob, job_id)
         if job is None:
             raise JobNotFound()
-        if job.status == "pending":
-            job.status, job.completed_at, job.active_key = "cancelled", _now(), None
-        elif job.status in {"claimed", "running"}:
-            job.status = "cancelling"
-        elif job.status not in {"cancelling", "completed", "failed", "cancelled"}:
+        if job.status not in {"cancelling", "completed", "failed", "cancelled"}:
             raise JobConflict()
         return job
 

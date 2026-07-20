@@ -200,3 +200,64 @@ def test_batch_and_request_cancel_serialize_without_stale_receipt(tmp_path):
     assert (receipts == 1) == any(item[0] == "batch" for item in outcomes)
     check.close()
     engine.dispose()
+
+
+def test_cancel_and_complete_cannot_resurrect_a_terminal_job(tmp_path):
+    engine, sessions = _database(tmp_path)
+    seed = sessions()
+    source = seed.get(Source, "source")
+    service = AgentJobService(seed)
+    job = service.enqueue_scan(source, full=True)
+    seed.commit()
+    lease = service.claim_next("agent")
+    service.extend_lease("agent", job.id, lease.lease_token)
+    seed.commit()
+    job_id = job.id
+    seed.close()
+    barrier = threading.Barrier(2)
+    outcomes = []
+
+    def cancel():
+        db = sessions()
+        try:
+            barrier.wait(timeout=3)
+            outcomes.append(("cancel", AgentJobService(db).cancel(job_id).status))
+            db.commit()
+        finally:
+            db.close()
+
+    def complete():
+        db = sessions()
+        try:
+            barrier.wait(timeout=3)
+            try:
+                outcomes.append(
+                    (
+                        "complete",
+                        AgentJobService(db)
+                        .complete("agent", job_id, lease.lease_token, "succeeded")
+                        .status,
+                    )
+                )
+                db.commit()
+            except (JobConflict, JobLeaseError):
+                db.rollback()
+                outcomes.append(("complete_rejected", None))
+        finally:
+            db.close()
+
+    threads = [threading.Thread(target=cancel), threading.Thread(target=complete)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+    db = sessions()
+    stored = db.get(AgentJob, job_id)
+    assert stored.status in {"cancelling", "completed"}
+    if stored.status == "completed":
+        assert stored.active_key is None and stored.lease_token_hash is None
+    else:
+        assert stored.active_key == "source" and stored.lease_token_hash is not None
+    db.close()
+    engine.dispose()
