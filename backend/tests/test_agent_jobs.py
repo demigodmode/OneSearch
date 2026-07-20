@@ -274,3 +274,25 @@ def test_claim_without_work_returns_bounded_204_and_closes_poll_session(
     response = client.post("/api/agent/v1/jobs/claim", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 204
     assert closed == [True]
+
+
+def test_job_endpoints_reject_user_pending_disabled_and_revoked_agents(
+    client, db_session, remote, auth_headers
+):
+    agent, _ = remote
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    agent.status = "pending"
+    agent.approved_at = None
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    db_session.commit()
+    assert client.post("/api/agent/v1/jobs/claim", headers=auth_headers).status_code == 401
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.post("/api/agent/v1/jobs/claim", headers=headers).status_code == 403
+    agent.status = "disabled"
+    db_session.commit()
+    assert client.post("/api/agent/v1/jobs/claim", headers=headers).status_code == 403
+    agent.status = "revoked"
+    agent.token_hash = None
+    db_session.commit()
+    assert client.post("/api/agent/v1/jobs/claim", headers=headers).status_code == 401
