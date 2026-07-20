@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Agent, AgentJob, Base, Source
+from app.models import Agent, AgentBatch, AgentJob, Base, Source
 from app.services.agent_jobs import AgentJobService, JobConflict, JobLeaseError
 
 
@@ -140,4 +140,63 @@ def test_cancelling_and_terminal_jobs_reject_stale_normal_mutations(tmp_path):
         service.acknowledge_cancellation("agent", job.id, lease.lease_token)
     assert db.query(AgentJob).filter_by(id=job.id).one().status == "cancelled"
     db.close()
+    engine.dispose()
+
+
+def test_batch_and_request_cancel_serialize_without_stale_receipt(tmp_path):
+    engine, sessions = _database(tmp_path)
+    seed = sessions()
+    source = seed.get(Source, "source")
+    service = AgentJobService(seed)
+    job = service.enqueue_scan(source, full=True)
+    seed.commit()
+    lease = service.claim_next("agent")
+    service.extend_lease("agent", job.id, lease.lease_token)
+    seed.commit()
+    job_id = job.id
+    seed.close()
+
+    barrier = threading.Barrier(2)
+    outcomes = []
+
+    def submit_batch():
+        db = sessions()
+        try:
+            barrier.wait(timeout=3)
+            try:
+                ack = AgentJobService(db).accept_batch(
+                    "agent", job_id, lease.lease_token, "race", {"documents": []}
+                )
+                db.commit()
+                outcomes.append(("batch", ack.duplicate))
+            except (JobConflict, JobLeaseError):
+                db.rollback()
+                outcomes.append(("batch_rejected", None))
+        finally:
+            db.close()
+
+    def request_cancel():
+        db = sessions()
+        try:
+            barrier.wait(timeout=3)
+            AgentJobService(db).cancel(job_id)
+            db.commit()
+            outcomes.append(("cancel", None))
+        finally:
+            db.close()
+
+    threads = [threading.Thread(target=submit_batch), threading.Thread(target=request_cancel)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+    check = sessions()
+    stored = check.get(AgentJob, job_id)
+    receipts = check.query(AgentBatch).filter_by(job_id=job_id).count()
+    assert ("cancel", None) in outcomes
+    assert stored.status == "cancelling"
+    assert receipts in {0, 1}
+    assert (receipts == 1) == any(item[0] == "batch" for item in outcomes)
+    check.close()
     engine.dispose()
