@@ -45,9 +45,16 @@ def _database(tmp_path):
     return engine, sessions
 
 
+def _capture(errors, worker):
+    try:
+        worker()
+    except BaseException as error:
+        errors.append(error)
+
+
 def test_two_sqlite_sessions_coalesce_concurrent_enqueue(tmp_path):
     engine, sessions = _database(tmp_path)
-    barrier, jobs = threading.Barrier(2), []
+    barrier, jobs, errors = threading.Barrier(2), [], []
 
     def worker():
         db = sessions()
@@ -57,9 +64,11 @@ def test_two_sqlite_sessions_coalesce_concurrent_enqueue(tmp_path):
         db.commit()
         db.close()
 
-    threads = [threading.Thread(target=worker) for _ in range(2)]
+    threads = [threading.Thread(target=_capture, args=(errors, worker)) for _ in range(2)]
     [thread.start() for thread in threads]
-    [thread.join() for thread in threads]
+    [thread.join(timeout=10) for thread in threads]
+    assert all(not thread.is_alive() for thread in threads)
+    assert errors == []
     db = sessions()
     assert len(set(jobs)) == 1 and db.query(AgentJob).count() == 1
     db.close()
@@ -73,7 +82,7 @@ def test_two_sqlite_sessions_issue_only_one_claim_lease(tmp_path):
     AgentJobService(db).enqueue_scan(source, full=True)
     db.commit()
     db.close()
-    barrier, leases = threading.Barrier(2), []
+    barrier, leases, errors = threading.Barrier(2), [], []
 
     def worker():
         db = sessions()
@@ -83,9 +92,11 @@ def test_two_sqlite_sessions_issue_only_one_claim_lease(tmp_path):
         leases.append(lease)
         db.close()
 
-    threads = [threading.Thread(target=worker) for _ in range(2)]
+    threads = [threading.Thread(target=_capture, args=(errors, worker)) for _ in range(2)]
     [thread.start() for thread in threads]
-    [thread.join() for thread in threads]
+    [thread.join(timeout=10) for thread in threads]
+    assert all(not thread.is_alive() for thread in threads)
+    assert errors == []
     assert sum(lease is not None for lease in leases) == 1
     engine.dispose()
 
@@ -157,7 +168,7 @@ def test_batch_and_request_cancel_serialize_without_stale_receipt(tmp_path):
     seed.close()
 
     barrier = threading.Barrier(2)
-    outcomes = []
+    outcomes, errors = [], []
 
     def submit_batch():
         db = sessions()
@@ -185,12 +196,16 @@ def test_batch_and_request_cancel_serialize_without_stale_receipt(tmp_path):
         finally:
             db.close()
 
-    threads = [threading.Thread(target=submit_batch), threading.Thread(target=request_cancel)]
+    threads = [
+        threading.Thread(target=_capture, args=(errors, submit_batch)),
+        threading.Thread(target=_capture, args=(errors, request_cancel)),
+    ]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join(timeout=10)
         assert not thread.is_alive()
+    assert errors == []
     check = sessions()
     stored = check.get(AgentJob, job_id)
     receipts = check.query(AgentBatch).filter_by(job_id=job_id).count()
@@ -215,7 +230,7 @@ def test_cancel_and_complete_cannot_resurrect_a_terminal_job(tmp_path):
     job_id = job.id
     seed.close()
     barrier = threading.Barrier(2)
-    outcomes = []
+    outcomes, errors = [], []
 
     def cancel():
         db = sessions()
@@ -246,12 +261,16 @@ def test_cancel_and_complete_cannot_resurrect_a_terminal_job(tmp_path):
         finally:
             db.close()
 
-    threads = [threading.Thread(target=cancel), threading.Thread(target=complete)]
+    threads = [
+        threading.Thread(target=_capture, args=(errors, cancel)),
+        threading.Thread(target=_capture, args=(errors, complete)),
+    ]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join(timeout=10)
         assert not thread.is_alive()
+    assert errors == []
     db = sessions()
     stored = db.get(AgentJob, job_id)
     assert stored.status in {"cancelling", "completed"}
