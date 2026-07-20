@@ -62,12 +62,24 @@ class AgentJobService:
             return winner
 
     def fail_expired_leases(self) -> int:
+        now = _now()
         result = self.db.execute(
             update(AgentJob)
-            .where(AgentJob.status.in_(("claimed", "running")), AgentJob.lease_expires_at <= _now())
+            .where(AgentJob.status.in_(("claimed", "running")), AgentJob.lease_expires_at <= now)
             .values(status="pending", lease_token_hash=None, lease_expires_at=None)
         )
-        return result.rowcount
+        cancelling = self.db.execute(
+            update(AgentJob)
+            .where(AgentJob.status == "cancelling", AgentJob.lease_expires_at <= now)
+            .values(
+                status="cancelled",
+                completed_at=now,
+                active_key=None,
+                lease_token_hash=None,
+                lease_expires_at=None,
+            )
+        )
+        return result.rowcount + cancelling.rowcount
 
     def claim_next(self, agent_id: str) -> AgentJobLease | None:
         self.fail_expired_leases()

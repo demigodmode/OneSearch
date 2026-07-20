@@ -56,7 +56,7 @@ def test_heartbeat_defaults_to_current_protocol_and_round_trips_strictly():
         ),
         (
             NormalizedRemoteDocument,
-            {"source_id": "7", "path": "a.txt", "content": "A", "modified_at": 1},
+            {"source_id": 7, "path": "a.txt", "content": "A", "modified_at": 1},
         ),
     ],
 )
@@ -258,7 +258,7 @@ def test_browse_round_trip_preserves_directory_entries():
 def test_scan_manifest_round_trip_preserves_checkpoint():
     manifest = ScanManifest(
         job_id="job-1",
-        source_id=7,
+        source_id="remote-1",
         files=[
             ScanFile(
                 path="reports/annual.pdf",
@@ -280,7 +280,7 @@ def test_document_batch_and_ack_round_trip():
         batch_id="batch-1",
         documents=[
             NormalizedRemoteDocument(
-                source_id=7,
+                source_id="remote-1",
                 path="notes/readme.md",
                 title="Read me",
                 content="Remote content",
@@ -295,6 +295,14 @@ def test_document_batch_and_ack_round_trip():
 
     assert_json_round_trip(batch)
     assert_json_round_trip(acknowledgement)
+
+
+def test_remote_document_and_manifest_accept_string_source_ids_from_the_database():
+    document = NormalizedRemoteDocument(
+        source_id="remote-1", path="a.txt", content="A", modified_at=1
+    )
+    manifest = ScanManifest(job_id="job-1", source_id="remote-1")
+    assert document.source_id == manifest.source_id == "remote-1"
 
 
 def test_batch_ack_reports_when_a_retry_was_already_accepted():
@@ -315,6 +323,13 @@ def test_progress_and_completion_round_trip():
     assert_json_round_trip(completion)
 
 
+def test_completion_parses_failure_reason_from_ordinary_json():
+    completion = JobCompletion.model_validate_json(
+        '{"job_id":"job-1","status":"failed","reason":"internal_error","detail":"boom"}'
+    )
+    assert completion.reason is JobFailureReason.INTERNAL_ERROR
+
+
 def test_mutable_defaults_are_independent():
     first_lease = AgentJobLease(id="job-1", kind=JobKind.SCAN, lease_token="lease-1")
     second_lease = AgentJobLease(id="job-2", kind=JobKind.SCAN, lease_token="lease-2")
@@ -323,7 +338,7 @@ def test_mutable_defaults_are_independent():
 
     first_lease.payload["cursor"] = "next"
     first_batch.documents.append(
-        NormalizedRemoteDocument(source_id=7, path="a.txt", content="A", modified_at=1)
+        NormalizedRemoteDocument(source_id="remote-1", path="a.txt", content="A", modified_at=1)
     )
 
     assert second_lease.payload == {}
@@ -355,7 +370,7 @@ def test_job_payload_rejects_non_finite_numbers(value):
 def test_document_metadata_rejects_non_finite_numbers(value):
     with pytest.raises(ValidationError):
         NormalizedRemoteDocument(
-            source_id=7,
+            source_id="remote-1",
             path="a.txt",
             content="A",
             modified_at=1,

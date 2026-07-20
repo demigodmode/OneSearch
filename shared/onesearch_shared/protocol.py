@@ -155,7 +155,7 @@ class ScanCheckpoint(WireModel):
 
 class ScanManifest(WireModel):
     job_id: str = Field(min_length=1)
-    source_id: int = Field(gt=0)
+    source_id: str = Field(min_length=1)
     files: list[ScanFile] = Field(default_factory=list)
     deleted_paths: list[str] = Field(default_factory=list)
     checkpoint: ScanCheckpoint | None = None
@@ -163,7 +163,7 @@ class ScanManifest(WireModel):
 
 
 class NormalizedRemoteDocument(WireModel):
-    source_id: int = Field(gt=0)
+    source_id: str = Field(min_length=1)
     path: str = Field(min_length=1)
     title: str | None = None
     content: str

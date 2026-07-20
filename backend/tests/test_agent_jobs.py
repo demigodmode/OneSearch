@@ -53,7 +53,7 @@ def test_claim_issues_hashed_lease_and_rejects_wrong_agent(db_session, remote):
     service = AgentJobService(db_session, lease_seconds=10)
     job = service.enqueue_scan(source, full=True)
     db_session.commit()
-    lease = service.claim_next(agent.id)
+    service.claim_next(agent.id)
     db_session.commit()
     db_session.refresh(job)
     assert lease.id == job.id and lease.source_id == source.id
@@ -140,6 +140,24 @@ def test_cancelling_job_rejects_batches_until_agent_acknowledges(db_session, rem
     assert job.status == "cancelled" and job.active_key is None
 
 
+def test_expired_cancelling_job_is_finalized_and_frees_the_source(db_session, remote):
+    agent, source = remote
+    service = AgentJobService(db_session, lease_seconds=1)
+    job = service.enqueue_scan(source, full=True)
+    db_session.commit()
+    lease = service.claim_next(agent.id)
+    db_session.commit()
+    service.cancel(job.id)
+    db_session.flush()
+    job.lease_expires_at = now() - timedelta(seconds=1)
+    db_session.commit()
+    assert service.fail_expired_leases() == 1
+    db_session.commit()
+    db_session.refresh(job)
+    assert job.status == "cancelled" and job.active_key is None and job.lease_token_hash is None
+    assert service.enqueue_scan(source, full=True).id != job.id
+
+
 def test_agent_job_api_claim_progress_batch_completion_and_cancellation_ack(
     client, db_session, remote
 ):
@@ -179,7 +197,7 @@ def test_agent_job_api_claim_progress_batch_completion_and_cancellation_ack(
     )
     changed = {
         **batch,
-        "documents": [{"source_id": 1, "path": "x", "content": "x", "modified_at": 1}],
+        "documents": [{"source_id": source.id, "path": "x", "content": "x", "modified_at": 1}],
     }
     assert (
         client.post(
