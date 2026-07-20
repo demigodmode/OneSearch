@@ -3,15 +3,21 @@
 
 """Versioned protocol endpoints used by remote indexing agents."""
 
+import asyncio
 import json
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from onesearch_shared import (
     PROTOCOL_VERSION,
     AgentEnrollmentRequest,
     AgentEnrollmentResponse,
+    AgentJobLease,
+    BatchAck,
+    DocumentBatch,
+    JobCompletion,
+    JobProgress,
 )
 from onesearch_shared import (
     AgentHeartbeat as AgentHeartbeatRequest,
@@ -27,12 +33,26 @@ from ..services.agent_auth import (
     get_authenticated_agent,
     hash_token,
     record_agent_heartbeat,
+    require_approved_agent,
     require_remote_agents_enabled,
 )
+from ..services.agent_jobs import AgentJobService, JobConflict, JobLeaseError, JobNotFound
 
 router = APIRouter(prefix="/api/agent/v1", tags=["agent-protocol"])
 Database = Annotated[Session, Depends(get_db)]
 AuthenticatedAgent = Annotated[Agent, Depends(get_authenticated_agent)]
+ApprovedAgent = Annotated[Agent, Depends(require_approved_agent)]
+LEASE_TOKEN_HEADER = "X-OneSearch-Lease-Token"
+CLAIM_TIMEOUT_SECONDS = 25
+CLAIM_POLL_SECONDS = 1
+
+
+def _job_error(error: Exception) -> HTTPException:
+    if isinstance(error, JobNotFound):
+        return HTTPException(status_code=404, detail="Job not found")
+    if isinstance(error, JobLeaseError):
+        return HTTPException(status_code=401, detail="Invalid or expired job lease")
+    return HTTPException(status_code=409, detail="Job state conflict")
 
 
 def _validate_enrollment(request: AgentEnrollmentRequest) -> None:
@@ -119,3 +139,100 @@ async def heartbeat(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is not active")
     db.commit()
     return AgentHeartbeatResponse(status=agent_status)
+
+
+@router.post(
+    "/jobs/claim",
+    response_model=AgentJobLease,
+    dependencies=[Depends(require_remote_agents_enabled)],
+)
+async def claim_job(agent: ApprovedAgent, db: Database):
+    """Long poll without retaining the request transaction while waiting."""
+    service = AgentJobService(db)
+    for attempt in range(CLAIM_TIMEOUT_SECONDS):
+        lease = service.claim_next(agent.id)
+        if lease is not None:
+            db.commit()
+            return lease
+        db.rollback()
+        if attempt + 1 < CLAIM_TIMEOUT_SECONDS:
+            await asyncio.sleep(CLAIM_POLL_SECONDS)
+    from fastapi.responses import Response
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/jobs/{job_id}/heartbeat", dependencies=[Depends(require_remote_agents_enabled)])
+async def job_heartbeat(
+    job_id: str,
+    request: JobProgress,
+    agent: ApprovedAgent,
+    db: Database,
+    lease_token: Annotated[str | None, Header(alias=LEASE_TOKEN_HEADER)] = None,
+):
+    if request.job_id != job_id or lease_token is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired job lease")
+    try:
+        AgentJobService(db).extend_lease(
+            agent.id,
+            job_id,
+            lease_token,
+            completed_items=request.completed_items,
+            total_items=request.total_items,
+        )
+        db.commit()
+    except (JobNotFound, JobLeaseError, JobConflict) as error:
+        db.rollback()
+        raise _job_error(error) from error
+    return {"status": "ok"}
+
+
+@router.post(
+    "/jobs/{job_id}/batches",
+    response_model=BatchAck,
+    dependencies=[Depends(require_remote_agents_enabled)],
+)
+async def submit_batch(
+    job_id: str,
+    request: DocumentBatch,
+    agent: ApprovedAgent,
+    db: Database,
+    lease_token: Annotated[str | None, Header(alias=LEASE_TOKEN_HEADER)] = None,
+):
+    if request.job_id != job_id or lease_token is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired job lease")
+    try:
+        result = AgentJobService(db).accept_batch(
+            agent.id, job_id, lease_token, request.batch_id, request.model_dump(mode="json")
+        )
+        db.commit()
+        return result
+    except (JobNotFound, JobLeaseError, JobConflict) as error:
+        db.rollback()
+        raise _job_error(error) from error
+
+
+@router.post("/jobs/{job_id}/complete", dependencies=[Depends(require_remote_agents_enabled)])
+async def complete_job(
+    job_id: str,
+    request: JobCompletion,
+    agent: ApprovedAgent,
+    db: Database,
+    lease_token: Annotated[str | None, Header(alias=LEASE_TOKEN_HEADER)] = None,
+):
+    if request.job_id != job_id or lease_token is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired job lease")
+    try:
+        AgentJobService(db).complete(
+            agent.id,
+            job_id,
+            lease_token,
+            request.status.value,
+            error=request.detail,
+            checkpoint=request.checkpoint.model_dump(mode="json") if request.checkpoint else None,
+        )
+        db.commit()
+    except (JobNotFound, JobLeaseError, JobConflict) as error:
+        db.rollback()
+        raise _job_error(error) from error
+    return {"status": "ok"}

@@ -78,7 +78,7 @@ class AgentHeartbeat(WireModel):
 class AgentJobLease(WireModel):
     id: str = Field(min_length=1)
     kind: JobKind
-    source_id: int | None = Field(default=None, gt=0)
+    source_id: str | None = Field(default=None, min_length=1)
     processing_mode: ProcessingMode | None = None
     payload: dict[str, JsonValue] = Field(default_factory=dict)
     lease_token: str = Field(min_length=1)
@@ -184,6 +184,7 @@ class BatchAck(WireModel):
     batch_id: str = Field(min_length=1)
     accepted_count: int = Field(ge=0)
     rejected_paths: dict[str, str] = Field(default_factory=dict)
+    duplicate: bool = False
 
 
 class JobProgress(WireModel):

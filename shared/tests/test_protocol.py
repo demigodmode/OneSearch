@@ -102,6 +102,14 @@ def test_strict_models_parse_correct_json_enum_values():
     assert lease.processing_mode is ProcessingMode.ON_AGENT
 
 
+def test_job_lease_uses_the_string_source_identifier_used_by_the_database():
+    lease = AgentJobLease(
+        id="job-1", kind=JobKind.SCAN, source_id="remote-source", lease_token="lease-1"
+    )
+
+    assert lease.source_id == "remote-source"
+
+
 def test_wire_enum_values_are_stable():
     assert {mode.value for mode in ProcessingMode} == {"on_agent", "on_server"}
     assert {kind.value for kind in JobKind} == {
@@ -283,10 +291,14 @@ def test_document_batch_and_ack_round_trip():
         ],
         checkpoint=ScanCheckpoint(cursor="document:1", scanned_count=1),
     )
-    acknowledgement = BatchAck(batch_id="batch-1", accepted_count=1)
+    acknowledgement = BatchAck(batch_id="batch-1", accepted_count=1, duplicate=False)
 
     assert_json_round_trip(batch)
     assert_json_round_trip(acknowledgement)
+
+
+def test_batch_ack_reports_when_a_retry_was_already_accepted():
+    assert BatchAck(batch_id="batch-1", accepted_count=1, duplicate=True).duplicate is True
 
 
 def test_progress_and_completion_round_trip():
