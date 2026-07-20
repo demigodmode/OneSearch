@@ -195,6 +195,19 @@ def test_agent_job_api_claim_progress_batch_completion_and_cancellation_ack(
         ).json()["duplicate"]
         is True
     )
+    nonempty = {
+        "job_id": job.id,
+        "batch_id": "batch-strings",
+        "documents": [
+            {"source_id": source.id, "path": "string-id.txt", "content": "x", "modified_at": 1}
+        ],
+    }
+    assert (
+        client.post(
+            f"/api/agent/v1/jobs/{job.id}/batches", headers=lease_headers, json=nonempty
+        ).status_code
+        == 200
+    )
     changed = {
         **batch,
         "documents": [{"source_id": source.id, "path": "x", "content": "x", "modified_at": 1}],
@@ -225,6 +238,26 @@ def test_agent_job_api_claim_progress_batch_completion_and_cancellation_ack(
     cancel_headers = {**headers, "X-OneSearch-Lease-Token": cancel_lease["lease_token"]}
     ack = client.post(f"/api/agent/v1/jobs/{cancelled.id}/cancel-ack", headers=cancel_headers)
     assert ack.status_code == 200
+
+
+def test_failed_completion_api_accepts_reason_and_persists_detail(client, db_session, remote):
+    agent, source = remote
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    db_session.commit()
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    db_session.commit()
+    headers = {"Authorization": f"Bearer {token}"}
+    lease = client.post("/api/agent/v1/jobs/claim", headers=headers).json()
+    response = client.post(
+        f"/api/agent/v1/jobs/{job.id}/complete",
+        headers={**headers, "X-OneSearch-Lease-Token": lease["lease_token"]},
+        json={"job_id": job.id, "status": "failed", "reason": "internal_error", "detail": "boom"},
+    )
+    assert response.status_code == 200
+    assert db_session.get(type(job), job.id).status == "failed"
+    assert db_session.get(type(job), job.id).error == "boom"
 
 
 def test_agent_job_api_rejects_bad_agent_lease_and_disabled_feature(

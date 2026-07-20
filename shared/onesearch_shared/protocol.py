@@ -206,6 +206,11 @@ class JobCompletion(WireModel):
     def parse_status(cls, value: object) -> object:
         return JobStatus(value) if isinstance(value, str) else value
 
+    @field_validator("reason", mode="before")
+    @classmethod
+    def parse_reason(cls, value: object) -> object:
+        return JobFailureReason(value) if isinstance(value, str) else value
+
 
 class ProtocolVersionRange(WireModel):
     minimum_version: int = Field(ge=1)
