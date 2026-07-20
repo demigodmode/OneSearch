@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.models import Agent, Source
+from app.models import AppSetting
+from app.services.agent_auth import create_agent_token, hash_token
 from app.services.agent_jobs import AgentJobService, JobConflict, JobNotFound
 
 
@@ -137,3 +139,139 @@ def test_cancelling_job_rejects_batches_until_agent_acknowledges(db_session, rem
     db_session.commit()
     db_session.refresh(job)
     assert job.status == "cancelled" and job.active_key is None
+
+
+def test_agent_job_api_claim_progress_batch_completion_and_cancellation_ack(
+    client, db_session, remote
+):
+    agent, source = remote
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    db_session.commit()
+    service = AgentJobService(db_session)
+    job = service.enqueue_scan(source, full=True)
+    db_session.commit()
+    headers = {"Authorization": f"Bearer {token}"}
+    claimed = client.post("/api/agent/v1/jobs/claim", headers=headers)
+    assert claimed.status_code == 200
+    lease = claimed.json()
+    lease_headers = {**headers, "X-OneSearch-Lease-Token": lease["lease_token"]}
+    assert (
+        client.post(
+            f"/api/agent/v1/jobs/{job.id}/heartbeat",
+            headers=lease_headers,
+            json={"job_id": job.id, "completed_items": 1, "total_items": 2},
+        ).status_code
+        == 200
+    )
+    batch = {"job_id": job.id, "batch_id": "batch-1", "documents": []}
+    assert (
+        client.post(
+            f"/api/agent/v1/jobs/{job.id}/batches", headers=lease_headers, json=batch
+        ).json()["duplicate"]
+        is False
+    )
+    assert (
+        client.post(
+            f"/api/agent/v1/jobs/{job.id}/batches", headers=lease_headers, json=batch
+        ).json()["duplicate"]
+        is True
+    )
+    changed = {
+        **batch,
+        "documents": [{"source_id": 1, "path": "x", "content": "x", "modified_at": 1}],
+    }
+    assert (
+        client.post(
+            f"/api/agent/v1/jobs/{job.id}/batches", headers=lease_headers, json=changed
+        ).status_code
+        == 409
+    )
+    completed = client.post(
+        f"/api/agent/v1/jobs/{job.id}/complete",
+        headers=lease_headers,
+        json={
+            "job_id": job.id,
+            "status": "succeeded",
+            "reason": None,
+            "detail": None,
+            "checkpoint": None,
+        },
+    )
+    assert completed.status_code == 200, completed.text
+    cancelled = service.enqueue_scan(source, full=True)
+    db_session.commit()
+    cancel_lease = client.post("/api/agent/v1/jobs/claim", headers=headers).json()
+    service.cancel(cancelled.id)
+    db_session.commit()
+    cancel_headers = {**headers, "X-OneSearch-Lease-Token": cancel_lease["lease_token"]}
+    ack = client.post(f"/api/agent/v1/jobs/{cancelled.id}/cancel-ack", headers=cancel_headers)
+    assert ack.status_code == 200
+
+
+def test_agent_job_api_rejects_bad_agent_lease_and_disabled_feature(
+    client, db_session, remote, monkeypatch
+):
+    from app.api import agent_protocol
+
+    agent, source = remote
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    db_session.commit()
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    db_session.commit()
+    headers = {"Authorization": f"Bearer {token}"}
+    lease = client.post("/api/agent/v1/jobs/claim", headers=headers).json()["lease_token"]
+    assert (
+        client.post(
+            f"/api/agent/v1/jobs/{job.id}/heartbeat",
+            headers=headers,
+            json={"job_id": job.id, "completed_items": 1},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            f"/api/agent/v1/jobs/missing/heartbeat",
+            headers={**headers, "X-OneSearch-Lease-Token": lease},
+            json={"job_id": "missing", "completed_items": 1},
+        ).status_code
+        == 404
+    )
+    db_session.get(AppSetting, "remote_agents_enabled").value = "false"
+    db_session.commit()
+    assert client.post("/api/agent/v1/jobs/claim", headers=headers).status_code == 409
+    monkeypatch.setattr(agent_protocol, "CLAIM_TIMEOUT_SECONDS", 1)
+
+
+def test_claim_without_work_returns_bounded_204_and_closes_poll_session(
+    client, db_session, remote, monkeypatch
+):
+    from app.api import agent_protocol
+
+    agent, _ = remote
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    db_session.commit()
+    closed = []
+    original = agent_protocol.make_claim_session
+
+    def tracked(request_db):
+        session = original(request_db)
+        close = session.close
+
+        def close_tracked():
+            closed.append(True)
+            close()
+
+        session.close = close_tracked
+        return session
+
+    monkeypatch.setattr(agent_protocol, "make_claim_session", tracked)
+    monkeypatch.setattr(agent_protocol, "CLAIM_TIMEOUT_SECONDS", 1)
+    response = client.post("/api/agent/v1/jobs/claim", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 204
+    assert closed == [True]

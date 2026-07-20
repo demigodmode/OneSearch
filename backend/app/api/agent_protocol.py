@@ -22,7 +22,7 @@ from onesearch_shared import (
 from onesearch_shared import (
     AgentHeartbeat as AgentHeartbeatRequest,
 )
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from ..db.database import get_db
 from ..models import Agent
@@ -45,6 +45,11 @@ ApprovedAgent = Annotated[Agent, Depends(require_approved_agent)]
 LEASE_TOKEN_HEADER = "X-OneSearch-Lease-Token"
 CLAIM_TIMEOUT_SECONDS = 25
 CLAIM_POLL_SECONDS = 1
+
+
+def make_claim_session(db: Session) -> Session:
+    """Create an isolated queue-poll session on the request database bind."""
+    return sessionmaker(bind=db.get_bind(), autocommit=False, autoflush=False)()
 
 
 def _job_error(error: Exception) -> HTTPException:
@@ -148,13 +153,16 @@ async def heartbeat(
 )
 async def claim_job(agent: ApprovedAgent, db: Database):
     """Long poll without retaining the request transaction while waiting."""
-    service = AgentJobService(db)
     for attempt in range(CLAIM_TIMEOUT_SECONDS):
-        lease = service.claim_next(agent.id)
-        if lease is not None:
-            db.commit()
-            return lease
-        db.rollback()
+        poll_db = make_claim_session(db)
+        try:
+            lease = AgentJobService(poll_db).claim_next(agent.id)
+            if lease is not None:
+                poll_db.commit()
+                return lease
+            poll_db.rollback()
+        finally:
+            poll_db.close()
         if attempt + 1 < CLAIM_TIMEOUT_SECONDS:
             await asyncio.sleep(CLAIM_POLL_SECONDS)
     from fastapi.responses import Response
@@ -231,6 +239,24 @@ async def complete_job(
             error=request.detail,
             checkpoint=request.checkpoint.model_dump(mode="json") if request.checkpoint else None,
         )
+        db.commit()
+    except (JobNotFound, JobLeaseError, JobConflict) as error:
+        db.rollback()
+        raise _job_error(error) from error
+    return {"status": "ok"}
+
+
+@router.post("/jobs/{job_id}/cancel-ack", dependencies=[Depends(require_remote_agents_enabled)])
+async def acknowledge_cancellation(
+    job_id: str,
+    agent: ApprovedAgent,
+    db: Database,
+    lease_token: Annotated[str | None, Header(alias=LEASE_TOKEN_HEADER)] = None,
+):
+    if lease_token is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired job lease")
+    try:
+        AgentJobService(db).acknowledge_cancellation(agent.id, job_id, lease_token)
         db.commit()
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()

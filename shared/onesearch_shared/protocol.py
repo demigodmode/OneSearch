@@ -201,6 +201,11 @@ class JobCompletion(WireModel):
     detail: str | None = None
     checkpoint: ScanCheckpoint | None = None
 
+    @field_validator("status", mode="before")
+    @classmethod
+    def parse_status(cls, value: object) -> object:
+        return JobStatus(value) if isinstance(value, str) else value
+
 
 class ProtocolVersionRange(WireModel):
     minimum_version: int = Field(ge=1)

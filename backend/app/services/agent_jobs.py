@@ -231,3 +231,15 @@ class AgentJobService:
         elif job.status not in {"cancelling", "completed", "failed", "cancelled"}:
             raise JobConflict()
         return job
+
+    def acknowledge_cancellation(self, agent_id: str, job_id: str, token: str) -> AgentJob:
+        """Finalize only an agent-held cancellation request."""
+        job = self._leased_job(agent_id, job_id, token, active=False)
+        if job.status != "cancelling":
+            raise JobConflict()
+        job.status = "cancelled"
+        job.completed_at = _now()
+        job.active_key = None
+        job.lease_token_hash = None
+        job.lease_expires_at = None
+        return job
