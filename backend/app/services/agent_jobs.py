@@ -136,21 +136,51 @@ class AgentJobService:
         total_items: int | None = None,
         checkpoint: dict | None = None,
     ) -> AgentJob:
-        job = self._leased_job(agent_id, job_id, token)
-        job.status = "running"
-        job.lease_expires_at = _now() + timedelta(seconds=self.lease_seconds)
+        now = _now()
+        values = {
+            "status": "running",
+            "lease_expires_at": now + timedelta(seconds=self.lease_seconds),
+        }
         if completed_items is not None:
-            job.progress_current = completed_items
+            values["progress_current"] = completed_items
         if total_items is not None:
-            job.progress_total = total_items
+            values["progress_total"] = total_items
         if checkpoint is not None:
-            job.checkpoint = json.dumps(checkpoint, sort_keys=True, separators=(",", ":"))
-        return job
+            values["checkpoint"] = json.dumps(checkpoint, sort_keys=True, separators=(",", ":"))
+        result = self.db.execute(
+            update(AgentJob)
+            .where(
+                AgentJob.id == job_id,
+                AgentJob.agent_id == agent_id,
+                AgentJob.lease_token_hash == hash_token(token),
+                AgentJob.lease_expires_at > now,
+                AgentJob.status.in_(("claimed", "running")),
+            )
+            .values(**values)
+        )
+        if result.rowcount != 1:
+            self._leased_job(agent_id, job_id, token)
+            raise JobConflict()
+        return self.db.get(AgentJob, job_id)
 
     def accept_batch(
         self, agent_id: str, job_id: str, token: str, idempotency_key: str, payload: dict
     ) -> BatchAck:
-        self._leased_job(agent_id, job_id, token)
+        now = _now()
+        locked = self.db.execute(
+            update(AgentJob)
+            .where(
+                AgentJob.id == job_id,
+                AgentJob.agent_id == agent_id,
+                AgentJob.lease_token_hash == hash_token(token),
+                AgentJob.lease_expires_at > now,
+                AgentJob.status.in_(("claimed", "running")),
+            )
+            .values(progress_current=AgentJob.progress_current)
+        )
+        if locked.rowcount != 1:
+            self._leased_job(agent_id, job_id, token)
+            raise JobConflict()
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         checksum = hashlib.sha256(canonical.encode()).hexdigest()
         existing = self.db.scalar(
@@ -201,24 +231,37 @@ class AgentJobService:
         error: str | None = None,
         checkpoint: dict | None = None,
     ) -> AgentJob:
-        job = self._leased_job(agent_id, job_id, token, active=False)
         if status not in {"succeeded", "failed", "cancelled"}:
             raise JobConflict()
-        if job.status not in {"claimed", "running", "cancelling"}:
-            raise JobConflict()
-        if job.status == "cancelling" and status != "cancelled":
-            raise JobConflict()
-        job.status = {"succeeded": "completed", "failed": "failed", "cancelled": "cancelled"}[
-            status
-        ]
-        job.error = error
+        now = _now()
+        allowed = ("cancelling",) if status == "cancelled" else ("claimed", "running")
+        values = {
+            "status": {"succeeded": "completed", "failed": "failed", "cancelled": "cancelled"}[
+                status
+            ],
+            "error": error,
+            "completed_at": now,
+            "active_key": None,
+            "lease_token_hash": None,
+            "lease_expires_at": None,
+        }
         if checkpoint is not None:
-            job.checkpoint = json.dumps(checkpoint, sort_keys=True, separators=(",", ":"))
-        job.completed_at = _now()
-        job.active_key = None
-        job.lease_token_hash = None
-        job.lease_expires_at = None
-        return job
+            values["checkpoint"] = json.dumps(checkpoint, sort_keys=True, separators=(",", ":"))
+        result = self.db.execute(
+            update(AgentJob)
+            .where(
+                AgentJob.id == job_id,
+                AgentJob.agent_id == agent_id,
+                AgentJob.lease_token_hash == hash_token(token),
+                AgentJob.lease_expires_at > now,
+                AgentJob.status.in_(allowed),
+            )
+            .values(**values)
+        )
+        if result.rowcount != 1:
+            self._leased_job(agent_id, job_id, token, active=False)
+            raise JobConflict()
+        return self.db.get(AgentJob, job_id)
 
     def cancel(self, job_id: str) -> AgentJob:
         job = self.db.get(AgentJob, job_id)
@@ -234,12 +277,25 @@ class AgentJobService:
 
     def acknowledge_cancellation(self, agent_id: str, job_id: str, token: str) -> AgentJob:
         """Finalize only an agent-held cancellation request."""
-        job = self._leased_job(agent_id, job_id, token, active=False)
-        if job.status != "cancelling":
+        now = _now()
+        result = self.db.execute(
+            update(AgentJob)
+            .where(
+                AgentJob.id == job_id,
+                AgentJob.agent_id == agent_id,
+                AgentJob.lease_token_hash == hash_token(token),
+                AgentJob.lease_expires_at > now,
+                AgentJob.status == "cancelling",
+            )
+            .values(
+                status="cancelled",
+                completed_at=now,
+                active_key=None,
+                lease_token_hash=None,
+                lease_expires_at=None,
+            )
+        )
+        if result.rowcount != 1:
+            self._leased_job(agent_id, job_id, token, active=False)
             raise JobConflict()
-        job.status = "cancelled"
-        job.completed_at = _now()
-        job.active_key = None
-        job.lease_token_hash = None
-        job.lease_expires_at = None
-        return job
+        return self.db.get(AgentJob, job_id)

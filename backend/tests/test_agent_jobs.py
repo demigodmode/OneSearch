@@ -273,7 +273,41 @@ def test_claim_without_work_returns_bounded_204_and_closes_poll_session(
     monkeypatch.setattr(agent_protocol, "CLAIM_TIMEOUT_SECONDS", 1)
     response = client.post("/api/agent/v1/jobs/claim", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 204
-    assert closed == [True]
+    assert closed and all(closed)
+
+
+@pytest.mark.asyncio
+async def test_claim_poll_waits_exactly_the_configured_deadline(monkeypatch, db_session, remote):
+    from app.api import agent_protocol
+
+    agent, _ = remote
+    agent.status = "online"
+    agent.approved_at = now()
+    timeline = [0.0]
+
+    async def advance(seconds):
+        timeline[0] += seconds
+
+    class EmptySession:
+        def close(self):
+            return None
+
+        def rollback(self):
+            return None
+
+    monkeypatch.setattr(agent_protocol, "CLAIM_TIMEOUT_SECONDS", 25)
+    monkeypatch.setattr(agent_protocol, "CLAIM_POLL_SECONDS", 1)
+    monkeypatch.setattr(agent_protocol, "claim_clock", lambda: timeline[0])
+    monkeypatch.setattr(agent_protocol, "claim_sleep", advance)
+    monkeypatch.setattr(agent_protocol, "make_claim_session", lambda _: EmptySession())
+    monkeypatch.setattr(
+        agent_protocol,
+        "AgentJobService",
+        lambda _: type("S", (), {"claim_next": lambda *_: None})(),
+    )
+    response = await agent_protocol.claim_job(agent, db_session)
+    assert response.status_code == 204
+    assert timeline[0] == 25
 
 
 def test_job_endpoints_reject_user_pending_disabled_and_revoked_agents(

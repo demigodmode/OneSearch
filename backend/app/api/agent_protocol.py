@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+import time
 import uuid
 from typing import Annotated
 
@@ -45,6 +46,8 @@ ApprovedAgent = Annotated[Agent, Depends(require_approved_agent)]
 LEASE_TOKEN_HEADER = "X-OneSearch-Lease-Token"
 CLAIM_TIMEOUT_SECONDS = 25
 CLAIM_POLL_SECONDS = 1
+claim_clock = time.monotonic
+claim_sleep = asyncio.sleep
 
 
 def make_claim_session(db: Session) -> Session:
@@ -153,7 +156,8 @@ async def heartbeat(
 )
 async def claim_job(agent: ApprovedAgent, db: Database):
     """Long poll without retaining the request transaction while waiting."""
-    for attempt in range(CLAIM_TIMEOUT_SECONDS):
+    deadline = claim_clock() + CLAIM_TIMEOUT_SECONDS
+    while True:
         poll_db = make_claim_session(db)
         try:
             lease = AgentJobService(poll_db).claim_next(agent.id)
@@ -163,8 +167,10 @@ async def claim_job(agent: ApprovedAgent, db: Database):
             poll_db.rollback()
         finally:
             poll_db.close()
-        if attempt + 1 < CLAIM_TIMEOUT_SECONDS:
-            await asyncio.sleep(CLAIM_POLL_SECONDS)
+        remaining = deadline - claim_clock()
+        if remaining <= 0:
+            break
+        await claim_sleep(min(CLAIM_POLL_SECONDS, remaining))
     from fastapi.responses import Response
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
