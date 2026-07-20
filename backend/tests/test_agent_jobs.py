@@ -3,8 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.models import Agent, Source
-from app.models import AppSetting
+from app.models import Agent, AppSetting, Source
 from app.services.agent_auth import create_agent_token, hash_token
 from app.services.agent_jobs import AgentJobService, JobConflict, JobNotFound
 
@@ -234,7 +233,7 @@ def test_agent_job_api_rejects_bad_agent_lease_and_disabled_feature(
     )
     assert (
         client.post(
-            f"/api/agent/v1/jobs/missing/heartbeat",
+            "/api/agent/v1/jobs/missing/heartbeat",
             headers={**headers, "X-OneSearch-Lease-Token": lease},
             json={"job_id": "missing", "completed_items": 1},
         ).status_code
