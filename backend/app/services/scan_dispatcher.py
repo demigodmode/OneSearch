@@ -1,8 +1,8 @@
 """Single boundary for local indexing and durable remote scan dispatch."""
 
 from ..models import Agent, Source
-from .app_settings import AppSettingsService
 from .agent_jobs import AgentJobService, JobConflict
+from .app_settings import AppSettingsService
 from .indexer import IndexingService
 
 
