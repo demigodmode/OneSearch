@@ -20,7 +20,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from ..config import settings
 from ..models import Source
 from ..services.indexer import IndexingService
-from ..services.scan_dispatcher import ScanDispatcher, SourceNotFound
+from ..services.scan_dispatcher import ScanDispatcher
 from ..services.search import meili_service
 
 logger = logging.getLogger(__name__)

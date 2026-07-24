@@ -5,7 +5,7 @@ from .agent_jobs import AgentJobService, JobConflict
 from .indexer import IndexingService
 
 
-class SourceNotFound(Exception):
+class SourceNotFoundError(Exception):
     """Raised when dispatch is requested for a deleted source."""
 
 
@@ -17,7 +17,7 @@ class ScanDispatcher:
     async def dispatch(self, source_id: str, reason: str, full: bool = False):
         source = self.db.get(Source, source_id)
         if source is None:
-            raise SourceNotFound(source_id)
+            raise SourceNotFoundError(source_id)
         if getattr(source, "location_type", "local") != "agent":
             return await IndexingService(self.db, self.search_service).index_source(
                 source_id, full=full

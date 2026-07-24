@@ -7,7 +7,7 @@ import pytest
 
 from app.models import Agent, AppSetting, Source
 from app.services.agent_auth import hash_token
-from app.services.scan_dispatcher import ScanDispatcher, SourceNotFound
+from app.services.scan_dispatcher import ScanDispatcher, SourceNotFoundError
 
 
 def _now():
@@ -67,6 +67,118 @@ def test_remote_source_rejects_unapproved_or_outside_path(client, db_session, ap
     assert response.status_code == 409
 
 
+@pytest.mark.parametrize(
+    "status,approved,credential",
+    [
+        ("pending", True, True),
+        ("disabled", True, True),
+        ("revoked", True, True),
+        ("online", False, True),
+        ("online", True, False),
+    ],
+)
+def test_remote_create_rejects_non_active_agent(
+    client, db_session, approved_agent, status, approved, credential
+):
+    approved_agent.status = status
+    approved_agent.approved_at = _now() if approved else None
+    approved_agent.token_hash = hash_token("credential") if credential else None
+    db_session.commit()
+    response = client.post(
+        "/api/sources",
+        json={
+            "name": "No",
+            "root_path": "/srv/docs",
+            "location_type": "agent",
+            "agent_id": approved_agent.id,
+        },
+    )
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize("path", ["/srv/docs2", "/srv/docs/../secret", " /srv/docs "])
+def test_remote_create_rejects_lexically_unauthorized_paths(client, approved_agent, path):
+    response = client.post(
+        "/api/sources",
+        json={
+            "name": "No",
+            "root_path": path,
+            "location_type": "agent",
+            "agent_id": approved_agent.id,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_remote_create_disabled_and_invalid_mode(client, db_session, approved_agent):
+    db_session.query(AppSetting).filter_by(key="remote_agents_enabled").update({"value": "false"})
+    db_session.commit()
+    disabled = client.post(
+        "/api/sources",
+        json={
+            "name": "No",
+            "root_path": "/srv/docs",
+            "location_type": "agent",
+            "agent_id": approved_agent.id,
+        },
+    )
+    assert disabled.status_code == 409
+    invalid = client.post(
+        "/api/sources",
+        json={
+            "name": "No",
+            "root_path": "/srv/docs",
+            "location_type": "agent",
+            "agent_id": approved_agent.id,
+            "processing_mode": "invalid",
+        },
+    )
+    assert invalid.status_code == 422
+
+
+def test_remote_path_test_requires_online_then_queues_and_coalesces(
+    client, db_session, approved_agent
+):
+    offline = client.post(
+        "/api/sources/test-path",
+        json={"location_type": "agent", "agent_id": approved_agent.id, "root_path": "/srv/docs"},
+    )
+    assert offline.status_code == 409 and offline.json()["detail"] == "agent_offline"
+    approved_agent.status = "online"
+    db_session.commit()
+    first = client.post(
+        "/api/sources/test-path",
+        json={"location_type": "agent", "agent_id": approved_agent.id, "root_path": "/srv/docs"},
+    )
+    second = client.post(
+        "/api/sources/test-path",
+        json={"location_type": "agent", "agent_id": approved_agent.id, "root_path": "/srv/docs"},
+    )
+    assert first.status_code == second.status_code == 200
+    assert first.json()["job_id"] == second.json()["job_id"]
+    assert first.json()["ok"] is False and first.json()["status"] == "pending"
+
+
+def test_remote_update_validates_prospective_binding_and_disabled_maintenance(
+    client, db_session, approved_agent
+):
+    source = Source(
+        id="remote-update",
+        name="Remote",
+        root_path="/srv/docs",
+        location_type="agent",
+        agent_id=approved_agent.id,
+    )
+    db_session.add(source)
+    db_session.commit()
+    rejected = client.put("/api/sources/remote-update", json={"root_path": "/outside"})
+    assert rejected.status_code == 422
+    db_session.query(AppSetting).filter_by(key="remote_agents_enabled").update({"value": "false"})
+    db_session.commit()
+    maintenance = client.put("/api/sources/remote-update", json={"name": "Renamed"})
+    assert maintenance.status_code == 200
+
+
 def test_remote_manual_scan_is_queued_and_coalesced(client, db_session, approved_agent):
     source = Source(
         id="remote-source",
@@ -87,7 +199,7 @@ def test_remote_manual_scan_is_queued_and_coalesced(client, db_session, approved
 @pytest.mark.asyncio
 async def test_dispatcher_missing_and_remote_inherits_agent_mode(db_session, approved_agent):
     dispatcher = ScanDispatcher(db_session, object())
-    with pytest.raises(SourceNotFound):
+    with pytest.raises(SourceNotFoundError):
         await dispatcher.dispatch("missing", "manual")
     source = Source(
         id="remote-source",
