@@ -2,11 +2,12 @@
 
 import json
 from datetime import datetime, timezone
+from unittest.mock import Mock
 
 import pytest
 
 from app.api.sources import _remote_path_authorized
-from app.models import Agent, AppSetting, Source
+from app.models import Agent, AgentJob, AppSetting, Source
 from app.services.agent_auth import hash_token
 from app.services.scan_dispatcher import ScanDispatcher, SourceNotFoundError
 from app.services.scheduler import SchedulerService
@@ -264,9 +265,6 @@ async def test_dispatcher_uses_override_or_agent_default_mode(
 def test_remote_scheduler_coalesces_offline_jobs_without_local_lock(
     db_session, approved_agent, monkeypatch
 ):
-    from unittest.mock import Mock
-    from app.models import AgentJob
-
     source = Source(
         id="scheduled-remote",
         name="Remote",
@@ -294,3 +292,29 @@ def test_remote_scheduler_coalesces_offline_jobs_without_local_lock(
     source = db_session.get(Source, source_id)
     assert len(jobs) == 1 and jobs[0].active_key == source_id
     assert source.last_scan_at is None and source.next_scan_at is not None
+
+
+def test_offline_scheduled_job_is_claimed_after_heartbeat(client, db_session, approved_agent):
+    source = Source(
+        id="reconnect-remote",
+        name="Remote",
+        root_path="/srv/docs",
+        location_type="agent",
+        agent_id=approved_agent.id,
+    )
+    db_session.add(source)
+    db_session.commit()
+    import asyncio
+
+    job = asyncio.run(ScanDispatcher(db_session, object()).dispatch(source.id, "schedule"))
+    db_session.commit()
+    headers = {"Authorization": "Bearer credential"}
+    heartbeat = client.post(
+        "/api/agent/v1/heartbeat",
+        headers=headers,
+        json={"protocol_version": 1, "agent_version": "1", "platform": "linux"},
+    )
+    assert heartbeat.status_code == 200 and heartbeat.json()["status"] == "online"
+    claimed = client.post("/api/agent/v1/jobs/claim", headers=headers)
+    assert claimed.status_code == 200
+    assert claimed.json()["id"] == job.id and claimed.json()["processing_mode"] == "on_server"
