@@ -4,6 +4,7 @@
 """
 Tests for scheduler service
 """
+
 import pytest
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, Mock, MagicMock
@@ -162,7 +163,6 @@ class TestSchedulePresetsConsistency:
 
 
 class TestGetSourceLock:
-
     def test_returns_lock(self):
         lock = get_source_lock("lock-test-1")
         assert hasattr(lock, "acquire") and hasattr(lock, "release")
@@ -179,7 +179,6 @@ class TestGetSourceLock:
 
 
 class TestSchedulerService:
-
     @pytest.fixture
     def mock_engine(self):
         return Mock()
@@ -190,6 +189,7 @@ class TestSchedulerService:
 
     def test_start_disabled(self, svc, monkeypatch):
         from app.config import settings
+
         monkeypatch.setattr(settings, "scheduler_enabled", False)
 
         svc.start()
@@ -199,6 +199,7 @@ class TestSchedulerService:
     @patch("app.services.scheduler.BackgroundScheduler")
     def test_start_enabled(self, MockScheduler, svc, monkeypatch):
         from app.config import settings
+
         monkeypatch.setattr(settings, "scheduler_enabled", True)
 
         mock_sched = MockScheduler.return_value
@@ -302,7 +303,12 @@ class TestSchedulerService:
         # Need to make run_until_complete work with the mock
         with patch("asyncio.new_event_loop") as mock_loop_factory:
             mock_loop = Mock()
-            mock_loop.run_until_complete.return_value = mock_stats
+
+            def run_until_complete(awaitable):
+                awaitable.close()
+                return mock_stats
+
+            mock_loop.run_until_complete.side_effect = run_until_complete
             mock_loop_factory.return_value = mock_loop
 
             svc._run_indexing_job("src1")
@@ -378,7 +384,6 @@ class TestSchedulerService:
 
 
 class TestIntervalSchedules:
-
     def test_validate_interval_valid(self):
         assert validate_interval(3, "hours") is True
         assert validate_interval(1, "minutes") is True
@@ -421,7 +426,6 @@ class TestIntervalSchedules:
 
 
 class TestResolveEffectiveSchedule:
-
     def _make_source(self, **overrides):
         source = Mock()
         source.use_default_schedule = False
@@ -434,7 +438,9 @@ class TestResolveEffectiveSchedule:
         return source
 
     def test_uses_own_schedule_when_not_following_default(self):
-        source = self._make_source(schedule_type="interval", interval_value=6, interval_unit="hours")
+        source = self._make_source(
+            schedule_type="interval", interval_value=6, interval_unit="hours"
+        )
         db = Mock()
 
         resolved = resolve_effective_schedule(source, db)
@@ -456,8 +462,12 @@ class TestResolveEffectiveSchedule:
             scan_schedule="0 */6 * * *",  # this stored value must be ignored
         )
         db = Mock()
-        MockAppSettingsService.return_value.get_settings.return_value.default_scan_schedule = ScheduleConfig(
-            schedule_type="interval", interval_value=3, interval_unit="hours",
+        MockAppSettingsService.return_value.get_settings.return_value.default_scan_schedule = (
+            ScheduleConfig(
+                schedule_type="interval",
+                interval_value=3,
+                interval_unit="hours",
+            )
         )
 
         resolved = resolve_effective_schedule(source, db)
@@ -474,4 +484,9 @@ class TestResolveEffectiveSchedule:
 
         resolved = resolve_effective_schedule(source, db)
 
-        assert resolved == {"schedule_type": "cron", "scan_schedule": None, "interval_value": None, "interval_unit": None}
+        assert resolved == {
+            "schedule_type": "cron",
+            "scan_schedule": None,
+            "interval_value": None,
+            "interval_unit": None,
+        }

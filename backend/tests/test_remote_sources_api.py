@@ -2,7 +2,7 @@
 
 import json
 from datetime import datetime, timezone
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -215,6 +215,19 @@ async def test_dispatcher_missing_and_remote_inherits_agent_mode(db_session, app
     db_session.commit()
     job = await dispatcher.dispatch(source.id, "schedule")
     assert job.processing_mode == "on_server"
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_local_calls_indexer_with_full_flag(db_session, monkeypatch, tmp_path):
+    source = Source(id="local-dispatch", name="Local", root_path=str(tmp_path))
+    db_session.add(source)
+    db_session.commit()
+    stats = Mock()
+    index = AsyncMock(return_value=stats)
+    monkeypatch.setattr("app.services.scan_dispatcher.IndexingService.index_source", index)
+    result = await ScanDispatcher(db_session, object()).dispatch(source.id, "manual", full=True)
+    assert result is stats
+    index.assert_called_once_with(source.id, full=True)
 
 
 def test_remote_path_authorization_is_platform_aware_and_lexical(approved_agent):

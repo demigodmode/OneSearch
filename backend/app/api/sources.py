@@ -32,8 +32,8 @@ from ..schemas import (
     SourceUpdate,
 )
 from ..services.agent_jobs import AgentJobService, JobConflict
-from ..services.app_settings import AppSettingsService
 from ..services.indexer import IndexingService
+from ..services.app_settings import AppSettingsService
 from ..services.scan_dispatcher import ScanDispatcher
 from ..services.scanner import FileScanner
 from ..services.scheduler import (
@@ -731,9 +731,10 @@ async def reindex_source(
             try:
                 loop = asyncio.new_event_loop()
                 try:
-                    indexing_service = IndexingService(thread_db, meili_service)
                     stats = loop.run_until_complete(
-                        indexing_service.index_source(source_id, full=full)
+                        ScanDispatcher(thread_db, meili_service).dispatch(
+                            source_id, "manual", full=full
+                        )
                     )
 
                     # Update last_scan_at
