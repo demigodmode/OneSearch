@@ -8,6 +8,7 @@ import pytest
 from app.models import Agent, AppSetting, Source
 from app.services.agent_auth import hash_token
 from app.services.scan_dispatcher import ScanDispatcher, SourceNotFoundError
+from app.api.sources import _remote_path_authorized
 
 
 def _now():
@@ -212,3 +213,48 @@ async def test_dispatcher_missing_and_remote_inherits_agent_mode(db_session, app
     db_session.commit()
     job = await dispatcher.dispatch(source.id, "schedule")
     assert job.processing_mode == "on_server"
+
+
+def test_remote_path_authorization_is_platform_aware_and_lexical(approved_agent):
+    assert _remote_path_authorized(approved_agent, "/srv/docs/child")
+    assert not _remote_path_authorized(approved_agent, "/srv/docs2")
+    assert not _remote_path_authorized(approved_agent, "/srv/docs/../secret")
+    windows = Agent(
+        id="windows",
+        name="W",
+        platform="windows",
+        version="1",
+        protocol_version=1,
+        allowed_roots=json.dumps([{"root_id": "docs", "path": "C:\\Data\\Docs"}]),
+    )
+    assert _remote_path_authorized(windows, "c:\\data\\docs\\Team")
+    assert not _remote_path_authorized(windows, "C:\\Data\\Docs2")
+    assert not _remote_path_authorized(windows, "D:\\Data\\Docs")
+    assert not _remote_path_authorized(windows, " C:\\Data\\Docs ")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source_mode,default_mode,expected",
+    [
+        ("on_agent", "on_server", "on_agent"),
+        ("on_server", "on_agent", "on_server"),
+        (None, "on_agent", "on_agent"),
+    ],
+)
+async def test_dispatcher_uses_override_or_agent_default_mode(
+    db_session, approved_agent, source_mode, default_mode, expected
+):
+    approved_agent.default_processing_mode = default_mode
+    source = Source(
+        id=f"mode-{expected}-{source_mode}",
+        name="Remote",
+        root_path="/srv/docs",
+        location_type="agent",
+        agent_id=approved_agent.id,
+        processing_mode=source_mode,
+    )
+    db_session.add(source)
+    db_session.commit()
+    job = await ScanDispatcher(db_session, object()).dispatch(source.id, "manual", full=True)
+    assert job.processing_mode == expected and json.loads(job.payload) == {"full": True}
