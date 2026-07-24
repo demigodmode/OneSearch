@@ -326,23 +326,18 @@ class SchedulerService:
 
     def _run_indexing_job(self, source_id: str):
         """Job function called by APScheduler in a background thread."""
-        # Preserve the legacy fast-path for a known local lock.  New remote
-        # dispatches never touch this in-process lock; AgentJob.active_key is
-        # their durable coalescing boundary.
-        lock = _indexing_locks.get(source_id)
+        # Source location is authoritative: a source may have switched from
+        # local to agent while an obsolete local lock remains in this process.
+        # Remote work must never inspect that lock.
+        lock = None
         lock_acquired = False
-        if lock is not None:
-            lock_acquired = lock.acquire(blocking=False)
-            if not lock_acquired:
-                logger.warning(f"Skipping scheduled index for '{source_id}' - already running")
-                return
         db = self._session_factory()
         try:
             source = db.get(Source, source_id)
             if not source:
                 logger.warning("Scheduled job source not found, skipping")
                 return
-            if getattr(source, "location_type", "local") != "agent" and lock is None:
+            if getattr(source, "location_type", "local") != "agent":
                 lock = get_source_lock(source_id)
                 lock_acquired = lock.acquire(blocking=False)
                 if not lock_acquired:

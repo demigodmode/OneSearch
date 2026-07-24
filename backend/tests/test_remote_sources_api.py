@@ -330,6 +330,37 @@ def test_remote_scheduler_coalesces_offline_jobs_without_local_lock(
     assert source.last_scan_at is None and source.next_scan_at is not None
 
 
+def test_remote_scheduler_ignores_stale_held_local_lock(db_session, approved_agent):
+    from app.services.scheduler import _indexing_locks
+
+    source = Source(
+        id="stale-lock-remote",
+        name="Remote",
+        root_path="/srv/docs",
+        location_type="agent",
+        agent_id=approved_agent.id,
+    )
+    source_id = source.id
+    db_session.add(source)
+    db_session.commit()
+    stale_lock = __import__("threading").Lock()
+    stale_lock.acquire()
+    _indexing_locks[source_id] = stale_lock
+    svc = SchedulerService(db_session.get_bind())
+    svc._session_factory = Mock(return_value=db_session)
+    scheduler_job = Mock()
+    scheduler_job.next_run_time = datetime.now(timezone.utc)
+    svc.scheduler = Mock()
+    svc.scheduler.get_job.return_value = scheduler_job
+    try:
+        svc._run_indexing_job(source_id)
+        assert db_session.query(AgentJob).filter_by(source_id=source_id).count() == 1
+        assert stale_lock.locked()
+    finally:
+        stale_lock.release()
+        _indexing_locks.pop(source_id, None)
+
+
 def test_offline_scheduled_job_is_claimed_after_heartbeat(client, db_session, approved_agent):
     source = Source(
         id="reconnect-remote",

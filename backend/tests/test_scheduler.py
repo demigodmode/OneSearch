@@ -340,8 +340,9 @@ class TestSchedulerService:
         finally:
             lock.release()
 
-        # DB session should NOT have been created since lock was held
-        svc._session_factory.assert_not_called()
+        # Current source location is resolved before locking, so a stale local
+        # lock cannot suppress a source switched to a remote agent.
+        svc._session_factory.assert_called_once()
 
     def test_remove_source(self, svc):
         mock_sched = Mock()
