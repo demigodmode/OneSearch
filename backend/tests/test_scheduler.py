@@ -5,24 +5,25 @@
 Tests for scheduler service
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta
-from unittest.mock import patch, Mock, MagicMock
 import threading
+from datetime import datetime, timedelta, timezone
+from unittest.mock import Mock, patch
+
+import pytest
 
 from app.services.scheduler import (
-    validate_schedule,
-    resolve_cron,
-    calculate_next_run_time,
-    calculate_interval_next_run_time,
-    calculate_next_run_time_for_schedule,
-    validate_interval,
-    resolve_effective_schedule,
     SCHEDULE_PRESETS,
     SchedulerService,
-    get_source_lock,
     _indexing_locks,
     _locks_lock,
+    calculate_interval_next_run_time,
+    calculate_next_run_time,
+    calculate_next_run_time_for_schedule,
+    get_source_lock,
+    resolve_cron,
+    resolve_effective_schedule,
+    validate_interval,
+    validate_schedule,
 )
 
 
