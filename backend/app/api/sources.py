@@ -31,9 +31,9 @@ from ..schemas import (
     SourceResponse,
     SourceUpdate,
 )
+from ..services.agent_jobs import AgentJobService, JobConflict
 from ..services.app_settings import AppSettingsService
 from ..services.indexer import IndexingService
-from ..services.agent_jobs import AgentJobService, JobConflict
 from ..services.scan_dispatcher import ScanDispatcher
 from ..services.scanner import FileScanner
 from ..services.scheduler import (
@@ -247,8 +247,8 @@ def _remote_path_authorized(agent: Agent, root_path: str) -> bool:
     if not isinstance(roots, list):
         return False
     windows = str(agent.platform).lower().startswith("win")
-    PathClass = PureWindowsPath if windows else PurePosixPath
-    candidate = PathClass(root_path)
+    path_class = PureWindowsPath if windows else PurePosixPath
+    candidate = path_class(root_path)
     if windows:
         if not candidate.drive or "/" in root_path:
             return False
@@ -258,7 +258,7 @@ def _remote_path_authorized(agent: Agent, root_path: str) -> bool:
         if not isinstance(item, dict) or not isinstance(item.get("path"), str):
             continue
         try:
-            parent = PathClass(item["path"])
+            parent = path_class(item["path"])
             if candidate == parent or parent in candidate.parents:
                 return True
         except (TypeError, ValueError):
@@ -330,7 +330,7 @@ async def list_sources(
 @router.post("/test-path", response_model=SourcePathTestResponse)
 async def test_source_path(
     request_data: SourcePathTestRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
     current_user: User = Depends(get_current_user),
 ):
     """Test a source path before saving it."""

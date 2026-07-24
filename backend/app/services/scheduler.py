@@ -15,11 +15,10 @@ from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import settings
 from ..models import Source
-from ..services.indexer import IndexingService
 from ..services.scan_dispatcher import ScanDispatcher
 from ..services.search import meili_service
 
