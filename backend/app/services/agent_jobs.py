@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import AgentBatch, AgentJob, Source
+from ..models import Agent, AgentBatch, AgentJob, Source
 from .agent_auth import hash_token, verify_token
 
 
@@ -36,8 +36,14 @@ class AgentJobService:
         self.lease_seconds = lease_seconds
 
     def enqueue_scan(self, source: Source, *, full: bool, reason: str | None = None) -> AgentJob:
-        if source.agent_id is None or source.processing_mode is None:
+        if source.location_type != "agent" or source.agent_id is None:
             raise JobConflict("source is not remote")
+        processing_mode = source.processing_mode
+        if processing_mode is None:
+            agent = self.db.get(Agent, source.agent_id)
+            if agent is None:
+                raise JobConflict("source agent is not available")
+            processing_mode = agent.default_processing_mode
         job = AgentJob(
             id=secrets.token_urlsafe(18),
             agent_id=source.agent_id,
@@ -45,7 +51,7 @@ class AgentJobService:
             kind="scan",
             reason=reason,
             status="pending",
-            processing_mode=source.processing_mode,
+            processing_mode=processing_mode,
             active_key=source.id,
             payload=json.dumps({"full": full}),
             checkpoint="{}",
@@ -57,6 +63,32 @@ class AgentJobService:
             return job
         except IntegrityError:
             winner = self.db.scalar(select(AgentJob).where(AgentJob.active_key == source.id))
+            if winner is None:
+                raise
+            return winner
+
+    def enqueue_browse(self, agent_id: str, root_path: str) -> AgentJob:
+        digest = hashlib.sha256(root_path.encode("utf-8")).hexdigest()
+        active_key = f"browse:{agent_id}:{digest}"
+        job = AgentJob(
+            id=secrets.token_urlsafe(18),
+            agent_id=agent_id,
+            source_id=None,
+            kind="browse",
+            reason="validate",
+            status="pending",
+            processing_mode=None,
+            active_key=active_key,
+            payload=json.dumps({"operation": "validate", "root_path": root_path}),
+            checkpoint="{}",
+        )
+        try:
+            with self.db.begin_nested():
+                self.db.add(job)
+                self.db.flush()
+            return job
+        except IntegrityError:
+            winner = self.db.scalar(select(AgentJob).where(AgentJob.active_key == active_key))
             if winner is None:
                 raise
             return winner

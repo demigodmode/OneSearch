@@ -4,6 +4,7 @@
 """
 Pydantic schemas for request/response validation
 """
+
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
@@ -15,6 +16,7 @@ class Document(BaseModel):
     Normalized document structure returned by extractors
     and sent to Meilisearch for indexing
     """
+
     id: str  # Format: "{source_id}--{path_hash}" (SHA256 truncated to 12 chars)
     source_id: str
     source_name: str
@@ -32,6 +34,7 @@ class Document(BaseModel):
 
 class ScheduleConfig(BaseModel):
     """A resolved or stored schedule: either a cron expression/preset or a true interval."""
+
     schedule_type: Literal["cron", "interval"] = "cron"
     scan_schedule: Optional[str] = Field(default=None, max_length=100)
     interval_value: Optional[int] = Field(default=None, gt=0)
@@ -39,13 +42,16 @@ class ScheduleConfig(BaseModel):
 
     @model_validator(mode="after")
     def _require_both_interval_fields(self):
-        if self.schedule_type == "interval" and (self.interval_value is None) != (self.interval_unit is None):
+        if self.schedule_type == "interval" and (self.interval_value is None) != (
+            self.interval_unit is None
+        ):
             raise ValueError("interval_value and interval_unit must be set together")
         return self
 
 
 class SourceBase(BaseModel):
     """Base schema for Source"""
+
     name: str
     root_path: str
     location_type: Literal["local", "agent"] = "local"
@@ -62,11 +68,13 @@ class SourceBase(BaseModel):
 
 class SourceCreate(SourceBase):
     """Schema for creating a new source"""
+
     id: Optional[str] = None  # Auto-generated if not provided
 
 
 class SourceUpdate(BaseModel):
     """Schema for updating a source"""
+
     name: Optional[str] = None
     root_path: Optional[str] = None
     location_type: Literal["local", "agent"] | None = None
@@ -83,11 +91,15 @@ class SourceUpdate(BaseModel):
 
 class SourcePathTestRequest(BaseModel):
     """Schema for testing a source path before saving it."""
+
     root_path: str
+    location_type: Literal["local", "agent"] = "local"
+    agent_id: str | None = None
 
 
 class SourcePathTestResponse(BaseModel):
     """Diagnostics for a candidate source root path."""
+
     path: str
     ok: bool
     exists: bool
@@ -98,10 +110,13 @@ class SourcePathTestResponse(BaseModel):
     looks_like_host_path: bool = False
     message: str
     hint: Optional[str] = None
+    job_id: str | None = None
+    status: str | None = None
 
 
 class SourceResponse(SourceBase):
     """Schema for source response"""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: str
@@ -115,6 +130,7 @@ class SourceResponse(SourceBase):
     def from_orm_model(cls, source, effective_schedule: Optional["ScheduleConfig"] = None):
         """Create SourceResponse from ORM model, deserializing JSON fields"""
         import json
+
         return cls(
             id=source.id,
             name=source.name,
@@ -122,8 +138,12 @@ class SourceResponse(SourceBase):
             location_type=getattr(source, "location_type", "local"),
             agent_id=getattr(source, "agent_id", None),
             processing_mode=getattr(source, "processing_mode", None),
-            include_patterns=json.loads(source.include_patterns) if source.include_patterns else None,
-            exclude_patterns=json.loads(source.exclude_patterns) if source.exclude_patterns else None,
+            include_patterns=json.loads(source.include_patterns)
+            if source.include_patterns
+            else None,
+            exclude_patterns=json.loads(source.exclude_patterns)
+            if source.exclude_patterns
+            else None,
             scan_schedule=source.scan_schedule,
             schedule_type=source.schedule_type,
             interval_value=source.interval_value,
@@ -139,21 +159,27 @@ class SourceResponse(SourceBase):
 
 class SearchQuery(BaseModel):
     """Schema for search query request"""
+
     q: str  # Query string
     source_id: Optional[str] = None
     type: Optional[str] = None
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
-    sort: Optional[Literal[
-        'relevance',
-        'modified_at:desc', 'modified_at:asc',
-        'size_bytes:desc', 'basename:asc',
-    ]] = None
+    sort: Optional[
+        Literal[
+            "relevance",
+            "modified_at:desc",
+            "modified_at:asc",
+            "size_bytes:desc",
+            "basename:asc",
+        ]
+    ] = None
     snippet_length: int = Field(default=300, ge=50, le=1000)
 
 
 class SearchResult(BaseModel):
     """Schema for individual search result"""
+
     id: str
     path: str
     basename: str
@@ -167,6 +193,7 @@ class SearchResult(BaseModel):
 
 class SearchResponse(BaseModel):
     """Schema for search response"""
+
     results: List[SearchResult]
     total: int
     limit: int
@@ -176,6 +203,7 @@ class SearchResponse(BaseModel):
 
 class SourceStatus(BaseModel):
     """Schema for source indexing status"""
+
     source_id: str
     source_name: str
     total_files: int
@@ -188,6 +216,7 @@ class SourceStatus(BaseModel):
 
 class HealthResponse(BaseModel):
     """Schema for health check response"""
+
     status: str
     meilisearch_connected: bool
     database_connected: bool
@@ -197,18 +226,21 @@ class HealthResponse(BaseModel):
 # Authentication schemas
 class SetupRequest(BaseModel):
     """Schema for initial setup request"""
+
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=8)
 
 
 class LoginRequest(BaseModel):
     """Schema for login request"""
+
     username: str
     password: str
 
 
 class UserResponse(BaseModel):
     """Schema for user info response"""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -219,6 +251,7 @@ class UserResponse(BaseModel):
 
 class AuthResponse(BaseModel):
     """Schema for authentication response"""
+
     access_token: str
     token_type: str = "bearer"
     expires_in: int  # seconds
@@ -226,6 +259,7 @@ class AuthResponse(BaseModel):
 
 class AppSettingsResponse(BaseModel):
     """Backend-managed indexing and preview settings."""
+
     unsupported_file_policy: Literal["skip", "metadata_only"] = "metadata_only"
     media_metadata_mode: Literal["auto", "off"] = "auto"
     raw_metadata_mode: Literal["auto", "off"] = "auto"
@@ -248,6 +282,7 @@ class AppSettingsResponse(BaseModel):
 
 class AppSettingsUpdate(BaseModel):
     """Partial update for backend-managed indexing and preview settings."""
+
     unsupported_file_policy: Optional[Literal["skip", "metadata_only"]] = None
     media_metadata_mode: Optional[Literal["auto", "off"]] = None
     raw_metadata_mode: Optional[Literal["auto", "off"]] = None
@@ -302,4 +337,5 @@ class AgentHeartbeatResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     """Generic message response"""
+
     message: str
