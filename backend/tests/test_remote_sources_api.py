@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 
 import pytest
 
+from app.api.sources import _remote_path_authorized
 from app.models import Agent, AppSetting, Source
 from app.services.agent_auth import hash_token
 from app.services.scan_dispatcher import ScanDispatcher, SourceNotFoundError
-from app.api.sources import _remote_path_authorized
 
 
 def _now():
