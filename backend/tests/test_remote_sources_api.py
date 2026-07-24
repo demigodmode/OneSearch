@@ -215,6 +215,11 @@ def test_remote_manual_scan_rejects_disabled_feature_without_job(
     response = client.post(f"/api/sources/{source.id}/reindex")
     assert response.status_code == 409 and response.json()["detail"] == "remote_agents_disabled"
     assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+    db_session.query(AppSetting).filter_by(key="remote_agents_enabled").update({"value": "true"})
+    db_session.commit()
+    resumed = client.post(f"/api/sources/{source.id}/reindex")
+    assert resumed.status_code == 202
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 1
 
 
 @pytest.mark.asyncio
