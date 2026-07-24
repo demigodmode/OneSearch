@@ -9,6 +9,7 @@ from app.api.sources import _remote_path_authorized
 from app.models import Agent, AppSetting, Source
 from app.services.agent_auth import hash_token
 from app.services.scan_dispatcher import ScanDispatcher, SourceNotFoundError
+from app.services.scheduler import SchedulerService
 
 
 def _now():
@@ -258,3 +259,38 @@ async def test_dispatcher_uses_override_or_agent_default_mode(
     db_session.commit()
     job = await ScanDispatcher(db_session, object()).dispatch(source.id, "manual", full=True)
     assert job.processing_mode == expected and json.loads(job.payload) == {"full": True}
+
+
+def test_remote_scheduler_coalesces_offline_jobs_without_local_lock(
+    db_session, approved_agent, monkeypatch
+):
+    from unittest.mock import Mock
+    from app.models import AgentJob
+
+    source = Source(
+        id="scheduled-remote",
+        name="Remote",
+        root_path="/srv/docs",
+        location_type="agent",
+        agent_id=approved_agent.id,
+        use_default_schedule=True,
+    )
+    source_id = source.id
+    db_session.add(source)
+    db_session.commit()
+    svc = SchedulerService(db_session.get_bind())
+    svc._session_factory = Mock(return_value=db_session)
+    scheduler_job = Mock()
+    scheduler_job.next_run_time = datetime.now(timezone.utc)
+    svc.scheduler = Mock()
+    svc.scheduler.get_job.return_value = scheduler_job
+    monkeypatch.setattr(
+        "app.services.scheduler.get_source_lock",
+        lambda _: (_ for _ in ()).throw(AssertionError("remote used local lock")),
+    )
+    for _ in range(5):
+        svc._run_indexing_job(source_id)
+    jobs = db_session.query(AgentJob).filter_by(source_id=source_id).all()
+    source = db_session.get(Source, source_id)
+    assert len(jobs) == 1 and jobs[0].active_key == source_id
+    assert source.last_scan_at is None and source.next_scan_at is not None
