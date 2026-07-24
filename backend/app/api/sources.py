@@ -34,7 +34,11 @@ from ..schemas import (
 from ..services.agent_jobs import AgentJobService, JobConflict
 from ..services.app_settings import AppSettingsService
 from ..services.indexer import IndexingService
-from ..services.scan_dispatcher import ScanDispatcher
+from ..services.scan_dispatcher import (
+    AgentUnavailableError,
+    RemoteAgentsDisabledError,
+    ScanDispatcher,
+)
 from ..services.scanner import FileScanner
 from ..services.scheduler import (
     calculate_next_run_time_for_schedule,
@@ -695,6 +699,10 @@ async def reindex_source(
             job = await ScanDispatcher(db, meili_service).dispatch(source_id, "manual", full=full)
         except JobConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except RemoteAgentsDisabledError as exc:
+            raise HTTPException(status_code=409, detail="remote_agents_disabled") from exc
+        except AgentUnavailableError as exc:
+            raise HTTPException(status_code=409, detail="agent_unavailable") from exc
         db.commit()
         return JSONResponse(
             status_code=202,

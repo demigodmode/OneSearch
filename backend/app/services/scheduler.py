@@ -20,7 +20,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from ..config import settings
 from ..models import Source
 from ..services.indexer import IndexingService  # noqa: F401 - legacy patch target
-from ..services.scan_dispatcher import ScanDispatcher
+from ..services.scan_dispatcher import (
+    AgentUnavailableError,
+    RemoteAgentsDisabledError,
+    ScanDispatcher,
+)
 from ..services.search import meili_service
 
 logger = logging.getLogger(__name__)
@@ -349,6 +353,9 @@ class SchedulerService:
                 result = loop.run_until_complete(
                     ScanDispatcher(db, meili_service).dispatch(source_id, "schedule")
                 )
+            except (RemoteAgentsDisabledError, AgentUnavailableError):
+                logger.info("Scheduled remote dispatch unavailable for source '%s'", source_id)
+                return
             finally:
                 loop.close()
             job = self.scheduler.get_job(f"index-{source_id}")

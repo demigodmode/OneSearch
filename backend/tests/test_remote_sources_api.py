@@ -199,6 +199,24 @@ def test_remote_manual_scan_is_queued_and_coalesced(client, db_session, approved
     assert second.json()["coalesced"] is True
 
 
+def test_remote_manual_scan_rejects_disabled_feature_without_job(
+    client, db_session, approved_agent
+):
+    source = Source(
+        id="disabled-manual",
+        name="Remote",
+        root_path="/srv/docs",
+        location_type="agent",
+        agent_id=approved_agent.id,
+    )
+    db_session.add(source)
+    db_session.query(AppSetting).filter_by(key="remote_agents_enabled").update({"value": "false"})
+    db_session.commit()
+    response = client.post(f"/api/sources/{source.id}/reindex")
+    assert response.status_code == 409 and response.json()["detail"] == "remote_agents_disabled"
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
 @pytest.mark.asyncio
 async def test_dispatcher_missing_and_remote_inherits_agent_mode(db_session, approved_agent):
     dispatcher = ScanDispatcher(db_session, object())
