@@ -32,8 +32,8 @@ from ..schemas import (
     SourceUpdate,
 )
 from ..services.agent_jobs import AgentJobService, JobConflict
-from ..services.indexer import IndexingService
 from ..services.app_settings import AppSettingsService
+from ..services.indexer import IndexingService
 from ..services.scan_dispatcher import ScanDispatcher
 from ..services.scanner import FileScanner
 from ..services.scheduler import (
