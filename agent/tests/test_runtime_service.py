@@ -79,12 +79,13 @@ async def test_worker_can_acknowledge_cancellation_lease():
         await run_runtime(Client(), worker=worker)
 
 
-def test_windows_service_uses_sc_argv(monkeypatch, tmp_path: Path):
+def test_windows_service_uses_pywin32_argv(monkeypatch, tmp_path: Path):
     calls = []
     monkeypatch.setattr("onesearch_agent.service._run", lambda args: calls.append(args))
     install(tmp_path / "config.toml", "C:/Program Files/agent.exe", system="nt")
     uninstall(system="nt")
-    assert calls[0][:2] == ["sc.exe", "create"] and calls[-1][:2] == ["sc.exe", "delete"]
+    assert calls[0][1:3] == ["-m", "onesearch_agent.windows_service"]
+    assert calls[-1][1:3] == ["-m", "onesearch_agent.windows_service"]
 
 
 def test_unsupported_service_fails(tmp_path: Path):

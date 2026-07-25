@@ -22,18 +22,8 @@ def install(config: Path, executable: str, *, system: str | None = None, home: P
     if os.environ.get("DOCKER_CONTAINER"):
         raise ServiceError("services are unsupported in containers")
     if system == "nt":
-        _run(
-            [
-                "sc.exe",
-                "create",
-                "OneSearchAgent",
-                "binPath=",
-                f'"{executable}" -m onesearch_agent.cli --config "{config}" run',
-                "start=",
-                "auto",
-            ]
-        )
-        _run(["sc.exe", "start", "OneSearchAgent"])
+        _run([executable, "-m", "onesearch_agent.windows_service", "--startup", "auto", "install"])
+        _run([executable, "-m", "onesearch_agent.windows_service", "start"])
         return
     if system == "posix":
         unit = (home or Path.home()) / ".config/systemd/user/onesearch-agent.service"
@@ -52,8 +42,9 @@ def install(config: Path, executable: str, *, system: str | None = None, home: P
 def uninstall(*, system: str | None = None, home: Path | None = None):
     system = system or os.name
     if system == "nt":
-        _run(["sc.exe", "stop", "OneSearchAgent"])
-        _run(["sc.exe", "delete", "OneSearchAgent"])
+        executable = os.sys.executable
+        _run([executable, "-m", "onesearch_agent.windows_service", "stop"])
+        _run([executable, "-m", "onesearch_agent.windows_service", "remove"])
         return
     if system == "posix":
         unit = (home or Path.home()) / ".config/systemd/user/onesearch-agent.service"

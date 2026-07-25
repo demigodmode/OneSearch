@@ -110,10 +110,13 @@ class KeyringCredentialStore:
 
 def credential_store(config, *, system: str | None = None, docker: bool = False):
     system = system or os.name
-    if config.credential_store == "file" or docker:
+    configured = os.environ.get("ONESEARCH_AGENT_CREDENTIAL_STORE", config.credential_store)
+    if configured not in {"auto", "file", "keyring"}:
+        raise CredentialError("credential store policy is invalid")
+    if configured == "file" or docker or os.environ.get("ONESEARCH_AGENT_DOCKER") == "1":
         return FileCredentialStore(config.state_dir)
     keyring_store = KeyringCredentialStore(config.server_url, config.agent_name)
-    if config.credential_store == "keyring" or system == "nt":
+    if configured == "keyring" or system == "nt":
         return keyring_store
     try:
         keyring_store.load(optional=True)
