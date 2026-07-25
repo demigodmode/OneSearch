@@ -215,3 +215,77 @@ async def test_receipt_collision_different_checksum_conflicts_without_losing_wor
     assert len(list(db.scalars(select(AgentBatch).where(AgentBatch.job_id == job.id)))) == 1
     assert search.indexed == []
     assert list(db.scalars(select(IndexedFile).where(IndexedFile.source_id == "s"))) == []
+
+
+@pytest.mark.asyncio
+async def test_complete_manifest_rename_deletes_old_only_at_terminal_success(remote_job):
+    db, lease, job = remote_job
+    search = Search()
+    db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
+    db.commit()
+    service = RemoteIngestService(db, search)
+    await service.accept_batch(
+        "a",
+        job.id,
+        lease.lease_token,
+        DocumentBatch(
+            job_id=job.id,
+            batch_id="new",
+            documents=[
+                NormalizedRemoteDocument(
+                    source_id="s", path="new.txt", content="new", modified_at=1
+                )
+            ],
+        ),
+    )
+    service.accept_manifest(
+        "a",
+        job.id,
+        lease.lease_token,
+        ScanManifest(
+            job_id=job.id,
+            source_id="s",
+            files=[ScanFile(path="new.txt", size_bytes=3, modified_at=1)],
+            complete=True,
+        ),
+    )
+    await service.reconcile_completion("a", job.id, lease.lease_token)
+    assert search.deleted == [remote_document_id("s", "old.txt")]
+    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is None
+    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "new.txt")) is not None
+
+
+@pytest.mark.asyncio
+async def test_failure_manifest_paths_are_current_and_upsert_failed_rows(remote_job):
+    db, lease, job = remote_job
+    search = Search()
+    db.add(IndexedFile(source_id="s", path="kept.txt", status="success"))
+    db.commit()
+    service = RemoteIngestService(db, search)
+    service.accept_manifest(
+        "a",
+        job.id,
+        lease.lease_token,
+        ScanManifest(
+            job_id=job.id,
+            source_id="s",
+            failures=[
+                {"path": "kept.txt", "error": "cannot read"},
+                {"path": "new.txt", "error": "cannot parse"},
+            ],
+            complete=True,
+        ),
+    )
+    await service.reconcile_completion("a", job.id, lease.lease_token)
+    assert search.deleted == []
+    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "kept.txt")).status == "failed"
+    assert (
+        db.scalar(select(IndexedFile).where(IndexedFile.path == "new.txt")).error_message
+        == "cannot parse"
+    )
+
+
+def test_direct_on_agent_success_bypass_is_rejected(remote_job):
+    db, lease, job = remote_job
+    with pytest.raises(JobConflict):
+        AgentJobService(db).complete("a", job.id, lease.lease_token, "succeeded")
