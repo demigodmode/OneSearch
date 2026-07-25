@@ -11,6 +11,11 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 PROTOCOL_VERSION = 1
+REMOTE_MAX_SNAPSHOT_BYTES = 100 * 1024 * 1024
+REMOTE_MAX_BATCH_DOCUMENTS = 100
+REMOTE_MAX_BATCH_BYTES = 1_000_000
+REMOTE_MAX_SCAN_FILES = 100_000
+REMOTE_MAX_ENTRIES_PER_DIRECTORY = 100_000
 
 
 def _strip_nonempty(value: object) -> object:

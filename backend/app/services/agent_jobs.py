@@ -5,13 +5,24 @@ import json
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from onesearch_shared import AgentJobLease, BatchAck, JobKind, ProcessingMode
+from onesearch_shared import (
+    REMOTE_MAX_BATCH_BYTES,
+    REMOTE_MAX_BATCH_DOCUMENTS,
+    REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+    REMOTE_MAX_SCAN_FILES,
+    REMOTE_MAX_SNAPSHOT_BYTES,
+    AgentJobLease,
+    BatchAck,
+    JobKind,
+    ProcessingMode,
+)
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import Agent, AgentBatch, AgentJob, Source
 from .agent_auth import hash_token, verify_token
+from .app_settings import AppSettingsService
 
 
 def _now() -> datetime:
@@ -60,6 +71,24 @@ class AgentJobService:
         root_id = next(
             (root["root_id"] for root in agent_roots if root.get("path") == source.root_path), None
         )
+        settings = AppSettingsService(self.db).get_settings()
+        extraction = {
+            name: getattr(settings, name)
+            for name in (
+                "unsupported_file_policy",
+                "media_metadata_mode",
+                "raw_metadata_mode",
+                "index_gps_metadata",
+                "max_text_file_size_mb",
+                "max_pdf_file_size_mb",
+                "max_office_file_size_mb",
+                "image_metadata_max_size_mb",
+                "epub_extraction_max_size_mb",
+                "comic_extraction_max_size_mb",
+                "media_probe_max_size_mb",
+            )
+        }
+        extraction["source_name"] = source.name
         payload = {
             "full": full,
             "root_id": root_id,
@@ -71,7 +100,14 @@ class AgentJobService:
             if source.exclude_patterns
             else None,
             "known_files": known,
-            "extraction": {"source_name": source.name},
+            "extraction": extraction,
+            "limits": {
+                "max_snapshot_bytes": REMOTE_MAX_SNAPSHOT_BYTES,
+                "max_batch_documents": REMOTE_MAX_BATCH_DOCUMENTS,
+                "max_batch_bytes": REMOTE_MAX_BATCH_BYTES,
+                "max_scan_files": REMOTE_MAX_SCAN_FILES,
+                "max_entries_per_directory": REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+            },
         }
         job = AgentJob(
             id=secrets.token_urlsafe(18),
