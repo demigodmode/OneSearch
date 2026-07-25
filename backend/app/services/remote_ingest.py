@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from onesearch_shared import DocumentBatch, ScanManifest
 from sqlalchemy import select
 
-from ..models import AgentJob, IndexedFile, Source
+from ..models import AgentBatch, AgentJob, IndexedFile, Source
 from ..schemas import Document
 from .agent_jobs import AgentJobService, JobConflict
 
@@ -32,6 +32,35 @@ def remote_document_id(source_id: str, path: str) -> str:
 class RemoteIngestService:
     def __init__(self, db, search_service):
         self.db, self.search_service = db, search_service
+
+    async def accept_batch(
+        self, agent_id: str, job_id: str, lease_token: str, batch: DocumentBatch
+    ):
+        jobs = AgentJobService(self.db)
+        jobs.validate_lease(agent_id, job_id, lease_token)
+        if batch.job_id != job_id:
+            raise JobConflict("batch job mismatch")
+        canonical = json.dumps(
+            batch.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+        checksum = hashlib.sha256(canonical.encode()).hexdigest()
+        existing = self.db.scalar(
+            select(AgentBatch).where(
+                AgentBatch.job_id == job_id, AgentBatch.idempotency_key == batch.batch_id
+            )
+        )
+        if existing is not None:
+            if existing.checksum != checksum:
+                raise JobConflict("batch checksum conflict")
+            from onesearch_shared import BatchAck
+
+            return BatchAck(
+                batch_id=batch.batch_id, accepted_count=len(batch.documents), duplicate=True
+            )
+        await self.ingest(agent_id, job_id, batch)
+        return jobs.accept_batch(
+            agent_id, job_id, lease_token, batch.batch_id, batch.model_dump(mode="json")
+        )
 
     async def ingest(self, agent_id: str, job_id: str, batch: DocumentBatch):
         job = self.db.get(AgentJob, job_id)
@@ -89,7 +118,10 @@ class RemoteIngestService:
             )
         return documents
 
-    def store_manifest(self, agent_id: str, job_id: str, manifest: ScanManifest) -> None:
+    def accept_manifest(
+        self, agent_id: str, job_id: str, lease_token: str, manifest: ScanManifest
+    ) -> None:
+        AgentJobService(self.db).validate_lease(agent_id, job_id, lease_token)
         job = self.db.get(AgentJob, job_id)
         if (
             job is None

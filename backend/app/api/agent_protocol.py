@@ -4,7 +4,6 @@
 """Versioned protocol endpoints used by remote indexing agents."""
 
 import asyncio
-import hashlib
 import json
 import time
 import uuid
@@ -25,11 +24,10 @@ from onesearch_shared import (
 from onesearch_shared import (
     AgentHeartbeat as AgentHeartbeatRequest,
 )
-from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db.database import get_db
-from ..models import Agent, AgentBatch
+from ..models import Agent
 from ..schemas import AgentHeartbeatResponse
 from ..services.agent_auth import (
     consume_enrollment_code,
@@ -232,26 +230,8 @@ async def submit_batch(
     if request.job_id != job_id or lease_token is None:
         raise HTTPException(status_code=401, detail="Invalid or expired job lease")
     try:
-        jobs = AgentJobService(db)
-        leased = jobs._leased_job(agent.id, job_id, lease_token)
-        canonical = json.dumps(
-            request.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        )
-        checksum = hashlib.sha256(canonical.encode()).hexdigest()
-        previous = db.scalar(
-            select(AgentBatch).where(
-                AgentBatch.job_id == job_id, AgentBatch.idempotency_key == request.batch_id
-            )
-        )
-        if previous is not None and previous.checksum != checksum:
-            raise JobConflict()
-        if leased.processing_mode == "on_agent" and previous is None:
-            await get_remote_ingest_service(db).ingest(agent.id, job_id, request)
-        result = jobs.accept_batch(
-            agent.id, job_id, lease_token, request.batch_id, request.model_dump(mode="json")
+        result = await get_remote_ingest_service(db).accept_batch(
+            agent.id, job_id, lease_token, request
         )
         db.commit()
         return result
@@ -271,9 +251,7 @@ async def submit_manifest(
     if request.job_id != job_id or lease_token is None:
         raise HTTPException(status_code=401, detail="Invalid or expired job lease")
     try:
-        jobs = AgentJobService(db)
-        jobs._leased_job(agent.id, job_id, lease_token)
-        get_remote_ingest_service(db).store_manifest(agent.id, job_id, request)
+        get_remote_ingest_service(db).accept_manifest(agent.id, job_id, lease_token, request)
         db.commit()
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()

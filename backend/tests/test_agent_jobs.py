@@ -173,8 +173,10 @@ def test_agent_job_api_claim_progress_batch_completion_and_cancellation_ack(
     service = AgentJobService(db_session)
 
     class FakeIngest:
-        async def ingest(self, *args):
-            return []
+        async def accept_batch(self, agent_id, job_id, token, batch):
+            return AgentJobService(db_session).accept_batch(
+                agent_id, job_id, token, batch.batch_id, batch.model_dump(mode="json")
+            )
 
         async def reconcile_completion(self, agent_id, job_id, token):
             AgentJobService(db_session).complete_reconciled_scan(agent_id, job_id, token)
