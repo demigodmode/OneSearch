@@ -1707,3 +1707,30 @@ async def test_stream_file_uploads_bounded_chunks_and_final_checksum(tmp_path):
     assert [call.get("data") for call in client.calls] == [b"abc", b"de", None]
     assert [call["sequence"] for call in client.calls] == [0, 1, 2]
     assert client.calls[-1]["complete"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("path", "size", "modified", "reason", "detail"), [
+    ("missing.txt", 1, 1, "not_found", "remote_file_missing"),
+    ("a.txt", 2, 1, "invalid_request", "remote_file_changed"),
+])
+async def test_stream_file_maps_missing_and_changed_without_path_leak(
+    tmp_path, path, size, modified, reason, detail
+):
+    from types import SimpleNamespace
+
+    from onesearch_shared import ProcessingMode
+
+    (tmp_path / "a.txt").write_text("x")
+    lease = SimpleNamespace(id="stream-fail", kind=SimpleNamespace(value="stream_file"),
+        processing_mode=ProcessingMode.ON_SERVER, source_id="s", lease_token="token",
+        payload={"root_id":"r", "path":path, "size_bytes":size, "modified_at":modified, "maximum_size":2})
+    class Client:
+        def __init__(self): self.completions = []
+        async def job_heartbeat(self, *args): pass
+        async def complete(self, *args): self.completions.append(args[1])
+    client = Client()
+    await worker_module.run_stream_file_job(lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))])
+    completion = client.completions[0]
+    assert completion.reason.value == reason and completion.detail == detail
+    assert str(tmp_path) not in completion.detail

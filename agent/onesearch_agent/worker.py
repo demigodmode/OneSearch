@@ -627,14 +627,32 @@ async def _run_file_transfer_job(lease, client, *, roots, expected_kind, chunk_b
         await client.cancel_ack(lease.id, lease.lease_token)
         return
     except Exception as error:
+        missing = isinstance(error, FileNotFoundError) or not any(
+            (Path(root.path) / payload.get("path", "")).exists()
+            for root in roots
+            if root.root_id == payload.get("root_id")
+        )
+        changed = isinstance(error, ExtractionError) and "changed" in str(error)
         await _complete_with_recovery(
             client,
             lease,
             JobCompletion(
                 job_id=lease.id,
                 status=JobStatus.FAILED,
-                reason=JobFailureReason.EXTRACTION_FAILED,
-                detail=_safe_failure(error),
+                reason=(
+                    JobFailureReason.NOT_FOUND
+                    if missing
+                    else JobFailureReason.INVALID_REQUEST
+                    if changed
+                    else JobFailureReason.EXTRACTION_FAILED
+                ),
+                detail=(
+                    "remote_file_missing"
+                    if missing
+                    else "remote_file_changed"
+                    if changed
+                    else _safe_failure(error)
+                ),
             ),
         )
     finally:
