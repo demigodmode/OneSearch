@@ -1,6 +1,7 @@
 import pytest
 from onesearch_shared.protocol import (
     PROTOCOL_VERSION,
+    REMOTE_JOB_HEARTBEAT_SECONDS,
     AgentEnrollmentRequest,
     AgentEnrollmentResponse,
     AgentHeartbeat,
@@ -37,6 +38,10 @@ def test_heartbeat_defaults_to_current_protocol_and_round_trips_strictly():
 
     assert heartbeat.protocol_version == PROTOCOL_VERSION == 1
     assert_json_round_trip(heartbeat)
+
+
+def test_remote_job_heartbeat_interval_is_shorter_than_the_server_lease():
+    assert REMOTE_JOB_HEARTBEAT_SECONDS == 20 < 60
 
     with pytest.raises(ValidationError, match="extra_forbidden"):
         AgentHeartbeat.model_validate(

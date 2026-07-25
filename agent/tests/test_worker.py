@@ -1170,3 +1170,149 @@ async def test_terminal_completion_ambiguity_is_not_retried_or_reversed(
         )
     assert client.manifests == 1
     assert [completion.status.value for completion in client.completions] == [expected]
+
+
+@pytest.mark.asyncio
+async def test_lease_keeper_heartbeats_while_threaded_scan_is_blocked(monkeypatch, tmp_path):
+    import threading
+
+    from onesearch_shared import ScanManifest
+
+    started, release = threading.Event(), threading.Event()
+
+    class Scanner:
+        changed_paths = []
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def scan(self, **kwargs):
+            started.set()
+            assert release.wait(2)
+            return ScanManifest(**kwargs, complete=True)
+
+    class Client:
+        def __init__(self):
+            self.progress = []
+
+        async def job_heartbeat(self, *args):
+            self.progress.append(args[1])
+            if len(self.progress) == 2:
+                release.set()
+
+        async def submit_manifest(self, *args):
+            pass
+
+        async def complete(self, *args):
+            pass
+
+    async def fast_periodic(_):
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    client = Client()
+    await worker_module.run_scan_job(
+        _scan_lease(),
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+        _lease_interval=1,
+        _lease_sleep=fast_periodic,
+    )
+    assert started.is_set() and len(client.progress) >= 2
+
+
+@pytest.mark.asyncio
+async def test_lease_loss_during_threaded_scan_surfaces_before_submission(monkeypatch, tmp_path):
+    import threading
+
+    from onesearch_agent.client import JobLeaseError
+    from onesearch_shared import ScanManifest
+
+    release = threading.Event()
+
+    class Scanner:
+        changed_paths = []
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def scan(self, **kwargs):
+            assert release.wait(2)
+            return ScanManifest(**kwargs, complete=True)
+
+    class Client:
+        def __init__(self):
+            self.heartbeats = self.manifests = self.completions = 0
+
+        async def job_heartbeat(self, *args):
+            self.heartbeats += 1
+            if self.heartbeats == 2:
+                release.set()
+                raise JobLeaseError("lost")
+
+        async def submit_manifest(self, *args):
+            self.manifests += 1
+
+        async def complete(self, *args):
+            self.completions += 1
+
+    async def fast_periodic(_):
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    client = Client()
+    with pytest.raises(JobLeaseError):
+        await worker_module.run_scan_job(
+            _scan_lease(),
+            client,
+            roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+            _lease_interval=1,
+            _lease_sleep=fast_periodic,
+        )
+    assert (client.manifests, client.completions) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_worker_cancellation_closes_lease_keeper(monkeypatch, tmp_path):
+    import threading
+
+    from onesearch_shared import ScanManifest
+
+    started, release = threading.Event(), threading.Event()
+
+    class Scanner:
+        changed_paths = []
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def scan(self, **kwargs):
+            started.set()
+            release.wait(2)
+            return ScanManifest(**kwargs, complete=True)
+
+    class Client:
+        async def job_heartbeat(self, *args):
+            pass
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    before = set(asyncio.all_tasks())
+    task = asyncio.create_task(
+        worker_module.run_scan_job(
+            _scan_lease(),
+            Client(),
+            roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+            _lease_interval=60,
+        )
+    )
+    assert await asyncio.to_thread(started.wait, 1)
+    task.cancel()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0)
+    assert not [
+        pending
+        for pending in asyncio.all_tasks() - before
+        if "LeaseKeeper._run" in repr(pending.get_coro()) and not pending.done()
+    ]

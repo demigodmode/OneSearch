@@ -2,6 +2,7 @@
 
 from .protocol import (
     PROTOCOL_VERSION,
+    REMOTE_JOB_HEARTBEAT_SECONDS,
     REMOTE_MAX_BATCH_BYTES,
     REMOTE_MAX_BATCH_DOCUMENTS,
     REMOTE_MAX_ENTRIES_PER_DIRECTORY,
@@ -40,6 +41,7 @@ __all__ = [
     "REMOTE_MAX_BATCH_BYTES",
     "REMOTE_MAX_SCAN_FILES",
     "REMOTE_MAX_ENTRIES_PER_DIRECTORY",
+    "REMOTE_JOB_HEARTBEAT_SECONDS",
     "AgentEnrollmentRequest",
     "AgentEnrollmentResponse",
     "AgentHeartbeat",

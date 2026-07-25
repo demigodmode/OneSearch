@@ -9,10 +9,12 @@ import os
 import stat
 import tempfile
 from collections.abc import Iterator
+from contextlib import suppress
 from pathlib import Path
 from typing import Literal
 
 from onesearch_shared import (
+    REMOTE_JOB_HEARTBEAT_SECONDS,
     REMOTE_MAX_BATCH_BYTES,
     REMOTE_MAX_BATCH_DOCUMENTS,
     REMOTE_MAX_ENTRIES_PER_DIRECTORY,
@@ -178,6 +180,72 @@ async def _submit_idempotent(operation, *, attempts=3, sleep=asyncio.sleep):
             await sleep(min(5, 2**attempt))
 
 
+class LeaseKeeper:
+    """Own serialized lease heartbeats while a scan job is in flight."""
+
+    def __init__(
+        self,
+        lease,
+        client,
+        *,
+        attempts=3,
+        interval=REMOTE_JOB_HEARTBEAT_SECONDS,
+        sleep=asyncio.sleep,
+    ):
+        self.lease, self.client = lease, client
+        self.attempts, self.interval, self.sleep = attempts, interval, sleep
+        self.completed, self.total, self.error = 0, None, None
+        self._lock = asyncio.Lock()
+        self._task = None
+
+    async def _heartbeat(self):
+        async with self._lock:
+            await _submit_idempotent(
+                lambda: self.client.job_heartbeat(
+                    self.lease.id,
+                    JobProgress(
+                        job_id=self.lease.id,
+                        completed_items=self.completed,
+                        total_items=self.total,
+                    ),
+                    self.lease.lease_token,
+                ),
+                attempts=self.attempts,
+                sleep=self.sleep,
+            )
+
+    async def start(self):
+        await self._heartbeat()
+        self._task = asyncio.create_task(self._run())
+
+    def set_total(self, total):
+        self.total = total if self.total is None else max(self.total, total)
+
+    async def advance(self):
+        self.completed += 1
+        await self._heartbeat()
+
+    async def check(self):
+        if self.error is not None:
+            raise self.error
+
+    async def _run(self):
+        try:
+            while True:
+                await self.sleep(self.interval)
+                await self._heartbeat()
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            self.error = error
+
+    async def close(self):
+        if self._task is not None:
+            self._task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._task
+
+
 async def extract_confined(
     root_id, path, roots, *, expected: ScanFile, source_id, extraction, max_snapshot_bytes
 ) -> NormalizedRemoteDocument | None:
@@ -222,7 +290,16 @@ async def extract_confined(
     )
 
 
-async def run_scan_job(lease, client, *, roots, _mutation_attempts=3, _sleep=asyncio.sleep) -> None:
+async def run_scan_job(
+    lease,
+    client,
+    *,
+    roots,
+    _mutation_attempts=3,
+    _sleep=asyncio.sleep,
+    _lease_interval=REMOTE_JOB_HEARTBEAT_SECONDS,
+    _lease_sleep=asyncio.sleep,
+) -> None:
     """Execute a scan, preserving per-file failures in the terminal manifest."""
     try:
         payload = ScanPayload.model_validate(getattr(lease, "payload", None))
@@ -259,86 +336,89 @@ async def run_scan_job(lease, client, *, roots, _mutation_attempts=3, _sleep=asy
         max_files=limits.max_scan_files,
         max_entries_per_directory=limits.max_entries_per_directory,
     )
-    manifest = scanner.scan(job_id=lease.id, source_id=lease.source_id)
-    failures = {failure.path: failure for failure in manifest.failures}
-    expected = {item.path: item for item in manifest.files}
-    await client.job_heartbeat(
-        lease.id,
-        JobProgress(job_id=lease.id, completed_items=0, total_items=len(scanner.changed_paths)),
-        lease.lease_token,
+    keeper = LeaseKeeper(
+        lease,
+        client,
+        attempts=_mutation_attempts,
+        interval=_lease_interval,
+        sleep=_lease_sleep,
     )
-    builder = StreamingBatchBuilder(
-        lease.id,
-        max_documents=limits.max_batch_documents,
-        max_bytes=limits.max_batch_bytes,
-    )
-    completed = 0
-    for path in scanner.changed_paths:
-        try:
-            document = await extract_confined(
-                root_id,
-                path,
-                roots,
-                expected=expected[path],
-                source_id=lease.source_id,
-                extraction=extraction,
-                max_snapshot_bytes=limits.max_snapshot_bytes,
+    await keeper.start()
+    try:
+        manifest = await asyncio.to_thread(scanner.scan, job_id=lease.id, source_id=lease.source_id)
+        keeper.set_total(len(scanner.changed_paths))
+        await keeper.check()
+        failures = {failure.path: failure for failure in manifest.failures}
+        expected = {item.path: item for item in manifest.files}
+        builder = StreamingBatchBuilder(
+            lease.id,
+            max_documents=limits.max_batch_documents,
+            max_bytes=limits.max_batch_bytes,
+        )
+        for path in scanner.changed_paths:
+            await keeper.check()
+            try:
+                document = await extract_confined(
+                    root_id,
+                    path,
+                    roots,
+                    expected=expected[path],
+                    source_id=lease.source_id,
+                    extraction=extraction,
+                    max_snapshot_bytes=limits.max_snapshot_bytes,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                failures[path] = ScanFailure(path=path, error=_safe_failure(error))
+            else:
+                if document is not None:
+                    try:
+                        for batch in builder.add(document):
+                            await keeper.check()
+                            await _submit_idempotent(
+                                lambda batch=batch: client.submit_batch(
+                                    lease.id, batch, lease.lease_token
+                                ),
+                                attempts=_mutation_attempts,
+                                sleep=_sleep,
+                            )
+                    except BatchBuildError as error:
+                        failures[path] = ScanFailure(path=path, error=_safe_failure(error))
+            finally:
+                await keeper.advance()
+        for batch in builder.finish():
+            await keeper.check()
+            await _submit_idempotent(
+                lambda batch=batch: client.submit_batch(lease.id, batch, lease.lease_token),
+                attempts=_mutation_attempts,
+                sleep=_sleep,
             )
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:
-            failures[path] = ScanFailure(path=path, error=_safe_failure(error))
-        else:
-            if document is not None:
-                try:
-                    for batch in builder.add(document):
-                        await _submit_idempotent(
-                            lambda batch=batch: client.submit_batch(
-                                lease.id, batch, lease.lease_token
-                            ),
-                            attempts=_mutation_attempts,
-                            sleep=_sleep,
-                        )
-                except BatchBuildError as error:
-                    failures[path] = ScanFailure(path=path, error=_safe_failure(error))
-        finally:
-            completed += 1
-            await client.job_heartbeat(
-                lease.id,
-                JobProgress(
-                    job_id=lease.id,
-                    completed_items=completed,
-                    total_items=len(scanner.changed_paths),
-                ),
-                lease.lease_token,
-            )
-    for batch in builder.finish():
+        manifest = manifest.model_copy(
+            update={"failures": [failures[path] for path in sorted(failures)]}
+        )
+        await keeper.check()
         await _submit_idempotent(
-            lambda batch=batch: client.submit_batch(lease.id, batch, lease.lease_token),
+            lambda: client.submit_manifest(lease.id, manifest, lease.lease_token),
             attempts=_mutation_attempts,
             sleep=_sleep,
         )
-    manifest = manifest.model_copy(
-        update={"failures": [failures[path] for path in sorted(failures)]}
-    )
-    await _submit_idempotent(
-        lambda: client.submit_manifest(lease.id, manifest, lease.lease_token),
-        attempts=_mutation_attempts,
-        sleep=_sleep,
-    )
-    if not manifest.complete:
+        await keeper.check()
+        if not manifest.complete:
+            await client.complete(
+                lease.id,
+                JobCompletion(
+                    job_id=lease.id,
+                    status=JobStatus.FAILED,
+                    reason=JobFailureReason.INTERNAL_ERROR,
+                    detail="incomplete scan",
+                    checkpoint=manifest.checkpoint,
+                ),
+                lease.lease_token,
+            )
+            return
         await client.complete(
-            lease.id,
-            JobCompletion(
-                job_id=lease.id,
-                status=JobStatus.FAILED,
-                reason=JobFailureReason.INTERNAL_ERROR,
-                detail="incomplete scan",
-                checkpoint=manifest.checkpoint,
-            ),
-            lease.lease_token,
+            lease.id, JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED), lease.lease_token
         )
-        return
-    await client.complete(
-        lease.id, JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED), lease.lease_token
-    )
+    finally:
+        await keeper.close()
