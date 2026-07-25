@@ -10,7 +10,12 @@ import click
 
 from .client import AgentClient, AgentDisabled, AgentIncompatible, AgentRevoked
 from .config import config_path, load_config
-from .credentials import CredentialError, credential_store
+from .credentials import (
+    CredentialError,
+    FileCredentialStore,
+    KeyringCredentialStore,
+    credential_store,
+)
 from .runtime import run_runtime
 from .service import ServiceError, install, uninstall
 
@@ -53,6 +58,9 @@ def enroll(ctx, server):
     try:
         response = asyncio.run(go())
         store.save(response.agent_token)
+        FileCredentialStore(config.state_dir).save_backend_marker(
+            "keyring" if isinstance(store, KeyringCredentialStore) else "file"
+        )
     except Exception as error:
         raise click.ClickException("enrollment failed") from error
     click.echo("Enrollment submitted; admin approval is pending.")
