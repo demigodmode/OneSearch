@@ -19,6 +19,19 @@ def _is_posix() -> bool:
     return os.name != "nt"
 
 
+def _uid() -> int:
+    return os.getuid()
+
+
+def _validate_posix_metadata(symlink: bool, mode: int, owner: int, label: str) -> None:
+    if symlink:
+        raise CredentialError(f"{label} is unsafe")
+    if mode & 0o077:
+        raise CredentialError(f"{label} permissions are unsafe")
+    if owner != _uid():
+        raise CredentialError(f"{label} owner is unsafe")
+
+
 class FileCredentialStore:
     def __init__(self, state_dir: Path):
         self.state_dir = state_dir
@@ -30,11 +43,10 @@ class FileCredentialStore:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         if _is_posix():
             self.state_dir.chmod(0o700)
-            mode = stat.S_IMODE(self.state_dir.stat().st_mode)
-            if mode & 0o077:
-                raise CredentialError("state directory permissions are unsafe")
-            if self.state_dir.stat().st_uid != os.getuid():
-                raise CredentialError("state directory owner is unsafe")
+            info = self.state_dir.stat()
+            _validate_posix_metadata(
+                False, stat.S_IMODE(info.st_mode), info.st_uid, "state directory"
+            )
 
     def save(self, token: str):
         if not token.strip():
@@ -57,10 +69,9 @@ class FileCredentialStore:
         self._secure_dir()
         if self.path.is_symlink() or not self.path.is_file():
             raise CredentialError("credential is unavailable")
-        if _is_posix() and stat.S_IMODE(self.path.stat().st_mode) & 0o077:
-            raise CredentialError("credential permissions are unsafe")
-        if _is_posix() and self.path.stat().st_uid != os.getuid():
-            raise CredentialError("credential owner is unsafe")
+        if _is_posix():
+            info = self.path.stat()
+            _validate_posix_metadata(False, stat.S_IMODE(info.st_mode), info.st_uid, "credential")
         token = self.path.read_text().strip()
         if not token:
             raise CredentialError("credential is blank")

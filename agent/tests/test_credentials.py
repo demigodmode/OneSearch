@@ -5,6 +5,7 @@ from onesearch_agent.credentials import (
     CredentialError,
     FileCredentialStore,
     KeyringCredentialStore,
+    _validate_posix_metadata,
     credential_store,
 )
 
@@ -110,6 +111,15 @@ def test_windows_auto_never_selects_file_after_keyring_error(tmp_path: Path, mon
         lambda self, optional=False: (_ for _ in ()).throw(CredentialError("no keyring")),
     )
     assert isinstance(credential_store(config, system="nt"), KeyringCredentialStore)
+
+
+@pytest.mark.parametrize(
+    "symlink,mode,owner", [(True, 0o600, 1), (False, 0o644, 1), (False, 0o600, 2)]
+)
+def test_portable_posix_metadata_rejects_unsafe_values(monkeypatch, symlink, mode, owner):
+    monkeypatch.setattr("onesearch_agent.credentials._uid", lambda: 1)
+    with pytest.raises(CredentialError):
+        _validate_posix_metadata(symlink, mode, owner, "credential")
 
 
 @pytest.mark.skipif(__import__("os").name == "nt", reason="POSIX modes")
