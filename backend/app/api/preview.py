@@ -17,7 +17,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..db.database import get_db
-from ..models import Source, User
+from ..models import Agent, IndexedFile, Source, User
 from ..services.agent_jobs import AgentJobService, JobConflict
 from ..services.app_settings import AppSettingsService
 from ..services.remote_files import RemoteStreamTimeout, remote_streams
@@ -112,6 +112,8 @@ async def create_document_download_link(
     source = db.get(Source, document.get("source_id"))
     if source is None:
         _preview_error(status.HTTP_404_NOT_FOUND, "source_not_found", "Document source not found")
+    if source.location_type == "agent":
+        _require_available_remote_source(source, db)
     file_path = (
         None if source.location_type == "agent" else _validated_document_path(document, source)
     )
@@ -140,18 +142,28 @@ async def download_document(
     if source is None:
         _preview_error(status.HTTP_404_NOT_FOUND, "source_not_found", "Document source not found")
     if source.location_type == "agent":
+        _require_available_remote_source(source, db)
+        indexed = _remote_indexed_file(source, document, db)
+        job = None
         try:
             job = AgentJobService(db).enqueue_stream_file(
                 source,
                 path=str(document.get("path") or ""),
-                size_bytes=int(document.get("size_bytes") or 0),
-                modified_at=int(document.get("modified_at") or 0),
+                size_bytes=indexed.size_bytes,
+                modified_at=indexed.modified_at_ns,
             )
+            queue = remote_streams.open(job.id)
             db.commit()
-        except JobConflict as error:
+        except JobConflict:
             db.rollback()
-            _preview_error(status.HTTP_503_SERVICE_UNAVAILABLE, "agent_offline", str(error))
-        queue = remote_streams.open(job.id)
+            if job is not None:
+                await remote_streams.close(job.id)
+            _preview_error(status.HTTP_409_CONFLICT, "agent_offline", "Remote agent is unavailable")
+        except Exception:
+            db.rollback()
+            if job is not None:
+                await remote_streams.close(job.id)
+            raise
 
         async def stream():
             try:
@@ -202,6 +214,28 @@ async def _validated_indexed_file(document_id: str, db: Session) -> tuple[dict, 
 
     file_path = _validated_document_path(document, source)
     return document, file_path
+
+
+def _require_available_remote_source(source: Source, db: Session) -> Agent:
+    enabled = AppSettingsService(db).get_settings().remote_agents_enabled
+    agent = db.get(Agent, source.agent_id) if source.agent_id else None
+    if not enabled or agent is None or agent.status != "online" or agent.approved_at is None:
+        _preview_error(status.HTTP_409_CONFLICT, "agent_offline", "Remote agent is unavailable")
+    return agent
+
+
+def _remote_indexed_file(source: Source, document: dict, db: Session) -> IndexedFile:
+    path = str(document.get("path") or "")
+    indexed = (
+        db.query(IndexedFile)
+        .filter(IndexedFile.source_id == source.id, IndexedFile.path == path)
+        .one_or_none()
+    )
+    if indexed is None:
+        _preview_error(status.HTTP_404_NOT_FOUND, "remote_file_missing", "Remote file is missing")
+    if indexed.status != "success" or indexed.size_bytes is None or indexed.modified_at_ns is None:
+        _preview_error(status.HTTP_409_CONFLICT, "remote_file_changed", "Remote file changed")
+    return indexed
 
 
 def _create_download_token(user_id: int, document_id: str) -> str:

@@ -3,6 +3,7 @@
 
 """Tests for authenticated image/RAW preview API."""
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from io import BytesIO
@@ -178,6 +179,12 @@ def capture_remote_download_response(monkeypatch):
         return Response(status_code=204)
 
     monkeypatch.setattr("app.api.preview.StreamingResponse", no_stream)
+    from app.services.remote_files import remote_streams
+
+    existing_jobs = set(remote_streams._streams)
+    yield
+    for job_id in set(remote_streams._streams) - existing_jobs:
+        asyncio.run(remote_streams.close(job_id))
 
 
 def _remote_download_link(client, document):
@@ -381,9 +388,22 @@ def test_remote_download_job_uses_exact_indexed_file_metadata(
     assert payload["modified_at"] == indexed.modified_at_ns
 
 
-@pytest.mark.parametrize("indexed_status", [None, "failed", "skipped"])
+@pytest.mark.parametrize(
+    ("indexed_status", "expected_status", "expected_code"),
+    [
+        (None, 404, "remote_file_missing"),
+        ("failed", 409, "remote_file_changed"),
+        ("skipped", 409, "remote_file_changed"),
+    ],
+)
 def test_remote_download_refuses_missing_or_non_success_indexed_file(
-    client, db_session, remote_download, capture_remote_download_response, indexed_status
+    client,
+    db_session,
+    remote_download,
+    capture_remote_download_response,
+    indexed_status,
+    expected_status,
+    expected_code,
 ):
     _agent, source, indexed, document = remote_download
     if indexed_status is None:
@@ -395,8 +415,8 @@ def test_remote_download_refuses_missing_or_non_success_indexed_file(
 
     response = client.get(url)
 
-    assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "remote_file_unavailable"
+    assert response.status_code == expected_status
+    assert response.json()["detail"]["code"] == expected_code
     assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
 
 
