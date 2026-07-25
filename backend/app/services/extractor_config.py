@@ -22,6 +22,12 @@ _SETTERS = (
 def configure_extractor(extractor, settings):
     for setter, field in _SETTERS:
         if hasattr(extractor, setter):
+            if field == "raw_metadata_timeout_seconds" and (
+                field not in settings
+                if isinstance(settings, dict)
+                else not hasattr(settings, field)
+            ):
+                continue
             value = settings[field] if isinstance(settings, dict) else getattr(settings, field)
             getattr(extractor, setter)(value)
     module = extractor.__class__.__module__
