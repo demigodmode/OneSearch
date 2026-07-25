@@ -78,6 +78,40 @@ def test_linux_auto_falls_back_to_file_when_keyring_errors(tmp_path: Path, monke
     assert isinstance(credential_store(config, system="posix"), FileCredentialStore)
 
 
+def test_linux_auto_prefers_usable_keyring(tmp_path: Path, monkeypatch):
+    config = type(
+        "Config",
+        (),
+        {
+            "credential_store": "auto",
+            "server_url": "https://host",
+            "agent_name": "a",
+            "state_dir": tmp_path,
+        },
+    )()
+    monkeypatch.setattr(KeyringCredentialStore, "load", lambda self, optional=False: "present")
+    assert isinstance(credential_store(config, system="posix"), KeyringCredentialStore)
+
+
+def test_windows_auto_never_selects_file_after_keyring_error(tmp_path: Path, monkeypatch):
+    config = type(
+        "Config",
+        (),
+        {
+            "credential_store": "auto",
+            "server_url": "https://host",
+            "agent_name": "a",
+            "state_dir": tmp_path,
+        },
+    )()
+    monkeypatch.setattr(
+        KeyringCredentialStore,
+        "load",
+        lambda self, optional=False: (_ for _ in ()).throw(CredentialError("no keyring")),
+    )
+    assert isinstance(credential_store(config, system="nt"), KeyringCredentialStore)
+
+
 @pytest.mark.skipif(__import__("os").name == "nt", reason="POSIX modes")
 def test_file_store_rejects_permissive_token_file(tmp_path: Path):
     state = tmp_path / "state"

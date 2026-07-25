@@ -172,3 +172,69 @@ async def test_409_detail_mapping(detail, error):
     ) as client:
         with pytest.raises(error):
             await client.claim()
+
+
+@pytest.mark.asyncio
+async def test_all_job_endpoints_send_contract_headers_and_bodies():
+    seen = []
+
+    async def handler(request):
+        seen.append(
+            (
+                request.url.path,
+                request.headers["authorization"],
+                request.headers["x-onesearch-protocol-version"],
+                request.headers["user-agent"],
+                request.headers["x-onesearch-lease-token"],
+                request.content,
+            )
+        )
+        return (
+            httpx.Response(200, json={"batch_id": "b", "accepted_count": 0})
+            if request.url.path.endswith("batches")
+            else httpx.Response(200)
+        )
+
+    class Body:
+        def model_dump(self, mode):
+            return {"job_id": "job", "value": "ok"}
+
+    async with AgentClient(
+        "http://server.test", "token", transport=httpx.MockTransport(handler)
+    ) as client:
+        await client.job_heartbeat("job", Body(), "lease")
+        await client.submit_batch("job", Body(), "lease")
+        await client.complete("job", Body(), "lease")
+        await client.cancel_ack("job", "lease")
+    assert [item[0] for item in seen] == [
+        "/api/agent/v1/jobs/job/heartbeat",
+        "/api/agent/v1/jobs/job/batches",
+        "/api/agent/v1/jobs/job/complete",
+        "/api/agent/v1/jobs/job/cancel-ack",
+    ]
+    assert all(item[1] == "Bearer token" and item[2] == "1" and item[4] == "lease" for item in seen)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [500, 503])
+async def test_server_errors_retry_then_stop(status):
+    calls, delays = 0, []
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(status)
+
+    async def sleep(delay):
+        delays.append(delay)
+
+    async with AgentClient(
+        "http://server.test",
+        "token",
+        transport=httpx.MockTransport(handler),
+        sleep=sleep,
+        random=lambda: 0,
+    ) as client:
+        with pytest.raises(AgentError):
+            await client.claim()
+    assert calls == 4 and delays == [1, 2, 4]
