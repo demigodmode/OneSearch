@@ -136,7 +136,7 @@ async def test_remote_ingest_preserves_exact_nanoseconds_for_next_incremental_sc
             batch_id="precise",
             documents=[
                 NormalizedRemoteDocument(
-                    source_id="s", path=path, content="x", modified_at=modified_at_ns
+                    source_id="s", path=path, content="x", size_bytes=1, modified_at=modified_at_ns
                 )
             ],
         ),
