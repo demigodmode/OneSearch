@@ -270,6 +270,25 @@ class AgentJobService:
         """Public lease validation for operations with external side effects."""
         return self._leased_job(agent_id, job_id, token)
 
+    def lock_active_lease(self, agent_id: str, job_id: str, token: str) -> AgentJob:
+        """Serialize an active lease's external side effects until this request commits."""
+        now = _now()
+        locked = self.db.execute(
+            update(AgentJob)
+            .where(
+                AgentJob.id == job_id,
+                AgentJob.agent_id == agent_id,
+                AgentJob.lease_token_hash == hash_token(token),
+                AgentJob.lease_expires_at > now,
+                AgentJob.status.in_(("claimed", "running")),
+            )
+            .values(progress_current=AgentJob.progress_current)
+        )
+        if locked.rowcount != 1:
+            self._leased_job(agent_id, job_id, token)
+            raise JobConflict()
+        return self.db.get(AgentJob, job_id)
+
     def extend_lease(
         self,
         agent_id: str,
@@ -310,21 +329,7 @@ class AgentJobService:
     def accept_batch(
         self, agent_id: str, job_id: str, token: str, idempotency_key: str, payload: dict
     ) -> BatchAck:
-        now = _now()
-        locked = self.db.execute(
-            update(AgentJob)
-            .where(
-                AgentJob.id == job_id,
-                AgentJob.agent_id == agent_id,
-                AgentJob.lease_token_hash == hash_token(token),
-                AgentJob.lease_expires_at > now,
-                AgentJob.status.in_(("claimed", "running")),
-            )
-            .values(progress_current=AgentJob.progress_current)
-        )
-        if locked.rowcount != 1:
-            self._leased_job(agent_id, job_id, token)
-            raise JobConflict()
+        self.lock_active_lease(agent_id, job_id, token)
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         checksum = hashlib.sha256(canonical.encode()).hexdigest()
         existing = self.db.scalar(

@@ -48,9 +48,9 @@ class RemoteIngestService:
         if len(canonical_wire_bytes(batch)) > REMOTE_MAX_BATCH_BYTES:
             raise JobConflict("batch exceeds wire size limit")
         jobs = AgentJobService(self.db)
-        jobs.validate_lease(agent_id, job_id, lease_token)
         if batch.job_id != job_id:
             raise JobConflict("batch job mismatch")
+        jobs.lock_active_lease(agent_id, job_id, lease_token)
         canonical = json.dumps(
             batch.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
         )

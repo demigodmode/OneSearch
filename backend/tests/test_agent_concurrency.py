@@ -1,14 +1,17 @@
 """File-backed SQLite race regressions for durable remote jobs."""
 
+import asyncio
 import threading
 from datetime import datetime, timezone
 
 import pytest
+from onesearch_shared import DocumentBatch, NormalizedRemoteDocument
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Agent, AgentBatch, AgentJob, Base, Source
+from app.models import Agent, AgentBatch, AgentJob, Base, IndexedFile, Source
 from app.services.agent_jobs import AgentJobService, JobConflict, JobLeaseError
+from app.services.remote_ingest import RemoteIngestService
 
 
 def _now():
@@ -213,6 +216,91 @@ def test_batch_and_request_cancel_serialize_without_stale_receipt(tmp_path):
     assert stored.status == "cancelling"
     assert receipts in {0, 1}
     assert (receipts == 1) == any(item[0] == "batch" for item in outcomes)
+    check.close()
+    engine.dispose()
+
+
+def test_remote_ingest_batch_lock_serializes_confirmed_index_and_cancel(tmp_path):
+    engine, sessions = _database(tmp_path)
+    seed = sessions()
+    source = seed.get(Source, "source")
+    service = AgentJobService(seed)
+    job = service.enqueue_scan(source, full=True)
+    seed.commit()
+    lease = service.claim_next("agent")
+    seed.commit()
+    job_id = job.id
+    seed.close()
+
+    index_started, release_index, cancel_committed = (
+        threading.Event(),
+        threading.Event(),
+        threading.Event(),
+    )
+    errors, outcomes = [], []
+
+    class SuspendedConfirmedSearch:
+        def __init__(self):
+            self.indexed = []
+
+        async def index_documents_confirmed(self, documents):
+            self.indexed.append(documents)
+            index_started.set()
+            assert release_index.wait(timeout=5)
+
+    search = SuspendedConfirmedSearch()
+    batch = DocumentBatch(
+        job_id=job_id,
+        batch_id="serialized",
+        documents=[
+            NormalizedRemoteDocument(
+                source_id="source", path="new.txt", content="body", modified_at=1
+            )
+        ],
+    )
+
+    def submit_batch():
+        db = sessions()
+        try:
+            ack = asyncio.run(
+                RemoteIngestService(db, search).accept_batch(
+                    "agent", job_id, lease.lease_token, batch
+                )
+            )
+            db.commit()
+            outcomes.append(("batch", ack.duplicate))
+        finally:
+            db.close()
+
+    def request_cancel():
+        db = sessions()
+        try:
+            assert index_started.wait(timeout=5)
+            AgentJobService(db).cancel(job_id)
+            db.commit()
+            cancel_committed.set()
+            outcomes.append(("cancel", None))
+        finally:
+            db.close()
+
+    batch_thread = threading.Thread(target=_capture, args=(errors, submit_batch))
+    cancel_thread = threading.Thread(target=_capture, args=(errors, request_cancel))
+    batch_thread.start()
+    assert index_started.wait(timeout=5)
+    cancel_thread.start()
+    assert not cancel_committed.wait(timeout=0.2)
+    release_index.set()
+    for thread in (batch_thread, cancel_thread):
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+
+    assert errors == []
+    assert ("batch", False) in outcomes and ("cancel", None) in outcomes
+    check = sessions()
+    assert check.get(AgentJob, job_id).status == "cancelling"
+    assert check.query(AgentBatch).filter_by(job_id=job_id).count() == 1
+    assert check.query(IndexedFile).filter_by(source_id="source", path="new.txt").count() == 1
+    assert len(search.indexed) == 1
     check.close()
     engine.dispose()
 
