@@ -661,3 +661,56 @@ def test_stream_chunk_without_registered_consumer_is_structured_conflict(
     )
     db_session.refresh(job)
     assert job.status == "claimed" and job.active_key == "stream-no-queue"
+
+
+@pytest.mark.parametrize(
+    "query,body",
+    [
+        ("sequence=1", b"x"),
+        ("sequence=0&checksum=" + "0" * 64, b"x"),
+        ("sequence=0&complete=true&stream_checksum=" + "0" * 64, b""),
+    ],
+)
+def test_stream_invalid_transfer_is_changed_conflict(client, db_session, remote, query, body):
+    import asyncio
+
+    from app.models import AgentJob
+    from app.services.remote_files import remote_streams
+
+    agent, source = remote
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    job = AgentJob(
+        id=f"stream-invalid-{query[:8]}",
+        agent_id=agent.id,
+        source_id=source.id,
+        kind="stream_file",
+        status="pending",
+        processing_mode="on_server",
+        active_key=f"stream-invalid-{query[:8]}",
+        payload="{}",
+        checkpoint="{}",
+    )
+    db_session.add(job)
+    db_session.commit()
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    remote_streams.open(job.id)
+    try:
+        response = client.put(
+            f"/api/agent/v1/jobs/{job.id}/file-chunks?{query}",
+            content=body,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-OneSearch-Lease-Token": lease.lease_token,
+            },
+        )
+        assert (
+            response.status_code == 409
+            and response.json()["detail"]["code"] == "remote_file_changed"
+        )
+        db_session.refresh(job)
+        assert job.status == "claimed"
+    finally:
+        asyncio.run(remote_streams.close(job.id))
