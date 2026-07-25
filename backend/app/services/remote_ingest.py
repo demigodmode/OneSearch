@@ -90,11 +90,12 @@ class RemoteIngestService:
         source = self.db.get(Source, job.source_id)
         if source is None:
             raise JobConflict("source missing")
-        documents = []
+        documents, wire_modified_at_ns = [], {}
         for item in batch.documents:
             path = canonical_remote_path(item.path)
             if item.source_id != source.id:
                 raise JobConflict("document source mismatch")
+            wire_modified_at_ns[path] = item.modified_at
             documents.append(
                 Document(
                     id=remote_document_id(source.id, path),
@@ -105,7 +106,7 @@ class RemoteIngestService:
                     extension=path.rsplit(".", 1)[-1].lower() if "." in path else "",
                     type=item.metadata.get("type", "remote"),
                     size_bytes=item.size_bytes or 0,
-                    modified_at=item.modified_at,
+                    modified_at=item.modified_at // 1_000_000_000,
                     indexed_at=int(datetime.now(timezone.utc).timestamp()),
                     content=item.content,
                     title=item.title,
@@ -126,17 +127,12 @@ class RemoteIngestService:
             if record is None:
                 record = IndexedFile(source_id=source.id, path=doc.path)
                 self.db.add(record)
-            # The wire contract accepts integer timestamps; scanner manifests use
-            # nanoseconds while extractor documents historically used seconds.
-            seconds = (
-                doc.modified_at // 1_000_000_000
-                if doc.modified_at > 10_000_000_000
-                else doc.modified_at
-            )
+            seconds = doc.modified_at
             record.size_bytes, record.modified_at = (
                 doc.size_bytes,
                 datetime.fromtimestamp(seconds, timezone.utc).replace(tzinfo=None),
             )
+            record.modified_at_ns = wire_modified_at_ns[doc.path]
             record.hash, record.status, record.error_message = (
                 remote_document_id(source.id, doc.path),
                 "success",

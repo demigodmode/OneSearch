@@ -1,7 +1,8 @@
 """Versioned JSON wire contracts for OneSearch servers and remote agents.
 
-All wire timestamps are Unix UTC epoch seconds. Integers keep JSON payloads
-timezone-independent and avoid runtime-specific datetime serialization.
+Wire timestamps are Unix UTC epoch seconds unless a field documents nanoseconds;
+remote scan and document modified_at values use epoch nanoseconds. Integers keep
+payloads timezone-independent and avoid runtime-specific datetime serialization.
 """
 
 from __future__ import annotations

@@ -4,9 +4,11 @@
 """
 SQLAlchemy ORM models for OneSearch
 """
+
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -25,6 +27,7 @@ from sqlalchemy.orm import declarative_base, relationship
 def _utcnow():
     """Return current UTC time as naive datetime (for SQLite Column defaults)."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 Base = declarative_base()
 
@@ -79,9 +82,7 @@ class AgentEnrollment(Base):
     code_hash = Column(String(64), unique=True, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)
-    created_by_user_id = Column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime, default=_utcnow, nullable=False)
 
     created_by_user = relationship("User", back_populates="agent_enrollments")
@@ -92,6 +93,7 @@ class Source(Base):
     Source configuration table
     Stores information about configured search sources
     """
+
     __tablename__ = "sources"
     __table_args__ = (
         CheckConstraint(
@@ -120,8 +122,12 @@ class Source(Base):
     processing_mode = Column(String, nullable=True)
     include_patterns = Column(Text, nullable=True)  # JSON array as text
     exclude_patterns = Column(Text, nullable=True)  # JSON array as text
-    scan_schedule = Column(String, nullable=True)  # Cron expression or preset (@hourly, @daily, @weekly)
-    schedule_type = Column(String, nullable=False, default="cron", server_default="cron")  # "cron" or "interval"
+    scan_schedule = Column(
+        String, nullable=True
+    )  # Cron expression or preset (@hourly, @daily, @weekly)
+    schedule_type = Column(
+        String, nullable=False, default="cron", server_default="cron"
+    )  # "cron" or "interval"
     interval_value = Column(Integer, nullable=True)  # Used when schedule_type == "interval"
     interval_unit = Column(String, nullable=True)  # "minutes" | "hours" | "days"
     use_default_schedule = Column(Boolean, nullable=False, default=False, server_default="0")
@@ -131,7 +137,9 @@ class Source(Base):
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow, nullable=False)
 
     # Relationship to indexed files
-    indexed_files = relationship("IndexedFile", back_populates="source", cascade="all, delete-orphan")
+    indexed_files = relationship(
+        "IndexedFile", back_populates="source", cascade="all, delete-orphan"
+    )
     agent = relationship("Agent", back_populates="sources")
     agent_jobs = relationship(
         "AgentJob",
@@ -150,13 +158,17 @@ class IndexedFile(Base):
     Indexed files tracking table
     Tracks metadata for incremental indexing
     """
+
     __tablename__ = "indexed_files"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    source_id = Column(String, ForeignKey("sources.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_id = Column(
+        String, ForeignKey("sources.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     path = Column(String, nullable=False, index=True)
     size_bytes = Column(Integer, nullable=True)
     modified_at = Column(DateTime, nullable=True)
+    modified_at_ns = Column(BigInteger, nullable=True)
     indexed_at = Column(DateTime, nullable=False, default=_utcnow)
     hash = Column(String, nullable=True)  # File content hash for change detection
     status = Column(String, default="success", nullable=False)  # success, failed, skipped
@@ -249,6 +261,7 @@ class AppSetting(Base):
     """
     Backend-managed application setting override.
     """
+
     __tablename__ = "app_settings"
 
     key = Column(String(100), primary_key=True)
@@ -263,6 +276,7 @@ class User(Base):
     User authentication table
     Stores admin credentials for OneSearch
     """
+
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

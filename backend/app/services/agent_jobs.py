@@ -58,9 +58,13 @@ class AgentJobService:
         known = {
             item.path: {
                 "size_bytes": item.size_bytes,
-                "modified_at": int(item.modified_at.timestamp() * 1_000_000_000)
-                if item.modified_at is not None
-                else None,
+                "modified_at": item.modified_at_ns
+                if item.modified_at_ns is not None
+                else (
+                    int(item.modified_at.timestamp() * 1_000_000_000)
+                    if item.modified_at is not None
+                    else None
+                ),
                 "hash": item.hash,
                 "status": item.status,
             }
