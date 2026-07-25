@@ -10,8 +10,14 @@ import stat
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Literal
 
 from onesearch_shared import (
+    REMOTE_MAX_BATCH_BYTES,
+    REMOTE_MAX_BATCH_DOCUMENTS,
+    REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+    REMOTE_MAX_SCAN_FILES,
+    REMOTE_MAX_SNAPSHOT_BYTES,
     DocumentBatch,
     JobCompletion,
     JobFailureReason,
@@ -21,6 +27,7 @@ from onesearch_shared import (
     ScanFailure,
     ScanFile,
 )
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, ValidationError
 
 from app.services.extractor_config import choose_extractor
 
@@ -30,6 +37,48 @@ from .scanner import RemoteScanner
 
 class BatchBuildError(ValueError):
     pass
+
+
+class ExtractionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    source_name: StrictStr = Field(min_length=1)
+    unsupported_file_policy: Literal["skip", "metadata_only"]
+    media_metadata_mode: Literal["auto", "off"]
+    raw_metadata_mode: Literal["auto", "off"]
+    index_gps_metadata: StrictBool
+    max_text_file_size_mb: StrictInt = Field(gt=0)
+    max_pdf_file_size_mb: StrictInt = Field(gt=0)
+    max_office_file_size_mb: StrictInt = Field(gt=0)
+    image_metadata_max_size_mb: StrictInt = Field(gt=0)
+    epub_extraction_max_size_mb: StrictInt = Field(gt=0)
+    comic_extraction_max_size_mb: StrictInt = Field(gt=0)
+    media_probe_max_size_mb: StrictInt = Field(ge=0)
+
+
+class ScanLimits(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    max_snapshot_bytes: StrictInt = Field(gt=0, le=REMOTE_MAX_SNAPSHOT_BYTES)
+    max_batch_documents: StrictInt = Field(gt=0, le=REMOTE_MAX_BATCH_DOCUMENTS)
+    max_batch_bytes: StrictInt = Field(gt=0, le=REMOTE_MAX_BATCH_BYTES)
+    max_scan_files: StrictInt = Field(gt=0, le=REMOTE_MAX_SCAN_FILES)
+    max_entries_per_directory: StrictInt = Field(gt=0, le=REMOTE_MAX_ENTRIES_PER_DIRECTORY)
+
+
+class ScanPayload(BaseModel):
+    """Strict server-issued scan contract; agents never infer missing defaults."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    full: StrictBool
+    root_id: StrictStr = Field(min_length=1)
+    root_path: StrictStr = Field(min_length=1)
+    include_patterns: list[StrictStr] | None
+    exclude_patterns: list[StrictStr] | None
+    known_files: dict[StrictStr, dict[StrictStr, object]]
+    extraction: ExtractionPayload
+    limits: ScanLimits
 
 
 def _batch_wire_bytes(batch) -> bytes:
@@ -161,21 +210,17 @@ async def extract_confined(
 
 async def run_scan_job(lease, client, *, roots) -> None:
     """Execute a scan, preserving per-file failures in the terminal manifest."""
+    try:
+        payload = ScanPayload.model_validate(getattr(lease, "payload", None))
+    except ValidationError:
+        payload = None
     invalid = (
-        lease.kind.value != "scan"
-        or lease.processing_mode is None
-        or lease.processing_mode.value != "on_agent"
-    )
-    payload, root_id = lease.payload, lease.payload.get("root_id")
-    limits = payload.get("limits", {})
-    required = {"source_name", "unsupported_file_policy", "max_text_file_size_mb"}
-    invalid = (
-        invalid
-        or not root_id
+        getattr(getattr(lease, "kind", None), "value", None) != "scan"
+        or getattr(getattr(lease, "processing_mode", None), "value", None) != "on_agent"
+        or not isinstance(getattr(lease, "source_id", None), str)
         or not lease.source_id
-        or root_id not in {root.root_id for root in roots}
-        or not required <= set(payload.get("extraction", {}))
-        or any(not isinstance(value, int) or value <= 0 for value in limits.values())
+        or payload is None
+        or (payload is not None and payload.root_id not in {root.root_id for root in roots})
     )
     if invalid:
         await client.complete(
@@ -189,14 +234,16 @@ async def run_scan_job(lease, client, *, roots) -> None:
             lease.lease_token,
         )
         return
+    root_id, limits = payload.root_id, payload.limits
+    extraction = payload.extraction.model_dump()
     scanner = RemoteScanner(
         root_id,
         roots,
-        include_patterns=payload.get("include_patterns"),
-        exclude_patterns=payload.get("exclude_patterns"),
-        known=payload.get("known_files"),
-        max_files=limits.get("max_scan_files", 100000),
-        max_entries_per_directory=limits.get("max_entries_per_directory", 100000),
+        include_patterns=payload.include_patterns,
+        exclude_patterns=payload.exclude_patterns,
+        known=payload.known_files,
+        max_files=limits.max_scan_files,
+        max_entries_per_directory=limits.max_entries_per_directory,
     )
     manifest = scanner.scan(job_id=lease.id, source_id=lease.source_id)
     failures = {failure.path: failure for failure in manifest.failures}
@@ -208,8 +255,8 @@ async def run_scan_job(lease, client, *, roots) -> None:
     )
     builder = StreamingBatchBuilder(
         lease.id,
-        max_documents=limits.get("max_batch_documents", 100),
-        max_bytes=limits.get("max_batch_bytes", 1_000_000),
+        max_documents=limits.max_batch_documents,
+        max_bytes=limits.max_batch_bytes,
     )
     completed = 0
     for path in scanner.changed_paths:
@@ -220,10 +267,8 @@ async def run_scan_job(lease, client, *, roots) -> None:
                 roots,
                 expected=expected[path],
                 source_id=lease.source_id,
-                extraction=payload.get("extraction", {"source_name": lease.source_id}),
-                max_snapshot_bytes=payload.get("limits", {}).get(
-                    "max_snapshot_bytes", 100 * 1024 * 1024
-                ),
+                extraction=extraction,
+                max_snapshot_bytes=limits.max_snapshot_bytes,
             )
             if document is not None:
                 for batch in builder.add(document):

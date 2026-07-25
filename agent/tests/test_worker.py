@@ -348,7 +348,11 @@ async def test_run_scan_job_unchanged_submits_manifest_before_success(tmp_path):
         source_id="s",
         lease_token="t",
         payload={
+            "full": True,
             "root_id": "r",
+            "root_path": "/remote/root",
+            "include_patterns": None,
+            "exclude_patterns": None,
             "known_files": {"a.txt": {"size_bytes": 1, "modified_at": info.st_mtime_ns}},
             "extraction": extraction(),
             "limits": limits,
@@ -467,7 +471,16 @@ async def test_run_changed_orders_batch_manifest_success(tmp_path):
         processing_mode=ProcessingMode.ON_AGENT,
         source_id="s",
         lease_token="t",
-        payload={"root_id": "r", "known_files": {}, "extraction": extraction(), "limits": limits},
+        payload={
+            "full": True,
+            "root_id": "r",
+            "root_path": "/remote/root",
+            "include_patterns": None,
+            "exclude_patterns": None,
+            "known_files": {},
+            "extraction": extraction(),
+            "limits": limits,
+        },
     )
 
     class C:
@@ -531,7 +544,12 @@ def _scan_lease(*, limits=None):
         source_id="s",
         lease_token="t",
         payload={
+            "full": True,
             "root_id": "r",
+            "root_path": "/remote/root",
+            "include_patterns": None,
+            "exclude_patterns": None,
+            "known_files": {},
             "extraction": extraction(),
             "limits": {
                 "max_snapshot_bytes": 1024,
@@ -734,3 +752,198 @@ async def test_oversized_document_keeps_buffered_batch_and_reports_failure(monke
         ("b.txt", "extraction failed: OversizedDocumentError")
     ]
     assert client.progress == [0, 1, 2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload.update(full=1),
+        lambda payload: payload.update(root_path=None),
+        lambda payload: payload["extraction"].pop("max_pdf_file_size_mb"),
+        lambda payload: payload["extraction"].update(unexpected=True),
+        lambda payload: payload["extraction"].update(index_gps_metadata=1),
+        lambda payload: payload["extraction"].update(media_probe_max_size_mb=-1),
+        lambda payload: payload["limits"].pop("max_batch_bytes"),
+        lambda payload: payload["limits"].update(unexpected=1),
+        lambda payload: payload["limits"].update(max_batch_bytes=True),
+        lambda payload: payload["limits"].update(max_batch_bytes=0),
+        lambda payload: payload["limits"].update(max_scan_files=100_001),
+        lambda payload: payload["extraction"].update(unsupported_file_policy="execute"),
+        lambda payload: payload["extraction"].update(media_metadata_mode="always"),
+        lambda payload: payload.update(known_files=[]),
+        lambda payload: payload.update(known_files={"a.txt": []}),
+        lambda payload: payload.update(include_patterns="**/*"),
+        lambda payload: payload.update(exclude_patterns=[1]),
+        lambda payload: payload.update(root_id="missing"),
+    ],
+)
+async def test_run_scan_job_rejects_malformed_payload_without_starting(
+    monkeypatch, tmp_path, mutate
+):
+    class Scanner:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("invalid payload must not scan")
+
+    class Client:
+        def __init__(self):
+            self.completions = []
+
+        async def complete(self, *args):
+            self.completions.append(args[1])
+
+        async def job_heartbeat(self, *args):
+            raise AssertionError("invalid payload must not heartbeat")
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    lease = _scan_lease()
+    mutate(lease.payload)
+    client = Client()
+    await worker_module.run_scan_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+    assert len(client.completions) == 1
+    assert client.completions[0].reason.value == "invalid_request"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind,mode", [(None, "on_agent"), ("delete", "on_agent"), ("scan", None), ("scan", "on_server")]
+)
+async def test_run_scan_job_rejects_unsupported_kind_or_mode_without_starting(
+    monkeypatch, tmp_path, kind, mode
+):
+    from types import SimpleNamespace
+
+    class Scanner:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("unsupported kind or mode must not scan")
+
+    class Client:
+        def __init__(self):
+            self.completions = []
+
+        async def complete(self, *args):
+            self.completions.append(args[1])
+
+        async def job_heartbeat(self, *args):
+            raise AssertionError("unsupported kind or mode must not heartbeat")
+
+    lease = _scan_lease()
+    lease.kind = SimpleNamespace(value=kind) if kind is not None else None
+    lease.processing_mode = SimpleNamespace(value=mode) if mode is not None else None
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    client = Client()
+    await worker_module.run_scan_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+    assert len(client.completions) == 1
+    assert client.completions[0].reason.value == "invalid_request"
+
+
+@pytest.mark.asyncio
+async def test_run_scan_job_accepts_exact_server_hard_cap_defaults(monkeypatch, tmp_path):
+    from onesearch_shared import (
+        REMOTE_MAX_BATCH_BYTES,
+        REMOTE_MAX_BATCH_DOCUMENTS,
+        REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+        REMOTE_MAX_SCAN_FILES,
+        REMOTE_MAX_SNAPSHOT_BYTES,
+        ScanManifest,
+    )
+
+    captured = {}
+
+    class Scanner:
+        changed_paths = []
+
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+
+        def scan(self, **kwargs):
+            return ScanManifest(**kwargs, complete=True)
+
+    class Client:
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_manifest(self, *args):
+            pass
+
+        async def complete(self, *args):
+            self.completion = args[1]
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    client = Client()
+    await worker_module.run_scan_job(
+        _scan_lease(
+            limits={
+                "max_snapshot_bytes": REMOTE_MAX_SNAPSHOT_BYTES,
+                "max_batch_documents": REMOTE_MAX_BATCH_DOCUMENTS,
+                "max_batch_bytes": REMOTE_MAX_BATCH_BYTES,
+                "max_scan_files": REMOTE_MAX_SCAN_FILES,
+                "max_entries_per_directory": REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+            }
+        ),
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+    )
+    assert captured["max_files"] == REMOTE_MAX_SCAN_FILES
+    assert captured["max_entries_per_directory"] == REMOTE_MAX_ENTRIES_PER_DIRECTORY
+    assert client.completion.status.value == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_streaming_submits_early_batches_before_final_extraction(monkeypatch, tmp_path):
+    from onesearch_shared import ScanFile, ScanManifest
+
+    class Scanner:
+        changed_paths = ["a.txt", "b.txt", "c.txt"]
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def scan(self, **kwargs):
+            return ScanManifest(
+                **kwargs,
+                complete=True,
+                files=[
+                    ScanFile(path=path, size_bytes=1, modified_at=1) for path in self.changed_paths
+                ],
+            )
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        async def job_heartbeat(self, *args):
+            self.calls.append("progress")
+
+        async def submit_batch(self, *args):
+            self.calls.append(f"batch:{args[1].documents[0].path}")
+
+        async def submit_manifest(self, *args):
+            self.calls.append("manifest")
+
+        async def complete(self, *args):
+            self.calls.append(f"complete:{args[1].status.value}")
+
+    async def extract(*args, **kwargs):
+        path = args[1]
+        client.calls.append(f"extract:{path}")
+        return NormalizedRemoteDocument(source_id="s", path=path, content="x", modified_at=1)
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    monkeypatch.setattr(worker_module, "extract_confined", extract)
+    client = Client()
+    await worker_module.run_scan_job(
+        _scan_lease(limits={"max_batch_documents": 1}),
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+    )
+    assert client.calls.index("batch:a.txt") < client.calls.index("extract:c.txt")
+    assert (
+        client.calls.index("batch:c.txt")
+        < client.calls.index("manifest")
+        < client.calls.index("complete:succeeded")
+    )
