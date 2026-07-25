@@ -72,6 +72,33 @@ def test_registry_cleanup_error_is_safe(monkeypatch):
         module.clear_config()
 
 
+def test_machine_credential_uses_binary_dpapi(monkeypatch):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    calls = []
+
+    class Registry:
+        HKEY_LOCAL_MACHINE = 1
+        REG_BINARY = 3
+
+        def CreateKey(self, *args):
+            return "key"
+
+        def SetValueEx(self, key, name, zero, kind, value):
+            calls.append((name, kind, value))
+
+        def CloseKey(self, key):
+            pass
+
+    class Crypto:
+        def CryptProtectData(self, value, *args):
+            return (None, b"cipher")
+
+    monkeypatch.setattr(module, "winreg", Registry())
+    monkeypatch.setitem(__import__("sys").modules, "win32crypt", Crypto())
+    module.persist_machine_credential("secret")
+    assert calls == [("MachineCredential", 3, b"cipher")]
+
+
 def test_service_class_exposes_scm_stop_and_runtime_methods():
     module = importlib.import_module("onesearch_agent.windows_service")
     assert module.OneSearchAgentService._svc_name_ == "OneSearchAgent"
