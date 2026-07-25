@@ -111,3 +111,7 @@ def service_uninstall():
         uninstall()
     except ServiceError as error:
         raise click.ClickException(str(error)) from error
+
+
+if __name__ == "__main__":  # pragma: no cover
+    main()

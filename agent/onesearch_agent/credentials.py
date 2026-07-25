@@ -113,6 +113,8 @@ def credential_store(config, *, system: str | None = None, docker: bool = False)
     configured = os.environ.get("ONESEARCH_AGENT_CREDENTIAL_STORE", config.credential_store)
     if configured not in {"auto", "file", "keyring"}:
         raise CredentialError("credential store policy is invalid")
+    if system == "nt" and configured == "file" and not docker:
+        raise CredentialError("file credentials are unavailable on native Windows")
     if configured == "file" or docker or os.environ.get("ONESEARCH_AGENT_DOCKER") == "1":
         return FileCredentialStore(config.state_dir)
     keyring_store = KeyringCredentialStore(config.server_url, config.agent_name)

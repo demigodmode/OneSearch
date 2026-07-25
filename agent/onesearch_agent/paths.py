@@ -54,7 +54,7 @@ def browse(root_id: str, relative: str, roots: list[AllowedRoot], max_entries: i
     safe = []
     for entry in sorted(directory.iterdir(), key=lambda item: item.name.casefold()):
         try:
-            resolve_allowed_path(entry, roots)
+            resolve_relative_path(root_id, str(entry.relative_to(_root(root_id, roots))), roots)
         except PathOutsideAllowedRoots:
             continue
         safe.append(entry)

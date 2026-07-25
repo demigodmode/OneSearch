@@ -60,6 +60,24 @@ async def test_runtime_treats_disabled_as_terminal():
 
 
 @pytest.mark.asyncio
+async def test_runtime_caps_backoff_after_jitter():
+    delays = []
+
+    class Client:
+        async def heartbeat(self, *args):
+            raise __import__("onesearch_agent.client", fromlist=["AgentError"]).AgentError()
+
+    async def sleep(delay):
+        delays.append(delay)
+        if len(delays) == 1:
+            raise AgentRevoked()
+
+    with pytest.raises(AgentRevoked):
+        await run_runtime(Client(), sleep=sleep, random=lambda: 99)
+    assert delays == [60]
+
+
+@pytest.mark.asyncio
 async def test_worker_can_acknowledge_cancellation_lease():
     class Client:
         async def heartbeat(self, *args):

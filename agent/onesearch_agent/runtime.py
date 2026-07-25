@@ -24,7 +24,7 @@ async def run_runtime(client, *, worker=None, interval=30, sleep=asyncio.sleep, 
             raise
         except AgentError:
             failures += 1
-            await sleep(min(60, 2 ** min(failures, 6)) + random())
+            await sleep(min(60, 2 ** min(failures, 6) + random()))
             continue
         failures = 0
         await sleep(interval)
