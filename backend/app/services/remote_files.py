@@ -249,6 +249,9 @@ class ExtractUploadRegistry:
             finally:
                 session.path.unlink(missing_ok=True)
 
+    def has(self, job_id: str) -> bool:
+        return job_id in self._sessions
+
     def expire(self, maximum_age: float) -> None:
         cutoff = time.monotonic() - maximum_age
         for job_id, session in list(self._sessions.items()):
