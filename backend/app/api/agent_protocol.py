@@ -15,6 +15,7 @@ from onesearch_shared import (
     AgentEnrollmentRequest,
     AgentEnrollmentResponse,
     AgentJobLease,
+    AgentJobStatusResponse,
     BatchAck,
     DocumentBatch,
     JobCompletion,
@@ -188,6 +189,15 @@ async def claim_job(agent: ApprovedAgent, db: Database):
     from fastapi.responses import Response
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/jobs/{job_id}/status", dependencies=[Depends(require_remote_agents_enabled)])
+async def job_status(job_id: str, agent: ApprovedAgent, db: Database):
+    try:
+        job = AgentJobService(db).status_for_agent(job_id, agent.id)
+    except JobNotFound as error:
+        raise HTTPException(status_code=404, detail="job not found") from error
+    return AgentJobStatusResponse(job_id=job.id, status=job.status)
 
 
 @router.post("/jobs/{job_id}/heartbeat", dependencies=[Depends(require_remote_agents_enabled)])

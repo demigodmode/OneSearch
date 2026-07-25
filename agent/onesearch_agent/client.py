@@ -13,6 +13,7 @@ from onesearch_shared import (
     AgentEnrollmentResponse,
     AgentHeartbeat,
     AgentJobLease,
+    AgentJobStatusResponse,
     BatchAck,
 )
 
@@ -230,6 +231,10 @@ class AgentClient:
             retry=False,
             mutation=True,
         )
+
+    async def job_status(self, job_id):
+        response = await self._request("GET", f"/api/agent/v1/jobs/{job_id}/status")
+        return AgentJobStatusResponse.model_validate(response.json())
 
     async def cancel_ack(self, job_id, lease_token):
         return await self._request(

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
@@ -103,6 +104,13 @@ class AgentJobLease(WireModel):
     processing_mode: ProcessingMode | None = None
     payload: dict[str, JsonValue] = Field(default_factory=dict)
     lease_token: str = Field(min_length=1)
+
+
+class AgentJobStatusResponse(WireModel):
+    job_id: str = Field(min_length=1)
+    status: Literal[
+        "pending", "claimed", "running", "cancelling", "completed", "failed", "cancelled"
+    ]
 
 
 class AllowedRoot(WireModel):

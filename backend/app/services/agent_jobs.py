@@ -47,6 +47,12 @@ class AgentJobService:
         self.db = db
         self.lease_seconds = lease_seconds
 
+    def status_for_agent(self, job_id: str, agent_id: str) -> AgentJob:
+        job = self.db.get(AgentJob, job_id)
+        if job is None or job.agent_id != agent_id:
+            raise JobNotFound()
+        return job
+
     def enqueue_scan(self, source: Source, *, full: bool, reason: str | None = None) -> AgentJob:
         if source.location_type != "agent" or source.agent_id is None:
             raise JobConflict("source is not remote")
