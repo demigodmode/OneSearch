@@ -21,14 +21,20 @@ _SETTERS = (
 def configure_extractor(extractor, settings):
     for setter, field in _SETTERS:
         if hasattr(extractor, setter):
-            getattr(extractor, setter)(getattr(settings, field))
+            value = settings[field] if isinstance(settings, dict) else getattr(settings, field)
+            getattr(extractor, setter)(value)
     return extractor
 
 
 def choose_extractor(file_path, source_id, source_name, settings):
     extractor = extractor_registry.get_extractor(file_path, source_id, source_name)
     if extractor is None:
-        if settings.unsupported_file_policy == "skip":
+        policy = (
+            settings["unsupported_file_policy"]
+            if isinstance(settings, dict)
+            else settings.unsupported_file_policy
+        )
+        if policy == "skip":
             return None
         extractor = MetadataOnlyExtractor(source_id, source_name)
     return configure_extractor(extractor, settings)
