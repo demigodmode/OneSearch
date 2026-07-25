@@ -42,11 +42,11 @@ from ..services.agent_auth import (
     require_remote_agents_enabled,
 )
 from ..services.agent_jobs import AgentJobService, JobConflict, JobLeaseError, JobNotFound
-from ..services.extractor_config import choose_extractor
 from ..services.remote_files import (
     ExtractUploadRegistry,
     RemoteFileChanged,
     app_data_temp_directory,
+    extract_in_process,
     remote_streams,
 )
 from ..services.remote_ingest import RemoteIngestService, canonical_remote_path
@@ -386,15 +386,11 @@ async def receive_file_chunk(
                     job_id, sequence=sequence, checksum=stream_checksum
                 )
                 try:
-                    extractor = choose_extractor(
-                        str(temporary),
-                        job.source_id,
-                        payload["extraction"]["source_name"],
-                        payload["extraction"],
+                    extracted = await extract_in_process(
+                        str(temporary), job.source_id, payload["extraction"], 30
                     )
-                    if extractor is None:
+                    if extracted is None:
                         raise RemoteFileChanged("unsupported remote file")
-                    extracted = await extractor.extract_with_timeout(str(temporary))
                     result = NormalizedRemoteDocument(
                         source_id=job.source_id,
                         path=payload["path"],

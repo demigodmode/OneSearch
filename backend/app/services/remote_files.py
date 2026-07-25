@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
+import multiprocessing
 import tempfile
 import time
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
+
+from ..schemas import Document
+from .extractor_config import choose_extractor
 
 
 class RemoteFileError(RuntimeError):
@@ -25,6 +31,59 @@ class RemoteFileChanged(RemoteFileError):  # noqa: N818 - public wire error name
 
 class RemoteStreamTimeout(RemoteFileError):  # noqa: N818 - public wire error name
     code = "remote_stream_timeout"
+
+
+class RemoteExtractionError(RuntimeError):
+    pass
+
+
+def _send_extraction_message(connection, payload) -> None:
+    data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    connection.send_bytes(data[:1_000_000])
+
+
+def extraction_process(snapshot, source_id, extraction, connection) -> None:
+    try:
+        extractor = choose_extractor(snapshot, source_id, extraction["source_name"], extraction)
+        document = asyncio.run(extractor.extract_with_timeout(snapshot)) if extractor else None
+        _send_extraction_message(connection, {"document": document.model_dump(mode="json") if document else None})
+    except BaseException as error:
+        _send_extraction_message(connection, {"error": str(error).replace(snapshot, "<temporary>")[:500]})
+    finally:
+        connection.close()
+
+
+async def extract_in_process(snapshot, source_id, extraction, timeout_seconds, *, process_target=extraction_process):
+    """Spawn-isolated extraction with bounded IPC and unconditional child cleanup."""
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(target=process_target, args=(snapshot, source_id, extraction, sender), daemon=True)
+    try:
+        process.start()
+        sender.close()
+        deadline = asyncio.get_running_loop().time() + timeout_seconds
+        while asyncio.get_running_loop().time() < deadline:
+            if receiver.poll():
+                message = json.loads(receiver.recv_bytes(1_000_000).decode())
+                if "error" in message:
+                    raise RemoteExtractionError(message["error"])
+                return Document.model_validate(message["document"]) if message["document"] else None
+            if not process.is_alive():
+                raise RemoteExtractionError("extractor process exited without a result")
+            await asyncio.sleep(0.02)
+        raise RemoteExtractionError("extraction timed out")
+    finally:
+        with suppress(OSError):
+            sender.close()
+        if process.pid is not None:
+            if process.is_alive():
+                process.terminate()
+            process.join(timeout=2)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=2)
+            process.close()
+        receiver.close()
 
 
 class BoundedByteQueue:
