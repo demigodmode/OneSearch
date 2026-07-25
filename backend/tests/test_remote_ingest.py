@@ -51,14 +51,15 @@ class FailedConfirmedSearch(Search):
 
 
 class CancellingDeleteSearch(Search):
-    def __init__(self, job):
+    def __init__(self, db, job):
         super().__init__()
+        self.db = db
         self.job = job
 
     async def delete_document(self, doc):
         self.deleted.append(doc)
-        self.job.status = "cancelling"
-        self.job.lease_expires_at = None
+        with pytest.raises(JobConflict):
+            AgentJobService(self.db).cancel(self.job.id)
 
 
 @pytest.fixture
@@ -371,25 +372,19 @@ def test_direct_on_agent_success_bypass_is_rejected(remote_job):
 
 
 @pytest.mark.asyncio
-async def test_completion_race_after_external_delete_rolls_back_database_state(remote_job):
+async def test_completion_guard_wins_before_external_delete(remote_job):
     db, lease, job = remote_job
     db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
     db.commit()
-    service = RemoteIngestService(db, CancellingDeleteSearch(job))
+    search = CancellingDeleteSearch(db, job)
+    service = RemoteIngestService(db, search)
     service.accept_manifest(
         "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=True)
     )
-    with pytest.raises((JobConflict, JobLeaseError)):
-        await service.reconcile_completion("a", job.id, lease.lease_token)
-    db.rollback()
-    db.expire_all()
-    restored = db.get(type(job), job.id)
-    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is not None
-    assert (
-        restored.active_key == "s"
-        and restored.status == "claimed"
-        and restored.completed_at is None
-    )
+    await service.reconcile_completion("a", job.id, lease.lease_token)
+    assert len(search.deleted) == 1
+    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is None
+    assert db.get(type(job), job.id).status == "completed"
 
 
 @pytest.mark.asyncio

@@ -209,15 +209,19 @@ class RemoteIngestService:
             self.db.scalars(select(IndexedFile).where(IndexedFile.source_id == job.source_id))
         )
         missing = [row for row in rows if row.path not in current]
-        for row in missing:
-            confirmed = getattr(self.search_service, "delete_document_confirmed", None)
-            await (
-                confirmed(remote_document_id(job.source_id, row.path))
-                if confirmed
-                else self.search_service.delete_document(
-                    remote_document_id(job.source_id, row.path)
+        jobs.complete_reconciled_scan(agent_id, job_id, lease_token)
+        ids = [remote_document_id(job.source_id, row.path) for row in missing]
+        confirmed_many = getattr(self.search_service, "delete_documents_confirmed", None)
+        if confirmed_many:
+            await confirmed_many(ids)
+        else:
+            for document_id in ids:
+                confirmed = getattr(self.search_service, "delete_document_confirmed", None)
+                await (
+                    confirmed(document_id)
+                    if confirmed
+                    else self.search_service.delete_document(document_id)
                 )
-            )
         for row in missing:
             self.db.delete(row)
         for failure in manifest.failures:
@@ -232,4 +236,3 @@ class RemoteIngestService:
                 self.db.add(row)
             row.status, row.error_message = "failed", failure.error
         self.db.flush()
-        jobs.complete_reconciled_scan(agent_id, job_id, lease_token)

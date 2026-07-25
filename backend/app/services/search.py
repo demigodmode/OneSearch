@@ -226,6 +226,20 @@ class MeilisearchService:
             raise RuntimeError("Meilisearch delete task failed")
         return task
 
+    async def delete_documents_confirmed(self, document_ids: list[str]) -> dict[str, Any]:
+        if not self.index:
+            raise RuntimeError("Index not initialized")
+        task = await asyncio.to_thread(self.index.delete_documents, document_ids)
+        task_id = task.get("task_uid") or task.get("taskUid")
+        if task_id is None or self.client is None:
+            raise RuntimeError("delete task confirmation unavailable")
+        result = await asyncio.to_thread(self.client.wait_for_task, task_id, timeout_in_ms=30000)
+        if (
+            result.get("status") if isinstance(result, dict) else getattr(result, "status", None)
+        ) != "succeeded":
+            raise RuntimeError("Meilisearch delete task failed")
+        return task
+
     async def delete_documents_by_filter(self, filter_str: str) -> dict[str, Any]:
         """
         Delete documents matching a filter (runs in thread pool)
