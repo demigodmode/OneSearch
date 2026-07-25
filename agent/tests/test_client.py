@@ -1,6 +1,6 @@
 import httpx
 import pytest
-from onesearch_agent.client import AgentClient, AgentRevoked, retry_delay
+from onesearch_agent.client import AgentClient, AgentError, AgentRevoked, retry_delay
 
 
 @pytest.mark.asyncio
@@ -66,6 +66,6 @@ async def test_enrollment_has_no_bearer_and_read_timeout_is_not_retried(tmp_path
     async with AgentClient(
         "http://server.test", "secret", transport=httpx.MockTransport(handler)
     ) as client:
-        with pytest.raises(Exception):
+        with pytest.raises(AgentError):
             await client.enroll("code", Config())
     assert calls == 1

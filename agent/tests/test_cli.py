@@ -1,13 +1,13 @@
 from pathlib import Path
 
 from click.testing import CliRunner
-
 from onesearch_agent.cli import main
 
 
 def _config(path: Path, root: Path):
+    root_text = str(root).replace("\\", "\\\\")
     path.write_text(
-        f'server_url = "http://host"\nallowed_roots = [{{root_id="r", path="{str(root).replace("\\", "\\\\")}"}}]\n'
+        f'server_url = "http://host"\nallowed_roots = [{{root_id="r", path="{root_text}"}}]\n'
     )
 
 

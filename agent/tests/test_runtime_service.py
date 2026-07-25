@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from onesearch_agent.client import AgentPending, AgentRevoked
 from onesearch_agent.runtime import run_runtime
 from onesearch_agent.service import ServiceError, install, uninstall
