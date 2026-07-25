@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from onesearch_shared import ScanFailure, ScanFile, ScanManifest
+from onesearch_shared import ScanFailure, ScanFile, ScanManifest, remote_path_hash
 
 from app.services.scanner import get_default_exclude_patterns, path_is_included
 
@@ -93,6 +93,7 @@ class RemoteScanner:
                 continue
             item = ScanFile(
                 path=path,
+                path_hash=remote_path_hash(path),
                 size_bytes=entry.size_bytes,
                 modified_at=entry.modified_at_ns,
                 content_hash=None,

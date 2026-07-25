@@ -31,6 +31,7 @@ from .protocol import (
     ScanFailure,
     ScanFile,
     ScanManifest,
+    remote_path_hash,
     WireModel,
 )
 
@@ -65,5 +66,6 @@ __all__ = [
     "ScanFile",
     "ScanFailure",
     "ScanManifest",
+    "remote_path_hash",
     "WireModel",
 ]

@@ -6,6 +6,7 @@ timezone-independent and avoid runtime-specific datetime serialization.
 
 from __future__ import annotations
 
+import hashlib
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
@@ -25,6 +26,11 @@ def _strip_nonempty(value: object) -> object:
         if not value:
             raise ValueError("must not be blank")
     return value
+
+
+def remote_path_hash(canonical_relative: str) -> str:
+    """Return the stable SHA-256 identity for a canonical relative path."""
+    return hashlib.sha256(canonical_relative.encode("utf-8")).hexdigest()
 
 
 def _reject_surrounding_whitespace(value: object) -> object:
@@ -149,6 +155,7 @@ class BrowseResponse(WireModel):
 
 class ScanFile(WireModel):
     path: str = Field(min_length=1)
+    path_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     size_bytes: int = Field(ge=0)
     modified_at: int = Field(ge=0)
     content_hash: str | None = None

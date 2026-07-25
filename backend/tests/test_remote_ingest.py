@@ -2,7 +2,13 @@ import hashlib
 import json
 
 import pytest
-from onesearch_shared import DocumentBatch, NormalizedRemoteDocument, ScanFile, ScanManifest
+from onesearch_shared import (
+    remote_path_hash,
+    DocumentBatch,
+    NormalizedRemoteDocument,
+    ScanFile,
+    ScanManifest,
+)
 from sqlalchemy import select
 
 from app.models import Agent, AgentBatch, IndexedFile, Source
@@ -117,7 +123,9 @@ def test_manifest_requires_valid_lease_and_preserves_versioned_complete_state(re
     manifest = ScanManifest(
         job_id=job.id,
         source_id="s",
-        files=[ScanFile(path="a.txt", size_bytes=1, modified_at=1)],
+        files=[
+            ScanFile(path="a.txt", path_hash=remote_path_hash("a.txt"), size_bytes=1, modified_at=1)
+        ],
         complete=True,
     )
     service.accept_manifest("a", job.id, lease.lease_token, manifest)
@@ -256,7 +264,14 @@ async def test_complete_manifest_rename_deletes_old_only_at_terminal_success(rem
         ScanManifest(
             job_id=job.id,
             source_id="s",
-            files=[ScanFile(path="new.txt", size_bytes=3, modified_at=1)],
+            files=[
+                ScanFile(
+                    path="new.txt",
+                    path_hash=remote_path_hash("new.txt"),
+                    size_bytes=3,
+                    modified_at=1,
+                )
+            ],
             complete=True,
         ),
     )

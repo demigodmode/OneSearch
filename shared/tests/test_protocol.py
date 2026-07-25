@@ -25,6 +25,7 @@ from onesearch_shared.protocol import (
     ScanFailure,
     ScanFile,
     ScanManifest,
+    remote_path_hash,
 )
 from pydantic import ValidationError
 
@@ -42,6 +43,12 @@ def test_heartbeat_defaults_to_current_protocol_and_round_trips_strictly():
 
 def test_remote_job_heartbeat_interval_is_shorter_than_the_server_lease():
     assert REMOTE_JOB_HEARTBEAT_SECONDS == 20 < 60
+
+
+def test_remote_path_hash_is_stable_lowercase_utf8_sha256():
+    value = remote_path_hash("café/資料.txt")
+    assert value == remote_path_hash("café/資料.txt")
+    assert len(value) == 64 and value == value.lower()
 
     with pytest.raises(ValidationError, match="extra_forbidden"):
         AgentHeartbeat.model_validate(
@@ -268,6 +275,7 @@ def test_scan_manifest_round_trip_preserves_checkpoint():
         files=[
             ScanFile(
                 path="reports/annual.pdf",
+                path_hash=remote_path_hash("reports/annual.pdf"),
                 size_bytes=4096,
                 modified_at=1_721_234_567,
                 content_hash="sha256:abc123",
@@ -284,7 +292,9 @@ def test_complete_manifest_carries_bounded_file_failures_and_rejects_duplicate_p
     manifest = ScanManifest(
         job_id="job-1",
         source_id="remote-1",
-        files=[ScanFile(path="a.txt", size_bytes=1, modified_at=1)],
+        files=[
+            ScanFile(path="a.txt", path_hash=remote_path_hash("a.txt"), size_bytes=1, modified_at=1)
+        ],
         failures=[ScanFailure(path="a.txt", error="extract failed")],
         complete=True,
     )
@@ -294,8 +304,12 @@ def test_complete_manifest_carries_bounded_file_failures_and_rejects_duplicate_p
             job_id="job-1",
             source_id="remote-1",
             files=[
-                ScanFile(path="a.txt", size_bytes=1, modified_at=1),
-                ScanFile(path="a.txt", size_bytes=1, modified_at=1),
+                ScanFile(
+                    path="a.txt", path_hash=remote_path_hash("a.txt"), size_bytes=1, modified_at=1
+                ),
+                ScanFile(
+                    path="a.txt", path_hash=remote_path_hash("a.txt"), size_bytes=1, modified_at=1
+                ),
             ],
         )
 

@@ -4,7 +4,14 @@ from pathlib import Path
 import onesearch_agent.worker as worker_module
 import pytest
 from onesearch_agent.worker import ExtractionError, batch_documents, extract_confined
-from onesearch_shared import AllowedRoot, DocumentBatch, NormalizedRemoteDocument, ScanFile
+from onesearch_shared import (
+    AllowedRoot,
+    DocumentBatch,
+    NormalizedRemoteDocument,
+    ScanFile,
+    remote_path_hash,
+    remote_path_hash,
+)
 
 
 def extraction(source_name="source", policy="metadata_only"):
@@ -29,7 +36,12 @@ async def test_extract_confined_normalizes_logical_metadata(tmp_path: Path):
     file = tmp_path / "note.txt"
     file.write_text("hello")
     stat = file.stat()
-    expected = ScanFile(path="note.txt", size_bytes=stat.st_size, modified_at=stat.st_mtime_ns)
+    expected = ScanFile(
+        path="note.txt",
+        path_hash=remote_path_hash("note.txt"),
+        size_bytes=stat.st_size,
+        modified_at=stat.st_mtime_ns,
+    )
     doc = await extract_confined(
         "r",
         "note.txt",
@@ -52,7 +64,12 @@ async def test_extract_confined_skips_and_rejects_changed_or_oversize(tmp_path: 
     file = tmp_path / "note.unknown"
     file.write_text("hello")
     stat = file.stat()
-    expected = ScanFile(path="note.unknown", size_bytes=stat.st_size, modified_at=stat.st_mtime_ns)
+    expected = ScanFile(
+        path="note.unknown",
+        path_hash=remote_path_hash("note.unknown"),
+        size_bytes=stat.st_size,
+        modified_at=stat.st_mtime_ns,
+    )
     roots = [AllowedRoot(root_id="r", path=str(tmp_path))]
     assert (
         await extract_confined(
@@ -86,7 +103,12 @@ async def test_extract_confined_skips_and_rejects_changed_or_oversize(tmp_path: 
         max_snapshot_bytes=1024,
     )
     assert metadata is not None and metadata.path == "note.unknown"
-    changed = ScanFile(path="note.unknown", size_bytes=999, modified_at=stat.st_mtime_ns)
+    changed = ScanFile(
+        path="note.unknown",
+        path_hash=remote_path_hash("note.unknown"),
+        size_bytes=999,
+        modified_at=stat.st_mtime_ns,
+    )
     with pytest.raises(ExtractionError):
         await extract_confined(
             "r",
@@ -115,7 +137,12 @@ async def test_fake_extractor_receives_private_original_basename(tmp_path, monke
     file = tmp_path / "name.with.dot.txt"
     file.write_text("x")
     info = file.stat()
-    expected = ScanFile(path=file.name, size_bytes=1, modified_at=info.st_mtime_ns)
+    expected = ScanFile(
+        path=file.name,
+        path_hash=remote_path_hash(file.name),
+        size_bytes=1,
+        modified_at=info.st_mtime_ns,
+    )
     seen = []
 
     class Fake:
@@ -158,7 +185,12 @@ async def test_snapshot_is_cleaned_for_extractor_error_and_cancellation(
     file = tmp_path / "x.txt"
     file.write_text("x")
     info = file.stat()
-    expected = ScanFile(path=file.name, size_bytes=1, modified_at=info.st_mtime_ns)
+    expected = ScanFile(
+        path=file.name,
+        path_hash=remote_path_hash(file.name),
+        size_bytes=1,
+        modified_at=info.st_mtime_ns,
+    )
     seen = []
 
     class Fake:
@@ -221,7 +253,9 @@ async def test_pinned_copy_races_reject_before_extractor(
             "r",
             "x.txt",
             [],
-            expected=ScanFile(path="x.txt", size_bytes=5, modified_at=1),
+            expected=ScanFile(
+                path="x.txt", path_hash=remote_path_hash("x.txt"), size_bytes=5, modified_at=1
+            ),
             source_id="s",
             extraction=extraction(),
             max_snapshot_bytes=5,
@@ -234,7 +268,12 @@ async def test_text_snapshot_matches_backend_without_temp_path_leak(tmp_path, mo
     file = tmp_path / "note.txt"
     file.write_text("hello parity")
     info = file.stat()
-    expected = ScanFile(path="note.txt", size_bytes=info.st_size, modified_at=info.st_mtime_ns)
+    expected = ScanFile(
+        path="note.txt",
+        path_hash=remote_path_hash("note.txt"),
+        size_bytes=info.st_size,
+        modified_at=info.st_mtime_ns,
+    )
     from app.services.extractor_config import choose_extractor as real_choose
 
     backend = real_choose(str(file), "s", "source", extraction())
@@ -402,7 +441,10 @@ async def test_agent_honors_configured_text_size_limit(tmp_path):
             "large.txt",
             [AllowedRoot(root_id="r", path=str(tmp_path))],
             expected=ScanFile(
-                path="large.txt", size_bytes=info.st_size, modified_at=info.st_mtime_ns
+                path="large.txt",
+                path_hash=remote_path_hash("large.txt"),
+                size_bytes=info.st_size,
+                modified_at=info.st_mtime_ns,
             ),
             source_id="s",
             extraction=config,
@@ -442,7 +484,12 @@ async def test_snapshot_directory_is_private_on_posix(tmp_path, monkeypatch):
         "r",
         "x.txt",
         [AllowedRoot(root_id="r", path=str(tmp_path))],
-        expected=ScanFile(path="x.txt", size_bytes=1, modified_at=info.st_mtime_ns),
+        expected=ScanFile(
+            path="x.txt",
+            path_hash=remote_path_hash("x.txt"),
+            size_bytes=1,
+            modified_at=info.st_mtime_ns,
+        ),
         source_id="s",
         extraction=extraction(),
         max_snapshot_bytes=10,
@@ -617,7 +664,16 @@ async def test_extraction_failure_is_manifested_but_scan_succeeds(monkeypatch, t
 
         def scan(self, **kwargs):
             return ScanManifest(
-                **kwargs, files=[ScanFile(path="a.txt", size_bytes=1, modified_at=1)], complete=True
+                **kwargs,
+                files=[
+                    ScanFile(
+                        path="a.txt",
+                        path_hash=remote_path_hash("a.txt"),
+                        size_bytes=1,
+                        modified_at=1,
+                    )
+                ],
+                complete=True,
             )
 
     class Client:
@@ -662,7 +718,16 @@ async def test_unknown_extraction_error_does_not_leak_path_or_controls(monkeypat
 
         def scan(self, **kwargs):
             return ScanManifest(
-                **kwargs, files=[ScanFile(path="a.txt", size_bytes=1, modified_at=1)], complete=True
+                **kwargs,
+                files=[
+                    ScanFile(
+                        path="a.txt",
+                        path_hash=remote_path_hash("a.txt"),
+                        size_bytes=1,
+                        modified_at=1,
+                    )
+                ],
+                complete=True,
             )
 
     class Client:
@@ -712,8 +777,18 @@ async def test_oversized_document_keeps_buffered_batch_and_reports_failure(monke
             return ScanManifest(
                 **kwargs,
                 files=[
-                    ScanFile(path="a.txt", size_bytes=1, modified_at=1),
-                    ScanFile(path="b.txt", size_bytes=1, modified_at=1),
+                    ScanFile(
+                        path="a.txt",
+                        path_hash=remote_path_hash("a.txt"),
+                        size_bytes=1,
+                        modified_at=1,
+                    ),
+                    ScanFile(
+                        path="b.txt",
+                        path_hash=remote_path_hash("b.txt"),
+                        size_bytes=1,
+                        modified_at=1,
+                    ),
                 ],
                 complete=True,
             )
@@ -908,7 +983,10 @@ async def test_streaming_submits_early_batches_before_final_extraction(monkeypat
                 **kwargs,
                 complete=True,
                 files=[
-                    ScanFile(path=path, size_bytes=1, modified_at=1) for path in self.changed_paths
+                    ScanFile(
+                        path=path, path_hash=remote_path_hash(path), size_bytes=1, modified_at=1
+                    )
+                    for path in self.changed_paths
                 ],
             )
 
@@ -963,7 +1041,10 @@ def _changed_scanner(paths, *, complete=True):
                 **kwargs,
                 complete=complete,
                 files=[
-                    ScanFile(path=path, size_bytes=1, modified_at=1) for path in self.changed_paths
+                    ScanFile(
+                        path=path, path_hash=remote_path_hash(path), size_bytes=1, modified_at=1
+                    )
+                    for path in self.changed_paths
                 ],
             )
 
