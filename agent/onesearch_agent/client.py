@@ -176,6 +176,11 @@ class AgentClient:
             "POST", "/api/agent/v1/heartbeat", json=request.model_dump(mode="json")
         )
 
+    async def revoke_self(self):
+        return await self._request(
+            "POST", "/api/agent/v1/revoke-self", retry=False, mutation=True
+        )
+
     async def claim(self):
         response = await self._request(
             "POST", "/api/agent/v1/jobs/claim", retry=False, mutation=True

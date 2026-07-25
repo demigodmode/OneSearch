@@ -43,6 +43,16 @@ def enroll(ctx, server):
     if config.server_url != current.server_url:
         raise click.ClickException("enrollment server must match configured server")
     store = credential_store(config)
+    desired_backend = "keyring" if isinstance(store, KeyringCredentialStore) else "file"
+    marker_store = FileCredentialStore(config.state_dir)
+    marker = marker_store.load_backend_marker()
+    if marker not in (None, desired_backend):
+        raise click.ClickException("credential backend changed from " + marker)
+    if marker is None:
+        try:
+            marker_store.save_backend_marker(desired_backend)
+        except CredentialError as error:
+            raise click.ClickException("enrollment could not persist credential backend") from error
     try:
         if store.load(optional=True) is not None:
             raise click.ClickException("a credential already exists")
@@ -57,17 +67,22 @@ def enroll(ctx, server):
 
     try:
         response = asyncio.run(go())
-        store.save(response.agent_token)
         try:
-            FileCredentialStore(config.state_dir).save_backend_marker(
-                "keyring" if isinstance(store, KeyringCredentialStore) else "file"
-            )
+            store.save(response.agent_token)
         except CredentialError as error:
             try:
-                store.delete()
-            except CredentialError:
-                raise click.ClickException("enrollment needs credential recovery") from error
-            raise click.ClickException("enrollment could not persist credential backend") from error
+                async def revoke():
+                    async with AgentClient(config.server_url, response.agent_token) as client:
+                        await client.revoke_self()
+
+                asyncio.run(revoke())
+            except Exception as revoke_error:
+                raise click.ClickException(
+                    f"credential persistence failed; revoke agent {response.agent_id} from the admin console"
+                ) from revoke_error
+            raise click.ClickException("credential persistence failed; enrollment was revoked; use a new code") from error
+    except click.ClickException:
+        raise
     except Exception as error:
         raise click.ClickException("enrollment failed") from error
     click.echo("Enrollment submitted; admin approval is pending.")
@@ -92,13 +107,13 @@ def config_check(ctx):
 def run(ctx):
     """Run the heartbeat shell; no jobs are claimed before a worker is supplied."""
     value = _config(ctx)
-    token = credential_store(value).load()
-
-    async def loop():
-        async with AgentClient(value.server_url, token) as client:
-            await run_runtime(client)
-
     try:
+        token = credential_store(value).load()
+
+        async def loop():
+            async with AgentClient(value.server_url, token) as client:
+                await run_runtime(client)
+
         asyncio.run(loop())
     except KeyboardInterrupt:
         pass

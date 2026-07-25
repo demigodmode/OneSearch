@@ -122,6 +122,13 @@ async def enroll_agent(request: AgentEnrollmentRequest, db: Database):
     )
 
 
+@router.post("/revoke-self", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_self(agent: AuthenticatedAgent, db: Database):
+    """Let a newly enrolled agent invalidate itself if local persistence fails."""
+    agent.status = "revoked"
+    db.commit()
+
+
 @router.post(
     "/heartbeat",
     response_model=AgentHeartbeatResponse,

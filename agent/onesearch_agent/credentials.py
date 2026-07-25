@@ -160,6 +160,18 @@ class KeyringCredentialStore:
             raise CredentialError("system credential store is unavailable") from error
 
 
+def _keyring_backend_is_secure(backend, seen: set[int] | None = None) -> bool:
+    seen = seen or set()
+    if id(backend) in seen:
+        return False
+    seen.add(id(backend))
+    name = f"{backend.__class__.__module__}.{backend.__class__.__name__}".lower()
+    if "keyrings.alt" in name or "fail" in name or "null" in name or getattr(backend, "priority", 0) <= 0:
+        return False
+    children = getattr(backend, "backends", None)
+    return not children or all(_keyring_backend_is_secure(child, seen) for child in children)
+
+
 def credential_store(config, *, system: str | None = None, docker: bool = False):
     system = system or os.name
     marker_store = FileCredentialStore(config.state_dir)
@@ -177,12 +189,7 @@ def credential_store(config, *, system: str | None = None, docker: bool = False)
         return marker_store
     keyring_store = KeyringCredentialStore(config.server_url, config.agent_name)
     backend = keyring.get_keyring()
-    backend_name = f"{backend.__class__.__module__}.{backend.__class__.__name__}".lower()
-    if (
-        "keyrings.alt" in backend_name
-        or "fail" in backend_name
-        or getattr(backend, "priority", 0) <= 0
-    ):
+    if not _keyring_backend_is_secure(backend):
         if system == "nt" or configured == "keyring" or remembered == "keyring":
             raise CredentialError("system credential store is unavailable")
         return FileCredentialStore(config.state_dir)
