@@ -27,6 +27,21 @@ class SafeDirectoryEntry:
     modified_at_ns: int
 
 
+@dataclass(frozen=True)
+class SafeDirectoryPage:
+    entries: tuple[SafeDirectoryEntry, ...]
+    truncated: bool
+
+
+def list_confined_entries_page(
+    root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int = 200
+) -> SafeDirectoryPage:
+    if max_entries < 1:
+        raise ValueError("max_entries must be positive")
+    found = list_confined_entries(root_id, relative, roots, max_entries=max_entries + 1)
+    return SafeDirectoryPage(tuple(found[:max_entries]), len(found) > max_entries)
+
+
 def list_confined_entries(
     root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int = 200
 ) -> list[SafeDirectoryEntry]:

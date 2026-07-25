@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 
-from onesearch_shared import ScanFile, ScanManifest
+from onesearch_shared import ScanFailure, ScanFile, ScanManifest
 
 from app.services.scanner import get_default_exclude_patterns, path_is_included
 
-from .paths import PathOutsideAllowedRoots, list_confined_entries, open_confined_file
+from .paths import PathOutsideAllowedRoots, SafeDirectoryEntry, list_confined_entries_page
 
 
 def canonical_path(path: str) -> str:
@@ -25,14 +24,25 @@ def canonical_path(path: str) -> str:
 
 
 class RemoteScanner:
-    def __init__(self, root_id, roots, *, include_patterns=None, exclude_patterns=None, known=None):
+    def __init__(
+        self,
+        root_id,
+        roots,
+        *,
+        include_patterns=None,
+        exclude_patterns=None,
+        known=None,
+        max_files=100000,
+        max_entries_per_directory=100000,
+    ):
         self.root_id, self.roots = root_id, roots
-        self.include_patterns = include_patterns or ["**/*"]
+        self.include_patterns = ["**/*"] if include_patterns is None else include_patterns
         self.exclude_patterns = (
             get_default_exclude_patterns() if exclude_patterns is None else exclude_patterns
         )
         self.known = known or {}
         self.changed_paths: list[str] = []
+        self.max_files, self.max_entries_per_directory = max_files, max_entries_per_directory
 
     def _included(self, path: str) -> bool:
         return path_is_included(path, self.include_patterns, [])
@@ -40,37 +50,60 @@ class RemoteScanner:
     def _excluded(self, path: str) -> bool:
         return not path_is_included(path, ["**/*"], self.exclude_patterns)
 
-    def _walk(self) -> Iterator[str]:
+    def _walk(self) -> Iterator[SafeDirectoryEntry]:
         stack = [""]
         while stack:
             directory = stack.pop()
             try:
-                entries = list_confined_entries(
-                    self.root_id, directory, self.roots, max_entries=100000
+                page = list_confined_entries_page(
+                    self.root_id, directory, self.roots, max_entries=self.max_entries_per_directory
                 )
-            except PathOutsideAllowedRoots:
-                continue
+            except (PathOutsideAllowedRoots, OSError):
+                raise
+            if page.truncated:
+                raise PathOutsideAllowedRoots(
+                    f"directory entry limit exceeded: {directory or 'root'}"
+                )
+            entries = page.entries
             for entry in reversed(entries):
                 if entry.is_dir:
                     stack.append(entry.relative_path)
                 else:
-                    yield entry.relative_path
+                    yield entry
 
     def scan(self, *, job_id: str, source_id: str) -> ScanManifest:
-        files = []
+        files, failures = [], []
         self.changed_paths = []
-        for path in sorted(self._walk()):
+        try:
+            entries = sorted(self._walk(), key=lambda item: item.relative_path)
+        except PathOutsideAllowedRoots as error:
+            return ScanManifest(
+                job_id=job_id,
+                source_id=source_id,
+                files=[],
+                failures=[ScanFailure(path="scan", error=str(error)[:500])],
+                complete=False,
+            )
+        for entry in entries:
+            path = entry.relative_path
             if not self._included(path) or self._excluded(path):
                 continue
-            with open_confined_file(self.root_id, path, self.roots) as handle:
-                stat = os.fstat(handle.fileno())
             item = ScanFile(
                 path=path,
-                size_bytes=stat.st_size,
-                modified_at=stat.st_mtime_ns,
+                size_bytes=entry.size_bytes,
+                modified_at=entry.modified_at_ns,
                 content_hash=None,
             )
             files.append(item)
+            if len(files) > self.max_files:
+                failures.append(ScanFailure(path=path, error="scan file limit exceeded"))
+                return ScanManifest(
+                    job_id=job_id,
+                    source_id=source_id,
+                    files=files[:-1],
+                    failures=failures,
+                    complete=False,
+                )
             old = self.known.get(path)
             if (
                 old is None
@@ -78,4 +111,6 @@ class RemoteScanner:
                 or old.get("modified_at") != item.modified_at
             ):
                 self.changed_paths.append(path)
-        return ScanManifest(job_id=job_id, source_id=source_id, files=files, complete=True)
+        return ScanManifest(
+            job_id=job_id, source_id=source_id, files=files, failures=failures, complete=True
+        )
