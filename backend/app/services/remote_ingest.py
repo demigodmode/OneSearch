@@ -6,7 +6,7 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
-from onesearch_shared import BatchAck, DocumentBatch, ScanManifest
+from onesearch_shared import BatchAck, DocumentBatch, ScanManifest, remote_path_hash
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -27,7 +27,7 @@ def canonical_remote_path(path: str) -> str:
 
 
 def remote_document_id(source_id: str, path: str) -> str:
-    return f"{source_id}--{hashlib.sha256(path.encode()).hexdigest()[:12]}"
+    return f"{source_id}--{remote_path_hash(path)[:12]}"
 
 
 class RemoteIngestService:
@@ -160,6 +160,8 @@ class RemoteIngestService:
         paths = set()
         for item in manifest.files:
             path = canonical_remote_path(item.path)
+            if item.path_hash != remote_path_hash(path):
+                raise JobConflict("manifest path hash mismatch")
             if path in paths:
                 raise JobConflict("duplicate manifest path")
             paths.add(path)
