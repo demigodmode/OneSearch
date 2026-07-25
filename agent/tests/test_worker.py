@@ -771,7 +771,7 @@ async def test_dispatch_unknown_kind_does_not_complete_job():
         async def complete(self, *_args):
             raise AssertionError("unsupported job must remain uncompleted")
 
-    lease = SimpleNamespace(kind=SimpleNamespace(value="extract_file"))
+    lease = SimpleNamespace(kind=SimpleNamespace(value="unknown_kind"))
     with pytest.raises(ValueError, match="unsupported job kind"):
         await worker_module.dispatch_job(lease, Client(), roots=[])
 
@@ -1049,7 +1049,7 @@ async def test_run_scan_job_rejects_malformed_payload_without_starting(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "kind,mode", [(None, "on_agent"), ("delete", "on_agent"), ("scan", None), ("scan", "on_server")]
+    "kind,mode", [(None, "on_agent"), ("delete", "on_agent"), ("scan", None)]
 )
 async def test_run_scan_job_rejects_unsupported_kind_or_mode_without_starting(
     monkeypatch, tmp_path, kind, mode
@@ -1666,19 +1666,37 @@ async def test_extract_file_conflict_acks_once_without_failed_completion(tmp_pat
     file_path = tmp_path / "a.txt"
     file_path.write_text("x")
     lease = SimpleNamespace(
-        id="extract-1", kind=SimpleNamespace(value="extract_file"),
-        processing_mode=ProcessingMode.ON_SERVER, source_id="s", lease_token="token",
-        payload={"root_id":"r", "path":"a.txt", "size_bytes":1,
-                 "modified_at":file_path.stat().st_mtime_ns, "maximum_size":1},
+        id="extract-1",
+        kind=SimpleNamespace(value="extract_file"),
+        processing_mode=ProcessingMode.ON_SERVER,
+        source_id="s",
+        lease_token="token",
+        payload={
+            "root_id": "r",
+            "path": "a.txt",
+            "size_bytes": 1,
+            "modified_at": file_path.stat().st_mtime_ns,
+            "maximum_size": 1,
+        },
     )
+
     class Client:
-        def __init__(self): self.uploads = self.acks = self.completions = 0
-        async def job_heartbeat(self, *args): pass
+        def __init__(self):
+            self.uploads = self.acks = self.completions = 0
+
+        async def job_heartbeat(self, *args):
+            pass
+
         async def upload_file_chunk(self, *args, **kwargs):
             self.uploads += 1
             raise JobConflict("cancel")
-        async def cancel_ack(self, *args): self.acks += 1
-        async def complete(self, *args): self.completions += 1
+
+        async def cancel_ack(self, *args):
+            self.acks += 1
+
+        async def complete(self, *args):
+            self.completions += 1
+
     client = Client()
     await worker_module.run_extract_file_job(
         lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
@@ -1694,26 +1712,48 @@ async def test_stream_file_uploads_bounded_chunks_and_final_checksum(tmp_path):
 
     file_path = tmp_path / "a.txt"
     file_path.write_bytes(b"abcde")
-    lease = SimpleNamespace(id="stream-1", kind=SimpleNamespace(value="stream_file"),
-        processing_mode=ProcessingMode.ON_SERVER, source_id="s", lease_token="token",
-        payload={"root_id":"r", "path":"a.txt", "size_bytes":5,
-                 "modified_at":file_path.stat().st_mtime_ns, "maximum_size":5})
+    lease = SimpleNamespace(
+        id="stream-1",
+        kind=SimpleNamespace(value="stream_file"),
+        processing_mode=ProcessingMode.ON_SERVER,
+        source_id="s",
+        lease_token="token",
+        payload={
+            "root_id": "r",
+            "path": "a.txt",
+            "size_bytes": 5,
+            "modified_at": file_path.stat().st_mtime_ns,
+            "maximum_size": 5,
+        },
+    )
+
     class Client:
-        def __init__(self): self.calls = []
-        async def job_heartbeat(self, *args): pass
-        async def upload_file_chunk(self, *args, **kwargs): self.calls.append(kwargs)
+        def __init__(self):
+            self.calls = []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def upload_file_chunk(self, *args, **kwargs):
+            self.calls.append(kwargs)
+
     client = Client()
-    await worker_module.run_stream_file_job(lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))], chunk_bytes=3)
+    await worker_module.run_stream_file_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))], chunk_bytes=3
+    )
     assert [call.get("data") for call in client.calls] == [b"abc", b"de", None]
     assert [call["sequence"] for call in client.calls] == [0, 1, 2]
     assert client.calls[-1]["complete"] is True
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("path", "size", "modified", "reason", "detail"), [
-    ("missing.txt", 1, 1, "not_found", "remote_file_missing"),
-    ("a.txt", 2, 1, "invalid_request", "remote_file_changed"),
-])
+@pytest.mark.parametrize(
+    ("path", "size", "modified", "reason", "detail"),
+    [
+        ("missing.txt", 1, 1, "not_found", "remote_file_missing"),
+        ("a.txt", 2, 1, "invalid_request", "remote_file_changed"),
+    ],
+)
 async def test_stream_file_maps_missing_and_changed_without_path_leak(
     tmp_path, path, size, modified, reason, detail
 ):
@@ -1722,15 +1762,91 @@ async def test_stream_file_maps_missing_and_changed_without_path_leak(
     from onesearch_shared import ProcessingMode
 
     (tmp_path / "a.txt").write_text("x")
-    lease = SimpleNamespace(id="stream-fail", kind=SimpleNamespace(value="stream_file"),
-        processing_mode=ProcessingMode.ON_SERVER, source_id="s", lease_token="token",
-        payload={"root_id":"r", "path":path, "size_bytes":size, "modified_at":modified, "maximum_size":2})
+    lease = SimpleNamespace(
+        id="stream-fail",
+        kind=SimpleNamespace(value="stream_file"),
+        processing_mode=ProcessingMode.ON_SERVER,
+        source_id="s",
+        lease_token="token",
+        payload={
+            "root_id": "r",
+            "path": path,
+            "size_bytes": size,
+            "modified_at": modified,
+            "maximum_size": 2,
+        },
+    )
+
     class Client:
-        def __init__(self): self.completions = []
-        async def job_heartbeat(self, *args): pass
-        async def complete(self, *args): self.completions.append(args[1])
+        def __init__(self):
+            self.completions = []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def complete(self, *args):
+            self.completions.append(args[1])
+
     client = Client()
-    await worker_module.run_stream_file_job(lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))])
+    await worker_module.run_stream_file_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
     completion = client.completions[0]
     assert completion.reason.value == reason and completion.detail == detail
     assert str(tmp_path) not in completion.detail
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("root_id", "path", "expected_reason", "expected_detail"),
+    [
+        ("r", "missing.txt", "not_found", "remote_file_missing"),
+        ("r", "../outside.txt", "extraction_failed", "extraction failed: PathOutsideAllowedRoots"),
+        (
+            "unknown-root",
+            "a.txt",
+            "extraction_failed",
+            "extraction failed: PathOutsideAllowedRoots",
+        ),
+    ],
+)
+async def test_stream_file_only_classifies_confined_missing_as_not_found(
+    tmp_path, root_id, path, expected_reason, expected_detail
+):
+    from types import SimpleNamespace
+
+    from onesearch_shared import ProcessingMode
+
+    lease = SimpleNamespace(
+        id=f"stream-classify-{root_id}",
+        kind=SimpleNamespace(value="stream_file"),
+        processing_mode=ProcessingMode.ON_SERVER,
+        source_id="s",
+        lease_token="token",
+        payload={
+            "root_id": root_id,
+            "path": path,
+            "size_bytes": 1,
+            "modified_at": 1,
+            "maximum_size": 1,
+        },
+    )
+
+    class Client:
+        def __init__(self):
+            self.completions = []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def complete(self, *args):
+            self.completions.append(args[1])
+
+    client = Client()
+    await worker_module.run_stream_file_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+    completion = client.completions[0]
+    assert completion.reason.value == expected_reason
+    assert completion.detail == expected_detail
+    assert "outside.txt" not in completion.detail and str(tmp_path) not in completion.detail
