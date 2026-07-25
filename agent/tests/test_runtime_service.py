@@ -191,6 +191,7 @@ async def test_worker_can_acknowledge_cancellation_lease():
 
 def test_windows_service_uses_pywin32_argv(monkeypatch, tmp_path: Path):
     calls = []
+    monkeypatch.setattr("onesearch_agent.service.validate_service_backend", lambda path: None)
     monkeypatch.setattr("onesearch_agent.service._run", lambda args: calls.append(args))
     install(tmp_path / "config.toml", "C:/Program Files/agent.exe", system="nt")
     uninstall(system="nt")
@@ -205,6 +206,7 @@ def test_unsupported_service_fails(tmp_path: Path):
 
 def test_linux_service_writes_unit_and_reloads(monkeypatch, tmp_path: Path):
     calls = []
+    monkeypatch.setattr("onesearch_agent.service.validate_service_backend", lambda path: None)
     monkeypatch.setattr("onesearch_agent.service._run", lambda args: calls.append(args))
     install(tmp_path / "config.toml", "/opt/agent", system="posix", home=tmp_path)
     assert (tmp_path / ".config/systemd/user/onesearch-agent.service").exists()

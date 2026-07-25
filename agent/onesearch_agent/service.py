@@ -7,9 +7,22 @@ import subprocess
 import unicodedata
 from pathlib import Path
 
+from .config import load_config
+from .credentials import credential_store
+
 
 class ServiceError(RuntimeError):
     pass
+
+
+def validate_service_backend(config_path: Path) -> None:
+    if not config_path.is_absolute():
+        raise ServiceError("service configuration path must be absolute")
+    try:
+        config = load_config(config_path)
+        credential_store(config).load()
+    except Exception as error:
+        raise ServiceError("service credential backend is unavailable") from error
 
 
 def _systemd_arg(value: str) -> str:
@@ -28,6 +41,7 @@ def install(config: Path, executable: str, *, system: str | None = None, home: P
     system = system or os.name
     if os.environ.get("DOCKER_CONTAINER"):
         raise ServiceError("services are unsupported in containers")
+    validate_service_backend(config)
     if system == "nt":
         _run(
             [
