@@ -81,7 +81,9 @@ async def get_document_preview(
             f"Preview file exceeds {app_settings.max_preview_size_mb} MB limit",
         )
 
-    extension = str(document.get("extension") or file_path.suffix.lower().lstrip(".")).lower()
+    extension = str(
+        document.get("extension") or Path(str(document.get("path") or "")).suffix.lstrip(".")
+    ).lower()
     doc_type = document.get("type")
 
     if doc_type == "raw_image" or extension in _RAW_IMAGE_EXTENSIONS:

@@ -685,6 +685,88 @@ async def test_remote_stream_body_task_cancellation_closes_registered_queue(
     assert list(tmp_path.iterdir()) == []
 
 
+@pytest.mark.asyncio
+async def test_remote_stream_body_preserves_typed_error_after_durable_failure(
+    db_session, remote_download, clean_remote_streams
+):
+    from app.api import preview
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_files import RemoteFileMissing, remote_streams
+
+    agent, source, _indexed, document = remote_download
+    jobs = AgentJobService(db_session)
+    job = jobs.enqueue_stream_file(source, path=document["path"], size_bytes=1, modified_at=1)
+    db_session.commit()
+    lease = jobs.claim_next(agent.id)
+    db_session.commit()
+    jobs.complete(agent.id, job.id, lease.lease_token, "failed", error="remote_file_missing")
+    db_session.commit()
+    queue = remote_streams.open(job.id)
+    await queue.fail(RemoteFileMissing("remote file missing"))
+
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    stream = preview._stream_remote_body(ConnectedRequest(), db_session, job, queue)
+    with pytest.raises(RemoteFileMissing):
+        await anext(stream)
+    db_session.refresh(job)
+    assert job.status == "failed" and remote_streams.get(job.id) is None
+
+
+def test_remote_preview_infers_extension_from_relative_path(
+    streaming_client, db_session, remote_download, remote_queue_feeder
+):
+    _agent, _source, _indexed, document = remote_download
+    document.update({"type": "image"})
+    document.pop("extension", None)
+
+    async def feed(queue):
+        await queue.put(0, b"jpg")
+        await queue.finish(1, hashlib.sha256(b"jpg").hexdigest())
+
+    remote_queue_feeder(feed)
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+    assert response.status_code == 200 and response.headers["content-type"] == "image/jpeg"
+
+
+@pytest.mark.asyncio
+async def test_remote_response_wrapper_closes_body_after_prefetched_chunk(
+    db_session, remote_download, remote_queue_feeder, clean_remote_streams
+):
+    from app.api import preview
+    from app.services.remote_files import remote_streams
+
+    _agent, source, indexed, document = remote_download
+
+    async def feed(queue):
+        await queue.put(0, b"first")
+
+    remote_queue_feeder(feed)
+
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    response = await preview._remote_file_response(
+        request=ConnectedRequest(),
+        source=source,
+        document=document,
+        size_bytes=indexed.size_bytes,
+        modified_at=indexed.modified_at_ns,
+        media_type="application/octet-stream",
+        filename="x.txt",
+        db=db_session,
+    )
+    assert await anext(response.body_iterator) == b"first"
+    await response.body_iterator.aclose()
+    job = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").one()
+    assert (
+        job.status == "cancelled" and job.active_key is None and remote_streams.get(job.id) is None
+    )
+
+
 def test_remote_download_content_disposition_encodes_malicious_basename(
     streaming_client, remote_download, remote_queue_feeder
 ):
