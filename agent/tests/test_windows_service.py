@@ -1,5 +1,7 @@
 # ruff: noqa: N802
 import importlib
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -75,3 +77,22 @@ def test_service_class_exposes_scm_stop_and_runtime_methods():
     assert module.OneSearchAgentService._svc_name_ == "OneSearchAgent"
     assert callable(module.OneSearchAgentService.SvcStop)
     assert callable(module.OneSearchAgentService.SvcDoRun)
+
+
+def test_svc_stop_reports_pending_and_signals_event(monkeypatch):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    signal = Mock()
+    monkeypatch.setattr(module, "win32event", SimpleNamespace(SetEvent=signal))
+    monkeypatch.setattr(module, "win32service", SimpleNamespace(SERVICE_STOP_PENDING=3))
+    fake = SimpleNamespace(stop_event="event", ReportServiceStatus=Mock())
+    module.OneSearchAgentService.SvcStop(fake)
+    fake.ReportServiceStatus.assert_called_once_with(3)
+    signal.assert_called_once_with("event")
+
+
+def test_svc_do_run_delegates_to_service_helper(monkeypatch):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    helper = Mock()
+    monkeypatch.setattr(module, "_run_service", helper)
+    module.OneSearchAgentService.SvcDoRun(SimpleNamespace(stop_event="event"))
+    helper.assert_called_once_with("event")

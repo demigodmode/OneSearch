@@ -74,21 +74,23 @@ class OneSearchAgentService(_ServiceBase):
         win32event.SetEvent(self.stop_event)
 
     def SvcDoRun(self):  # noqa: N802
-        from .client import AgentClient
-        from .config import config_path, load_config
-        from .credentials import credential_store
-        from .runtime import run_runtime
+        _run_service(self.stop_event)
 
-        config = load_config(
-            config_path(service_config() or os.environ.get("ONESEARCH_AGENT_CONFIG"))
+
+def _run_service(stop_event) -> None:
+    from .client import AgentClient
+    from .config import config_path, load_config
+    from .credentials import credential_store
+    from .runtime import run_runtime
+
+    config = load_config(config_path(service_config() or os.environ.get("ONESEARCH_AGENT_CONFIG")))
+    token = credential_store(config).load()
+    asyncio.run(
+        run_runtime(
+            AgentClient(config.server_url, token),
+            stopped=lambda: win32event.WaitForSingleObject(stop_event, 0) == 0,
         )
-        token = credential_store(config).load()
-        asyncio.run(
-            run_runtime(
-                AgentClient(config.server_url, token),
-                stopped=lambda: win32event.WaitForSingleObject(self.stop_event, 0) == 0,
-            )
-        )
+    )
 
 
 def main():
