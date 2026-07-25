@@ -122,3 +122,23 @@ def test_symlink_escape_is_not_manifested(tmp_path: Path):
         job_id="j", source_id="s"
     )
     assert "escape.txt" not in [item.path for item in manifest.files]
+
+
+def test_page_entry_failure_makes_manifest_incomplete_without_filesystem_reconciliation(
+    monkeypatch, tmp_path
+):
+    from onesearch_agent.paths import SafeDirectoryFailure, SafeDirectoryPage
+
+    monkeypatch.setattr(
+        scanner_module,
+        "list_confined_entries_page",
+        lambda *args, **kwargs: SafeDirectoryPage(
+            (), False, (SafeDirectoryFailure("raced.txt", "permission denied"),)
+        ),
+    )
+    manifest = RemoteScanner("root", [AllowedRoot(root_id="root", path=str(tmp_path))]).scan(
+        job_id="j", source_id="s"
+    )
+    assert manifest.complete is False
+    assert manifest.files == []
+    assert manifest.failures[0].error.startswith("raced.txt:")

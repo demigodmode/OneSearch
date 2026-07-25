@@ -64,6 +64,9 @@ class RemoteScanner:
                 raise PathOutsideAllowedRoots(
                     f"directory entry limit exceeded: {directory or 'root'}"
                 )
+            if page.failures:
+                failure = page.failures[0]
+                raise PathOutsideAllowedRoots(f"{failure.relative_path}: {failure.error}"[:500])
             entries = page.entries
             for entry in reversed(entries):
                 if entry.is_dir:

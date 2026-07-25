@@ -28,9 +28,16 @@ class SafeDirectoryEntry:
 
 
 @dataclass(frozen=True)
+class SafeDirectoryFailure:
+    relative_path: str
+    error: str
+
+
+@dataclass(frozen=True)
 class SafeDirectoryPage:
     entries: tuple[SafeDirectoryEntry, ...]
     truncated: bool
+    failures: tuple[SafeDirectoryFailure, ...] = ()
 
 
 def list_confined_entries_page(
@@ -38,17 +45,25 @@ def list_confined_entries_page(
 ) -> SafeDirectoryPage:
     if max_entries < 1:
         raise ValueError("max_entries must be positive")
-    found = list_confined_entries(root_id, relative, roots, max_entries=max_entries + 1)
-    return SafeDirectoryPage(tuple(found[:max_entries]), len(found) > max_entries)
+    found, failures = _list_confined_entries_with_failures(
+        root_id, relative, roots, max_entries=max_entries + 1
+    )
+    return SafeDirectoryPage(tuple(found[:max_entries]), len(found) > max_entries, tuple(failures))
 
 
 def list_confined_entries(
     root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int = 200
 ) -> list[SafeDirectoryEntry]:
     """Return metadata derived solely from no-follow handles, never host Paths."""
+    return _list_confined_entries_with_failures(root_id, relative, roots, max_entries)[0]
+
+
+def _list_confined_entries_with_failures(
+    root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int
+) -> tuple[list[SafeDirectoryEntry], list[SafeDirectoryFailure]]:
     if os.name == "nt":
         root_handle = directory_handle = None
-        entries = []
+        entries, failures = [], []
         try:
             root_handle, root_path, directory_handle, directory_path = _windows_verified_directory(
                 root_id, relative, roots
@@ -64,7 +79,7 @@ def list_confined_entries(
                         _windows_is_within(final, root_path)
                         and _windows_is_within(final, directory_path)
                     ):
-                        continue
+                        raise OSError("entry escaped verified directory")
                     is_dir, size, mtime = _windows_handle_metadata(child)
                     entries.append(
                         SafeDirectoryEntry(
@@ -73,17 +88,20 @@ def list_confined_entries(
                     )
                     if len(entries) >= max_entries:
                         break
-                except OSError:
-                    continue
+                except OSError as error:
+                    failures.append(
+                        SafeDirectoryFailure(f"{relative}/{name}".strip("/"), str(error)[:500])
+                    )
                 finally:
                     _windows_close(child)
-            return entries
+            return entries, failures
         finally:
             _windows_close(directory_handle)
             _windows_close(root_handle)
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     directory_fd = -1
     entries: list[SafeDirectoryEntry] = []
+    failures: list[SafeDirectoryFailure] = []
     try:
         directory_fd = os.open(_root(root_id, roots), flags)
         for part in _relative_parts(relative):
@@ -106,12 +124,19 @@ def list_confined_entries(
                 )
                 if len(entries) >= max_entries:
                     break
-            except OSError:
-                continue
+            except OSError as error:
+                try:
+                    mode = os.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_mode
+                except OSError:
+                    mode = 0
+                if not stat.S_ISLNK(mode):
+                    failures.append(
+                        SafeDirectoryFailure(f"{relative}/{name}".strip("/"), str(error)[:500])
+                    )
             finally:
                 if fd != -1:
                     os.close(fd)
-        return entries
+        return entries, failures
     except OSError as error:
         raise PathOutsideAllowedRoots("path cannot be listed safely") from error
     finally:
