@@ -1704,6 +1704,6 @@ async def test_stream_file_uploads_bounded_chunks_and_final_checksum(tmp_path):
         async def upload_file_chunk(self, *args, **kwargs): self.calls.append(kwargs)
     client = Client()
     await worker_module.run_stream_file_job(lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))], chunk_bytes=3)
-    assert [call.get("data") for call in client.calls] == [b"abc", b"de", b""]
+    assert [call.get("data") for call in client.calls] == [b"abc", b"de", None]
     assert [call["sequence"] for call in client.calls] == [0, 1, 2]
     assert client.calls[-1]["complete"] is True
