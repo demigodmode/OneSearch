@@ -4,20 +4,35 @@
 """
 Tests for MeilisearchService - mocked, no running instance needed
 """
+
 import json
 from datetime import datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from types import SimpleNamespace
-from unittest.mock import Mock, patch
 
 from app.schemas import Document
-from app.services.search import MeilisearchService, INDEX_NAME
+from app.services.search import INDEX_NAME, MeilisearchService
 
 
 def _fake_task(**kwargs):
     """Create a fake task result that behaves like meilisearch TaskInfo"""
     return SimpleNamespace(**kwargs)
+
+
+@pytest.mark.asyncio
+async def test_confirmed_index_and_delete_require_successful_tasks(connected_service):
+    connected_service.index_documents = AsyncMock(return_value={"task_uid": 7})
+    connected_service.delete_document = AsyncMock(return_value={"task_uid": 8})
+    connected_service.client.wait_for_task.return_value = {"status": "succeeded"}
+    await connected_service.index_documents_confirmed([{"id": "x"}])
+    await connected_service.delete_document_confirmed("x")
+    connected_service.client.wait_for_task.return_value = SimpleNamespace(status="failed")
+    with pytest.raises(RuntimeError, match="indexing task failed"):
+        await connected_service.index_documents_confirmed([{"id": "x"}])
+    with pytest.raises(RuntimeError, match="delete task failed"):
+        await connected_service.delete_document_confirmed("x")
 
 
 @pytest.fixture
@@ -35,7 +50,6 @@ def connected_service():
 
 
 class TestConnect:
-
     @patch("app.services.search.Client")
     def test_connect_success_existing_index(self, MockClient, service):
         mock_client = MockClient.return_value
@@ -76,7 +90,6 @@ class TestConnect:
 
 
 class TestHealthCheck:
-
     def test_health_check_connected(self, connected_service):
         connected_service.client.health.return_value = {"status": "available"}
         mock_stats = Mock()
@@ -119,7 +132,6 @@ class TestHealthCheck:
 
 
 class TestIndexDocuments:
-
     @pytest.mark.asyncio
     async def test_index_pydantic_models(self, connected_service):
         mock_doc = Mock()
@@ -146,7 +158,7 @@ class TestIndexDocuments:
             modified_at=1,
             indexed_at=2,
             content="note",
-            metadata={"frontmatter": {"published": datetime(2026, 6, 5, 12, 30)}}
+            metadata={"frontmatter": {"published": datetime(2026, 6, 5, 12, 30)}},
         )
         task = _fake_task(task_uid=7)
         connected_service.index.add_documents.return_value = task
@@ -172,7 +184,6 @@ class TestIndexDocuments:
 
 
 class TestDeleteDocument:
-
     @pytest.mark.asyncio
     async def test_delete_success(self, connected_service):
         task = _fake_task(task_uid=5)
@@ -190,7 +201,6 @@ class TestDeleteDocument:
 
 
 class TestDeleteDocumentsByFilter:
-
     @pytest.mark.asyncio
     async def test_delete_by_filter_uses_supported_client_method(self, service):
         class FakeIndex:
@@ -216,7 +226,6 @@ class TestDeleteDocumentsByFilter:
 
 
 class TestGetDocument:
-
     @pytest.mark.asyncio
     async def test_get_document_found(self, connected_service):
         connected_service.index.get_document.return_value = {"id": "doc1", "content": "hi"}
@@ -231,12 +240,14 @@ class TestGetDocument:
 
         # Build a proper mock response that MeilisearchApiError can parse
         mock_response = Mock()
-        mock_response.text = json.dumps({
-            "message": "Document not found",
-            "code": "document_not_found",
-            "type": "invalid_request",
-            "link": "",
-        })
+        mock_response.text = json.dumps(
+            {
+                "message": "Document not found",
+                "code": "document_not_found",
+                "type": "invalid_request",
+                "link": "",
+            }
+        )
         mock_response.status_code = 404
         err = meilisearch.errors.MeilisearchApiError("not found", mock_response)
 
@@ -253,7 +264,6 @@ class TestGetDocument:
 
 
 class TestSearch:
-
     @pytest.mark.asyncio
     async def test_search_success(self, connected_service):
         connected_service.index.search.return_value = {
@@ -277,7 +287,6 @@ class TestSearch:
 
 
 class TestConfigureIndex:
-
     @patch("app.services.search.Client")
     def test_configure_called_during_connect(self, MockClient, service):
         mock_client = MockClient.return_value

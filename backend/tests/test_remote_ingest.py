@@ -32,6 +32,14 @@ class Search:
         self.deleted.append(doc)
 
 
+class FailedConfirmedSearch(Search):
+    async def index_documents_confirmed(self, docs):
+        raise RuntimeError("indexing task failed")
+
+    async def delete_document_confirmed(self, doc):
+        raise RuntimeError("delete task failed")
+
+
 @pytest.fixture
 def remote_job(db_session):
     agent = Agent(
@@ -105,6 +113,54 @@ def test_manifest_requires_valid_lease_and_preserves_versioned_complete_state(re
     assert '"version":1' in job.checkpoint
     with pytest.raises(JobLeaseError):
         service.accept_manifest("a", job.id, "wrong", manifest)
+
+
+@pytest.mark.asyncio
+async def test_confirmed_index_failure_rolls_back_reserved_receipt_and_indexed_file(remote_job):
+    db, lease, job = remote_job
+    batch = DocumentBatch(
+        job_id=job.id,
+        batch_id="failed",
+        documents=[
+            NormalizedRemoteDocument(source_id="s", path="new.txt", content="x", modified_at=1)
+        ],
+    )
+    with pytest.raises(RuntimeError, match="indexing task failed"):
+        await RemoteIngestService(db, FailedConfirmedSearch()).accept_batch(
+            "a", job.id, lease.lease_token, batch
+        )
+    db.rollback()
+    db.expire_all()
+    assert list(db.scalars(select(AgentBatch).where(AgentBatch.job_id == job.id))) == []
+    assert list(db.scalars(select(IndexedFile).where(IndexedFile.source_id == "s"))) == []
+
+
+@pytest.mark.asyncio
+async def test_confirmed_delete_failure_preserves_job_and_old_file(remote_job):
+    db, lease, job = remote_job
+    old = IndexedFile(source_id="s", path="old.txt", status="success")
+    db.add(old)
+    db.commit()
+    service = RemoteIngestService(db, FailedConfirmedSearch())
+    service.accept_manifest(
+        "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=True)
+    )
+    with pytest.raises(RuntimeError, match="delete task failed"):
+        await service.reconcile_completion("a", job.id, lease.lease_token)
+    db.rollback()
+    db.expire_all()
+    restored = db.get(type(job), job.id)
+    assert (
+        db.scalar(
+            select(IndexedFile).where(IndexedFile.source_id == "s", IndexedFile.path == "old.txt")
+        )
+        is not None
+    )
+    assert (
+        restored.status == "claimed"
+        and restored.active_key == "s"
+        and restored.completed_at is None
+    )
 
 
 @pytest.mark.asyncio
