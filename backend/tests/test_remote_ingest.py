@@ -345,3 +345,18 @@ def test_failed_and_cancelled_completion_do_not_delete_indexed_files(remote_job)
     db.commit()
     AgentJobService(db).complete("a", job.id, lease.lease_token, "failed")
     assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is not None
+
+
+@pytest.mark.asyncio
+async def test_cancelled_remote_scan_never_deletes_indexed_files(remote_job):
+    db, lease, job = remote_job
+    search = Search()
+    db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
+    db.commit()
+    jobs = AgentJobService(db)
+    jobs.cancel(job.id)
+    jobs.acknowledge_cancellation("a", job.id, lease.lease_token)
+    db.commit()
+    db.expire_all()
+    assert search.deleted == []
+    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is not None
