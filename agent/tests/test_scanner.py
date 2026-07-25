@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 import onesearch_agent.scanner as scanner_module
 from onesearch_agent.scanner import RemoteScanner
 from onesearch_shared import AllowedRoot
