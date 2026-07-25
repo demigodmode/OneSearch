@@ -26,9 +26,33 @@ def _parameters_key():
     return r"SYSTEM\CurrentControlSet\Services\OneSearchAgent\Parameters"
 
 
+def _protect_parameters_key(key) -> None:
+    """Replace inherited access with SYSTEM and local Administrators only."""
+    try:
+        import ntsecuritycon
+        import win32security
+
+        dacl = win32security.ACL()
+        for sid_type in (win32security.WinLocalSystemSid, win32security.WinBuiltinAdministratorsSid):
+            sid = win32security.CreateWellKnownSid(sid_type, None)
+            dacl.AddAccessAllowedAce(win32security.ACL_REVISION, ntsecuritycon.KEY_ALL_ACCESS, sid)
+        win32security.SetSecurityInfo(
+            key,
+            win32security.SE_REGISTRY_KEY,
+            win32security.DACL_SECURITY_INFORMATION | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            dacl,
+            None,
+        )
+    except Exception as error:
+        raise RuntimeError("unable to protect service credential registry key") from error
+
+
 def persist_config(path: str) -> None:
     key = winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, _parameters_key())
     try:
+        _protect_parameters_key(key)
         winreg.SetValueEx(key, CONFIG_VALUE, 0, winreg.REG_SZ, path)
     finally:
         winreg.CloseKey(key)
@@ -102,9 +126,12 @@ def persist_machine_credential(token: str) -> None:
     try:
         import win32crypt
 
-        protected = win32crypt.CryptProtectData(token.encode(), None, None, None, None, 4)[1]
+        protected = win32crypt.CryptProtectData(token.encode(), None, None, None, None, 4)
+        if not isinstance(protected, bytes):
+            raise TypeError("unexpected CryptProtectData result")
         key = winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, _parameters_key())
         try:
+            _protect_parameters_key(key)
             winreg.SetValueEx(key, TOKEN_VALUE, 0, winreg.REG_BINARY, protected)
         finally:
             winreg.CloseKey(key)
@@ -121,7 +148,14 @@ def machine_credential() -> str:
             protected = winreg.QueryValueEx(key, TOKEN_VALUE)[0]
         finally:
             winreg.CloseKey(key)
-        token = win32crypt.CryptUnprotectData(protected, None, None, None, 0)[1].decode()
+        result = win32crypt.CryptUnprotectData(protected, None, None, None, 0)
+        if not (
+            isinstance(result, tuple)
+            and len(result) == 2
+            and isinstance(result[1], bytes)
+        ):
+            raise TypeError("unexpected CryptUnprotectData result")
+        token = result[1].decode()
         if not token:
             raise ValueError()
         return token
@@ -129,20 +163,40 @@ def machine_credential() -> str:
         raise RuntimeError("machine credential is unavailable") from error
 
 
+def _service_command(command: str):
+    return win32serviceutil.HandleCommandLine(OneSearchAgentService, argv=[sys.argv[0], command])
+
+
+def _command_succeeded(result) -> bool:
+    return result in (None, 0)
+
+
 def install_service(config: str, token: str) -> None:
-    """Register SCM service after writing machine credential in-process."""
+    """Stage protected state, install, and start with rollback on failure."""
     if win32serviceutil is None:
         raise RuntimeError("pywin32 is required for the Windows service")
     snapshot = _snapshot_parameters()
+    installed = False
     try:
         persist_config(config)
         persist_machine_credential(token)
         result = win32serviceutil.HandleCommandLine(
             OneSearchAgentService, argv=[sys.argv[0], "--startup", "auto", "install"]
         )
-        if result not in (None, 0):
+        if not _command_succeeded(result):
             raise RuntimeError("Windows service command failed")
+        installed = True
+        if not _command_succeeded(_service_command("start")):
+            raise RuntimeError("Windows service start failed")
     except Exception as error:
+        if installed:
+            try:
+                if not _command_succeeded(_service_command("remove")):
+                    raise RuntimeError("Windows service rollback failed")
+            except Exception as rollback_error:
+                raise RuntimeError(
+                    "Windows service start failed; service remains installed with protected credentials"
+                ) from rollback_error
         _restore_parameters(snapshot)
         raise RuntimeError("Windows service installation failed") from error
 
@@ -150,11 +204,19 @@ def install_service(config: str, token: str) -> None:
 def remove_service() -> None:
     if win32serviceutil is None:
         raise RuntimeError("pywin32 is required for the Windows service")
-    result = win32serviceutil.HandleCommandLine(OneSearchAgentService, argv=[sys.argv[0], "remove"])
-    if result not in (None, 0):
-        raise RuntimeError("Windows service command failed")
-    _delete_value(CONFIG_VALUE)
-    _delete_value(TOKEN_VALUE)
+    snapshot = _snapshot_parameters()
+    try:
+        # 1062 is ERROR_SERVICE_NOT_ACTIVE and is safe to continue from.
+        stopped = _service_command("stop")
+        if not _command_succeeded(stopped) and stopped != 1062:
+            raise RuntimeError("Windows service stop failed")
+        _delete_value(CONFIG_VALUE)
+        _delete_value(TOKEN_VALUE)
+        if not _command_succeeded(_service_command("remove")):
+            raise RuntimeError("Windows service removal failed")
+    except Exception as error:
+        _restore_parameters(snapshot)
+        raise RuntimeError("Windows service removal failed") from error
 
 
 _ServiceBase = win32serviceutil.ServiceFramework if win32serviceutil else object

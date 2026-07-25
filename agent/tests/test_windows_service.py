@@ -53,6 +53,7 @@ def test_registry_config_persist_read_and_absent_cleanup(monkeypatch):
             raise FileNotFoundError()
 
     monkeypatch.setattr(module, "winreg", Registry())
+    monkeypatch.setattr(module, "_protect_parameters_key", lambda key: calls.append(("acl", key)))
     module.persist_config("C:/agent.toml")
     assert module.service_config() == "C:/agent.toml"
     module.clear_config()
@@ -71,6 +72,37 @@ def test_registry_cleanup_error_is_safe(monkeypatch):
     monkeypatch.setattr(module, "winreg", Registry())
     with pytest.raises(RuntimeError, match="unable to remove service configuration"):
         module.clear_config()
+
+
+def test_parameters_dacl_is_protected_and_limited_to_system_and_admins(monkeypatch):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    captured = {}
+
+    class Acl:
+        def __init__(self):
+            self.aces = []
+
+        def AddAccessAllowedAce(self, revision, access, sid):
+            self.aces.append((revision, access, sid))
+
+    security = SimpleNamespace(
+        ACL=Acl,
+        ACL_REVISION=2,
+        WinLocalSystemSid="SYSTEM",
+        WinBuiltinAdministratorsSid="ADMINS",
+        SE_REGISTRY_KEY=4,
+        DACL_SECURITY_INFORMATION=8,
+        PROTECTED_DACL_SECURITY_INFORMATION=16,
+        CreateWellKnownSid=lambda sid, domain: sid,
+        SetSecurityInfo=lambda key, kind, flags, owner, group, dacl, sacl: captured.update(
+            key=key, kind=kind, flags=flags, aces=dacl.aces
+        ),
+    )
+    monkeypatch.setitem(__import__("sys").modules, "win32security", security)
+    monkeypatch.setitem(__import__("sys").modules, "ntsecuritycon", SimpleNamespace(KEY_ALL_ACCESS=99))
+    module._protect_parameters_key("key")
+    assert captured["flags"] == 24
+    assert captured["aces"] == [(2, 99, "SYSTEM"), (2, 99, "ADMINS")]
 
 
 def test_machine_credential_uses_binary_dpapi(monkeypatch):
@@ -92,9 +124,10 @@ def test_machine_credential_uses_binary_dpapi(monkeypatch):
 
     class Crypto:
         def CryptProtectData(self, value, *args):
-            return (None, b"cipher")
+            return b"cipher"
 
     monkeypatch.setattr(module, "winreg", Registry())
+    monkeypatch.setattr(module, "_protect_parameters_key", lambda key: None)
     monkeypatch.setitem(__import__("sys").modules, "win32crypt", Crypto())
     module.persist_machine_credential("secret")
     assert calls == [("MachineCredential", 3, b"cipher")]
@@ -136,13 +169,12 @@ def test_machine_credential_decrypts_and_redacts_failures(monkeypatch):
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows DPAPI only")
 def test_live_machine_dpapi_roundtrip():
-    try:
-        import win32crypt
-
-        protected = win32crypt.CryptProtectData(b"roundtrip", None, None, None, None, 4)[1]
-        assert win32crypt.CryptUnprotectData(protected, None, None, None, 0)[1] == b"roundtrip"
-    except Exception as error:
-        pytest.skip(f"DPAPI unavailable: {error}")
+    win32crypt = pytest.importorskip("win32crypt")
+    protected = win32crypt.CryptProtectData(b"roundtrip", None, None, None, None, 4)
+    assert isinstance(protected, bytes)
+    result = win32crypt.CryptUnprotectData(protected, None, None, None, 0)
+    assert isinstance(result, tuple)
+    assert result[1] == b"roundtrip"
 
 
 @pytest.mark.parametrize("result", [None, 0, 1060])
@@ -201,26 +233,95 @@ def test_install_exception_restores_each_prior_owned_state(monkeypatch, snapshot
     assert restored == [snapshot]
 
 
-@pytest.mark.parametrize("result", [None, 0, 1060])
-def test_remove_clears_owned_values_only_after_success(monkeypatch, result):
+def test_install_start_failure_removes_service_then_restores_snapshot(monkeypatch):
     module = importlib.import_module("onesearch_agent.windows_service")
     calls = []
+    snapshot = {"ConfigPath": ("old", 1)}
+
+    def command(command):
+        calls.append(command)
+        return 1 if command == "start" else 0
+
     monkeypatch.setattr(
         module,
         "win32serviceutil",
-        SimpleNamespace(HandleCommandLine=lambda *args, **kwargs: calls.append("scm") or result),
+        SimpleNamespace(HandleCommandLine=lambda *args, **kwargs: command(kwargs["argv"][-1])),
     )
+    monkeypatch.setattr(module, "persist_config", lambda value: calls.append("config"))
+    monkeypatch.setattr(module, "persist_machine_credential", lambda value: calls.append("token"))
+    monkeypatch.setattr(module, "_snapshot_parameters", lambda: snapshot)
+    monkeypatch.setattr(module, "_restore_parameters", lambda value: calls.append(("restore", value)))
+    with pytest.raises(RuntimeError):
+        module.install_service("C:/agent.toml", "secret")
+    assert calls == ["config", "token", "install", "start", "remove", ("restore", snapshot)]
+
+
+def test_install_start_rollback_failure_retains_staged_values(monkeypatch):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    calls = []
+
+    def command(command):
+        calls.append(command)
+        return 1 if command in {"start", "remove"} else 0
+
+    monkeypatch.setattr(
+        module,
+        "win32serviceutil",
+        SimpleNamespace(HandleCommandLine=lambda *args, **kwargs: command(kwargs["argv"][-1])),
+    )
+    monkeypatch.setattr(module, "persist_config", lambda value: None)
+    monkeypatch.setattr(module, "persist_machine_credential", lambda value: None)
+    monkeypatch.setattr(module, "_snapshot_parameters", lambda: {})
+    restore = Mock()
+    monkeypatch.setattr(module, "_restore_parameters", restore)
+    with pytest.raises(RuntimeError, match="remains installed"):
+        module.install_service("C:/agent.toml", "secret")
+    assert calls == ["install", "start", "remove"]
+    restore.assert_not_called()
+
+
+@pytest.mark.parametrize("stop_result", [None, 0, 1062])
+def test_remove_stops_then_clears_owned_values_then_removes(monkeypatch, stop_result):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    calls = []
+    snapshot = {"ConfigPath": ("old", 1), "MachineCredential": (b"old", 3)}
+
+    def command(command):
+        calls.append(command)
+        return stop_result if command == "stop" else 0
+
+    monkeypatch.setattr(
+        module,
+        "win32serviceutil",
+        SimpleNamespace(HandleCommandLine=lambda *args, **kwargs: command(kwargs["argv"][-1])),
+    )
+    monkeypatch.setattr(module, "_snapshot_parameters", lambda: snapshot)
     monkeypatch.setattr(module, "_delete_value", lambda name: calls.append(("delete", name)))
-    if result in (None, 0):
+    module.remove_service()
+    assert calls == ["stop", ("delete", "ConfigPath"), ("delete", "MachineCredential"), "remove"]
+
+
+@pytest.mark.parametrize("failure", ["stop", "delete", "remove"])
+def test_remove_failure_restores_exact_snapshot(monkeypatch, failure):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    calls = []
+    snapshot = {"ConfigPath": ("old", 1), "MachineCredential": (b"old", 3)}
+
+    def command(command):
+        calls.append(command)
+        return 5 if command == failure else 0
+
+    monkeypatch.setattr(
+        module,
+        "win32serviceutil",
+        SimpleNamespace(HandleCommandLine=lambda *args, **kwargs: command(kwargs["argv"][-1])),
+    )
+    monkeypatch.setattr(module, "_snapshot_parameters", lambda: snapshot)
+    monkeypatch.setattr(module, "_delete_value", lambda name: (_ for _ in ()).throw(OSError()) if failure == "delete" else calls.append(("delete", name)))
+    monkeypatch.setattr(module, "_restore_parameters", lambda value: calls.append(("restore", value)))
+    with pytest.raises(RuntimeError):
         module.remove_service()
-    else:
-        with pytest.raises(RuntimeError):
-            module.remove_service()
-    assert calls[0] == "scm"
-    assert (
-        [item for item in calls if isinstance(item, tuple)]
-        == [("delete", "ConfigPath"), ("delete", "MachineCredential")]
-    ) is (result in (None, 0))
+    assert calls[-1] == ("restore", snapshot)
 
 
 def test_service_class_exposes_scm_stop_and_runtime_methods():
