@@ -6,8 +6,9 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
-from onesearch_shared import DocumentBatch, ScanManifest
+from onesearch_shared import BatchAck, DocumentBatch, ScanManifest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from ..models import AgentBatch, AgentJob, IndexedFile, Source
 from ..schemas import Document
@@ -52,14 +53,29 @@ class RemoteIngestService:
         if existing is not None:
             if existing.checksum != checksum:
                 raise JobConflict("batch checksum conflict")
-            from onesearch_shared import BatchAck
-
+            return BatchAck(
+                batch_id=batch.batch_id, accepted_count=len(batch.documents), duplicate=True
+            )
+        try:
+            with self.db.begin_nested():
+                self.db.add(
+                    AgentBatch(job_id=job_id, idempotency_key=batch.batch_id, checksum=checksum)
+                )
+                self.db.flush()
+        except IntegrityError as error:
+            winner = self.db.scalar(
+                select(AgentBatch).where(
+                    AgentBatch.job_id == job_id, AgentBatch.idempotency_key == batch.batch_id
+                )
+            )
+            if winner is None or winner.checksum != checksum:
+                raise JobConflict("batch checksum conflict") from error
             return BatchAck(
                 batch_id=batch.batch_id, accepted_count=len(batch.documents), duplicate=True
             )
         await self.ingest(agent_id, job_id, batch)
-        return jobs.accept_batch(
-            agent_id, job_id, lease_token, batch.batch_id, batch.model_dump(mode="json")
+        return BatchAck(
+            batch_id=batch.batch_id, accepted_count=len(batch.documents), duplicate=False
         )
 
     async def ingest(self, agent_id: str, job_id: str, batch: DocumentBatch):
