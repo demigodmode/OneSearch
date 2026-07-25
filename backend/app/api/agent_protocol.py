@@ -414,8 +414,13 @@ async def receive_file_chunk(
                     extract_uploads.cleanup(job_id)
             else:
                 content_length = request.headers.get("content-length")
-                if content_length is not None and int(content_length) > extract_uploads.chunk_bytes:
-                    raise RemoteFileChanged("chunk exceeds limit")
+                if content_length is not None:
+                    try:
+                        declared_length = int(content_length)
+                    except ValueError as error:
+                        raise RemoteFileChanged("invalid chunk length") from error
+                    if declared_length < 1 or declared_length > extract_uploads.chunk_bytes:
+                        raise RemoteFileChanged("chunk exceeds limit")
                 body = bytearray()
                 async for part in request.stream():
                     body.extend(part)

@@ -124,6 +124,16 @@ def test_extract_upload_rejects_oversize_before_creating_temp_file(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_extract_upload_rejects_empty_chunk_without_creating_temp_file(tmp_path):
+    from app.services.remote_files import ExtractUploadRegistry, RemoteFileChanged
+
+    with pytest.raises(RemoteFileChanged, match="chunk"):
+        ExtractUploadRegistry(tmp_path).append(
+            "job", sequence=0, data=b"", expected_size=1, maximum_size=1
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_extract_upload_streams_to_private_temp_file_and_validates_checksum(tmp_path):
     from app.services.remote_files import ExtractUploadRegistry
 
