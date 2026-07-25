@@ -824,3 +824,74 @@ def test_stream_failed_completion_hides_untrusted_terminal_detail(
         assert remote_files.remote_streams.get(job.id) is None
     finally:
         asyncio.run(remote_files.remote_streams.close(job.id))
+
+
+def test_stream_cancel_acknowledgment_closes_waiting_consumer(client, db_session, remote):
+    from app.services import remote_files
+
+    agent, job, token, lease = _leased_stream_job(db_session, remote, job_id="stream-cancel")
+    queue = remote_files.remote_streams.open(job.id)
+    AgentJobService(db_session).cancel(job.id)
+    db_session.commit()
+    try:
+
+        async def acknowledge_and_receive():
+            waiting_consumer = asyncio.create_task(queue.get())
+            await asyncio.sleep(0)
+            response = client.post(
+                f"/api/agent/v1/jobs/{job.id}/cancel-ack",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-OneSearch-Lease-Token": lease.lease_token,
+                },
+            )
+            try:
+                return response, await asyncio.wait_for(waiting_consumer, timeout=0.1)
+            except BaseException as error:
+                return response, error
+
+        response, result = asyncio.run(acknowledge_and_receive())
+        assert response.status_code == 200
+        assert isinstance(result, remote_files.RemoteStreamTimeout)
+        assert remote_files.remote_streams.get(job.id) is None
+        db_session.refresh(job)
+        assert job.status == "cancelled" and job.active_key is None
+    finally:
+        asyncio.run(remote_files.remote_streams.close(job.id))
+
+
+def test_stream_cancel_acknowledgment_unblocks_backpressured_producer(client, db_session, remote):
+    from app.services import remote_files
+
+    agent, job, token, lease = _leased_stream_job(
+        db_session, remote, job_id="stream-cancel-producer"
+    )
+    queue = remote_files.remote_streams.open(job.id, max_bytes=1)
+    AgentJobService(db_session).cancel(job.id)
+    db_session.commit()
+    try:
+
+        async def acknowledge_and_produce():
+            await queue.put(0, b"x")
+            blocked_producer = asyncio.create_task(queue.put(1, b"y"))
+            await asyncio.sleep(0)
+            response = client.post(
+                f"/api/agent/v1/jobs/{job.id}/cancel-ack",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-OneSearch-Lease-Token": lease.lease_token,
+                },
+            )
+            try:
+                return response, await asyncio.wait_for(blocked_producer, timeout=0.1)
+            except BaseException as error:
+                return response, error
+
+        response, result = asyncio.run(acknowledge_and_produce())
+        assert response.status_code == 200
+        assert isinstance(result, remote_files.RemoteStreamTimeout)
+        assert remote_files.remote_streams.get(job.id) is None
+        db_session.refresh(job)
+        assert job.status == "cancelled" and job.active_key is None
+    finally:
+        asyncio.run(remote_files.remote_streams.close(job.id))
