@@ -25,6 +25,18 @@ def test_file_store_never_overwrites(tmp_path: Path):
     assert store.load() == "one"
 
 
+def test_backend_marker_is_atomic_and_rejects_corruption(tmp_path: Path):
+    store = FileCredentialStore(tmp_path / "state")
+    store.save_backend_marker("file")
+    assert store.load_backend_marker() == "file"
+    with pytest.raises(CredentialError):
+        store.save_backend_marker("keyring")
+    store.marker_path.unlink()
+    store.marker_path.write_text("bad")
+    with pytest.raises(CredentialError):
+        store.load_backend_marker()
+
+
 def test_windows_auto_selects_keyring(tmp_path: Path):
     config = type(
         "Config",

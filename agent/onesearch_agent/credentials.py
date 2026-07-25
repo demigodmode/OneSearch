@@ -37,6 +37,34 @@ class FileCredentialStore:
     def __init__(self, state_dir: Path):
         self.state_dir = state_dir
         self.path = state_dir / "credential"
+        self.marker_path = state_dir / "credential-backend"
+
+    def save_backend_marker(self, backend: str) -> None:
+        if backend not in {"file", "keyring"}:
+            raise CredentialError("credential backend marker is invalid")
+        self._secure_dir()
+        if self.marker_path.exists() or self.marker_path.is_symlink():
+            raise CredentialError("credential backend marker already exists")
+        fd, name = tempfile.mkstemp(dir=self.state_dir)
+        try:
+            if _is_posix():
+                os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w") as handle:
+                handle.write(backend)
+            os.link(name, self.marker_path)
+        finally:
+            if os.path.exists(name):
+                os.unlink(name)
+
+    def load_backend_marker(self) -> str | None:
+        if not self.marker_path.exists():
+            return None
+        if self.marker_path.is_symlink():
+            raise CredentialError("credential backend marker is unsafe")
+        value = self.marker_path.read_text().strip()
+        if value not in {"file", "keyring"}:
+            raise CredentialError("credential backend marker is invalid")
+        return value
 
     def _secure_dir(self):
         if self.state_dir.is_symlink():
