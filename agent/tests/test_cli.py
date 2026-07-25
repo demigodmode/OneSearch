@@ -5,6 +5,7 @@ import pytest
 from click.testing import CliRunner
 from onesearch_agent.cli import main
 from onesearch_agent.client import (
+    AgentAmbiguousResultError,
     AgentDisabled,
     AgentIncompatible,
     AgentRevoked,
@@ -172,6 +173,46 @@ def test_enroll_save_failure_revokes_without_echoing_secrets(tmp_path: Path, mon
         main, ["--config", str(config), "enroll", "--server", "http://host"], input="code-secret\n"
     )
     assert calls == ["revoke"] and "new code" in result.output
+    assert "token-secret" not in result.output and "code-secret" not in result.output
+
+
+def test_enroll_save_failure_revoke_ambiguity_gives_admin_guidance(tmp_path: Path, monkeypatch):
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    _config(config, root)
+    calls = []
+
+    class Store:
+        def load(self, optional=False):
+            return None
+
+        def save(self, token):
+            raise OSError("disk")
+
+    class Client:
+        def __init__(self, *args):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def enroll(self, code, value):
+            return SimpleNamespace(agent_token="token-secret", agent_id="agent-1")
+
+        async def revoke_self(self):
+            calls.append("revoke")
+            raise AgentAmbiguousResultError("unknown")
+
+    monkeypatch.setattr("onesearch_agent.cli.credential_store", lambda value: Store())
+    monkeypatch.setattr("onesearch_agent.cli.AgentClient", Client)
+    result = CliRunner().invoke(
+        main, ["--config", str(config), "enroll", "--server", "http://host"], input="code-secret\n"
+    )
+    assert calls == ["revoke"] and "agent-1" in result.output and "admin" in result.output
     assert "token-secret" not in result.output and "code-secret" not in result.output
 
 
