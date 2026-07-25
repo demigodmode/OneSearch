@@ -77,6 +77,16 @@ async def test_extract_confined_skips_and_rejects_changed_or_oversize(tmp_path: 
             extraction=extraction(),
             max_snapshot_bytes=1,
         )
+    metadata = await extract_confined(
+        "r",
+        "note.unknown",
+        roots,
+        expected=expected,
+        source_id="s",
+        extraction=extraction(),
+        max_snapshot_bytes=1024,
+    )
+    assert metadata is not None and metadata.path == "note.unknown"
     changed = ScanFile(path="note.unknown", size_bytes=999, modified_at=stat.st_mtime_ns)
     with pytest.raises(ExtractionError):
         await extract_confined(

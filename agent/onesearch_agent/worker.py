@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -67,6 +68,8 @@ async def extract_confined(
         snapshot = Path(directory) / Path(path).name
         with open_confined_file(root_id, path, roots) as handle, snapshot.open("wb") as output:
             before = os.fstat(handle.fileno())
+            if not stat.S_ISREG(before.st_mode):
+                raise ExtractionError("source is not a regular file")
             if before.st_size != expected.size_bytes or before.st_mtime_ns != expected.modified_at:
                 raise ExtractionError("file changed since scan")
             copied = 0
