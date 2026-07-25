@@ -80,3 +80,39 @@ def test_service_cli_delegates_and_propagates_safe_error(tmp_path: Path, monkeyp
     )
     result = CliRunner().invoke(main, ["--config", str(config), "service", "install"])
     assert result.exit_code == 0 and calls[0][1].endswith("python.exe")
+
+
+def test_enroll_honors_file_credential_policy(tmp_path: Path, monkeypatch):
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    _config(config, root)
+    seen = []
+
+    class Store:
+        def load(self, optional=False):
+            return None
+
+        def save(self, token):
+            seen.append(token)
+
+    class Client:
+        def __init__(self, *args):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def enroll(self, code, value):
+            return SimpleNamespace(agent_token="secret")
+
+    monkeypatch.setenv("ONESEARCH_AGENT_CREDENTIAL_STORE", "file")
+    monkeypatch.setattr("onesearch_agent.cli.credential_store", lambda value: Store())
+    monkeypatch.setattr("onesearch_agent.cli.AgentClient", Client)
+    result = CliRunner().invoke(
+        main, ["--config", str(config), "enroll", "--server", "http://host"], input="code\n"
+    )
+    assert result.exit_code == 0 and seen == ["secret"] and "secret" not in result.output
