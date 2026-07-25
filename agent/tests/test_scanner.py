@@ -80,3 +80,44 @@ def test_remote_scanner_matches_backend_patterns_without_opening_files(tmp_path:
         exclude_patterns=["**/node_modules/**"],
     ).scan(job_id="job", source_id="source")
     assert [item.path for item in manifest.files] == expected == ["nested/keep.txt", "root.txt"]
+
+
+def test_explicit_empty_excludes_includes_default_excluded_dirs_but_defaults_do_not(tmp_path: Path):
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "a.txt").write_text("x")
+    roots = [AllowedRoot(root_id="root", path=str(tmp_path))]
+    explicit = RemoteScanner("root", roots, exclude_patterns=[]).scan(job_id="j", source_id="s")
+    default = RemoteScanner("root", roots, exclude_patterns=None).scan(job_id="j", source_id="s")
+    assert [item.path for item in explicit.files] == ["node_modules/a.txt"]
+    assert default.files == []
+
+
+def test_listing_failure_marks_scan_incomplete_with_directory_failure(tmp_path: Path, monkeypatch):
+    (tmp_path / "a.txt").write_text("x")
+    (tmp_path / "nested").mkdir()
+    original = scanner_module.list_confined_entries_page
+
+    def fail_nested(root_id, relative, roots, max_entries):
+        if relative == "nested":
+            raise scanner_module.PathOutsideAllowedRoots("permission denied")
+        return original(root_id, relative, roots, max_entries)
+
+    monkeypatch.setattr(scanner_module, "list_confined_entries_page", fail_nested)
+    manifest = RemoteScanner("root", [AllowedRoot(root_id="root", path=str(tmp_path))]).scan(
+        job_id="j", source_id="s"
+    )
+    assert manifest.complete is False and manifest.failures[0].path == "scan"
+
+
+def test_symlink_escape_is_not_manifested(tmp_path: Path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("x")
+    link = tmp_path / "escape.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink privilege unavailable")
+    manifest = RemoteScanner("root", [AllowedRoot(root_id="root", path=str(tmp_path))]).scan(
+        job_id="j", source_id="s"
+    )
+    assert "escape.txt" not in [item.path for item in manifest.files]
