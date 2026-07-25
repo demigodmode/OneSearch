@@ -97,7 +97,10 @@ class RemoteIngestService:
                 )
             )
         # Search is intentionally first: a failed external write never creates a receipt.
-        await self.search_service.index_documents(documents)
+        confirmed = getattr(self.search_service, "index_documents_confirmed", None)
+        await (
+            confirmed(documents) if confirmed else self.search_service.index_documents(documents)
+        )
         for doc in documents:
             record = self.db.scalar(
                 select(IndexedFile).where(
@@ -107,9 +110,16 @@ class RemoteIngestService:
             if record is None:
                 record = IndexedFile(source_id=source.id, path=doc.path)
                 self.db.add(record)
+            # The wire contract accepts integer timestamps; scanner manifests use
+            # nanoseconds while extractor documents historically used seconds.
+            seconds = (
+                doc.modified_at // 1_000_000_000
+                if doc.modified_at > 10_000_000_000
+                else doc.modified_at
+            )
             record.size_bytes, record.modified_at = (
                 doc.size_bytes,
-                datetime.fromtimestamp(doc.modified_at, timezone.utc).replace(tzinfo=None),
+                datetime.fromtimestamp(seconds, timezone.utc).replace(tzinfo=None),
             )
             record.hash, record.status, record.error_message = (
                 remote_document_id(source.id, doc.path),
@@ -168,7 +178,14 @@ class RemoteIngestService:
         )
         missing = [row for row in rows if row.path not in current]
         for row in missing:
-            await self.search_service.delete_document(remote_document_id(job.source_id, row.path))
+            confirmed = getattr(self.search_service, "delete_document_confirmed", None)
+            await (
+                confirmed(remote_document_id(job.source_id, row.path))
+                if confirmed
+                else self.search_service.delete_document(
+                    remote_document_id(job.source_id, row.path)
+                )
+            )
         for row in missing:
             self.db.delete(row)
         for failure in manifest.failures:
