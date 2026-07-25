@@ -158,6 +158,16 @@ def credential_store(config, *, system: str | None = None, docker: bool = False)
     if remembered == "file":
         return marker_store
     keyring_store = KeyringCredentialStore(config.server_url, config.agent_name)
+    backend = keyring.get_keyring()
+    backend_name = f"{backend.__class__.__module__}.{backend.__class__.__name__}".lower()
+    if (
+        "keyrings.alt" in backend_name
+        or "fail" in backend_name
+        or getattr(backend, "priority", 0) <= 0
+    ):
+        if system == "nt" or configured == "keyring" or remembered == "keyring":
+            raise CredentialError("system credential store is unavailable")
+        return FileCredentialStore(config.state_dir)
     if configured == "keyring" or system == "nt":
         return keyring_store
     try:
