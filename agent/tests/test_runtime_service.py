@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from onesearch_agent.client import AgentDisabled, AgentPending, AgentRevoked
 from onesearch_agent.runtime import run_runtime
-from onesearch_agent.service import ServiceError, install, uninstall
+from onesearch_agent.service import ServiceError, _systemd_arg, install, uninstall
 
 
 class PendingClient:
@@ -130,6 +130,18 @@ async def test_stop_interrupts_started_normal_sleep_without_second_heartbeat():
     stopped.set()
     await asyncio.wait_for(task, 1)
     assert calls == [True]
+
+
+@pytest.mark.parametrize(
+    "value", ["bad\tpath", "bad\x01path", "bad\x7fpath", "bad\npath", "bad\x00path"]
+)
+def test_systemd_argument_rejects_control_characters(value):
+    with pytest.raises(ServiceError):
+        _systemd_arg(value)
+
+
+def test_systemd_argument_escapes_safe_special_characters():
+    assert _systemd_arg('C:\\safe path\\"name"%') == '"C:\\\\safe path\\\\\\"name\\"%%"'
 
 
 @pytest.mark.asyncio
