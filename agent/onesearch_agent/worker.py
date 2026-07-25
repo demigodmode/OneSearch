@@ -62,7 +62,7 @@ async def extract_confined(
     root_id, path, roots, *, expected: ScanFile, source_id, extraction, max_snapshot_bytes
 ) -> NormalizedRemoteDocument | None:
     """Snapshot a pinned read handle before passing a path to legacy extractors."""
-    if expected.size_bytes > max_snapshot_bytes:
+    if max_snapshot_bytes <= 0 or expected.size_bytes > max_snapshot_bytes:
         raise ExtractionError("file exceeds snapshot limit")
     with tempfile.TemporaryDirectory(prefix="onesearch-agent-") as directory:
         snapshot = Path(directory) / Path(path).name

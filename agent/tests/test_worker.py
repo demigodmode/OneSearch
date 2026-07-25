@@ -180,3 +180,52 @@ async def test_snapshot_is_cleaned_for_extractor_error_and_cancellation(
             max_snapshot_bytes=10,
         )
     assert not seen[0].parent.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("chunks", "after_mtime"),
+    [([b"abcdef"], 1), ([b"abc"], 1), ([b"abcde"], 2)],
+)
+async def test_pinned_copy_races_reject_before_extractor(
+    tmp_path, monkeypatch, chunks, after_mtime
+):
+    import contextlib
+    import stat as stat_module
+    from types import SimpleNamespace
+
+    class Handle:
+        def __init__(self):
+            self.chunks = list(chunks)
+
+        def fileno(self):
+            return 77
+
+        def read(self, size):
+            return self.chunks.pop(0) if self.chunks else b""
+
+    handle = Handle()
+    calls = []
+
+    @contextlib.contextmanager
+    def opened(*args, **kwargs):
+        yield handle
+
+    states = [
+        SimpleNamespace(st_mode=stat_module.S_IFREG, st_size=5, st_mtime_ns=1),
+        SimpleNamespace(st_mode=stat_module.S_IFREG, st_size=5, st_mtime_ns=after_mtime),
+    ]
+    monkeypatch.setattr(worker_module, "open_confined_file", opened)
+    monkeypatch.setattr(worker_module.os, "fstat", lambda fd: states.pop(0))
+    monkeypatch.setattr(worker_module, "choose_extractor", lambda *args: calls.append(args))
+    with pytest.raises(ExtractionError):
+        await extract_confined(
+            "r",
+            "x.txt",
+            [],
+            expected=ScanFile(path="x.txt", size_bytes=5, modified_at=1),
+            source_id="s",
+            extraction=extraction(),
+            max_snapshot_bytes=5,
+        )
+    assert calls == []
