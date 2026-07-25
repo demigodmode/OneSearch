@@ -112,6 +112,27 @@ async def test_stop_interrupts_started_heartbeat_without_claim():
 
 
 @pytest.mark.asyncio
+async def test_stop_interrupts_started_normal_sleep_without_second_heartbeat():
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+    calls = []
+
+    class Client:
+        async def heartbeat(self, *args):
+            calls.append(True)
+
+    async def sleep(seconds):
+        started.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(run_runtime(Client(), sleep=sleep, wait_stopped=stopped.wait))
+    await started.wait()
+    stopped.set()
+    await asyncio.wait_for(task, 1)
+    assert calls == [True]
+
+
+@pytest.mark.asyncio
 async def test_worker_can_acknowledge_cancellation_lease():
     class Client:
         async def heartbeat(self, *args):
