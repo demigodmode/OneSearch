@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -16,6 +17,7 @@ from onesearch_shared import (
     JobFailureReason,
     JobStatus,
     NormalizedRemoteDocument,
+    ScanFailure,
     ScanFile,
 )
 
@@ -104,6 +106,14 @@ class ExtractionError(RuntimeError):
     pass
 
 
+def _safe_failure(error, fallback="extraction failed"):
+    if isinstance(error, ExtractionError):
+        value = str(error)
+    else:
+        value = f"{fallback}: {type(error).__name__}"
+    return "".join(char for char in value if char >= " " and char not in "\x7f")[:500] or fallback
+
+
 async def extract_confined(
     root_id, path, roots, *, expected: ScanFile, source_id, extraction, max_snapshot_bytes
 ) -> NormalizedRemoteDocument | None:
@@ -149,7 +159,7 @@ async def extract_confined(
 
 
 async def run_scan_job(lease, client, *, roots) -> None:
-    """Execute only on-agent scan leases; individual files never abort a scan."""
+    """Execute a scan, preserving per-file failures in the terminal manifest."""
     invalid = (
         lease.kind.value != "scan"
         or lease.processing_mode is None
@@ -188,6 +198,7 @@ async def run_scan_job(lease, client, *, roots) -> None:
         max_entries_per_directory=limits.get("max_entries_per_directory", 100000),
     )
     manifest = scanner.scan(job_id=lease.id, source_id=lease.source_id)
+    failures = {failure.path: failure for failure in manifest.failures}
     expected = {item.path: item for item in manifest.files}
     await client.job_heartbeat(
         lease.id,
@@ -218,19 +229,26 @@ async def run_scan_job(lease, client, *, roots) -> None:
             if document is not None:
                 for batch in builder.add(document):
                     await client.submit_batch(lease.id, batch, lease.lease_token)
-        except Exception:
-            # The terminal manifest remains complete; this file will have no success receipt.
-            continue
-        completed += 1
-        await client.job_heartbeat(
-            lease.id,
-            __import__("onesearch_shared").JobProgress(
-                job_id=lease.id, completed_items=completed, total_items=len(scanner.changed_paths)
-            ),
-            lease.lease_token,
-        )
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            failures[path] = ScanFailure(path=path, error=_safe_failure(error))
+        finally:
+            completed += 1
+            await client.job_heartbeat(
+                lease.id,
+                __import__("onesearch_shared").JobProgress(
+                    job_id=lease.id,
+                    completed_items=completed,
+                    total_items=len(scanner.changed_paths),
+                ),
+                lease.lease_token,
+            )
     for batch in builder.finish():
         await client.submit_batch(lease.id, batch, lease.lease_token)
+    manifest = manifest.model_copy(
+        update={"failures": [failures[path] for path in sorted(failures)]}
+    )
     await client.submit_manifest(lease.id, manifest, lease.lease_token)
     if not manifest.complete:
         await client.complete(
