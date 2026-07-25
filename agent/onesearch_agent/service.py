@@ -28,7 +28,7 @@ def install(config: Path, executable: str, *, system: str | None = None, home: P
                 "create",
                 "OneSearchAgent",
                 "binPath=",
-                f'"{executable}" run --config "{config}"',
+                f'"{executable}" -m onesearch_agent.cli --config "{config}" run',
                 "start=",
                 "auto",
             ]
@@ -39,7 +39,9 @@ def install(config: Path, executable: str, *, system: str | None = None, home: P
         unit = (home or Path.home()) / ".config/systemd/user/onesearch-agent.service"
         unit.parent.mkdir(parents=True, exist_ok=True)
         temporary = unit.with_suffix(".tmp")
-        temporary.write_text(f"[Service]\nExecStart={executable} run --config {config}\n")
+        temporary.write_text(
+            f"[Unit]\nDescription=OneSearch Agent\n\n[Service]\nExecStart={executable} -m onesearch_agent.cli --config {config} run\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n"
+        )
         os.replace(temporary, unit)
         _run(["systemctl", "--user", "daemon-reload"])
         _run(["systemctl", "--user", "enable", "--now", "onesearch-agent.service"])

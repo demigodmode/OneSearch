@@ -6,10 +6,11 @@ import asyncio
 import platform
 
 from . import __version__
-from .client import AgentDisabled, AgentIncompatible, AgentPending, AgentRevoked
+from .client import AgentDisabled, AgentError, AgentIncompatible, AgentPending, AgentRevoked
 
 
-async def run_runtime(client, *, worker=None, interval=30, sleep=asyncio.sleep):
+async def run_runtime(client, *, worker=None, interval=30, sleep=asyncio.sleep, random=lambda: 0):
+    failures = 0
     while True:
         try:
             await client.heartbeat(__version__, platform.platform())
@@ -21,4 +22,9 @@ async def run_runtime(client, *, worker=None, interval=30, sleep=asyncio.sleep):
             pass
         except (AgentRevoked, AgentIncompatible, AgentDisabled):
             raise
+        except AgentError:
+            failures += 1
+            await sleep(min(60, 2 ** min(failures, 6)) + random())
+            continue
+        failures = 0
         await sleep(interval)

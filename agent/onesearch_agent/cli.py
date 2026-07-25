@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 
 import click
 
 from .client import AgentClient, AgentDisabled, AgentIncompatible, AgentRevoked
-from .config import load_config
+from .config import config_path, load_config
 from .credentials import CredentialError, credential_store
 from .runtime import run_runtime
 from .service import ServiceError, install, uninstall
@@ -99,7 +100,7 @@ def service():
 @click.pass_context
 def service_install(ctx):
     try:
-        install(Path(ctx.obj["config"]), "onesearch-agent")
+        install(config_path(str(ctx.obj["config"]) if ctx.obj["config"] else None), sys.executable)
     except ServiceError as error:
         raise click.ClickException(str(error)) from error
 

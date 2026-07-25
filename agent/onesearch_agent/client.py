@@ -47,6 +47,10 @@ class JobConflict(AgentError):  # noqa: N818
     pass
 
 
+class JobLeaseError(AgentError):
+    pass
+
+
 def retry_delay(attempt: int, *, random=_random.random) -> float:
     return min(60, (2**attempt) + random())
 
@@ -99,15 +103,24 @@ class AgentClient:
                     raise AgentError("server connection failed") from error
                 await self.sleep(retry_delay(attempt, random=self.random))
                 continue
+            detail = ""
+            with suppress(ValueError):
+                detail = str(response.json().get("detail", ""))
+            is_job = path.startswith("/api/agent/v1/jobs/")
             if response.status_code == 401:
+                if is_job and "lease" in detail.lower():
+                    raise JobLeaseError("job lease was rejected")
                 raise AgentRevoked("agent credential was rejected")
             if response.status_code == 403:
+                if detail == "Remote agents are disabled":
+                    raise RemoteAgentsDisabled("remote agents are disabled")
+                if detail == "Agent is not approved":
+                    raise AgentPending("agent approval is pending")
+                if detail == "Agent is not active":
+                    raise AgentDisabled("agent is disabled")
                 raise AgentPending("agent is pending or disabled")
             if response.status_code == 409:
-                detail = ""
-                with suppress(ValueError):
-                    detail = str(response.json().get("detail", ""))
-                if detail == "remote_agents_disabled":
+                if detail == "remote_agents_disabled" or detail == "Remote agents are disabled":
                     raise RemoteAgentsDisabled("remote agents are disabled")
                 if "conflict" in detail.lower():
                     raise JobConflict("job state conflict")
