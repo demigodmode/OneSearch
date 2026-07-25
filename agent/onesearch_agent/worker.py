@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, Strict
 
 from app.services.extractor_config import choose_extractor
 
-from .client import AgentAmbiguousResultError
+from .client import AgentAmbiguousResultError, JobConflict
 from .paths import open_confined_file
 from .scanner import RemoteScanner
 
@@ -159,6 +159,10 @@ class ExtractionError(RuntimeError):
     pass
 
 
+class ScanCancelled(RuntimeError):  # noqa: N818
+    pass
+
+
 def _safe_failure(error, fallback="extraction failed"):
     if isinstance(error, ExtractionError):
         value = str(error)
@@ -195,27 +199,32 @@ class LeaseKeeper:
         self.lease, self.client = lease, client
         self.attempts, self.interval, self.sleep = attempts, interval, sleep
         self.completed, self.total, self.error = 0, None, None
+        self.cancelled, self._cancel_acknowledged = False, False
         self._lock = asyncio.Lock()
         self._task = None
 
     async def _heartbeat(self):
         async with self._lock:
-            await _submit_idempotent(
-                lambda: self.client.job_heartbeat(
-                    self.lease.id,
-                    JobProgress(
-                        job_id=self.lease.id,
-                        completed_items=self.completed,
-                        total_items=self.total,
+            try:
+                await _submit_idempotent(
+                    lambda: self.client.job_heartbeat(
+                        self.lease.id,
+                        JobProgress(
+                            job_id=self.lease.id,
+                            completed_items=self.completed,
+                            total_items=self.total,
+                        ),
+                        self.lease.lease_token,
                     ),
-                    self.lease.lease_token,
-                ),
-                attempts=self.attempts,
-                sleep=self.sleep,
-            )
+                    attempts=self.attempts,
+                    sleep=self.sleep,
+                )
+            except JobConflict:
+                await self.cancel_after_conflict()
 
     async def start(self):
         await self._heartbeat()
+        await self.check()
         self._task = asyncio.create_task(self._run())
 
     def set_total(self, total):
@@ -224,10 +233,20 @@ class LeaseKeeper:
     async def advance(self):
         self.completed += 1
         await self._heartbeat()
+        await self.check()
 
     async def check(self):
+        if self.cancelled:
+            raise ScanCancelled()
         if self.error is not None:
             raise self.error
+
+    async def cancel_after_conflict(self):
+        if self._cancel_acknowledged:
+            return
+        self._cancel_acknowledged = True
+        await self.client.cancel_ack(self.lease.id, self.lease.lease_token)
+        self.cancelled = True
 
     async def _run(self):
         try:
@@ -244,6 +263,14 @@ class LeaseKeeper:
             self._task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._task
+
+
+async def _submit_or_cancel(keeper, operation, *, attempts, sleep):
+    try:
+        return await _submit_idempotent(operation, attempts=attempts, sleep=sleep)
+    except JobConflict:
+        await keeper.cancel_after_conflict()
+        await keeper.check()
 
 
 async def extract_confined(
@@ -376,7 +403,8 @@ async def run_scan_job(
                     try:
                         for batch in builder.add(document):
                             await keeper.check()
-                            await _submit_idempotent(
+                            await _submit_or_cancel(
+                                keeper,
                                 lambda batch=batch: client.submit_batch(
                                     lease.id, batch, lease.lease_token
                                 ),
@@ -389,7 +417,8 @@ async def run_scan_job(
                 await keeper.advance()
         for batch in builder.finish():
             await keeper.check()
-            await _submit_idempotent(
+            await _submit_or_cancel(
+                keeper,
                 lambda batch=batch: client.submit_batch(lease.id, batch, lease.lease_token),
                 attempts=_mutation_attempts,
                 sleep=_sleep,
@@ -398,7 +427,8 @@ async def run_scan_job(
             update={"failures": [failures[path] for path in sorted(failures)]}
         )
         await keeper.check()
-        await _submit_idempotent(
+        await _submit_or_cancel(
+            keeper,
             lambda: client.submit_manifest(lease.id, manifest, lease.lease_token),
             attempts=_mutation_attempts,
             sleep=_sleep,
@@ -420,5 +450,7 @@ async def run_scan_job(
         await client.complete(
             lease.id, JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED), lease.lease_token
         )
+    except ScanCancelled:
+        return
     finally:
         await keeper.close()

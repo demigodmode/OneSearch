@@ -1128,17 +1128,19 @@ async def test_job_conflict_is_not_retried(monkeypatch, tmp_path):
         async def submit_manifest(self, *args):
             self.manifests += 1
 
+        async def cancel_ack(self, *args):
+            self.cancelled = getattr(self, "cancelled", 0) + 1
+
     async def extract(*args, **kwargs):
         return NormalizedRemoteDocument(source_id="s", path="a.txt", content="x", modified_at=1)
 
     monkeypatch.setattr(worker_module, "RemoteScanner", _changed_scanner(["a.txt"]))
     monkeypatch.setattr(worker_module, "extract_confined", extract)
     client = Client()
-    with pytest.raises(JobConflict):
-        await worker_module.run_scan_job(
-            _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
-        )
-    assert (client.batches, client.manifests) == (1, 0)
+    await worker_module.run_scan_job(
+        _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+    assert (client.batches, client.manifests, client.cancelled) == (1, 0, 1)
 
 
 @pytest.mark.asyncio
