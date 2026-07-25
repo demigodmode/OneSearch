@@ -562,13 +562,13 @@ async def run_browse_job(lease, client, *, roots) -> None:
     await _complete_with_recovery(client, lease, completion)
 
 
-async def run_extract_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) -> None:
+async def _run_file_transfer_job(lease, client, *, roots, expected_kind, chunk_bytes=512 * 1024) -> None:
     """Revalidate a pinned remote file then upload it in bounded raw chunks."""
     payload = getattr(lease, "payload", {})
     keeper = LeaseKeeper(lease, client)
     try:
         if (
-            lease.kind.value != "extract_file"
+            lease.kind.value != expected_kind
             or lease.processing_mode.value != "on_server"
             or not payload.get("root_id")
             or not payload.get("path")
@@ -641,6 +641,18 @@ async def run_extract_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) 
         await keeper.close()
 
 
+async def run_extract_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) -> None:
+    await _run_file_transfer_job(
+        lease, client, roots=roots, expected_kind="extract_file", chunk_bytes=chunk_bytes
+    )
+
+
+async def run_stream_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) -> None:
+    await _run_file_transfer_job(
+        lease, client, roots=roots, expected_kind="stream_file", chunk_bytes=chunk_bytes
+    )
+
+
 async def dispatch_job(lease, client, *, roots) -> None:
     if getattr(getattr(lease, "kind", None), "value", None) == "scan":
         await run_scan_job(lease, client, roots=roots)
@@ -648,5 +660,7 @@ async def dispatch_job(lease, client, *, roots) -> None:
         await run_browse_job(lease, client, roots=roots)
     elif getattr(getattr(lease, "kind", None), "value", None) == "extract_file":
         await run_extract_file_job(lease, client, roots=roots)
+    elif getattr(getattr(lease, "kind", None), "value", None) == "stream_file":
+        await run_stream_file_job(lease, client, roots=roots)
     else:
         raise ValueError("unsupported job kind")

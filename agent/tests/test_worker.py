@@ -1684,3 +1684,26 @@ async def test_extract_file_conflict_acks_once_without_failed_completion(tmp_pat
         lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
     )
     assert (client.uploads, client.acks, client.completions) == (1, 1, 0)
+
+
+@pytest.mark.asyncio
+async def test_stream_file_uploads_bounded_chunks_and_final_checksum(tmp_path):
+    from types import SimpleNamespace
+
+    from onesearch_shared import ProcessingMode
+
+    file_path = tmp_path / "a.txt"
+    file_path.write_bytes(b"abcde")
+    lease = SimpleNamespace(id="stream-1", kind=SimpleNamespace(value="stream_file"),
+        processing_mode=ProcessingMode.ON_SERVER, source_id="s", lease_token="token",
+        payload={"root_id":"r", "path":"a.txt", "size_bytes":5,
+                 "modified_at":file_path.stat().st_mtime_ns, "maximum_size":5})
+    class Client:
+        def __init__(self): self.calls = []
+        async def job_heartbeat(self, *args): pass
+        async def upload_file_chunk(self, *args, **kwargs): self.calls.append(kwargs)
+    client = Client()
+    await worker_module.run_stream_file_job(lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))], chunk_bytes=3)
+    assert [call.get("data") for call in client.calls] == [b"abc", b"de", b""]
+    assert [call["sequence"] for call in client.calls] == [0, 1, 2]
+    assert client.calls[-1]["complete"] is True
