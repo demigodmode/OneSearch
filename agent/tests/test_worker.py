@@ -10,7 +10,6 @@ from onesearch_shared import (
     NormalizedRemoteDocument,
     ScanFile,
     remote_path_hash,
-    remote_path_hash,
 )
 
 

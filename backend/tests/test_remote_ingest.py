@@ -3,11 +3,11 @@ import json
 
 import pytest
 from onesearch_shared import (
-    remote_path_hash,
     DocumentBatch,
     NormalizedRemoteDocument,
     ScanFile,
     ScanManifest,
+    remote_path_hash,
 )
 from sqlalchemy import select
 
