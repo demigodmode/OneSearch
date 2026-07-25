@@ -67,3 +67,16 @@ def test_enroll_uses_hidden_prompt_and_never_echoes_secret(tmp_path: Path, monke
     )
     assert result.exit_code == 0 and saved == ["permanent-secret"]
     assert "one-time-code" not in result.output and "permanent-secret" not in result.output
+
+
+def test_service_cli_delegates_and_propagates_safe_error(tmp_path: Path, monkeypatch):
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    _config(config, root)
+    calls = []
+    monkeypatch.setattr(
+        "onesearch_agent.cli.install", lambda path, executable: calls.append((path, executable))
+    )
+    result = CliRunner().invoke(main, ["--config", str(config), "service", "install"])
+    assert result.exit_code == 0 and calls[0][1] == "onesearch-agent"

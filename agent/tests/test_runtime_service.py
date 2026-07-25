@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from onesearch_agent.client import AgentPending, AgentRevoked
+from onesearch_agent.client import AgentDisabled, AgentPending, AgentRevoked
 from onesearch_agent.runtime import run_runtime
 from onesearch_agent.service import ServiceError, install, uninstall
 
@@ -47,6 +47,36 @@ async def test_runtime_claims_only_with_worker():
     with pytest.raises(AgentRevoked):
         await run_runtime(Client(), worker=worker)
     assert seen == ["lease"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_treats_disabled_as_terminal():
+    class Client:
+        async def heartbeat(self, *args):
+            raise AgentDisabled()
+
+    with pytest.raises(AgentDisabled):
+        await run_runtime(Client())
+
+
+@pytest.mark.asyncio
+async def test_worker_can_acknowledge_cancellation_lease():
+    class Client:
+        async def heartbeat(self, *args):
+            pass
+
+        async def claim(self):
+            return type("Lease", (), {"id": "job", "lease_token": "lease"})()
+
+        async def cancel_ack(self, job, lease):
+            assert (job, lease) == ("job", "lease")
+            raise AgentRevoked()
+
+    async def worker(lease, client):
+        await client.cancel_ack(lease.id, lease.lease_token)
+
+    with pytest.raises(AgentRevoked):
+        await run_runtime(Client(), worker=worker)
 
 
 def test_windows_service_uses_sc_argv(monkeypatch, tmp_path: Path):

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from .client import AgentClient, AgentIncompatible, AgentRevoked
+from .client import AgentClient, AgentDisabled, AgentIncompatible, AgentRevoked
 from .config import load_config
 from .credentials import CredentialError, credential_store
 from .runtime import run_runtime
@@ -79,7 +79,7 @@ def run(ctx):
         pass
     except CredentialError as error:
         raise click.ClickException(str(error)) from error
-    except (AgentRevoked, AgentIncompatible) as error:
+    except (AgentRevoked, AgentIncompatible, AgentDisabled) as error:
         raise click.ClickException(str(error)) from error
 
 

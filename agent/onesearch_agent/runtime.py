@@ -6,7 +6,7 @@ import asyncio
 import platform
 
 from . import __version__
-from .client import AgentIncompatible, AgentPending, AgentRevoked
+from .client import AgentDisabled, AgentIncompatible, AgentPending, AgentRevoked
 
 
 async def run_runtime(client, *, worker=None, interval=30, sleep=asyncio.sleep):
@@ -19,6 +19,6 @@ async def run_runtime(client, *, worker=None, interval=30, sleep=asyncio.sleep):
                     await worker(lease, client)
         except AgentPending:
             pass
-        except (AgentRevoked, AgentIncompatible):
+        except (AgentRevoked, AgentIncompatible, AgentDisabled):
             raise
         await sleep(interval)
