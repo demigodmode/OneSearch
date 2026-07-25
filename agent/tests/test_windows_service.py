@@ -1,3 +1,4 @@
+# ruff: noqa: N802
 import importlib
 
 import pytest
