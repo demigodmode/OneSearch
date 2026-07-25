@@ -485,6 +485,8 @@ def _open_confined_file_windows(
             fd = -1
             yield handle
     except OSError as error:
+        if error.errno == errno.ENOENT or getattr(error, "winerror", None) in {2, 3}:
+            raise ConfinedFileMissing("confined file is missing") from error
         raise PathOutsideAllowedRoots("path cannot be opened safely") from error
     finally:
         if fd != -1:
