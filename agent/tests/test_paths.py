@@ -6,6 +6,7 @@ import pytest
 from onesearch_agent.paths import (
     PathOutsideAllowedRoots,
     browse,
+    list_confined_entries,
     open_confined_file,
     resolve_allowed_path,
     resolve_relative_path,
@@ -33,6 +34,35 @@ def test_browse_is_confined_deterministic_and_bounded(tmp_path: Path):
         (root / name).write_text(name)
     entries = browse("docs", "", [AllowedRoot(root_id="docs", path=str(root))], max_entries=2)
     assert [entry.name for entry in entries] == ["a", "b"]
+
+
+def test_list_confined_entries_returns_handle_metadata_without_host_paths(tmp_path: Path):
+    root = tmp_path / "docs"
+    root.mkdir()
+    (root / "z.txt").write_text("z")
+    (root / "a").mkdir()
+    entries = list_confined_entries("docs", "", [AllowedRoot(root_id="docs", path=str(root))])
+    assert [(item.relative_path, item.is_dir) for item in entries] == [
+        ("a", True),
+        ("z.txt", False),
+    ]
+
+
+def test_windows_handle_metadata_converts_filetime_and_large_size(monkeypatch):
+    class Kernel:
+        def GetFileInformationByHandle(self, handle, pointer):  # noqa: N802
+            info = pointer._obj
+            info.dwFileAttributes = 0x10
+            info.nFileSizeHigh, info.nFileSizeLow = 2, 3
+            ticks = 116444736000000000 + 123
+            info.ftLastWriteTimeLowDateTime = ticks & 0xFFFFFFFF
+            info.ftLastWriteTimeHighDateTime = ticks >> 32
+            return True
+
+    import ctypes
+
+    monkeypatch.setattr(paths, "_windows_kernel32", lambda: (ctypes, Kernel()))
+    assert paths._windows_handle_metadata(1) == (True, (2 << 32) | 3, 12300)
 
 
 def test_symlink_escape_is_rejected_when_supported(tmp_path: Path):

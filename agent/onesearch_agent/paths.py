@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import ntpath
 import os
+import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
@@ -14,6 +16,76 @@ from onesearch_shared import AllowedRoot
 
 class PathOutsideAllowedRoots(ValueError):  # noqa: N818
     pass
+
+
+@dataclass(frozen=True)
+class SafeDirectoryEntry:
+    relative_path: str
+    name: str
+    is_dir: bool
+    size_bytes: int
+    modified_at_ns: int
+
+
+def list_confined_entries(
+    root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int = 200
+) -> list[SafeDirectoryEntry]:
+    """Return metadata derived solely from no-follow handles, never host Paths."""
+    if os.name == "nt":
+        # `browse` obtains each name from rooted native handles; reopen that name
+        # through the same confined boundary solely to derive metadata from its fd.
+        result = []
+        for display in browse(root_id, relative, roots, max_entries=max_entries):
+            path = f"{relative}/{display.name}".strip("/")
+            try:
+                with open_confined_file(root_id, path, roots) as handle:
+                    info = os.fstat(handle.fileno())
+                result.append(
+                    SafeDirectoryEntry(
+                        path,
+                        display.name,
+                        stat.S_ISDIR(info.st_mode),
+                        info.st_size,
+                        info.st_mtime_ns,
+                    )
+                )
+            except (OSError, PathOutsideAllowedRoots):
+                continue
+        return result
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    directory_fd = -1
+    entries: list[SafeDirectoryEntry] = []
+    try:
+        directory_fd = os.open(_root(root_id, roots), flags)
+        for part in _relative_parts(relative):
+            child = os.open(part, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child
+        for name in sorted(os.listdir(directory_fd), key=str.casefold)[:max_entries]:
+            fd = -1
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd)
+                info = os.fstat(fd)
+                mode = info.st_mode
+                if stat.S_ISLNK(mode) or not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+                    continue
+                path = f"{relative}/{name}".strip("/")
+                entries.append(
+                    SafeDirectoryEntry(
+                        path, name, stat.S_ISDIR(mode), info.st_size, info.st_mtime_ns
+                    )
+                )
+            except OSError:
+                continue
+            finally:
+                if fd != -1:
+                    os.close(fd)
+        return entries
+    except OSError as error:
+        raise PathOutsideAllowedRoots("path cannot be listed safely") from error
+    finally:
+        if directory_fd != -1:
+            os.close(directory_fd)
 
 
 @contextmanager
@@ -99,8 +171,45 @@ def _windows_kernel32():
     kernel32.GetFinalPathNameByHandleW.restype = wintypes.DWORD
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.GetFileInformationByHandle.argtypes = [wintypes.HANDLE, wintypes.LPVOID]
+    kernel32.GetFileInformationByHandle.restype = wintypes.BOOL
     kernel32.GetFileInformationByHandleEx.restype = wintypes.BOOL
     return ctypes, kernel32
+
+
+def _windows_handle_metadata(handle) -> tuple[bool, int, int]:
+    """Read directory, size and UTC nanoseconds from this exact native handle."""
+    ctypes, kernel32 = _windows_kernel32()
+    from ctypes import wintypes
+
+    class BY_HANDLE_FILE_INFORMATION(ctypes.Structure):  # noqa: N801
+        _fields_ = [
+            ("dwFileAttributes", wintypes.DWORD),
+            ("ftCreationTimeLowDateTime", wintypes.DWORD),
+            ("ftCreationTimeHighDateTime", wintypes.DWORD),
+            ("ftLastAccessTimeLowDateTime", wintypes.DWORD),
+            ("ftLastAccessTimeHighDateTime", wintypes.DWORD),
+            ("ftLastWriteTimeLowDateTime", wintypes.DWORD),
+            ("ftLastWriteTimeHighDateTime", wintypes.DWORD),
+            ("dwVolumeSerialNumber", wintypes.DWORD),
+            ("nFileSizeHigh", wintypes.DWORD),
+            ("nFileSizeLow", wintypes.DWORD),
+            ("nNumberOfLinks", wintypes.DWORD),
+            ("nFileIndexHigh", wintypes.DWORD),
+            ("nFileIndexLow", wintypes.DWORD),
+        ]
+
+    info = BY_HANDLE_FILE_INFORMATION()
+    if not kernel32.GetFileInformationByHandle(handle, ctypes.byref(info)):
+        raise OSError(ctypes.get_last_error(), "cannot inspect file handle")
+    ticks = int(info.ftLastWriteTimeLowDateTime) | (int(info.ftLastWriteTimeHighDateTime) << 32)
+    if ticks < 116444736000000000:
+        raise OSError("file timestamp predates Unix epoch")
+    return (
+        bool(info.dwFileAttributes & 0x10),
+        (int(info.nFileSizeHigh) << 32) | int(info.nFileSizeLow),
+        (ticks - 116444736000000000) * 100,
+    )
 
 
 def _windows_open(path: str):
