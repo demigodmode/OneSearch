@@ -1654,3 +1654,33 @@ async def test_on_server_scan_submits_manifest_without_local_extraction(monkeypa
         lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
     )
     assert client.calls == ["manifest", "succeeded"]
+
+
+@pytest.mark.asyncio
+async def test_extract_file_conflict_acks_once_without_failed_completion(tmp_path):
+    from types import SimpleNamespace
+
+    from onesearch_agent.client import JobConflict
+    from onesearch_shared import ProcessingMode
+
+    file_path = tmp_path / "a.txt"
+    file_path.write_text("x")
+    lease = SimpleNamespace(
+        id="extract-1", kind=SimpleNamespace(value="extract_file"),
+        processing_mode=ProcessingMode.ON_SERVER, source_id="s", lease_token="token",
+        payload={"root_id":"r", "path":"a.txt", "size_bytes":1,
+                 "modified_at":file_path.stat().st_mtime_ns, "maximum_size":1},
+    )
+    class Client:
+        def __init__(self): self.uploads = self.acks = self.completions = 0
+        async def job_heartbeat(self, *args): pass
+        async def upload_file_chunk(self, *args, **kwargs):
+            self.uploads += 1
+            raise JobConflict("cancel")
+        async def cancel_ack(self, *args): self.acks += 1
+        async def complete(self, *args): self.completions += 1
+    client = Client()
+    await worker_module.run_extract_file_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+    assert (client.uploads, client.acks, client.completions) == (1, 1, 0)
