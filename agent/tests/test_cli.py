@@ -3,6 +3,9 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 from onesearch_agent.cli import main
+from onesearch_agent.client import (
+    AgentRevoked,
+)
 
 
 def _config(path: Path, root: Path):
@@ -128,3 +131,59 @@ def test_enroll_rejects_mismatched_server_before_prompt(tmp_path: Path):
         main, ["--config", str(config), "enroll", "--server", "https://other"]
     )
     assert result.exit_code != 0 and "match configured" in result.output
+
+
+def test_enroll_save_failure_revokes_without_echoing_secrets(tmp_path: Path, monkeypatch):
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    _config(config, root)
+    calls = []
+
+    class Store:
+        def load(self, optional=False):
+            return None
+
+        def save(self, token):
+            raise OSError("disk")
+
+    class Client:
+        def __init__(self, *args):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def enroll(self, code, value):
+            return SimpleNamespace(agent_token="token-secret", agent_id="agent-1")
+
+        async def revoke_self(self):
+            calls.append("revoke")
+
+    monkeypatch.setattr("onesearch_agent.cli.credential_store", lambda value: Store())
+    monkeypatch.setattr("onesearch_agent.cli.AgentClient", Client)
+    result = CliRunner().invoke(
+        main, ["--config", str(config), "enroll", "--server", "http://host"], input="code-secret\n"
+    )
+    assert calls == ["revoke"] and "new code" in result.output
+    assert "token-secret" not in result.output and "code-secret" not in result.output
+
+
+def test_run_preserves_terminal_agent_error(tmp_path: Path, monkeypatch):
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    _config(config, root)
+    monkeypatch.setattr(
+        "onesearch_agent.cli.credential_store", lambda value: SimpleNamespace(load=lambda: "token")
+    )
+
+    async def fail(client):
+        raise AgentRevoked("agent revoked")
+
+    monkeypatch.setattr("onesearch_agent.cli.run_runtime", fail)
+    result = CliRunner().invoke(main, ["--config", str(config), "run"])
+    assert "agent revoked" in result.output and "configuration unavailable" not in result.output
