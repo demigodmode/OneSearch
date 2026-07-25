@@ -16,6 +16,7 @@ except ImportError:  # keep package imports safe on Linux
     win32event = win32service = win32serviceutil = winreg = None
 
 CONFIG_VALUE = "ConfigPath"
+TOKEN_VALUE = "MachineCredential"
 
 
 def _parameters_key():
@@ -56,6 +57,39 @@ def clear_config() -> None:
         raise RuntimeError("unable to remove service configuration") from error
 
 
+def persist_machine_credential(token: str) -> None:
+    if not token or winreg is None:
+        raise RuntimeError("machine credential storage is unavailable")
+    try:
+        import win32crypt
+
+        protected = win32crypt.CryptProtectData(token.encode(), None, None, None, None, 4)[1]
+        key = winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, _parameters_key())
+        try:
+            winreg.SetValueEx(key, TOKEN_VALUE, 0, winreg.REG_BINARY, protected)
+        finally:
+            winreg.CloseKey(key)
+    except Exception as error:
+        raise RuntimeError("machine credential storage is unavailable") from error
+
+
+def machine_credential() -> str:
+    try:
+        import win32crypt
+
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _parameters_key())
+        try:
+            protected = winreg.QueryValueEx(key, TOKEN_VALUE)[0]
+        finally:
+            winreg.CloseKey(key)
+        token = win32crypt.CryptUnprotectData(protected, None, None, None, 0)[1].decode()
+        if not token:
+            raise ValueError()
+        return token
+    except Exception as error:
+        raise RuntimeError("machine credential is unavailable") from error
+
+
 _ServiceBase = win32serviceutil.ServiceFramework if win32serviceutil else object
 
 
@@ -80,7 +114,7 @@ class OneSearchAgentService(_ServiceBase):
 def _run_service(stop_event) -> None:
     agent_client, config_path, load_config, credential_store, run_runtime = _service_dependencies()
     config = load_config(config_path(service_config() or os.environ.get("ONESEARCH_AGENT_CONFIG")))
-    token = credential_store(config).load()
+    token = machine_credential()
 
     async def run():
         async with agent_client(config.server_url, token) as client:

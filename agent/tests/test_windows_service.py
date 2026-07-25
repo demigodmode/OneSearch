@@ -114,6 +114,7 @@ def test_run_service_wires_config_token_client_and_stop_predicate(monkeypatch):
     client = Client()
     seen = {}
     monkeypatch.setattr(module, "service_config", lambda: "C:/agent.toml")
+    monkeypatch.setattr(module, "machine_credential", lambda: "secret")
     monkeypatch.setattr(
         module, "win32event", SimpleNamespace(WaitForSingleObject=lambda event, zero: 0)
     )
