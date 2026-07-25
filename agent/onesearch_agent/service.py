@@ -11,6 +11,12 @@ class ServiceError(RuntimeError):
     pass
 
 
+def _systemd_arg(value: str) -> str:
+    if any(character in value for character in "\r\n\x00"):
+        raise ServiceError("service path is unsafe")
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%") + '"'
+
+
 def _run(args):
     result = subprocess.run(args, capture_output=True, text=True, check=False)
     if result.returncode:
@@ -41,7 +47,7 @@ def install(config: Path, executable: str, *, system: str | None = None, home: P
         unit.parent.mkdir(parents=True, exist_ok=True)
         temporary = unit.with_suffix(".tmp")
         temporary.write_text(
-            f"[Unit]\nDescription=OneSearch Agent\n\n[Service]\nExecStart={executable} -m onesearch_agent.cli --config {config} run\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n"
+            f"[Unit]\nDescription=OneSearch Agent\n\n[Service]\nExecStart={_systemd_arg(executable)} -m onesearch_agent.cli --config {_systemd_arg(str(config))} run\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n"
         )
         os.replace(temporary, unit)
         _run(["systemctl", "--user", "daemon-reload"])

@@ -102,11 +102,18 @@ def main():
     if win32serviceutil is None:
         raise RuntimeError("pywin32 is required for the Windows service")
     arguments = sys.argv[1:]
+    config = None
     if "--config" in arguments:
         index = arguments.index("--config")
-        persist_config(arguments[index + 1])
+        config = arguments[index + 1]
         del arguments[index : index + 2]
-    win32serviceutil.HandleCommandLine(OneSearchAgentService, argv=[sys.argv[0], *arguments])
+    result = win32serviceutil.HandleCommandLine(
+        OneSearchAgentService, argv=[sys.argv[0], *arguments]
+    )
+    if result not in (None, 0):
+        raise RuntimeError("Windows service command failed")
+    if config is not None and any(command in arguments for command in ("install", "update")):
+        persist_config(config)
     if "remove" in arguments:
         clear_config()
 
