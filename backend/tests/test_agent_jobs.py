@@ -498,58 +498,91 @@ def test_job_endpoints_reject_user_pending_disabled_and_revoked_agents(
     assert client.post("/api/agent/v1/jobs/claim", headers=headers).status_code == 401
 
 
-def test_other_agent_cannot_upload_to_owned_extract_job(client, db_session, remote, tmp_path, monkeypatch):
+def test_other_agent_cannot_upload_to_owned_extract_job(
+    client, db_session, remote, tmp_path, monkeypatch
+):
     agent_a, source = remote
     source.processing_mode = "on_server"
     token_a, token_b = create_agent_token(), create_agent_token()
     agent_a.token_hash = hash_token(token_a)
-    agent_b = Agent(id="agent-b", name="B", platform="windows", version="1", protocol_version=1,
-                    allowed_roots="[]", status="online", approved_at=now())
+    agent_b = Agent(
+        id="agent-b",
+        name="B",
+        platform="windows",
+        version="1",
+        protocol_version=1,
+        allowed_roots="[]",
+        status="online",
+        approved_at=now(),
+    )
     agent_b.token_hash = hash_token(token_b)
     db_session.add_all([agent_b, AppSetting(key="remote_agents_enabled", value="true")])
     parent = AgentJobService(db_session).enqueue_scan(source, full=True)
-    child = AgentJobService(db_session).enqueue_extract_files(parent, [{"path":"a.txt","size_bytes":1,"modified_at":1,"content_hash":None}])[0]
+    child = AgentJobService(db_session).enqueue_extract_files(
+        parent, [{"path": "a.txt", "size_bytes": 1, "modified_at": 1, "content_hash": None}]
+    )[0]
     parent.status, parent.lease_token_hash, parent.lease_expires_at = "running", None, None
     db_session.commit()
     lease = AgentJobService(db_session).claim_next(agent_a.id)
     db_session.commit()
     assert lease.id == child.id
     from app.services.remote_files import ExtractUploadRegistry
+
     registry = ExtractUploadRegistry(tmp_path)
     monkeypatch.setattr(agent_protocol, "extract_uploads", registry)
-    response = client.put(f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers={
-        "Authorization": f"Bearer {token_b}", "X-OneSearch-Lease-Token": lease.lease_token,
-    })
+    response = client.put(
+        f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0",
+        content=b"x",
+        headers={
+            "Authorization": f"Bearer {token_b}",
+            "X-OneSearch-Lease-Token": lease.lease_token,
+        },
+    )
     assert response.status_code in {401, 403, 404}
     assert not registry._sessions
     assert list(tmp_path.iterdir()) == []
 
 
-def test_extract_final_parent_rejection_cleans_upload_session(client, db_session, remote, tmp_path, monkeypatch):
+def test_extract_final_parent_rejection_cleans_upload_session(
+    client, db_session, remote, tmp_path, monkeypatch
+):
     agent, source = remote
     source.processing_mode = "on_server"
     token = create_agent_token()
     agent.token_hash = hash_token(token)
     db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
     parent = AgentJobService(db_session).enqueue_scan(source, full=True)
-    child = AgentJobService(db_session).enqueue_extract_files(parent, [{"path":"a.txt","size_bytes":1,"modified_at":1,"content_hash":None}])[0]
+    child = AgentJobService(db_session).enqueue_extract_files(
+        parent, [{"path": "a.txt", "size_bytes": 1, "modified_at": 1, "content_hash": None}]
+    )[0]
     parent.status, parent.lease_token_hash, parent.lease_expires_at = "running", None, None
     db_session.commit()
     lease = AgentJobService(db_session).claim_next(agent.id)
     db_session.commit()
     from app.services.remote_files import ExtractUploadRegistry
+
     registry = ExtractUploadRegistry(tmp_path)
     monkeypatch.setattr(agent_protocol, "extract_uploads", registry)
     headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
-    assert client.put(f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers=headers).status_code == 200
+    assert (
+        client.put(
+            f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers=headers
+        ).status_code
+        == 200
+    )
     child.payload = child.payload.replace(parent.id, "missing-parent")
     db_session.commit()
-    response = client.put(f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=1&complete=true&stream_checksum={hashlib.sha256(b'x').hexdigest()}", headers=headers)
+    response = client.put(
+        f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=1&complete=true&stream_checksum={hashlib.sha256(b'x').hexdigest()}",
+        headers=headers,
+    )
     assert response.status_code == 409
     assert not registry.has(child.id) and list(tmp_path.iterdir()) == []
 
 
-def test_stream_final_checksum_requires_registered_consumer_and_durable_completion(client, db_session, remote):
+def test_stream_final_checksum_requires_registered_consumer_and_durable_completion(
+    client, db_session, remote
+):
     from app.models import AgentJob
     from app.services.remote_files import remote_streams
 
@@ -557,16 +590,34 @@ def test_stream_final_checksum_requires_registered_consumer_and_durable_completi
     token = create_agent_token()
     agent.token_hash = hash_token(token)
     db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
-    job = AgentJob(id="stream-red", agent_id=agent.id, source_id=source.id, kind="stream_file",
-                   status="pending", processing_mode="on_server", active_key="stream-red",
-                   payload="{}", checkpoint="{}")
-    db_session.add(job); db_session.commit()
-    lease = AgentJobService(db_session).claim_next(agent.id); db_session.commit()
+    job = AgentJob(
+        id="stream-red",
+        agent_id=agent.id,
+        source_id=source.id,
+        kind="stream_file",
+        status="pending",
+        processing_mode="on_server",
+        active_key="stream-red",
+        payload="{}",
+        checkpoint="{}",
+    )
+    db_session.add(job)
+    db_session.commit()
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
     queue = remote_streams.open(job.id)
     headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
     try:
-        assert client.put(f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0", content=b"x", headers=headers).status_code == 200
-        final = client.put(f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=1&complete=true&stream_checksum={hashlib.sha256(b'x').hexdigest()}", headers=headers)
+        assert (
+            client.put(
+                f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0", content=b"x", headers=headers
+            ).status_code
+            == 200
+        )
+        final = client.put(
+            f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=1&complete=true&stream_checksum={hashlib.sha256(b'x').hexdigest()}",
+            headers=headers,
+        )
         assert final.status_code == 200
         assert __import__("asyncio").run(queue.get()) == b"x"
         assert __import__("asyncio").run(queue.get()) is None
@@ -574,3 +625,39 @@ def test_stream_final_checksum_requires_registered_consumer_and_durable_completi
         assert job.status == "completed"
     finally:
         __import__("asyncio").run(remote_streams.close(job.id))
+
+
+def test_stream_chunk_without_registered_consumer_is_structured_conflict(
+    client, db_session, remote
+):
+    from app.models import AgentJob
+
+    agent, source = remote
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    job = AgentJob(
+        id="stream-no-queue",
+        agent_id=agent.id,
+        source_id=source.id,
+        kind="stream_file",
+        status="pending",
+        processing_mode="on_server",
+        active_key="stream-no-queue",
+        payload="{}",
+        checkpoint="{}",
+    )
+    db_session.add(job)
+    db_session.commit()
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0",
+        content=b"x",
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+    assert (
+        response.status_code == 409 and response.json()["detail"]["code"] == "remote_stream_timeout"
+    )
+    db_session.refresh(job)
+    assert job.status == "claimed" and job.active_key == "stream-no-queue"
