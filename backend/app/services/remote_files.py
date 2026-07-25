@@ -288,6 +288,10 @@ class ExtractUploadRegistry:
             finally:
                 session.path.unlink(missing_ok=True)
 
+    def cleanup_all(self) -> None:
+        for job_id in list(self._sessions):
+            self.cleanup(job_id)
+
     def has(self, job_id: str) -> bool:
         return job_id in self._sessions
 
@@ -334,6 +338,21 @@ def app_data_temp_directory(database_url: str) -> Path:
 
 # Process-local transient state. Durable job transitions target exact job IDs.
 extract_uploads = ExtractUploadRegistry(app_data_temp_directory(runtime_settings.database_url))
+EXTRACT_UPLOAD_MAX_AGE_SECONDS = 15 * 60
+EXTRACT_UPLOAD_SWEEP_SECONDS = 60
+
+
+async def sweep_extract_uploads(
+    registry: ExtractUploadRegistry,
+    *,
+    maximum_age: float = EXTRACT_UPLOAD_MAX_AGE_SECONDS,
+    interval: float = EXTRACT_UPLOAD_SWEEP_SECONDS,
+    sleep=asyncio.sleep,
+) -> None:
+    """Periodically discard stalled process-local uploads until cancelled."""
+    while True:
+        registry.expire(maximum_age)
+        await sleep(interval)
 
 
 async def copy_bounded(

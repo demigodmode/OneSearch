@@ -245,6 +245,29 @@ def test_extract_upload_mismatch_or_expiry_leaves_no_temp_file(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+@pytest.mark.asyncio
+async def test_extract_upload_sweeper_expires_only_stale_sessions(tmp_path):
+    from app.services.remote_files import ExtractUploadRegistry, sweep_extract_uploads
+
+    registry = ExtractUploadRegistry(tmp_path)
+    registry.append("stale", sequence=0, data=b"x", expected_size=1, maximum_size=1)
+    registry.append("active", sequence=0, data=b"x", expected_size=1, maximum_size=1)
+    registry._sessions["stale"].touched_at -= 61
+    calls = []
+
+    async def stop_after_first_sleep(seconds):
+        calls.append(seconds)
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await sweep_extract_uploads(
+            registry, maximum_age=60, interval=5, sleep=stop_after_first_sleep
+        )
+    assert calls == [5]
+    assert not registry.has("stale") and registry.has("active")
+    assert len(list(tmp_path.iterdir())) == 1
+
+
 def test_extract_upload_preserves_only_validated_suffix(tmp_path):
     from app.services.remote_files import ExtractUploadRegistry
 
