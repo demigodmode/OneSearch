@@ -148,6 +148,7 @@ async def test_remote_ingest_preserves_exact_nanoseconds_for_next_incremental_sc
     assert search.indexed[0][0].modified_at == modified_at_ns // 1_000_000_000
 
     job.status = "completed"
+    job.active_key = None
     job.lease_expires_at = None
     source = db.get(Source, "s")
     db.expire(source, ["indexed_files"])
