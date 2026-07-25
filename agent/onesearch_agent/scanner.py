@@ -9,7 +9,7 @@ from onesearch_shared import ScanFile, ScanManifest
 
 from app.services.scanner import get_default_exclude_patterns, path_is_included
 
-from .paths import PathOutsideAllowedRoots, browse, open_confined_file
+from .paths import PathOutsideAllowedRoots, list_confined_entries, open_confined_file
 
 
 def canonical_path(path: str) -> str:
@@ -45,23 +45,16 @@ class RemoteScanner:
         while stack:
             directory = stack.pop()
             try:
-                entries = browse(self.root_id, directory, self.roots, max_entries=100000)
+                entries = list_confined_entries(
+                    self.root_id, directory, self.roots, max_entries=100000
+                )
             except PathOutsideAllowedRoots:
                 continue
             for entry in reversed(entries):
-                relative = canonical_path(
-                    str(
-                        entry.relative_to(
-                            next(r for r in self.roots if r.root_id == self.root_id).path
-                        )
-                    )
-                )
-                try:
-                    browse(self.root_id, relative, self.roots, max_entries=1)
-                except PathOutsideAllowedRoots:
-                    yield relative
+                if entry.is_dir:
+                    stack.append(entry.relative_path)
                 else:
-                    stack.append(relative)
+                    yield entry.relative_path
 
     def scan(self, *, job_id: str, source_id: str) -> ScanManifest:
         files = []

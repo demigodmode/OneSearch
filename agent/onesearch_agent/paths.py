@@ -32,26 +32,40 @@ def list_confined_entries(
 ) -> list[SafeDirectoryEntry]:
     """Return metadata derived solely from no-follow handles, never host Paths."""
     if os.name == "nt":
-        # `browse` obtains each name from rooted native handles; reopen that name
-        # through the same confined boundary solely to derive metadata from its fd.
-        result = []
-        for display in browse(root_id, relative, roots, max_entries=max_entries):
-            path = f"{relative}/{display.name}".strip("/")
-            try:
-                with open_confined_file(root_id, path, roots) as handle:
-                    info = os.fstat(handle.fileno())
-                result.append(
-                    SafeDirectoryEntry(
-                        path,
-                        display.name,
-                        stat.S_ISDIR(info.st_mode),
-                        info.st_size,
-                        info.st_mtime_ns,
+        root_handle = directory_handle = None
+        entries = []
+        try:
+            root_handle, root_path, directory_handle, directory_path = _windows_verified_directory(
+                root_id, relative, roots
+            )
+            for name in sorted(_windows_directory_names(directory_handle), key=str.casefold):
+                child = None
+                try:
+                    child = _windows_open_relative(directory_handle, name)
+                    if _windows_is_reparse_point(child):
+                        continue
+                    final = _windows_final_path(child)
+                    if not (
+                        _windows_is_within(final, root_path)
+                        and _windows_is_within(final, directory_path)
+                    ):
+                        continue
+                    is_dir, size, mtime = _windows_handle_metadata(child)
+                    entries.append(
+                        SafeDirectoryEntry(
+                            f"{relative}/{name}".strip("/"), name, is_dir, size, mtime
+                        )
                     )
-                )
-            except (OSError, PathOutsideAllowedRoots):
-                continue
-        return result
+                    if len(entries) >= max_entries:
+                        break
+                except OSError:
+                    continue
+                finally:
+                    _windows_close(child)
+            return entries
+        finally:
+            _windows_close(directory_handle)
+            _windows_close(root_handle)
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     directory_fd = -1
     entries: list[SafeDirectoryEntry] = []
@@ -61,7 +75,7 @@ def list_confined_entries(
             child = os.open(part, flags, dir_fd=directory_fd)
             os.close(directory_fd)
             directory_fd = child
-        for name in sorted(os.listdir(directory_fd), key=str.casefold)[:max_entries]:
+        for name in sorted(os.listdir(directory_fd), key=str.casefold):
             fd = -1
             try:
                 fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd)
@@ -75,6 +89,8 @@ def list_confined_entries(
                         path, name, stat.S_ISDIR(mode), info.st_size, info.st_mtime_ns
                     )
                 )
+                if len(entries) >= max_entries:
+                    break
             except OSError:
                 continue
             finally:
