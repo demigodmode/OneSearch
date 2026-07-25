@@ -35,6 +35,17 @@ async def test_confirmed_index_and_delete_require_successful_tasks(connected_ser
         await connected_service.delete_document_confirmed("x")
 
 
+@pytest.mark.asyncio
+async def test_confirmed_batch_delete_waits_for_one_successful_task(connected_service):
+    connected_service.index.delete_documents.return_value = {"task_uid": 9}
+    connected_service.client.wait_for_task.return_value = {"status": "succeeded"}
+    await connected_service.delete_documents_confirmed(["a", "b"])
+    connected_service.index.delete_documents.assert_called_once_with(["a", "b"])
+    connected_service.client.wait_for_task.return_value = {"status": "failed"}
+    with pytest.raises(RuntimeError, match="delete task failed"):
+        await connected_service.delete_documents_confirmed(["a", "b"])
+
+
 @pytest.fixture
 def service():
     return MeilisearchService()
