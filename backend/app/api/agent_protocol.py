@@ -374,6 +374,8 @@ async def acknowledge_cancellation(
     try:
         job = AgentJobService(db).acknowledge_cancellation(agent.id, job_id, lease_token)
         db.commit()
+        if job.kind == "extract_file":
+            extract_uploads.cleanup(job_id)
         if job.kind == "stream_file":
             await remote_streams.close(job_id, RemoteStreamTimeout("stream cancelled"))
     except (JobNotFound, JobLeaseError, JobConflict) as error:
