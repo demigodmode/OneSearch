@@ -1,6 +1,8 @@
+import asyncio
 import hashlib
 from pathlib import Path
 
+import onesearch_agent.worker as worker_module
 import pytest
 from onesearch_agent.worker import ExtractionError, batch_documents, extract_confined
 from onesearch_shared import AllowedRoot, NormalizedRemoteDocument, ScanFile
@@ -98,3 +100,73 @@ def test_batches_are_bounded_and_deterministic():
     assert [len(batch.documents) for batch in batches] == [2, 1]
     payload = batches[0].model_copy(update={"batch_id": "pending"}).model_dump_json()
     assert batches[0].batch_id == f"job:0:{hashlib.sha256(payload.encode()).hexdigest()}"
+
+
+@pytest.mark.asyncio
+async def test_fake_extractor_receives_private_original_basename(tmp_path, monkeypatch):
+    file = tmp_path / "name.with.dot.txt"
+    file.write_text("x")
+    info = file.stat()
+    expected = ScanFile(path=file.name, size_bytes=1, modified_at=info.st_mtime_ns)
+    seen = []
+
+    class Fake:
+        async def extract_with_timeout(self, value):
+            seen.append(Path(value))
+            from app.schemas import Document
+
+            return Document(
+                id="x",
+                source_id="s",
+                source_name="source",
+                path=value,
+                basename=Path(value).name,
+                extension="txt",
+                type="text",
+                size_bytes=1,
+                modified_at=1,
+                indexed_at=1,
+                content="x",
+            )
+
+    monkeypatch.setattr(worker_module, "choose_extractor", lambda *args: Fake())
+    await extract_confined(
+        "r",
+        file.name,
+        [AllowedRoot(root_id="r", path=str(tmp_path))],
+        expected=expected,
+        source_id="s",
+        extraction=extraction(),
+        max_snapshot_bytes=10,
+    )
+    assert seen[0].name == file.name and not seen[0].parent.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [RuntimeError("boom"), asyncio.CancelledError()])
+async def test_snapshot_is_cleaned_for_extractor_error_and_cancellation(
+    tmp_path, monkeypatch, error
+):
+    file = tmp_path / "x.txt"
+    file.write_text("x")
+    info = file.stat()
+    expected = ScanFile(path=file.name, size_bytes=1, modified_at=info.st_mtime_ns)
+    seen = []
+
+    class Fake:
+        async def extract_with_timeout(self, value):
+            seen.append(Path(value))
+            raise error
+
+    monkeypatch.setattr(worker_module, "choose_extractor", lambda *args: Fake())
+    with pytest.raises(type(error)):
+        await extract_confined(
+            "r",
+            file.name,
+            [AllowedRoot(root_id="r", path=str(tmp_path))],
+            expected=expected,
+            source_id="s",
+            extraction=extraction(),
+            max_snapshot_bytes=10,
+        )
+    assert not seen[0].parent.exists()
