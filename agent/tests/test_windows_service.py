@@ -116,7 +116,7 @@ def test_run_service_wires_config_token_client_and_stop_predicate(monkeypatch):
             lambda value: value,
             lambda value: config,
             lambda value: store,
-        lambda value, stopped, **kwargs: seen.update(runtime=value, stopped=stopped),
+            lambda value, stopped, **kwargs: seen.update(runtime=value, stopped=stopped),
         ),
     )
     monkeypatch.setattr(module.asyncio, "run", lambda value: value)

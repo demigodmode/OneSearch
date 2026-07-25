@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -87,6 +88,27 @@ async def test_runtime_stops_before_another_heartbeat():
 
     await run_runtime(Client(), stopped=lambda: True)
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_stop_interrupts_started_heartbeat_without_claim():
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+    claims = []
+
+    class Client:
+        async def heartbeat(self, *args):
+            started.set()
+            await asyncio.Event().wait()
+
+        async def claim(self):
+            claims.append(True)
+
+    task = asyncio.create_task(run_runtime(Client(), wait_stopped=stopped.wait))
+    await started.wait()
+    stopped.set()
+    await asyncio.wait_for(task, 1)
+    assert claims == []
 
 
 @pytest.mark.asyncio

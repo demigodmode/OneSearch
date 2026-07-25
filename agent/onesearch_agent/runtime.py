@@ -31,12 +31,28 @@ async def run_runtime(
         await asyncio.gather(*pending, return_exceptions=True)
         return stopper in done
 
+    async def heartbeat():
+        if wait_stopped is None:
+            await client.heartbeat(__version__, platform.platform())
+            return False
+        request = asyncio.create_task(client.heartbeat(__version__, platform.platform()))
+        stopper = asyncio.create_task(wait_stopped())
+        done, pending = await asyncio.wait({request, stopper}, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        if stopper in done:
+            return True
+        await request
+        return False
+
     failures = 0
     while True:
         if stopped():
             return
         try:
-            await client.heartbeat(__version__, platform.platform())
+            if await heartbeat():
+                return
             if worker is not None:
                 lease = await client.claim()
                 if lease is not None:
