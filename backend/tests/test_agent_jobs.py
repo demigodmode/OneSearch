@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
@@ -672,8 +673,6 @@ def test_stream_chunk_without_registered_consumer_is_structured_conflict(
     ],
 )
 def test_stream_invalid_transfer_is_changed_conflict(client, db_session, remote, query, body):
-    import asyncio
-
     from app.models import AgentJob
     from app.services.remote_files import remote_streams
 
@@ -714,3 +713,114 @@ def test_stream_invalid_transfer_is_changed_conflict(client, db_session, remote,
         assert job.status == "claimed"
     finally:
         asyncio.run(remote_streams.close(job.id))
+
+
+def _leased_stream_job(db_session, remote, *, job_id):
+    agent, source = remote
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    job = AgentJob(
+        id=job_id,
+        agent_id=agent.id,
+        source_id=source.id,
+        kind="stream_file",
+        status="pending",
+        processing_mode="on_server",
+        active_key=job_id,
+        payload="{}",
+        checkpoint="{}",
+    )
+    db_session.add(job)
+    db_session.commit()
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    return agent, job, token, lease
+
+
+def _completion_while_stream_consumer_waits(client, job, token, lease, queue, payload):
+    async def complete_and_receive():
+        waiting_consumer = asyncio.create_task(queue.get())
+        await asyncio.sleep(0)
+        response = client.post(
+            f"/api/agent/v1/jobs/{job.id}/complete",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-OneSearch-Lease-Token": lease.lease_token,
+            },
+            json=payload,
+        )
+        try:
+            return response, await asyncio.wait_for(waiting_consumer, timeout=0.1)
+        except BaseException as error:
+            return response, error
+
+    return asyncio.run(complete_and_receive())
+
+
+@pytest.mark.parametrize(
+    ("reason", "detail", "expected_error"),
+    [
+        ("not_found", "remote_file_missing", "RemoteFileMissing"),
+        ("invalid_request", "remote_file_changed", "RemoteFileChanged"),
+    ],
+)
+def test_stream_failed_completion_signals_trusted_terminal_error(
+    client, db_session, remote, reason, detail, expected_error
+):
+    from app.services import remote_files
+
+    _agent, job, token, lease = _leased_stream_job(
+        db_session, remote, job_id=f"stream-failure-{reason}"
+    )
+    queue = remote_files.remote_streams.open(job.id)
+    try:
+        response, result = _completion_while_stream_consumer_waits(
+            client,
+            job,
+            token,
+            lease,
+            queue,
+            {"job_id": job.id, "status": "failed", "reason": reason, "detail": detail},
+        )
+        assert response.status_code == 200
+        assert isinstance(result, getattr(remote_files, expected_error))
+        assert remote_files.remote_streams.get(job.id) is None
+        db_session.refresh(job)
+        assert job.status == "failed" and job.error == detail
+    finally:
+        asyncio.run(remote_files.remote_streams.close(job.id))
+
+
+@pytest.mark.parametrize(
+    ("reason", "detail"),
+    [
+        ("not_found", r"\\private-host\secrets\report.pdf"),
+        ("invalid_request", "wrong-wire-code"),
+        ("extraction_failed", "private-host extraction trace"),
+    ],
+)
+def test_stream_failed_completion_hides_untrusted_terminal_detail(
+    client, db_session, remote, reason, detail
+):
+    from app.services import remote_files
+
+    _agent, job, token, lease = _leased_stream_job(
+        db_session, remote, job_id=f"stream-untrusted-{reason}"
+    )
+    queue = remote_files.remote_streams.open(job.id)
+    try:
+        response, result = _completion_while_stream_consumer_waits(
+            client,
+            job,
+            token,
+            lease,
+            queue,
+            {"job_id": job.id, "status": "failed", "reason": reason, "detail": detail},
+        )
+        assert response.status_code == 200
+        assert isinstance(result, remote_files.RemoteStreamTimeout)
+        assert detail not in response.text and detail not in str(result)
+        assert remote_files.remote_streams.get(job.id) is None
+    finally:
+        asyncio.run(remote_files.remote_streams.close(job.id))
