@@ -78,11 +78,7 @@ class OneSearchAgentService(_ServiceBase):
 
 
 def _run_service(stop_event) -> None:
-    from .client import AgentClient
-    from .config import config_path, load_config
-    from .credentials import credential_store
-    from .runtime import run_runtime
-
+    AgentClient, config_path, load_config, credential_store, run_runtime = _service_dependencies()
     config = load_config(config_path(service_config() or os.environ.get("ONESEARCH_AGENT_CONFIG")))
     token = credential_store(config).load()
     asyncio.run(
@@ -91,6 +87,15 @@ def _run_service(stop_event) -> None:
             stopped=lambda: win32event.WaitForSingleObject(stop_event, 0) == 0,
         )
     )
+
+
+def _service_dependencies():
+    from .client import AgentClient
+    from .config import config_path, load_config
+    from .credentials import credential_store
+    from .runtime import run_runtime
+
+    return AgentClient, config_path, load_config, credential_store, run_runtime
 
 
 def main():

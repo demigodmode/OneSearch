@@ -96,3 +96,30 @@ def test_svc_do_run_delegates_to_service_helper(monkeypatch):
     monkeypatch.setattr(module, "_run_service", helper)
     module.OneSearchAgentService.SvcDoRun(SimpleNamespace(stop_event="event"))
     helper.assert_called_once_with("event")
+
+
+def test_run_service_wires_config_token_client_and_stop_predicate(monkeypatch):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    config = SimpleNamespace(server_url="http://server")
+    store = SimpleNamespace(load=Mock(return_value="secret"))
+    client = object()
+    seen = {}
+    monkeypatch.setattr(module, "service_config", lambda: "C:/agent.toml")
+    monkeypatch.setattr(
+        module, "win32event", SimpleNamespace(WaitForSingleObject=lambda event, zero: 0)
+    )
+    monkeypatch.setattr(
+        module,
+        "_service_dependencies",
+        lambda: (
+            lambda url, token: (seen.update(url=url, token=token) or client),
+            lambda value: value,
+            lambda value: config,
+            lambda value: store,
+            lambda value, stopped: seen.update(runtime=value, stopped=stopped),
+        ),
+    )
+    monkeypatch.setattr(module.asyncio, "run", lambda value: value)
+    module._run_service("event")
+    assert seen["url"] == "http://server" and seen["token"] == "secret"
+    assert seen["runtime"] is client and seen["stopped"]()
