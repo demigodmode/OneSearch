@@ -6,6 +6,7 @@ from .protocol import (
     REMOTE_MAX_BATCH_BYTES,
     REMOTE_MAX_BATCH_DOCUMENTS,
     REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+    REMOTE_MAX_MANIFEST_BYTES,
     REMOTE_MAX_SCAN_FILES,
     REMOTE_MAX_SNAPSHOT_BYTES,
     AgentEnrollmentRequest,
@@ -32,6 +33,7 @@ from .protocol import (
     ScanFile,
     ScanManifest,
     WireModel,
+    canonical_wire_bytes,
     remote_path_hash,
 )
 
@@ -40,6 +42,7 @@ __all__ = [
     "REMOTE_MAX_SNAPSHOT_BYTES",
     "REMOTE_MAX_BATCH_DOCUMENTS",
     "REMOTE_MAX_BATCH_BYTES",
+    "REMOTE_MAX_MANIFEST_BYTES",
     "REMOTE_MAX_SCAN_FILES",
     "REMOTE_MAX_ENTRIES_PER_DIRECTORY",
     "REMOTE_JOB_HEARTBEAT_SECONDS",
@@ -68,4 +71,5 @@ __all__ = [
     "ScanManifest",
     "remote_path_hash",
     "WireModel",
+    "canonical_wire_bytes",
 ]

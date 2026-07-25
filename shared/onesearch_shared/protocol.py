@@ -8,6 +8,7 @@ payloads timezone-independent and avoid runtime-specific datetime serialization.
 from __future__ import annotations
 
 import hashlib
+import json
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
@@ -16,6 +17,7 @@ PROTOCOL_VERSION = 1
 REMOTE_MAX_SNAPSHOT_BYTES = 100 * 1024 * 1024
 REMOTE_MAX_BATCH_DOCUMENTS = 100
 REMOTE_MAX_BATCH_BYTES = 1_000_000
+REMOTE_MAX_MANIFEST_BYTES = 50 * 1024 * 1024
 REMOTE_MAX_SCAN_FILES = 100_000
 REMOTE_MAX_ENTRIES_PER_DIRECTORY = 100_000
 REMOTE_JOB_HEARTBEAT_SECONDS = 20
@@ -47,6 +49,12 @@ class WireModel(BaseModel):
     """Base for JSON messages that rejects fields unknown to this protocol."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False, strict=True)
+
+
+def canonical_wire_bytes(model: WireModel) -> bytes:
+    return json.dumps(
+        model.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
 
 
 class ProcessingMode(str, Enum):
@@ -180,9 +188,9 @@ class ScanCheckpoint(WireModel):
 class ScanManifest(WireModel):
     job_id: str = Field(min_length=1)
     source_id: str = Field(min_length=1)
-    files: list[ScanFile] = Field(default_factory=list)
-    failures: list[ScanFailure] = Field(default_factory=list)
-    deleted_paths: list[str] = Field(default_factory=list)
+    files: list[ScanFile] = Field(default_factory=list, max_length=REMOTE_MAX_SCAN_FILES)
+    failures: list[ScanFailure] = Field(default_factory=list, max_length=REMOTE_MAX_SCAN_FILES)
+    deleted_paths: list[str] = Field(default_factory=list, max_length=REMOTE_MAX_SCAN_FILES)
     checkpoint: ScanCheckpoint | None = None
     complete: bool = False
 
@@ -191,6 +199,10 @@ class ScanManifest(WireModel):
         paths = [item.path for item in self.files]
         if len(paths) != len(set(paths)):
             raise ValueError("manifest file paths must be unique")
+        if len({item.path for item in self.failures}) != len(self.failures):
+            raise ValueError("manifest failure paths must be unique")
+        if len(set(self.deleted_paths)) != len(self.deleted_paths):
+            raise ValueError("manifest deleted paths must be unique")
         return self
 
 
@@ -208,7 +220,9 @@ class NormalizedRemoteDocument(WireModel):
 class DocumentBatch(WireModel):
     job_id: str = Field(min_length=1)
     batch_id: str = Field(min_length=1)
-    documents: list[NormalizedRemoteDocument] = Field(default_factory=list)
+    documents: list[NormalizedRemoteDocument] = Field(
+        default_factory=list, max_length=REMOTE_MAX_BATCH_DOCUMENTS
+    )
     checkpoint: ScanCheckpoint | None = None
 
 

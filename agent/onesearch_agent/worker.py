@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import os
 import stat
 import tempfile
@@ -28,6 +27,7 @@ from onesearch_shared import (
     NormalizedRemoteDocument,
     ScanFailure,
     ScanFile,
+    canonical_wire_bytes,
 )
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, ValidationError
 
@@ -86,12 +86,7 @@ class ScanPayload(BaseModel):
 
 def _batch_wire_bytes(batch) -> bytes:
     """Exact submitted DocumentBatch wire representation."""
-    return json.dumps(
-        batch.model_dump(mode="json"),
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode("utf-8")
+    return canonical_wire_bytes(batch)
 
 
 class OversizedDocumentError(BatchBuildError):
@@ -123,10 +118,11 @@ class StreamingBatchBuilder:
         self.current = []
         return batch
 
-    def _fits(self, docs):
+    def _fits(self, docs, sequence=None):
+        sequence = self.sequence if sequence is None else sequence
         seed = DocumentBatch(
             job_id=self.job_id,
-            batch_id=f"{self.job_id}:{self.sequence}:{'0' * 64}",
+            batch_id=f"{self.job_id}:{sequence}:{'0' * 64}",
             documents=list(docs),
         )
         return len(docs) <= self.max_documents and len(_batch_wire_bytes(seed)) <= self.max_bytes
@@ -136,7 +132,7 @@ class StreamingBatchBuilder:
         if len(candidate) <= self.max_documents and self._fits(candidate):
             self.current = candidate
             return []
-        if not self.current or not self._fits([doc]):
+        if not self.current or not self._fits([doc], self.sequence + 1):
             raise OversizedDocumentError(doc.path[:200])
         emitted = self._emit()
         self.current = [doc]
