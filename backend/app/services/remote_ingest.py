@@ -233,12 +233,16 @@ class RemoteIngestService:
         if locked.rowcount != 1:
             return self.db.get(AgentJob, parent.id).status
         confirmed_many = getattr(self.search_service, "delete_documents_confirmed", None)
-        if ids and confirmed_many:
-            await confirmed_many(ids)
-        elif ids:
-            for document_id in ids:
-                confirmed = getattr(self.search_service, "delete_document_confirmed", None)
-                await (confirmed(document_id) if confirmed else self.search_service.delete_document(document_id))
+        try:
+            if ids and confirmed_many:
+                await confirmed_many(ids)
+            elif ids:
+                for document_id in ids:
+                    confirmed = getattr(self.search_service, "delete_document_confirmed", None)
+                    await (confirmed(document_id) if confirmed else self.search_service.delete_document(document_id))
+        except BaseException:
+            self.db.rollback()
+            raise
         for row in missing:
             self.db.delete(row)
         self.db.flush()
@@ -306,16 +310,20 @@ class RemoteIngestService:
         jobs.complete_reconciled_scan(agent_id, job_id, lease_token)
         ids = [remote_document_id(job.source_id, row.path) for row in missing]
         confirmed_many = getattr(self.search_service, "delete_documents_confirmed", None)
-        if ids and confirmed_many:
-            await confirmed_many(ids)
-        elif ids:
-            for document_id in ids:
-                confirmed = getattr(self.search_service, "delete_document_confirmed", None)
-                await (
-                    confirmed(document_id)
-                    if confirmed
-                    else self.search_service.delete_document(document_id)
-                )
+        try:
+            if ids and confirmed_many:
+                await confirmed_many(ids)
+            elif ids:
+                for document_id in ids:
+                    confirmed = getattr(self.search_service, "delete_document_confirmed", None)
+                    await (
+                        confirmed(document_id)
+                        if confirmed
+                        else self.search_service.delete_document(document_id)
+                    )
+        except BaseException:
+            self.db.rollback()
+            raise
         for row in missing:
             self.db.delete(row)
         for failure in manifest.failures:

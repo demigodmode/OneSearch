@@ -241,3 +241,37 @@ def test_extract_fanout_retry_coalesces_and_changed_manifest_conflicts(db_sessio
     parent.checkpoint = '{"version":1,"remote_manifest":{"files":[{"path":"a.txt"}]}}'
     with pytest.raises(JobConflict):
         AgentJobService(db_session).validate_manifest_retry(parent, {"files": [{"path": "b.txt"}]})
+
+
+@pytest.mark.asyncio
+async def test_server_rename_confirmed_delete_failure_rolls_back_and_retries(db_session, remote):
+    import json
+
+    from onesearch_shared import ScanFile, ScanManifest, remote_path_hash
+
+    from app.models import IndexedFile
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_ingest import RemoteIngestService, remote_document_id
+
+    _agent, source = remote
+    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
+    parent.status, parent.lease_token_hash = "running", None
+    parent.checkpoint = json.dumps({"version": 1, "remote_manifest": ScanManifest(
+        job_id=parent.id, source_id=source.id, complete=True,
+        files=[ScanFile(path="new.txt", path_hash=remote_path_hash("new.txt"), size_bytes=1, modified_at=1)]
+    ).model_dump(mode="json")})
+    old, new = IndexedFile(source_id=source.id, path="old.txt", status="success"), IndexedFile(source_id=source.id, path="new.txt", status="success")
+    db_session.add_all([old, new]); db_session.commit()
+    calls = []
+    class Search:
+        async def delete_documents_confirmed(self, ids):
+            calls.append(ids)
+            if len(calls) == 1: raise RuntimeError("down")
+    service = RemoteIngestService(db_session, Search())
+    with pytest.raises(RuntimeError):
+        await service.settle_server_parent(parent.id)
+    db_session.refresh(parent)
+    assert parent.status == "running" and parent.active_key == source.id and db_session.get(IndexedFile, old.id)
+    assert await service.settle_server_parent(parent.id) == "completed"
+    assert calls == [[remote_document_id(source.id, "old.txt")], [remote_document_id(source.id, "old.txt")]]
+    assert db_session.get(IndexedFile, old.id) is None and db_session.get(IndexedFile, new.id) is not None
