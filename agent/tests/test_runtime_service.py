@@ -145,6 +145,31 @@ def test_systemd_argument_escapes_safe_special_characters():
 
 
 @pytest.mark.asyncio
+async def test_normal_progress_cancels_and_awaits_losing_stop_waiter():
+    finalized = asyncio.Event()
+    calls = []
+
+    class Client:
+        async def heartbeat(self, *args):
+            calls.append(True)
+            if len(calls) == 2:
+                raise AgentRevoked()
+
+    async def waiter():
+        try:
+            await asyncio.Event().wait()
+        finally:
+            finalized.set()
+
+    async def sleep(seconds):
+        return None
+
+    with pytest.raises(AgentRevoked):
+        await run_runtime(Client(), sleep=sleep, wait_stopped=waiter)
+    assert calls == [True, True] and finalized.is_set()
+
+
+@pytest.mark.asyncio
 async def test_worker_can_acknowledge_cancellation_lease():
     class Client:
         async def heartbeat(self, *args):
