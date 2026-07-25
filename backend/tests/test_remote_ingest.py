@@ -1,8 +1,12 @@
 import hashlib
 import json
+import os
+from pathlib import Path
 
 import pytest
+from onesearch_agent.scanner import RemoteScanner
 from onesearch_shared import (
+    AllowedRoot,
     DocumentBatch,
     NormalizedRemoteDocument,
     ScanFile,
@@ -115,6 +119,49 @@ async def test_batch_duplicate_is_not_reindexed_and_bad_paths_are_rejected(remot
                 ],
             ),
         )
+
+
+@pytest.mark.asyncio
+async def test_remote_ingest_preserves_exact_nanoseconds_for_next_incremental_scan(
+    remote_job, tmp_path
+):
+    db, lease, job = remote_job
+    path, modified_at_ns = "precise.txt", 1_700_000_000_123_456_789
+    search = Search()
+    await RemoteIngestService(db, search).accept_batch(
+        "a",
+        job.id,
+        lease.lease_token,
+        DocumentBatch(
+            job_id=job.id,
+            batch_id="precise",
+            documents=[
+                NormalizedRemoteDocument(
+                    source_id="s", path=path, content="x", modified_at=modified_at_ns
+                )
+            ],
+        ),
+    )
+    db.commit()
+    row = db.scalar(select(IndexedFile).where(IndexedFile.path == path))
+    assert row.modified_at_ns == modified_at_ns
+    assert search.indexed[0][0].modified_at == modified_at_ns // 1_000_000_000
+
+    job.status = "completed"
+    job.lease_expires_at = None
+    source = db.get(Source, "s")
+    next_job = AgentJobService(db).enqueue_scan(source, full=False)
+    known = json.loads(next_job.payload)["known_files"][path]
+    assert known["modified_at"] == modified_at_ns
+
+    file = Path(tmp_path) / path
+    file.write_text("x")
+    os.utime(file, ns=(modified_at_ns, modified_at_ns))
+    scanner = RemoteScanner(
+        "r", [AllowedRoot(root_id="r", path=str(tmp_path))], known={path: known}
+    )
+    scanner.scan(job_id="next", source_id="s")
+    assert scanner.changed_paths == []
 
 
 def test_manifest_requires_valid_lease_and_preserves_versioned_complete_state(remote_job):
