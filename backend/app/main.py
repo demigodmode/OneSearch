@@ -5,6 +5,7 @@
 OneSearch FastAPI Application
 Main entry point for the backend API
 """
+
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -19,6 +20,7 @@ from .api import agent_protocol, agents, auth, preview, search, sources, status
 from .api import settings as settings_api
 from .config import settings
 from .db.database import engine, get_db
+from .request_body_limits import RemoteAgentBodyLimitMiddleware
 from .services.scheduler import SchedulerService
 from .services.search import meili_service
 
@@ -94,7 +96,7 @@ async def log_requests(request: Request, call_next):
         extra={
             "method": request.method,
             "path": request.url.path,
-        }
+        },
     )
 
     # Log query params and client at DEBUG level to avoid PII leakage
@@ -114,13 +116,13 @@ async def log_requests(request: Request, call_next):
         log_level = logging.INFO if response.status_code < 400 else logging.WARNING
         logger.log(
             log_level,
-            f"← {request.method} {request.url.path} → {response.status_code} ({process_time*1000:.2f}ms)",
+            f"← {request.method} {request.url.path} → {response.status_code} ({process_time * 1000:.2f}ms)",
             extra={
                 "method": request.method,
                 "path": request.url.path,
                 "status_code": response.status_code,
                 "process_time_ms": round(process_time * 1000, 2),
-            }
+            },
         )
 
         # Add processing time header
@@ -131,19 +133,20 @@ async def log_requests(request: Request, call_next):
     except Exception as e:
         process_time = time.time() - start_time
         logger.error(
-            f"✗ {request.method} {request.url.path} → ERROR ({process_time*1000:.2f}ms): {e}",
+            f"✗ {request.method} {request.url.path} → ERROR ({process_time * 1000:.2f}ms): {e}",
             extra={
                 "method": request.method,
                 "path": request.url.path,
                 "error": str(e),
                 "process_time_ms": round(process_time * 1000, 2),
             },
-            exc_info=True
+            exc_info=True,
         )
         raise
 
 
 # Include API routers
+app.add_middleware(RemoteAgentBodyLimitMiddleware)
 app.include_router(auth.router)
 app.include_router(sources.router)
 app.include_router(search.router)
