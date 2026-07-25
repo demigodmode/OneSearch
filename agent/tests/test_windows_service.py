@@ -145,6 +145,34 @@ def test_live_machine_dpapi_roundtrip():
         pytest.skip(f"DPAPI unavailable: {error}")
 
 
+@pytest.mark.parametrize("result", [None, 0, 1060])
+def test_install_service_result_controls_rollback(monkeypatch, result):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    calls = []
+    monkeypatch.setattr(
+        module,
+        "win32serviceutil",
+        SimpleNamespace(
+            HandleCommandLine=lambda *args, **kwargs: calls.append(kwargs["argv"]) or result
+        ),
+    )
+    monkeypatch.setattr(module, "persist_config", lambda value: calls.append(("config", value)))
+    monkeypatch.setattr(
+        module, "persist_machine_credential", lambda value: calls.append(("token", value))
+    )
+    monkeypatch.setattr(module, "_snapshot_parameters", lambda: {"old": 1})
+    monkeypatch.setattr(
+        module, "_restore_parameters", lambda value: calls.append(("restore", value))
+    )
+    if result in (None, 0):
+        module.install_service("C:/agent.toml", "secret")
+    else:
+        with pytest.raises(RuntimeError):
+            module.install_service("C:/agent.toml", "secret")
+    assert all("secret" not in str(item) for item in calls if isinstance(item, list))
+    assert (("restore", {"old": 1}) in calls) is (result not in (None, 0))
+
+
 def test_service_class_exposes_scm_stop_and_runtime_methods():
     module = importlib.import_module("onesearch_agent.windows_service")
     assert module.OneSearchAgentService._svc_name_ == "OneSearchAgent"
