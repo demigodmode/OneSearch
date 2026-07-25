@@ -261,12 +261,14 @@ async def test_server_rename_confirmed_delete_failure_rolls_back_and_retries(db_
         files=[ScanFile(path="new.txt", path_hash=remote_path_hash("new.txt"), size_bytes=1, modified_at=1)]
     ).model_dump(mode="json")})
     old, new = IndexedFile(source_id=source.id, path="old.txt", status="success"), IndexedFile(source_id=source.id, path="new.txt", status="success")
-    db_session.add_all([old, new]); db_session.commit()
+    db_session.add_all([old, new])
+    db_session.commit()
     calls = []
     class Search:
         async def delete_documents_confirmed(self, ids):
             calls.append(ids)
-            if len(calls) == 1: raise RuntimeError("down")
+            if len(calls) == 1:
+                raise RuntimeError("down")
     service = RemoteIngestService(db_session, Search())
     with pytest.raises(RuntimeError):
         await service.settle_server_parent(parent.id)
