@@ -495,3 +495,30 @@ def test_job_endpoints_reject_user_pending_disabled_and_revoked_agents(
     agent.token_hash = None
     db_session.commit()
     assert client.post("/api/agent/v1/jobs/claim", headers=headers).status_code == 401
+
+
+def test_other_agent_cannot_upload_to_owned_extract_job(client, db_session, remote, tmp_path, monkeypatch):
+    agent_a, source = remote
+    source.processing_mode = "on_server"
+    token_a, token_b = create_agent_token(), create_agent_token()
+    agent_a.token_hash = hash_token(token_a)
+    agent_b = Agent(id="agent-b", name="B", platform="windows", version="1", protocol_version=1,
+                    allowed_roots="[]", status="online", approved_at=now())
+    agent_b.token_hash = hash_token(token_b)
+    db_session.add_all([agent_b, AppSetting(key="remote_agents_enabled", value="true")])
+    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
+    child = AgentJobService(db_session).enqueue_extract_files(parent, [{"path":"a.txt","size_bytes":1,"modified_at":1,"content_hash":None}])[0]
+    parent.status, parent.lease_token_hash, parent.lease_expires_at = "running", None, None
+    db_session.commit()
+    lease = AgentJobService(db_session).claim_next(agent_a.id)
+    db_session.commit()
+    assert lease.id == child.id
+    from app.services.remote_files import ExtractUploadRegistry
+    registry = ExtractUploadRegistry(tmp_path)
+    monkeypatch.setattr(agent_protocol, "extract_uploads", registry)
+    response = client.put(f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers={
+        "Authorization": f"Bearer {token_b}", "X-OneSearch-Lease-Token": lease.lease_token,
+    })
+    assert response.status_code in {401, 403, 404}
+    assert not registry._sessions
+    assert list(tmp_path.iterdir()) == []
