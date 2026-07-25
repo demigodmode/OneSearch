@@ -148,6 +148,45 @@ def test_server_parent_reconcile_lock_serializes_late_cancel(tmp_path):
     engine.dispose()
 
 
+def test_server_parent_cancel_first_never_deletes_old_rows(tmp_path):
+    import json
+
+    from onesearch_shared import ScanManifest
+
+    engine, sessions = _database(tmp_path)
+    db = sessions()
+    source = db.get(Source, "source")
+    source.processing_mode = "on_server"
+    parent = AgentJobService(db).enqueue_scan(source, full=True)
+    parent.status, parent.lease_token_hash, parent.lease_expires_at = "running", None, None
+    parent.checkpoint = json.dumps(
+        {
+            "version": 1,
+            "remote_manifest": ScanManifest(
+                job_id=parent.id, source_id=source.id, complete=True
+            ).model_dump(mode="json"),
+        }
+    )
+    old = IndexedFile(source_id="source", path="old.txt", status="success")
+    db.add(old)
+    db.commit()
+    AgentJobService(db).cancel(parent.id)
+    db.commit()
+
+    class Search:
+        async def delete_documents_confirmed(self, _ids):
+            raise AssertionError("cancelled parent must not delete")
+
+    with pytest.raises(JobConflict):
+        asyncio.run(RemoteIngestService(db, Search()).settle_server_parent(parent.id))
+    db.refresh(parent)
+    assert parent.status in {"cancelling", "cancelled"}
+    assert db.get(IndexedFile, old.id) is not None
+    assert parent.status != "completed"
+    db.close()
+    engine.dispose()
+
+
 def test_two_sqlite_sessions_issue_only_one_claim_lease(tmp_path):
     engine, sessions = _database(tmp_path)
     db = sessions()
