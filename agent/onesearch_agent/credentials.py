@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import stat
 import tempfile
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import keyring
 
@@ -80,9 +81,13 @@ class FileCredentialStore:
 
 class KeyringCredentialStore:
     def __init__(self, server_url: str, agent_name: str):
-        host = urlsplit(server_url).netloc
-        self.service = f"onesearch-agent:{host}"
-        self.username = agent_name
+        parsed = urlsplit(server_url)
+        identity = urlunsplit(
+            (parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/"), "", "")
+        )
+        digest = hashlib.sha256(identity.encode()).hexdigest()
+        self.service = "onesearch-agent"
+        self.username = f"{agent_name}:{digest}"
 
     def save(self, token: str):
         if not token.strip():
