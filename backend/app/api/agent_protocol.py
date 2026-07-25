@@ -339,6 +339,17 @@ async def complete_job(
             if job.kind == "extract_file" and job.processing_mode == "on_server":
                 parent_id = json.loads(job.payload)["parent_job_id"]
                 await get_remote_ingest_service(db).settle_server_parent(parent_id)
+            if job.kind == "stream_file" and request.status.value in {"failed", "cancelled"}:
+                from ..services.remote_files import RemoteFileMissing
+
+                stream_error = (
+                    RemoteFileMissing("remote file missing")
+                    if request.reason and request.reason.value == "not_found" and request.detail == "remote_file_missing"
+                    else RemoteFileChanged("remote file changed")
+                    if request.reason and request.reason.value == "invalid_request" and request.detail == "remote_file_changed"
+                    else RemoteStreamTimeout("remote stream failed")
+                )
+                await remote_streams.close(job_id, stream_error)
         db.commit()
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()
@@ -441,6 +452,7 @@ async def receive_file_chunk(
                 if stream_checksum is None:
                     raise RemoteFileChanged("stream checksum required")
                 await queue.finish(sequence, stream_checksum)
+                AgentJobService(db).complete(agent.id, job_id, lease_token, "succeeded")
             else:
                 body = bytearray()
                 async for part in request.stream():
