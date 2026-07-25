@@ -15,6 +15,10 @@ class CredentialError(RuntimeError):
     pass
 
 
+def _is_posix() -> bool:
+    return os.name != "nt"
+
+
 class FileCredentialStore:
     def __init__(self, state_dir: Path):
         self.state_dir = state_dir
@@ -24,7 +28,7 @@ class FileCredentialStore:
         if self.state_dir.is_symlink():
             raise CredentialError("state directory is unsafe")
         self.state_dir.mkdir(parents=True, exist_ok=True)
-        if os.name != "nt":
+        if _is_posix():
             self.state_dir.chmod(0o700)
             mode = stat.S_IMODE(self.state_dir.stat().st_mode)
             if mode & 0o077:
@@ -40,7 +44,7 @@ class FileCredentialStore:
             raise CredentialError("credential already exists")
         fd, name = tempfile.mkstemp(dir=self.state_dir)
         try:
-            if os.name != "nt":
+            if _is_posix():
                 os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w") as handle:
                 handle.write(token)
@@ -53,9 +57,9 @@ class FileCredentialStore:
         self._secure_dir()
         if self.path.is_symlink() or not self.path.is_file():
             raise CredentialError("credential is unavailable")
-        if os.name != "nt" and stat.S_IMODE(self.path.stat().st_mode) & 0o077:
+        if _is_posix() and stat.S_IMODE(self.path.stat().st_mode) & 0o077:
             raise CredentialError("credential permissions are unsafe")
-        if os.name != "nt" and self.path.stat().st_uid != os.getuid():
+        if _is_posix() and self.path.stat().st_uid != os.getuid():
             raise CredentialError("credential owner is unsafe")
         token = self.path.read_text().strip()
         if not token:
