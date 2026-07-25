@@ -113,3 +113,37 @@ def test_on_server_manifest_enqueues_one_extract_job_per_file(db_session, remote
         for job in created
     )
     assert db_session.query(AgentJob).filter_by(kind="extract_file").count() == 2
+
+
+def test_extract_upload_rejects_oversize_before_creating_temp_file(tmp_path):
+    from app.services.remote_files import ExtractUploadRegistry, RemoteFileChanged
+
+    registry = ExtractUploadRegistry(tmp_path, chunk_bytes=4)
+    with pytest.raises(RemoteFileChanged, match="chunk"):
+        registry.append("job", sequence=0, data=b"12345", expected_size=5, maximum_size=5)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_extract_upload_streams_to_private_temp_file_and_validates_checksum(tmp_path):
+    from app.services.remote_files import ExtractUploadRegistry
+
+    registry = ExtractUploadRegistry(tmp_path, chunk_bytes=3)
+    registry.append("job", sequence=0, data=b"abc", expected_size=5, maximum_size=5)
+    registry.append("job", sequence=1, data=b"de", expected_size=5, maximum_size=5)
+    path = registry.finish("job", sequence=2, checksum=hashlib.sha256(b"abcde").hexdigest())
+    assert path.read_bytes() == b"abcde"
+    registry.cleanup("job")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_extract_upload_mismatch_or_expiry_leaves_no_temp_file(tmp_path):
+    from app.services.remote_files import ExtractUploadRegistry, RemoteFileChanged
+
+    registry = ExtractUploadRegistry(tmp_path, chunk_bytes=4)
+    registry.append("job", sequence=0, data=b"abc", expected_size=3, maximum_size=3)
+    with pytest.raises(RemoteFileChanged):
+        registry.finish("job", sequence=1, checksum="0" * 64)
+    assert list(tmp_path.iterdir()) == []
+    registry.append("expired", sequence=0, data=b"x", expected_size=1, maximum_size=1)
+    registry.expire(0)
+    assert list(tmp_path.iterdir()) == []

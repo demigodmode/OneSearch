@@ -20,6 +20,7 @@ from onesearch_shared import (
     DocumentBatch,
     JobCompletion,
     JobProgress,
+    NormalizedRemoteDocument,
     ScanManifest,
 )
 from onesearch_shared import (
@@ -27,6 +28,7 @@ from onesearch_shared import (
 )
 from sqlalchemy.orm import Session, sessionmaker
 
+from ..config import settings as runtime_settings
 from ..db.database import get_db
 from ..models import Agent
 from ..schemas import AgentHeartbeatResponse
@@ -40,7 +42,13 @@ from ..services.agent_auth import (
     require_remote_agents_enabled,
 )
 from ..services.agent_jobs import AgentJobService, JobConflict, JobLeaseError, JobNotFound
-from ..services.remote_files import RemoteFileChanged, remote_streams
+from ..services.extractor_config import choose_extractor
+from ..services.remote_files import (
+    ExtractUploadRegistry,
+    RemoteFileChanged,
+    app_data_temp_directory,
+    remote_streams,
+)
 from ..services.remote_ingest import RemoteIngestService, canonical_remote_path
 from ..services.search import meili_service
 
@@ -53,6 +61,7 @@ CLAIM_TIMEOUT_SECONDS = 25
 CLAIM_POLL_SECONDS = 1
 claim_clock = time.monotonic
 claim_sleep = asyncio.sleep
+extract_uploads = ExtractUploadRegistry(app_data_temp_directory(runtime_settings.database_url))
 
 
 def get_remote_ingest_service(db: Session) -> RemoteIngestService:
@@ -356,18 +365,67 @@ async def receive_file_chunk(
         job = AgentJobService(db).validate_lease(agent.id, job_id, lease_token)
         if job.kind not in {"extract_file", "stream_file"}:
             raise JobConflict("invalid file transfer job")
-        queue = remote_streams.open(job_id)
-        if complete:
-            if stream_checksum is None:
-                raise RemoteFileChanged("stream checksum required")
-            await queue.finish(sequence, stream_checksum)
-        else:
-            body = bytearray()
-            async for part in request.stream():
-                body.extend(part)
-                if len(body) > queue.max_bytes:
+        if job.kind == "extract_file":
+            payload = json.loads(job.payload)
+            if complete:
+                if stream_checksum is None:
+                    raise RemoteFileChanged("stream checksum required")
+                temporary = extract_uploads.finish(
+                    job_id, sequence=sequence, checksum=stream_checksum
+                )
+                try:
+                    extractor = choose_extractor(
+                        str(temporary),
+                        job.source_id,
+                        payload["extraction"]["source_name"],
+                        payload["extraction"],
+                    )
+                    if extractor is None:
+                        raise RemoteFileChanged("unsupported remote file")
+                    extracted = await extractor.extract_with_timeout(str(temporary))
+                    result = NormalizedRemoteDocument(
+                        source_id=job.source_id,
+                        path=payload["path"],
+                        title=extracted.title,
+                        content=extracted.content,
+                        size_bytes=payload["size_bytes"],
+                        modified_at=payload["modified_at"],
+                        metadata={**extracted.metadata, "type": extracted.type},
+                    )
+                    await get_remote_ingest_service(db).accept_server_document(
+                        agent.id, job_id, lease_token, result
+                    )
+                finally:
+                    extract_uploads.cleanup(job_id)
+            else:
+                content_length = request.headers.get("content-length")
+                if content_length is not None and int(content_length) > extract_uploads.chunk_bytes:
                     raise RemoteFileChanged("chunk exceeds limit")
-            await queue.put(sequence, bytes(body), checksum)
+                body = bytearray()
+                async for part in request.stream():
+                    body.extend(part)
+                    if len(body) > extract_uploads.chunk_bytes:
+                        raise RemoteFileChanged("chunk exceeds limit")
+                extract_uploads.append(
+                    job_id,
+                    sequence=sequence,
+                    data=bytes(body),
+                    expected_size=payload["size_bytes"],
+                    maximum_size=payload["maximum_size"],
+                )
+        else:
+            queue = remote_streams.open(job_id)
+            if complete:
+                if stream_checksum is None:
+                    raise RemoteFileChanged("stream checksum required")
+                await queue.finish(sequence, stream_checksum)
+            else:
+                body = bytearray()
+                async for part in request.stream():
+                    body.extend(part)
+                    if len(body) > queue.max_bytes:
+                        raise RemoteFileChanged("chunk exceeds limit")
+                await queue.put(sequence, bytes(body), checksum)
         db.commit()
     except RemoteFileChanged as error:
         db.rollback()

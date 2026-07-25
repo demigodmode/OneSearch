@@ -94,7 +94,10 @@ class RemoteIngestService:
             job is None
             or job.agent_id != agent_id
             or job.source_id is None
-            or job.processing_mode != "on_agent"
+            or not (
+                job.processing_mode == "on_agent"
+                or (job.processing_mode == "on_server" and job.kind == "extract_file")
+            )
         ):
             raise JobConflict("invalid remote job")
         source = self.db.get(Source, job.source_id)
@@ -149,6 +152,36 @@ class RemoteIngestService:
                 None,
             )
         return documents
+
+    async def accept_server_document(self, agent_id: str, job_id: str, lease_token: str, document):
+        """Idempotently ingest the normalized result of one temporary remote original."""
+        jobs = AgentJobService(self.db)
+        job = jobs.lock_active_lease(agent_id, job_id, lease_token)
+        if job.kind != "extract_file" or job.processing_mode != "on_server":
+            raise JobConflict("invalid remote extraction")
+        receipt = hashlib.sha256(
+            canonical_wire_bytes(
+                DocumentBatch(job_id=job_id, batch_id="pending", documents=[document])
+            )
+        ).hexdigest()
+        existing = self.db.scalar(
+            select(AgentBatch).where(
+                AgentBatch.job_id == job_id, AgentBatch.idempotency_key == "remote-result"
+            )
+        )
+        if existing is None:
+            self.db.add(
+                AgentBatch(job_id=job_id, idempotency_key="remote-result", checksum=receipt)
+            )
+            self.db.flush()
+            await self.ingest(
+                agent_id,
+                job_id,
+                DocumentBatch(job_id=job_id, batch_id="remote-result", documents=[document]),
+            )
+        elif existing.checksum != receipt:
+            raise JobConflict("remote extraction receipt conflict")
+        jobs.complete(agent_id, job_id, lease_token, "succeeded")
 
     def accept_manifest(
         self, agent_id: str, job_id: str, lease_token: str, manifest: ScanManifest

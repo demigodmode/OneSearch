@@ -244,3 +244,28 @@ class AgentClient:
             retry=False,
             mutation=True,
         )
+
+    async def upload_file_chunk(
+        self,
+        job_id,
+        lease_token,
+        *,
+        sequence,
+        data=b"",
+        checksum=None,
+        complete=False,
+        stream_checksum=None,
+    ):
+        params = {"sequence": sequence, "complete": str(complete).lower()}
+        if checksum is not None:
+            params["checksum"] = checksum
+        if stream_checksum is not None:
+            params["stream_checksum"] = stream_checksum
+        response = await self.client.put(
+            f"/api/agent/v1/jobs/{job_id}/file-chunks",
+            params=params,
+            content=data,
+            headers={**self._headers(), "X-OneSearch-Lease-Token": lease_token},
+        )
+        response.raise_for_status()
+        return response

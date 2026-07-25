@@ -635,10 +635,76 @@ async def run_browse_job(lease, client, *, roots) -> None:
     await _complete_with_recovery(client, lease, completion)
 
 
+async def run_extract_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) -> None:
+    """Revalidate a pinned remote file then upload it in bounded raw chunks."""
+    payload = getattr(lease, "payload", {})
+    try:
+        if (
+            lease.kind.value != "extract_file"
+            or lease.processing_mode.value != "on_server"
+            or not payload.get("root_id")
+            or not payload.get("path")
+        ):
+            raise ExtractionError("invalid extraction payload")
+        with open_confined_file(payload["root_id"], payload["path"], roots) as handle:
+            before = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_size != payload["size_bytes"]
+                or before.st_mtime_ns != payload["modified_at"]
+            ):
+                raise ExtractionError("file changed since scan")
+            digest, sequence, copied = hashlib.sha256(), 0, 0
+            while chunk := handle.read(chunk_bytes):
+                copied += len(chunk)
+                if copied > payload["maximum_size"]:
+                    raise ExtractionError("file exceeds transfer limit")
+                digest.update(chunk)
+                await client.upload_file_chunk(
+                    lease.id,
+                    lease.lease_token,
+                    sequence=sequence,
+                    data=chunk,
+                    checksum=hashlib.sha256(chunk).hexdigest(),
+                )
+                sequence += 1
+            after = os.fstat(handle.fileno())
+            if (
+                copied != before.st_size
+                or after.st_size != before.st_size
+                or after.st_mtime_ns != before.st_mtime_ns
+            ):
+                raise ExtractionError("file changed during transfer")
+        if payload.get("content_hash") and digest.hexdigest() != payload["content_hash"]:
+            raise ExtractionError("file content changed since scan")
+        await client.upload_file_chunk(
+            lease.id,
+            lease.lease_token,
+            sequence=sequence,
+            complete=True,
+            stream_checksum=digest.hexdigest(),
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        await _complete_with_recovery(
+            client,
+            lease,
+            JobCompletion(
+                job_id=lease.id,
+                status=JobStatus.FAILED,
+                reason=JobFailureReason.EXTRACTION_FAILED,
+                detail=_safe_failure(error),
+            ),
+        )
+
+
 async def dispatch_job(lease, client, *, roots) -> None:
     if getattr(getattr(lease, "kind", None), "value", None) == "scan":
         await run_scan_job(lease, client, roots=roots)
     elif getattr(getattr(lease, "kind", None), "value", None) == "browse":
         await run_browse_job(lease, client, roots=roots)
+    elif getattr(getattr(lease, "kind", None), "value", None) == "extract_file":
+        await run_extract_file_job(lease, client, roots=roots)
     else:
         raise ValueError("unsupported job kind")

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import tempfile
+import time
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -90,6 +93,87 @@ class RemoteStreamRegistry:
 
 
 remote_streams = RemoteStreamRegistry()
+
+
+@dataclass
+class _ExtractUpload:
+    handle: object
+    path: Path
+    expected_size: int
+    maximum_size: int
+    next_sequence: int = 0
+    copied: int = 0
+    touched_at: float = 0
+    digest: object = None
+
+    def __post_init__(self):
+        self.touched_at = time.monotonic()
+        self.digest = hashlib.sha256()
+
+
+class ExtractUploadRegistry:
+    """Private disk-backed sessions for extract jobs; originals never outlive a job."""
+
+    def __init__(self, directory: Path, *, chunk_bytes: int = 512 * 1024):
+        self.directory, self.chunk_bytes, self._sessions = Path(directory), chunk_bytes, {}
+
+    def append(
+        self, job_id: str, *, sequence: int, data: bytes, expected_size: int, maximum_size: int
+    ) -> None:
+        if not data or len(data) > self.chunk_bytes:
+            raise RemoteFileChanged("chunk exceeds limit")
+        session = self._sessions.get(job_id)
+        if session is None:
+            if expected_size < 0 or expected_size > maximum_size:
+                raise RemoteFileChanged("declared size exceeds limit")
+            self.directory.mkdir(parents=True, exist_ok=True)
+            handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - session owns close lifecycle
+                prefix="onesearch-remote-", dir=self.directory, delete=False
+            )
+            session = _ExtractUpload(handle, Path(handle.name), expected_size, maximum_size)
+            self._sessions[job_id] = session
+        if sequence != session.next_sequence or session.copied + len(data) > session.maximum_size:
+            self.cleanup(job_id)
+            raise RemoteFileChanged("invalid chunk sequence or size")
+        session.handle.write(data)
+        session.handle.flush()
+        session.digest.update(data)
+        session.copied += len(data)
+        session.next_sequence += 1
+        session.touched_at = time.monotonic()
+
+    def finish(self, job_id: str, *, sequence: int, checksum: str) -> Path:
+        session = self._sessions.get(job_id)
+        if session is None or sequence != session.next_sequence:
+            self.cleanup(job_id)
+            raise RemoteFileChanged("invalid chunk sequence")
+        session.handle.close()
+        if session.copied != session.expected_size or session.digest.hexdigest() != checksum:
+            self.cleanup(job_id)
+            raise RemoteFileChanged("stream checksum or size changed")
+        return session.path
+
+    def cleanup(self, job_id: str) -> None:
+        session = self._sessions.pop(job_id, None)
+        if session is not None:
+            try:
+                session.handle.close()
+            finally:
+                session.path.unlink(missing_ok=True)
+
+    def expire(self, maximum_age: float) -> None:
+        cutoff = time.monotonic() - maximum_age
+        for job_id, session in list(self._sessions.items()):
+            if session.touched_at <= cutoff:
+                self.cleanup(job_id)
+
+
+def app_data_temp_directory(database_url: str) -> Path:
+    """Keep transient originals next to the configured application database."""
+    prefix = "sqlite:///"
+    if database_url.startswith(prefix):
+        return Path(database_url.removeprefix(prefix)).parent / "tmp"
+    return Path("/app/data/tmp")
 
 
 async def copy_bounded(
