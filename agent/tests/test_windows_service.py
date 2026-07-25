@@ -1,10 +1,10 @@
 # ruff: noqa: N802
 import importlib
+import os
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-import os
 
 
 def test_windows_service_module_import_is_lazy_off_windows():
