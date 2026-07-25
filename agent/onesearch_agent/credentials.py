@@ -98,8 +98,6 @@ class KeyringCredentialStore:
         try:
             token = keyring.get_password(self.service, self.username)
         except Exception as error:
-            if optional:
-                return None
             raise CredentialError("system credential store is unavailable") from error
         if token is None and optional:
             return None
