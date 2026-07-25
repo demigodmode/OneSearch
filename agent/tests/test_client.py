@@ -1,6 +1,13 @@
 import httpx
 import pytest
-from onesearch_agent.client import AgentClient, AgentError, AgentRevoked, retry_delay
+from onesearch_agent.client import (
+    AgentClient,
+    AgentError,
+    AgentRevoked,
+    JobConflict,
+    RemoteAgentsDisabled,
+    retry_delay,
+)
 
 
 @pytest.mark.asyncio
@@ -131,3 +138,37 @@ async def test_status_errors_do_not_include_token():
         with pytest.raises(AgentError) as error:
             await client.claim()
     assert "top-secret" not in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_client_timeout_and_injected_lifecycle():
+    external = httpx.AsyncClient(base_url="http://server.test")
+    async with AgentClient("http://ignored.test", client=external):
+        assert not external.is_closed
+    assert not external.is_closed
+    await external.aclose()
+    async with AgentClient(
+        "http://server.test", transport=httpx.MockTransport(lambda request: httpx.Response(204))
+    ) as client:
+        assert (
+            client.client.timeout.read >= 30
+            and client.client.timeout.connect == 5
+            and client.client.timeout.write == 15
+            and client.client.timeout.pool == 5
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("detail", "error"),
+    [("remote_agents_disabled", RemoteAgentsDisabled), ("job state conflict", JobConflict)],
+)
+async def test_409_detail_mapping(detail, error):
+    async def handler(request):
+        return httpx.Response(409, json={"detail": detail})
+
+    async with AgentClient(
+        "http://server.test", "token", transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(error):
+            await client.claim()

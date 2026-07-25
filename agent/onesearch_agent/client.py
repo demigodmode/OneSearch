@@ -38,16 +38,32 @@ class AgentDisabled(AgentError):  # noqa: N818
     pass
 
 
+class RemoteAgentsDisabled(AgentError):  # noqa: N818
+    pass
+
+
+class JobConflict(AgentError):  # noqa: N818
+    pass
+
+
 def retry_delay(attempt: int, *, random=_random.random) -> float:
     return min(60, (2**attempt) + random())
 
 
 class AgentClient:
     def __init__(
-        self, server_url, token=None, *, transport=None, sleep=asyncio.sleep, random=_random.random
+        self,
+        server_url,
+        token=None,
+        *,
+        transport=None,
+        client=None,
+        sleep=asyncio.sleep,
+        random=_random.random,
     ):
         self.token, self.sleep, self.random = token, sleep, random
-        self.client = httpx.AsyncClient(
+        self._owned = client is None
+        self.client = client or httpx.AsyncClient(
             base_url=server_url,
             transport=transport,
             timeout=httpx.Timeout(35, connect=5, read=35, write=15, pool=5),
@@ -57,7 +73,8 @@ class AgentClient:
         return self
 
     async def __aexit__(self, *args):
-        await self.client.aclose()
+        if self._owned:
+            await self.client.aclose()
 
     def _headers(self, token=True):
         result = {
@@ -86,6 +103,15 @@ class AgentClient:
             if response.status_code == 403:
                 raise AgentPending("agent is pending or disabled")
             if response.status_code == 409:
+                detail = ""
+                try:
+                    detail = str(response.json().get("detail", ""))
+                except ValueError:
+                    pass
+                if detail == "remote_agents_disabled":
+                    raise RemoteAgentsDisabled("remote agents are disabled")
+                if "conflict" in detail.lower():
+                    raise JobConflict("job state conflict")
                 raise AgentIncompatible("agent protocol is incompatible")
             if retry and (response.status_code == 429 or response.status_code >= 500):
                 if attempt == 3:
