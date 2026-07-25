@@ -144,11 +144,14 @@ class BoundedByteQueue:
         self._next_sequence += 1
         await self._items.put(chunk)
 
-    async def finish(self, sequence: int, checksum: str) -> None:
+    def validate_finish(self, sequence: int, checksum: str) -> None:
         if self._finished or sequence != self._next_sequence:
             raise RemoteFileChanged("invalid chunk sequence")
         if self._digest.hexdigest() != checksum:
             raise RemoteFileChanged("stream checksum mismatch")
+
+    async def finish(self, sequence: int, checksum: str) -> None:
+        self.validate_finish(sequence, checksum)
         self._finished = True
         await self._items.put(None)
 

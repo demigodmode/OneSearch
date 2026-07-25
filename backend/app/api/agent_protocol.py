@@ -380,7 +380,8 @@ async def receive_file_chunk(
     if lease_token is None:
         raise HTTPException(status_code=401, detail="Invalid or expired job lease")
     try:
-        job = AgentJobService(db).validate_lease(agent.id, job_id, lease_token)
+        jobs = AgentJobService(db)
+        job = jobs.validate_lease(agent.id, job_id, lease_token)
         if job.kind not in {"extract_file", "stream_file"}:
             raise JobConflict("invalid file transfer job")
         if job.kind == "extract_file":
@@ -440,7 +441,11 @@ async def receive_file_chunk(
             if complete:
                 if stream_checksum is None:
                     raise RemoteFileChanged("stream checksum required")
+                queue.validate_finish(sequence, stream_checksum)
+                jobs.complete(agent.id, job_id, lease_token, "succeeded")
+                db.commit()
                 await queue.finish(sequence, stream_checksum)
+                return {"status": "ok"}
             else:
                 body = bytearray()
                 async for part in request.stream():
