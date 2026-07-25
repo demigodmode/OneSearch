@@ -115,6 +115,12 @@ class FileCredentialStore:
             raise CredentialError("credential is blank")
         return token
 
+    def delete(self) -> None:
+        if self.path.is_symlink():
+            raise CredentialError("credential is unsafe")
+        if self.path.exists():
+            self.path.unlink()
+
 
 class KeyringCredentialStore:
     def __init__(self, server_url: str, agent_name: str):
@@ -146,6 +152,12 @@ class KeyringCredentialStore:
         if not token or not token.strip():
             raise CredentialError("credential is unavailable")
         return token
+
+    def delete(self) -> None:
+        try:
+            keyring.delete_password(self.service, self.username)
+        except Exception as error:
+            raise CredentialError("system credential store is unavailable") from error
 
 
 def credential_store(config, *, system: str | None = None, docker: bool = False):

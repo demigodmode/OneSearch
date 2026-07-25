@@ -58,9 +58,16 @@ def enroll(ctx, server):
     try:
         response = asyncio.run(go())
         store.save(response.agent_token)
-        FileCredentialStore(config.state_dir).save_backend_marker(
-            "keyring" if isinstance(store, KeyringCredentialStore) else "file"
-        )
+        try:
+            FileCredentialStore(config.state_dir).save_backend_marker(
+                "keyring" if isinstance(store, KeyringCredentialStore) else "file"
+            )
+        except CredentialError as error:
+            try:
+                store.delete()
+            except CredentialError:
+                raise click.ClickException("enrollment needs credential recovery") from error
+            raise click.ClickException("enrollment could not persist credential backend") from error
     except Exception as error:
         raise click.ClickException("enrollment failed") from error
     click.echo("Enrollment submitted; admin approval is pending.")
