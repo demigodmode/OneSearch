@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
+import multiprocessing
 import os
 import stat
 import tempfile
@@ -31,6 +33,7 @@ from onesearch_shared import (
 )
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, ValidationError
 
+from app.schemas import Document
 from app.services.extractor_config import choose_extractor
 
 from .client import AgentAmbiguousResultError, JobConflict, JobLeaseError
@@ -157,6 +160,87 @@ def batch_documents(
 
 class ExtractionError(RuntimeError):
     pass
+
+
+def _send_extraction_message(connection, payload) -> None:
+    data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    if len(data) > REMOTE_MAX_BATCH_BYTES:
+        data = b'{"error":"extraction result exceeds IPC limit"}'
+    connection.send_bytes(data)
+
+
+def _extract_snapshot_process(snapshot, source_id, extraction, connection) -> None:
+    """Spawn-safe extractor entrypoint; it owns every blocking extractor thread."""
+    try:
+        extractor = choose_extractor(snapshot, source_id, extraction["source_name"], extraction)
+        if extractor is None:
+            _send_extraction_message(connection, {"document": None})
+            return
+        document = asyncio.run(extractor.extract_with_timeout(snapshot))
+        _send_extraction_message(connection, {"document": document.model_dump(mode="json")})
+    except BaseException as error:
+        _send_extraction_message(
+            connection,
+            {
+                "error_type": type(error).__name__,
+                "error": str(error).replace(snapshot, "<snapshot>")[:500],
+            },
+        )
+    finally:
+        connection.close()
+
+
+async def _extract_snapshot_in_process(
+    snapshot,
+    source_id,
+    extraction,
+    timeout_seconds,
+    *,
+    process_target=_extract_snapshot_process,
+    on_process_start=None,
+):
+    """Run extraction in a killable child process and return a bounded document payload."""
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    process = context.Process(
+        target=process_target, args=(snapshot, source_id, extraction, sender), daemon=True
+    )
+    try:
+        process.start()
+        sender.close()
+        if on_process_start is not None:
+            on_process_start(process.pid)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        while True:
+            if receiver.poll():
+                try:
+                    message = json.loads(receiver.recv_bytes(REMOTE_MAX_BATCH_BYTES).decode())
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                    raise ExtractionError("invalid extractor process result") from error
+                if "error" in message:
+                    if message.get("error_type") == "ValueError":
+                        raise ValueError(message["error"])
+                    raise ExtractionError(message["error"])
+                return Document.model_validate(message["document"]) if message["document"] else None
+            if not process.is_alive():
+                raise ExtractionError("extractor process exited without a result")
+            if loop.time() >= deadline:
+                raise ExtractionError("extraction timed out")
+            await asyncio.sleep(min(0.05, max(0, deadline - loop.time())))
+    finally:
+        with suppress(OSError):
+            sender.close()
+        if process.pid is not None:
+            if process.is_alive():
+                process.terminate()
+            process.join(timeout=5)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=5)
+        receiver.close()
+        if process.pid is not None and not process.is_alive():
+            process.close()
 
 
 class ScanCancelled(RuntimeError):  # noqa: N818
@@ -310,7 +394,16 @@ async def _submit_or_cancel(keeper, operation, *, attempts, sleep):
 
 
 async def extract_confined(
-    root_id, path, roots, *, expected: ScanFile, source_id, extraction, max_snapshot_bytes
+    root_id,
+    path,
+    roots,
+    *,
+    expected: ScanFile,
+    source_id,
+    extraction,
+    max_snapshot_bytes,
+    _process_target=_extract_snapshot_process,
+    _on_process_start=None,
 ) -> NormalizedRemoteDocument | None:
     """Snapshot a pinned read handle before passing a path to legacy extractors."""
     if max_snapshot_bytes <= 0 or expected.size_bytes > max_snapshot_bytes:
@@ -341,7 +434,16 @@ async def extract_confined(
         )
         if extractor is None:
             return None
-        document = await extractor.extract_with_timeout(str(snapshot))
+        document = await _extract_snapshot_in_process(
+            str(snapshot),
+            source_id,
+            extraction,
+            extractor._extraction_timeout,
+            process_target=_process_target,
+            on_process_start=_on_process_start,
+        )
+        if document is None:
+            return None
     return NormalizedRemoteDocument(
         source_id=source_id,
         path=path,

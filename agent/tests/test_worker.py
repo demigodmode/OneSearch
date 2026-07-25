@@ -1,4 +1,6 @@
 import asyncio
+import multiprocessing
+import time
 from pathlib import Path
 
 import onesearch_agent.worker as worker_module
@@ -11,6 +13,12 @@ from onesearch_shared import (
     ScanFile,
     remote_path_hash,
 )
+
+
+def blocking_extractor_process(_snapshot, _source_id, _extraction, _connection):
+    """Picklable test extractor entrypoint that never returns on its own."""
+    while True:
+        time.sleep(0.1)
 
 
 def extraction(source_name="source", policy="metadata_only"):
@@ -136,7 +144,7 @@ def test_batches_are_bounded_and_deterministic():
 
 
 @pytest.mark.asyncio
-async def test_fake_extractor_receives_private_original_basename(tmp_path, monkeypatch):
+async def test_process_extractor_preserves_logical_original_basename(tmp_path):
     file = tmp_path / "name.with.dot.txt"
     file.write_text("x")
     info = file.stat()
@@ -146,29 +154,7 @@ async def test_fake_extractor_receives_private_original_basename(tmp_path, monke
         size_bytes=1,
         modified_at=info.st_mtime_ns,
     )
-    seen = []
-
-    class Fake:
-        async def extract_with_timeout(self, value):
-            seen.append(Path(value))
-            from app.schemas import Document
-
-            return Document(
-                id="x",
-                source_id="s",
-                source_name="source",
-                path=value,
-                basename=Path(value).name,
-                extension="txt",
-                type="text",
-                size_bytes=1,
-                modified_at=1,
-                indexed_at=1,
-                content="x",
-            )
-
-    monkeypatch.setattr(worker_module, "choose_extractor", lambda *args: Fake())
-    await extract_confined(
+    document = await extract_confined(
         "r",
         file.name,
         [AllowedRoot(root_id="r", path=str(tmp_path))],
@@ -177,13 +163,12 @@ async def test_fake_extractor_receives_private_original_basename(tmp_path, monke
         extraction=extraction(),
         max_snapshot_bytes=10,
     )
-    assert seen[0].name == file.name and not seen[0].parent.exists()
+    assert document.path == file.name and document.title == "x"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("error", [RuntimeError("boom"), asyncio.CancelledError()])
-async def test_snapshot_is_cleaned_for_extractor_error_and_cancellation(
-    tmp_path, monkeypatch, error
+async def test_blocking_process_extractor_times_out_cleans_snapshot_and_allows_next_file(
+    tmp_path, monkeypatch
 ):
     file = tmp_path / "x.txt"
     file.write_text("x")
@@ -194,25 +179,87 @@ async def test_snapshot_is_cleaned_for_extractor_error_and_cancellation(
         size_bytes=1,
         modified_at=info.st_mtime_ns,
     )
-    seen = []
+    created, process_ids = [], []
+    temporary_directory = worker_module.tempfile.TemporaryDirectory
 
-    class Fake:
-        async def extract_with_timeout(self, value):
-            seen.append(Path(value))
-            raise error
+    class TrackedTemporaryDirectory:
+        def __init__(self, *args, **kwargs):
+            self.inner = temporary_directory(*args, dir=tmp_path, **kwargs)
 
-    monkeypatch.setattr(worker_module, "choose_extractor", lambda *args: Fake())
-    with pytest.raises(type(error)):
+        def __enter__(self):
+            directory = self.inner.__enter__()
+            created.append(Path(directory))
+            return directory
+
+        def __exit__(self, *args):
+            return self.inner.__exit__(*args)
+
+    monkeypatch.setattr(worker_module.tempfile, "TemporaryDirectory", TrackedTemporaryDirectory)
+    config = extraction()
+    config["text_extraction_timeout"] = 1
+    with pytest.raises(ExtractionError, match="timed out"):
         await extract_confined(
             "r",
             file.name,
             [AllowedRoot(root_id="r", path=str(tmp_path))],
             expected=expected,
             source_id="s",
+            extraction=config,
+            max_snapshot_bytes=10,
+            _process_target=blocking_extractor_process,
+            _on_process_start=process_ids.append,
+        )
+    assert created and not created[0].exists()
+    assert process_ids and all(
+        child.pid != process_ids[0] for child in multiprocessing.active_children()
+    )
+    succeeding_config = extraction()
+    succeeding_config["text_extraction_timeout"] = 5
+    document = await extract_confined(
+        "r",
+        file.name,
+        [AllowedRoot(root_id="r", path=str(tmp_path))],
+        expected=expected,
+        source_id="s",
+        extraction=succeeding_config,
+        max_snapshot_bytes=10,
+    )
+    assert document is not None and document.path == file.name
+
+
+@pytest.mark.asyncio
+async def test_cancelling_blocking_process_extraction_leaves_no_child(tmp_path):
+    file = tmp_path / "cancel.txt"
+    file.write_text("x")
+    info = file.stat()
+    process_ids = []
+    task = asyncio.create_task(
+        extract_confined(
+            "r",
+            file.name,
+            [AllowedRoot(root_id="r", path=str(tmp_path))],
+            expected=ScanFile(
+                path=file.name,
+                path_hash=remote_path_hash(file.name),
+                size_bytes=1,
+                modified_at=info.st_mtime_ns,
+            ),
+            source_id="s",
             extraction=extraction(),
             max_snapshot_bytes=10,
+            _process_target=blocking_extractor_process,
+            _on_process_start=process_ids.append,
         )
-    assert not seen[0].parent.exists()
+    )
+    for _ in range(100):
+        if process_ids:
+            break
+        await asyncio.sleep(0.01)
+    assert process_ids
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert all(child.pid != process_ids[0] for child in multiprocessing.active_children())
 
 
 @pytest.mark.asyncio
@@ -462,27 +509,21 @@ async def test_snapshot_directory_is_private_on_posix(tmp_path, monkeypatch):
     file.write_text("x")
     info = file.stat()
     seen = []
+    temporary_directory = worker_module.tempfile.TemporaryDirectory
 
-    class Fake:
-        async def extract_with_timeout(self, value):
-            seen.append(Path(value).parent.stat().st_mode & 0o777)
-            from app.schemas import Document
+    class TrackedTemporaryDirectory:
+        def __init__(self, *args, **kwargs):
+            self.inner = temporary_directory(*args, **kwargs)
 
-            return Document(
-                id="x",
-                source_id="s",
-                source_name="source",
-                path=value,
-                basename="x.txt",
-                extension="txt",
-                type="text",
-                size_bytes=1,
-                modified_at=1,
-                indexed_at=1,
-                content="x",
-            )
+        def __enter__(self):
+            directory = self.inner.__enter__()
+            seen.append(Path(directory).stat().st_mode & 0o777)
+            return directory
 
-    monkeypatch.setattr(worker_module, "choose_extractor", lambda *args: Fake())
+        def __exit__(self, *args):
+            return self.inner.__exit__(*args)
+
+    monkeypatch.setattr(worker_module.tempfile, "TemporaryDirectory", TrackedTemporaryDirectory)
     await extract_confined(
         "r",
         "x.txt",
