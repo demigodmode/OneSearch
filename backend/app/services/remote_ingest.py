@@ -159,6 +159,18 @@ class RemoteIngestService:
         job = jobs.lock_active_lease(agent_id, job_id, lease_token)
         if job.kind != "extract_file" or job.processing_mode != "on_server":
             raise JobConflict("invalid remote extraction")
+        payload = json.loads(job.payload)
+        parent = self.db.get(AgentJob, payload.get("parent_job_id"))
+        if (
+            parent is None
+            or parent.kind != "scan"
+            or parent.processing_mode != "on_server"
+            or parent.agent_id != agent_id
+            or parent.source_id != job.source_id
+            or document.source_id != job.source_id
+            or document.path != payload.get("path")
+        ):
+            raise JobConflict("invalid remote extraction parent")
         receipt = hashlib.sha256(
             canonical_wire_bytes(
                 DocumentBatch(job_id=job_id, batch_id="pending", documents=[document])
