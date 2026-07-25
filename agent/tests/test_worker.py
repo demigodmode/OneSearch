@@ -348,7 +348,7 @@ async def test_run_scan_job_unchanged_submits_manifest_before_success(tmp_path):
         source_id="s",
         lease_token="t",
         payload={
-            "full": True,
+            "full": False,
             "root_id": "r",
             "root_path": "/remote/root",
             "include_patterns": None,

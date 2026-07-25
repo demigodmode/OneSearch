@@ -359,7 +359,7 @@ async def run_scan_job(
         roots,
         include_patterns=payload.include_patterns,
         exclude_patterns=payload.exclude_patterns,
-        known=payload.known_files,
+        known={} if payload.full else payload.known_files,
         max_files=limits.max_scan_files,
         max_entries_per_directory=limits.max_entries_per_directory,
     )

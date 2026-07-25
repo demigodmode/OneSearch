@@ -98,6 +98,16 @@ def test_enqueue_snapshots_persisted_extraction_settings(db_session, remote):
     assert json.loads(job.payload)["extraction"]["unsupported_file_policy"] == "skip"
 
 
+def test_enqueue_includes_index_status_in_incremental_known_files(db_session, remote):
+    from app.models import IndexedFile
+
+    _agent, source = remote
+    db_session.add(IndexedFile(source_id=source.id, path="retry.txt", status="failed"))
+    db_session.commit()
+    payload = json.loads(AgentJobService(db_session).enqueue_scan(source, full=False).payload)
+    assert payload["known_files"]["retry.txt"]["status"] == "failed"
+
+
 def test_claim_issues_hashed_lease_and_rejects_wrong_agent(db_session, remote):
     agent, source = remote
     service = AgentJobService(db_session, lease_seconds=10)

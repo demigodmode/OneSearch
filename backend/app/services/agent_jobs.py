@@ -62,6 +62,7 @@ class AgentJobService:
                 if item.modified_at is not None
                 else None,
                 "hash": item.hash,
+                "status": item.status,
             }
             for item in source.indexed_files
         }

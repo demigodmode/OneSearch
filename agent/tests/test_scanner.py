@@ -40,6 +40,25 @@ def test_scanner_marks_file_bound_incomplete(tmp_path: Path):
     assert manifest.failures[0].error == "scan file limit exceeded"
 
 
+def test_scanner_retries_prior_failed_file_with_matching_metadata(tmp_path: Path):
+    file = tmp_path / "retry.txt"
+    file.write_text("x")
+    info = file.stat()
+    scanner = RemoteScanner(
+        "root",
+        [AllowedRoot(root_id="root", path=str(tmp_path))],
+        known={
+            "retry.txt": {
+                "size_bytes": info.st_size,
+                "modified_at": info.st_mtime_ns,
+                "status": "failed",
+            }
+        },
+    )
+    scanner.scan(job_id="j", source_id="s")
+    assert scanner.changed_paths == ["retry.txt"]
+
+
 def test_scanner_marks_unknown_root_incomplete(tmp_path: Path):
     manifest = RemoteScanner("missing", [AllowedRoot(root_id="root", path=str(tmp_path))]).scan(
         job_id="job", source_id="source"

@@ -110,6 +110,7 @@ class RemoteScanner:
             old = self.known.get(path)
             if (
                 old is None
+                or old.get("status", "success") != "success"
                 or old.get("size_bytes") != item.size_bytes
                 or old.get("modified_at") != item.modified_at
             ):
