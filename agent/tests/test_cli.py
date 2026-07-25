@@ -79,4 +79,4 @@ def test_service_cli_delegates_and_propagates_safe_error(tmp_path: Path, monkeyp
         "onesearch_agent.cli.install", lambda path, executable: calls.append((path, executable))
     )
     result = CliRunner().invoke(main, ["--config", str(config), "service", "install"])
-    assert result.exit_code == 0 and calls[0][1] == "onesearch-agent"
+    assert result.exit_code == 0 and calls[0][1].endswith("python.exe")
