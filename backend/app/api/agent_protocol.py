@@ -275,6 +275,8 @@ async def submit_manifest(
         if job.processing_mode == "on_server" and job.kind == "scan":
             if request.job_id != job_id or request.source_id != job.source_id:
                 raise JobConflict("invalid remote manifest")
+            jobs = AgentJobService(db)
+            jobs.validate_manifest_retry(job, request.model_dump(mode="json"))
             files = []
             for item in request.files:
                 path = canonical_remote_path(item.path)
@@ -286,7 +288,7 @@ async def submit_manifest(
                 sort_keys=True,
                 separators=(",", ":"),
             )
-            AgentJobService(db).enqueue_extract_files(job, files)
+            jobs.enqueue_extract_files(job, files)
         else:
             get_remote_ingest_service(db).accept_manifest(agent.id, job_id, lease_token, request)
         db.commit()

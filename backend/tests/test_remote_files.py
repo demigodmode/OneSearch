@@ -227,3 +227,17 @@ async def test_server_parent_failed_child_never_deletes_indexed_file(db_session,
         async def delete_documents_confirmed(self, ids): raise AssertionError("must not delete")
     assert await RemoteIngestService(db_session, Search()).settle_server_parent(parent.id) == "failed"
     assert old in db_session and parent.status == "failed"
+
+
+def test_extract_fanout_retry_coalesces_and_changed_manifest_conflicts(db_session, remote):
+    from app.services.agent_jobs import AgentJobService, JobConflict
+
+    _agent, source = remote
+    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
+    files = [{"path":"a.txt","size_bytes":1,"modified_at":1,"content_hash":None}]
+    assert len(AgentJobService(db_session).enqueue_extract_files(parent, files)) == 1
+    assert len(AgentJobService(db_session).enqueue_extract_files(parent, files)) == 1
+    assert db_session.query(__import__("app.models", fromlist=["AgentJob"]).AgentJob).filter_by(kind="extract_file").count() == 1
+    parent.checkpoint = '{"version":1,"remote_manifest":{"files":[{"path":"a.txt"}]}}'
+    with pytest.raises(JobConflict):
+        AgentJobService(db_session).validate_manifest_retry(parent, {"files": [{"path": "b.txt"}]})

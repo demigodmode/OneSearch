@@ -233,6 +233,15 @@ class AgentJobService:
         self.db.flush()
         return jobs
 
+    def validate_manifest_retry(self, scan_job: AgentJob, manifest: dict) -> None:
+        """A parent manifest is immutable once fan-out has started."""
+        checkpoint = json.loads(scan_job.checkpoint or "{}")
+        existing = checkpoint.get("remote_manifest") if checkpoint.get("version") == 1 else None
+        if existing is not None and json.dumps(existing, sort_keys=True, separators=(",", ":")) != json.dumps(
+            manifest, sort_keys=True, separators=(",", ":")
+        ):
+            raise JobConflict("remote manifest conflict")
+
     def enqueue_stream_file(
         self, source: Source, *, path: str, size_bytes: int, modified_at: int
     ) -> AgentJob:
