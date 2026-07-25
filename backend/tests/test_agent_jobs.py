@@ -98,6 +98,16 @@ def test_enqueue_snapshots_persisted_extraction_settings(db_session, remote):
     assert json.loads(job.payload)["extraction"]["unsupported_file_policy"] == "skip"
 
 
+def test_status_for_agent_limits_visibility_to_owner(db_session, remote):
+    agent, source = remote
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    assert AgentJobService(db_session).status_for_agent(job.id, agent.id) is job
+    with pytest.raises(JobNotFound):
+        AgentJobService(db_session).status_for_agent(job.id, "other")
+    with pytest.raises(JobNotFound):
+        AgentJobService(db_session).status_for_agent("missing", agent.id)
+
+
 def test_enqueue_includes_index_status_in_incremental_known_files(db_session, remote):
     from app.models import IndexedFile
 
