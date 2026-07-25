@@ -99,7 +99,9 @@ def test_parameters_dacl_is_protected_and_limited_to_system_and_admins(monkeypat
         ),
     )
     monkeypatch.setitem(__import__("sys").modules, "win32security", security)
-    monkeypatch.setitem(__import__("sys").modules, "ntsecuritycon", SimpleNamespace(KEY_ALL_ACCESS=99))
+    monkeypatch.setitem(
+        __import__("sys").modules, "ntsecuritycon", SimpleNamespace(KEY_ALL_ACCESS=99)
+    )
     module._protect_parameters_key("key")
     assert captured["flags"] == 24
     assert captured["aces"] == [(2, 99, "SYSTEM"), (2, 99, "ADMINS")]
@@ -250,7 +252,9 @@ def test_install_start_failure_removes_service_then_restores_snapshot(monkeypatc
     monkeypatch.setattr(module, "persist_config", lambda value: calls.append("config"))
     monkeypatch.setattr(module, "persist_machine_credential", lambda value: calls.append("token"))
     monkeypatch.setattr(module, "_snapshot_parameters", lambda: snapshot)
-    monkeypatch.setattr(module, "_restore_parameters", lambda value: calls.append(("restore", value)))
+    monkeypatch.setattr(
+        module, "_restore_parameters", lambda value: calls.append(("restore", value))
+    )
     with pytest.raises(RuntimeError):
         module.install_service("C:/agent.toml", "secret")
     assert calls == ["config", "token", "install", "start", "remove", ("restore", snapshot)]
@@ -278,6 +282,49 @@ def test_install_start_rollback_failure_retains_staged_values(monkeypatch):
         module.install_service("C:/agent.toml", "secret")
     assert calls == ["install", "start", "remove"]
     restore.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "state,start,removed", [(4, 1056, False), (1, 0, False), (4, 1, False), (None, 1, True)]
+)
+def test_install_state_matrix_preserves_existing_service(monkeypatch, state, start, removed):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    calls = []
+
+    def command(name):
+        calls.append(name)
+        return start if name == "start" else 0
+
+    monkeypatch.setattr(
+        module,
+        "win32serviceutil",
+        SimpleNamespace(HandleCommandLine=lambda *a, **k: command(k["argv"][-1])),
+    )
+    monkeypatch.setattr(module, "_service_state", lambda: state)
+    monkeypatch.setattr(module, "_snapshot_parameters", lambda: {"old": 1})
+    monkeypatch.setattr(module, "persist_config", lambda value: calls.append("config"))
+    monkeypatch.setattr(module, "persist_machine_credential", lambda value: calls.append("token"))
+    monkeypatch.setattr(module, "_restore_parameters", lambda value: calls.append("restore"))
+    if start in (0, 1056):
+        module.install_service("config", "secret")
+    else:
+        with pytest.raises(RuntimeError):
+            module.install_service("config", "secret")
+    assert ("remove" in calls) is removed
+    assert ("restore" in calls) is (start not in (0, 1056))
+
+
+def test_install_query_error_mutates_nothing(monkeypatch):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    calls = []
+    monkeypatch.setattr(module, "win32serviceutil", SimpleNamespace())
+    monkeypatch.setattr(
+        module, "_service_state", lambda: (_ for _ in ()).throw(RuntimeError("query"))
+    )
+    monkeypatch.setattr(module, "persist_config", lambda value: calls.append("config"))
+    with pytest.raises(RuntimeError):
+        module.install_service("config", "secret")
+    assert calls == []
 
 
 @pytest.mark.parametrize("stop_result", [None, 0, 1062])
@@ -317,8 +364,16 @@ def test_remove_failure_restores_exact_snapshot(monkeypatch, failure):
         SimpleNamespace(HandleCommandLine=lambda *args, **kwargs: command(kwargs["argv"][-1])),
     )
     monkeypatch.setattr(module, "_snapshot_parameters", lambda: snapshot)
-    monkeypatch.setattr(module, "_delete_value", lambda name: (_ for _ in ()).throw(OSError()) if failure == "delete" else calls.append(("delete", name)))
-    monkeypatch.setattr(module, "_restore_parameters", lambda value: calls.append(("restore", value)))
+    monkeypatch.setattr(
+        module,
+        "_delete_value",
+        lambda name: (_ for _ in ()).throw(OSError())
+        if failure == "delete"
+        else calls.append(("delete", name)),
+    )
+    monkeypatch.setattr(
+        module, "_restore_parameters", lambda value: calls.append(("restore", value))
+    )
     with pytest.raises(RuntimeError):
         module.remove_service()
     assert calls[-1] == ("restore", snapshot)
