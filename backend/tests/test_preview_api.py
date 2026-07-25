@@ -223,6 +223,16 @@ def remote_queue_feeder(monkeypatch):
     return install
 
 
+@pytest.fixture
+def clean_remote_streams():
+    from app.services.remote_files import remote_streams
+
+    existing_jobs = set(remote_streams._streams)
+    yield
+    for job_id in set(remote_streams._streams) - existing_jobs:
+        asyncio.run(remote_streams.close(job_id))
+
+
 @pytest.mark.asyncio
 async def test_preview_requires_authentication(unauthenticated_client):
     response = unauthenticated_client.get("/api/documents/anything/preview")
@@ -482,7 +492,7 @@ def test_remote_download_streams_chunks_and_finishes_durable_job(
     assert response.status_code == 200 and response.content == payload
     assert response.headers["content-disposition"].startswith("attachment;")
     job = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").one()
-    assert job.status == "completed" and job.active_key is None
+    assert job.status == "pending"
     from app.services.remote_files import remote_streams
 
     assert remote_streams.get(job.id) is None and list(tmp_path.iterdir()) == []
@@ -522,27 +532,34 @@ def test_remote_download_first_terminal_error_is_structured(
     assert job.status in {"failed", "cancelled"} and remote_streams.get(job.id) is None
 
 
-def test_remote_download_timeout_cancels_job_and_releases_queue(
-    streaming_client, db_session, remote_download, monkeypatch
+@pytest.mark.asyncio
+async def test_remote_stream_body_timeout_cancels_job_and_releases_queue(
+    db_session, remote_download, monkeypatch, tmp_path, clean_remote_streams
 ):
     from app.api import preview
+    from app.services.agent_jobs import AgentJobService
     from app.services.remote_files import remote_streams
 
     _agent, source, _indexed, document = remote_download
-    real_wait_for = preview.asyncio.wait_for
+    job = AgentJobService(db_session).enqueue_stream_file(
+        source, path=document["path"], size_bytes=1, modified_at=1
+    )
+    queue = remote_streams.open(job.id)
+    db_session.commit()
+    monkeypatch.setattr(preview, "REMOTE_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS", 0.01, raising=False)
 
-    async def short_wait_for(awaitable, timeout):
-        return await real_wait_for(awaitable, timeout=0.01 if timeout == 30 else timeout)
+    class WaitingRequest:
+        async def is_disconnected(self):
+            return False
 
-    monkeypatch.setattr(preview.asyncio, "wait_for", short_wait_for)
-    response = streaming_client.get(_remote_download_link(streaming_client, document))
+    stream = preview._stream_remote_body(WaitingRequest(), db_session, job, queue)
+    with pytest.raises(preview.RemoteStreamTimeout):
+        await anext(stream)
 
-    assert response.status_code == 504
-    assert response.json()["detail"]["code"] == "remote_stream_timeout"
-    job = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").one()
     assert (
         job.status == "cancelled" and job.active_key is None and remote_streams.get(job.id) is None
     )
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_remote_preview_streams_standard_image_without_attachment(
@@ -566,6 +583,105 @@ def test_remote_preview_streams_standard_image_without_attachment(
     from app.services.remote_files import remote_streams
 
     assert remote_streams.get(job.id) is None
+
+
+@pytest.mark.parametrize("unavailable", ["offline", "disabled", "global_opt_out"])
+def test_remote_preview_rejects_unavailable_agent_without_job(
+    streaming_client, db_session, remote_download, unavailable
+):
+    agent, source, _indexed, document = remote_download
+    document.update({"type": "image", "extension": "jpg"})
+    if unavailable == "global_opt_out":
+        db_session.query(AppSetting).filter_by(key="remote_agents_enabled").update(
+            {"value": "false"}
+        )
+    else:
+        agent.status = unavailable
+    db_session.commit()
+
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "agent_offline"
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_remote_preview_enforces_exact_indexed_file_size_before_job(
+    streaming_client, db_session, remote_download
+):
+    _agent, source, indexed, document = remote_download
+    document.update({"type": "image", "extension": "jpg", "size_bytes": 1})
+    indexed.size_bytes = 26 * 1024 * 1024
+    db_session.add(AppSetting(key="max_preview_size_mb", value="25"))
+    db_session.commit()
+
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "preview_too_large"
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_remote_stream_body_disconnect_cancels_and_unblocks_producer(
+    db_session, remote_download, tmp_path, clean_remote_streams
+):
+    from app.api import preview
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_files import RemoteStreamTimeout, remote_streams
+
+    _agent, source, _indexed, document = remote_download
+    job = AgentJobService(db_session).enqueue_stream_file(
+        source, path=document["path"], size_bytes=1, modified_at=1
+    )
+    queue = remote_streams.open(job.id, max_bytes=1)
+    await queue.put(0, b"x")
+    blocked_producer = asyncio.create_task(queue.put(1, b"y"))
+    db_session.commit()
+
+    class DisconnectedRequest:
+        async def is_disconnected(self):
+            return True
+
+    stream = preview._stream_remote_body(DisconnectedRequest(), db_session, job, queue)
+    assert await anext(stream) is None
+    with pytest.raises(RemoteStreamTimeout):
+        await blocked_producer
+    assert (
+        job.status == "cancelled" and job.active_key is None and remote_streams.get(job.id) is None
+    )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_remote_stream_body_task_cancellation_closes_registered_queue(
+    db_session, remote_download, tmp_path, clean_remote_streams
+):
+    from app.api import preview
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_files import remote_streams
+
+    _agent, source, _indexed, document = remote_download
+    job = AgentJobService(db_session).enqueue_stream_file(
+        source, path=document["path"], size_bytes=1, modified_at=1
+    )
+    queue = remote_streams.open(job.id)
+    db_session.commit()
+
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    stream = preview._stream_remote_body(ConnectedRequest(), db_session, job, queue)
+    next_chunk = asyncio.create_task(anext(stream))
+    await asyncio.sleep(0)
+    next_chunk.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await next_chunk
+    assert (
+        job.status == "cancelled" and job.active_key is None and remote_streams.get(job.id) is None
+    )
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_remote_download_content_disposition_encodes_malicious_basename(
