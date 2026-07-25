@@ -1613,3 +1613,44 @@ async def test_complete_recovery_is_bounded_and_never_reverses(outcomes, statuse
     assert len(client.completions) == calls and all(
         item is completion for item in client.completions
     )
+
+
+@pytest.mark.asyncio
+async def test_on_server_scan_submits_manifest_without_local_extraction(monkeypatch, tmp_path):
+    from onesearch_shared import ProcessingMode, ScanManifest
+
+    class Scanner:
+        changed_paths = ["a.txt"]
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def scan(self, **kwargs):
+            return ScanManifest(**kwargs, complete=True)
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_manifest(self, *args):
+            self.calls.append("manifest")
+
+        async def complete(self, *args):
+            self.calls.append(args[1].status.value)
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    monkeypatch.setattr(
+        worker_module,
+        "extract_confined",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not extract")),
+    )
+    lease = _scan_lease()
+    lease.processing_mode = ProcessingMode.ON_SERVER
+    client = Client()
+    await worker_module.run_scan_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+    assert client.calls == ["manifest", "succeeded"]

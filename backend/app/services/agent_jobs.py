@@ -185,6 +185,91 @@ class AgentJobService:
                 raise
             return winner
 
+    def enqueue_extract_files(self, scan_job: AgentJob, files: list[dict]) -> list[AgentJob]:
+        """Fan an on-server scan manifest into independently leased file transfers."""
+        if (
+            scan_job.kind != "scan"
+            or scan_job.processing_mode != "on_server"
+            or not scan_job.source_id
+        ):
+            raise JobConflict("on-server scan required")
+        scan_payload = json.loads(scan_job.payload)
+        limits, extraction = scan_payload["limits"], scan_payload["extraction"]
+        jobs = []
+        for item in files:
+            path, size = item["path"], item["size_bytes"]
+            if size > limits["max_snapshot_bytes"]:
+                continue
+            payload = {
+                "parent_job_id": scan_job.id,
+                "root_id": scan_payload["root_id"],
+                "path": path,
+                "size_bytes": size,
+                "modified_at": item["modified_at"],
+                "content_hash": item.get("content_hash"),
+                "maximum_size": limits["max_snapshot_bytes"],
+                "extraction": extraction,
+            }
+            child = AgentJob(
+                id=secrets.token_urlsafe(18),
+                agent_id=scan_job.agent_id,
+                source_id=scan_job.source_id,
+                kind="extract_file",
+                status="pending",
+                processing_mode="on_server",
+                active_key=f"extract:{scan_job.id}:{hashlib.sha256(path.encode()).hexdigest()}",
+                payload=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                checkpoint="{}",
+            )
+            self.db.add(child)
+            jobs.append(child)
+        self.db.flush()
+        return jobs
+
+    def enqueue_stream_file(
+        self, source: Source, *, path: str, size_bytes: int, modified_at: int
+    ) -> AgentJob:
+        if source.location_type != "agent" or not source.agent_id:
+            raise JobConflict("source is not remote")
+        agent = self.db.get(Agent, source.agent_id)
+        roots = json.loads(agent.allowed_roots) if agent else []
+        root_id = next(
+            (root["root_id"] for root in roots if root.get("path") == source.root_path), None
+        )
+        if not root_id:
+            raise JobConflict("remote root is unavailable")
+        job = AgentJob(
+            id=secrets.token_urlsafe(18),
+            agent_id=source.agent_id,
+            source_id=source.id,
+            kind="stream_file",
+            status="pending",
+            processing_mode="on_server",
+            active_key=f"stream:{source.id}:{hashlib.sha256(path.encode()).hexdigest()}",
+            payload=json.dumps(
+                {
+                    "root_id": root_id,
+                    "path": path,
+                    "size_bytes": size_bytes,
+                    "modified_at": modified_at,
+                    "maximum_size": size_bytes,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            checkpoint="{}",
+        )
+        try:
+            with self.db.begin_nested():
+                self.db.add(job)
+                self.db.flush()
+            return job
+        except IntegrityError:
+            winner = self.db.scalar(select(AgentJob).where(AgentJob.active_key == job.active_key))
+            if winner is None:
+                raise
+            return winner
+
     def fail_expired_leases(self) -> int:
         now = _now()
         result = self.db.execute(
@@ -214,7 +299,7 @@ class AgentJobService:
                 .where(
                     AgentJob.agent_id == agent_id,
                     AgentJob.status == "pending",
-                    AgentJob.kind.in_(("scan", "browse")),
+                    AgentJob.kind.in_(("scan", "browse", "extract_file", "stream_file")),
                 )
                 .order_by(AgentJob.created_at, AgentJob.id)
                 .limit(1)

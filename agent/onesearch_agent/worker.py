@@ -472,7 +472,8 @@ async def run_scan_job(
         payload = None
     invalid = (
         getattr(getattr(lease, "kind", None), "value", None) != "scan"
-        or getattr(getattr(lease, "processing_mode", None), "value", None) != "on_agent"
+        or getattr(getattr(lease, "processing_mode", None), "value", None)
+        not in {"on_agent", "on_server"}
         or not isinstance(getattr(lease, "source_id", None), str)
         or not lease.source_id
         or payload is None
@@ -513,6 +514,17 @@ async def run_scan_job(
         manifest = await asyncio.to_thread(scanner.scan, job_id=lease.id, source_id=lease.source_id)
         keeper.set_total(len(scanner.changed_paths))
         await keeper.check()
+        if lease.processing_mode.value == "on_server":
+            await _submit_or_cancel(
+                keeper,
+                lambda: client.submit_manifest(lease.id, manifest, lease.lease_token),
+                attempts=_mutation_attempts,
+                sleep=_sleep,
+            )
+            await _complete_with_recovery(
+                client, lease, JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED)
+            )
+            return
         failures = {failure.path: failure for failure in manifest.failures}
         expected = {item.path: item for item in manifest.files}
         builder = StreamingBatchBuilder(

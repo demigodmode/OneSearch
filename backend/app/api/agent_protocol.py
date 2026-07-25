@@ -9,7 +9,7 @@ import time
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from onesearch_shared import (
     PROTOCOL_VERSION,
     AgentEnrollmentRequest,
@@ -40,7 +40,8 @@ from ..services.agent_auth import (
     require_remote_agents_enabled,
 )
 from ..services.agent_jobs import AgentJobService, JobConflict, JobLeaseError, JobNotFound
-from ..services.remote_ingest import RemoteIngestService
+from ..services.remote_files import RemoteFileChanged, remote_streams
+from ..services.remote_ingest import RemoteIngestService, canonical_remote_path
 from ..services.search import meili_service
 
 router = APIRouter(prefix="/api/agent/v1", tags=["agent-protocol"])
@@ -261,7 +262,19 @@ async def submit_manifest(
     if request.job_id != job_id or lease_token is None:
         raise HTTPException(status_code=401, detail="Invalid or expired job lease")
     try:
-        get_remote_ingest_service(db).accept_manifest(agent.id, job_id, lease_token, request)
+        job = AgentJobService(db).validate_lease(agent.id, job_id, lease_token)
+        if job.processing_mode == "on_server" and job.kind == "scan":
+            if request.job_id != job_id or request.source_id != job.source_id:
+                raise JobConflict("invalid remote manifest")
+            files = []
+            for item in request.files:
+                path = canonical_remote_path(item.path)
+                if item.path_hash != __import__("onesearch_shared").remote_path_hash(path):
+                    raise JobConflict("manifest path hash mismatch")
+                files.append(item.model_dump(mode="json"))
+            AgentJobService(db).enqueue_extract_files(job, files)
+        else:
+            get_remote_ingest_service(db).accept_manifest(agent.id, job_id, lease_token, request)
         db.commit()
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()
@@ -318,6 +331,49 @@ async def acknowledge_cancellation(
     try:
         AgentJobService(db).acknowledge_cancellation(agent.id, job_id, lease_token)
         db.commit()
+    except (JobNotFound, JobLeaseError, JobConflict) as error:
+        db.rollback()
+        raise _job_error(error) from error
+    return {"status": "ok"}
+
+
+@router.put("/jobs/{job_id}/file-chunks", dependencies=[Depends(require_remote_agents_enabled)])
+async def receive_file_chunk(
+    job_id: str,
+    request: Request,
+    agent: ApprovedAgent,
+    db: Database,
+    sequence: int,
+    checksum: str | None = None,
+    complete: bool = False,
+    stream_checksum: str | None = None,
+    lease_token: Annotated[str | None, Header(alias=LEASE_TOKEN_HEADER)] = None,
+):
+    """Accept one bounded raw chunk; JSON parsing is intentionally never involved."""
+    if lease_token is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired job lease")
+    try:
+        job = AgentJobService(db).validate_lease(agent.id, job_id, lease_token)
+        if job.kind not in {"extract_file", "stream_file"}:
+            raise JobConflict("invalid file transfer job")
+        queue = remote_streams.open(job_id)
+        if complete:
+            if stream_checksum is None:
+                raise RemoteFileChanged("stream checksum required")
+            await queue.finish(sequence, stream_checksum)
+        else:
+            body = bytearray()
+            async for part in request.stream():
+                body.extend(part)
+                if len(body) > queue.max_bytes:
+                    raise RemoteFileChanged("chunk exceeds limit")
+            await queue.put(sequence, bytes(body), checksum)
+        db.commit()
+    except RemoteFileChanged as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=409, detail={"code": error.code, "message": str(error)}
+        ) from error
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()
         raise _job_error(error) from error
