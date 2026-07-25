@@ -50,6 +50,16 @@ def test_remote_path_hash_is_stable_lowercase_utf8_sha256():
     assert value == remote_path_hash("café/資料.txt")
     assert len(value) == 64 and value == value.lower()
 
+
+def test_agent_job_status_response_is_strict_and_has_only_protocol_statuses():
+    from onesearch_shared import AgentJobStatusResponse
+
+    assert AgentJobStatusResponse(job_id="j", status="completed").status == "completed"
+    with pytest.raises(ValidationError):
+        AgentJobStatusResponse(job_id="j", status="succeeded")
+    with pytest.raises(ValidationError):
+        AgentJobStatusResponse(job_id="j", status="completed", extra=True)
+
     with pytest.raises(ValidationError, match="extra_forbidden"):
         AgentHeartbeat.model_validate(
             {

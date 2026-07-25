@@ -20,8 +20,8 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import Agent, AgentBatch, AgentJob, Source
 from ..config import settings as runtime_settings
+from ..models import Agent, AgentBatch, AgentJob, Source
 from .agent_auth import hash_token, verify_token
 from .app_settings import AppSettingsService
 
