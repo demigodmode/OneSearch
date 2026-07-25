@@ -38,12 +38,41 @@ class AgentJobService:
     def enqueue_scan(self, source: Source, *, full: bool, reason: str | None = None) -> AgentJob:
         if source.location_type != "agent" or source.agent_id is None:
             raise JobConflict("source is not remote")
+        agent = self.db.get(Agent, source.agent_id)
         processing_mode = source.processing_mode
         if processing_mode is None:
-            agent = self.db.get(Agent, source.agent_id)
             if agent is None:
                 raise JobConflict("source agent is not available")
             processing_mode = agent.default_processing_mode
+        known = {
+            item.path: {
+                "size_bytes": item.size_bytes,
+                "modified_at": int(item.modified_at.timestamp() * 1_000_000_000)
+                if item.modified_at is not None
+                else None,
+                "hash": item.hash,
+            }
+            for item in source.indexed_files
+        }
+        # This is deliberately a small, explicit contract: an agent never has to
+        # infer server-side defaults while it is extracting a file offline.
+        agent_roots = json.loads(agent.allowed_roots) if processing_mode and agent else []
+        root_id = next(
+            (root["root_id"] for root in agent_roots if root.get("path") == source.root_path), None
+        )
+        payload = {
+            "full": full,
+            "root_id": root_id,
+            "root_path": source.root_path,
+            "include_patterns": json.loads(source.include_patterns)
+            if source.include_patterns
+            else None,
+            "exclude_patterns": json.loads(source.exclude_patterns)
+            if source.exclude_patterns
+            else None,
+            "known_files": known,
+            "extraction": {"source_name": source.name},
+        }
         job = AgentJob(
             id=secrets.token_urlsafe(18),
             agent_id=source.agent_id,
@@ -53,7 +82,7 @@ class AgentJobService:
             status="pending",
             processing_mode=processing_mode,
             active_key=source.id,
-            payload=json.dumps({"full": full}),
+            payload=json.dumps(payload, sort_keys=True, separators=(",", ":")),
             checkpoint="{}",
         )
         try:

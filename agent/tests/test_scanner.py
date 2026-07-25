@@ -1,0 +1,26 @@
+from pathlib import Path
+
+from onesearch_agent.scanner import RemoteScanner
+from onesearch_shared import AllowedRoot
+
+
+def test_scanner_emits_canonical_paths_and_skips_unchanged(tmp_path: Path):
+    (tmp_path / "keep.txt").write_text("one")
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "skip.tmp").write_text("two")
+    scanner = RemoteScanner(
+        "root",
+        [AllowedRoot(root_id="root", path=str(tmp_path))],
+        include_patterns=["**/*"],
+        exclude_patterns=["**/*.tmp"],
+        known={
+            "keep.txt": {"size_bytes": 3, "modified_at": (tmp_path / "keep.txt").stat().st_mtime_ns}
+        },
+    )
+
+    manifest = scanner.scan(job_id="job", source_id="source")
+
+    assert [item.path for item in manifest.files] == ["keep.txt"]
+    assert manifest.files[0].content_hash
+    assert scanner.changed_paths == []
+    assert manifest.complete is True

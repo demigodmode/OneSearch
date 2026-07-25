@@ -45,7 +45,10 @@ def test_enqueue_coalesces_one_active_scan_per_source(db_session, remote):
     db_session.commit()
     assert first.id == second.id
     assert first.active_key == source.id
-    assert json.loads(first.payload) == {"full": True}
+    payload = json.loads(first.payload)
+    assert payload["full"] is True
+    assert payload["root_path"] == source.root_path
+    assert payload["known_files"] == {}
 
 
 def test_claim_issues_hashed_lease_and_rejects_wrong_agent(db_session, remote):

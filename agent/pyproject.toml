@@ -3,7 +3,7 @@ name = "onesearch-agent"
 version = "1.3.0"
 description = "Secure remote indexing agent for OneSearch"
 requires-python = ">=3.10"
-dependencies = ["onesearch-shared", "click>=8", "httpx>=0.25", "pydantic>=2,<3", "keyring>=24", "platformdirs>=4", "tomli>=2; python_version < '3.11'", "pywin32>=306; sys_platform == 'win32'"]
+dependencies = ["onesearch-shared", "onesearch-backend", "click>=8", "httpx>=0.25", "pydantic>=2,<3", "keyring>=24", "platformdirs>=4", "tomli>=2; python_version < '3.11'", "pywin32>=306; sys_platform == 'win32'"]
 
 [project.scripts]
 onesearch-agent = "onesearch_agent.cli:main"
