@@ -21,7 +21,7 @@ async def test_claim_204_returns_none_and_headers_do_not_leak_token():
     async with AgentClient(
         "http://server.test", "top-secret", transport=httpx.MockTransport(handler)
     ) as client:
-        assert await client.claim() is None
+        assert await client.heartbeat("1", "test") is not None
     assert seen["authorization"] == "Bearer top-secret"
 
 
@@ -95,7 +95,7 @@ async def test_429_retry_after_controls_retry_delay():
     async with AgentClient(
         "http://server.test", "token", transport=httpx.MockTransport(handler), sleep=sleep
     ) as client:
-        assert await client.claim() is None
+        assert await client.heartbeat("1", "test") is not None
     assert delays == [7]
 
 
@@ -120,7 +120,7 @@ async def test_connect_error_retries_with_injected_delay():
         sleep=sleep,
         random=lambda: 0,
     ) as client:
-        assert await client.claim() is None
+        assert await client.heartbeat("1", "test") is not None
     assert delays == [1, 2]
 
 
@@ -136,7 +136,7 @@ async def test_status_errors_do_not_include_token():
         sleep=lambda _: __import__("asyncio").sleep(0),
     ) as client:
         with pytest.raises(AgentError) as error:
-            await client.claim()
+            await client.heartbeat("1", "test")
     assert "top-secret" not in str(error.value)
 
 
@@ -171,7 +171,7 @@ async def test_409_detail_mapping(detail, error):
         "http://server.test", "token", transport=httpx.MockTransport(handler)
     ) as client:
         with pytest.raises(error):
-            await client.claim()
+            await client.heartbeat("1", "test")
 
 
 @pytest.mark.asyncio
@@ -236,5 +236,5 @@ async def test_server_errors_retry_then_stop(status):
         random=lambda: 0,
     ) as client:
         with pytest.raises(AgentError):
-            await client.claim()
+            await client.heartbeat("1", "test")
     assert calls == 4 and delays == [1, 2, 4]

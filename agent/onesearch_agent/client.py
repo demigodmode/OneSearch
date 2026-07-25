@@ -51,7 +51,7 @@ class JobLeaseError(AgentError):
     pass
 
 
-class AgentAmbiguousResult(AgentError):
+class AgentAmbiguousResultError(AgentError):
     pass
 
 
@@ -107,7 +107,7 @@ class AgentClient:
             except httpx.TransportError as error:
                 if attempt == 3 or not retry:
                     if mutation:
-                        raise AgentAmbiguousResult("operation result is unknown") from error
+                        raise AgentAmbiguousResultError("operation result is unknown") from error
                     raise AgentError("server connection failed") from error
                 await self.sleep(retry_delay(attempt, random=self.random))
                 continue
