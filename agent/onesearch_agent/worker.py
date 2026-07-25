@@ -565,6 +565,7 @@ async def run_browse_job(lease, client, *, roots) -> None:
 async def run_extract_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) -> None:
     """Revalidate a pinned remote file then upload it in bounded raw chunks."""
     payload = getattr(lease, "payload", {})
+    keeper = LeaseKeeper(lease, client)
     try:
         if (
             lease.kind.value != "extract_file"
@@ -573,6 +574,8 @@ async def run_extract_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) 
             or not payload.get("path")
         ):
             raise ExtractionError("invalid extraction payload")
+        await keeper.start()
+        await keeper.check()
         with open_confined_file(payload["root_id"], payload["path"], roots) as handle:
             before = os.fstat(handle.fileno())
             if (
@@ -583,16 +586,19 @@ async def run_extract_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) 
                 raise ExtractionError("file changed since scan")
             digest, sequence, copied = hashlib.sha256(), 0, 0
             while chunk := handle.read(chunk_bytes):
+                await keeper.check()
                 copied += len(chunk)
                 if copied > payload["maximum_size"]:
                     raise ExtractionError("file exceeds transfer limit")
                 digest.update(chunk)
-                await client.upload_file_chunk(
-                    lease.id,
-                    lease.lease_token,
-                    sequence=sequence,
-                    data=chunk,
-                    checksum=hashlib.sha256(chunk).hexdigest(),
+                await _submit_or_cancel(
+                    keeper,
+                    lambda chunk=chunk, sequence=sequence: client.upload_file_chunk(
+                        lease.id, lease.lease_token, sequence=sequence, data=chunk,
+                        checksum=hashlib.sha256(chunk).hexdigest(),
+                    ),
+                    attempts=3,
+                    sleep=asyncio.sleep,
                 )
                 sequence += 1
             after = os.fstat(handle.fileno())
@@ -604,15 +610,19 @@ async def run_extract_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) 
                 raise ExtractionError("file changed during transfer")
         if payload.get("content_hash") and digest.hexdigest() != payload["content_hash"]:
             raise ExtractionError("file content changed since scan")
-        await client.upload_file_chunk(
-            lease.id,
-            lease.lease_token,
-            sequence=sequence,
-            complete=True,
-            stream_checksum=digest.hexdigest(),
+        await _submit_or_cancel(
+            keeper,
+            lambda: client.upload_file_chunk(
+                lease.id, lease.lease_token, sequence=sequence, complete=True,
+                stream_checksum=digest.hexdigest(),
+            ),
+            attempts=3,
+            sleep=asyncio.sleep,
         )
     except asyncio.CancelledError:
         raise
+    except ScanCancelled:
+        return
     except JobConflict:
         await client.cancel_ack(lease.id, lease.lease_token)
         return
@@ -627,6 +637,8 @@ async def run_extract_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) 
                 detail=_safe_failure(error),
             ),
         )
+    finally:
+        await keeper.close()
 
 
 async def dispatch_job(lease, client, *, roots) -> None:
