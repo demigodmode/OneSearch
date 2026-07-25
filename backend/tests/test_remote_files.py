@@ -268,6 +268,26 @@ async def test_extract_upload_sweeper_expires_only_stale_sessions(tmp_path):
     assert len(list(tmp_path.iterdir())) == 1
 
 
+@pytest.mark.asyncio
+async def test_shutdown_stops_sweeper_and_cleans_all_extract_uploads(tmp_path):
+    from app.main import stop_extract_upload_sweeper
+    from app.services.remote_files import ExtractUploadRegistry
+
+    registry = ExtractUploadRegistry(tmp_path)
+    registry.append("job", sequence=0, data=b"x", expected_size=1, maximum_size=1)
+    started = asyncio.Event()
+
+    async def wait_forever():
+        started.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(wait_forever())
+    await started.wait()
+    await stop_extract_upload_sweeper(task, registry)
+    assert task.cancelled()
+    assert not registry.has("job") and list(tmp_path.iterdir()) == []
+
+
 def test_extract_upload_preserves_only_validated_suffix(tmp_path):
     from app.services.remote_files import ExtractUploadRegistry
 

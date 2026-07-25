@@ -6,9 +6,10 @@ OneSearch FastAPI Application
 Main entry point for the backend API
 """
 
+import asyncio
 import logging
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,7 @@ from .api import settings as settings_api
 from .config import settings
 from .db.database import engine, get_db
 from .request_body_limits import RemoteAgentBodyLimitMiddleware
+from .services.remote_files import extract_uploads, sweep_extract_uploads
 from .services.scheduler import SchedulerService
 from .services.search import meili_service
 
@@ -30,6 +32,14 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+async def stop_extract_upload_sweeper(task: asyncio.Task, registry=extract_uploads) -> None:
+    """Stop the process-local sweeper before removing every transient original."""
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+    registry.cleanup_all()
 
 
 @asynccontextmanager
@@ -51,10 +61,12 @@ async def lifespan(app: FastAPI):
     scheduler = SchedulerService(engine)
     scheduler.start()
     app.state.scheduler = scheduler
+    extract_upload_task = asyncio.create_task(sweep_extract_uploads(extract_uploads))
 
     yield
 
     # Shutdown
+    await stop_extract_upload_sweeper(extract_upload_task)
     scheduler.shutdown()
     logger.info("Shutting down OneSearch API...")
 
