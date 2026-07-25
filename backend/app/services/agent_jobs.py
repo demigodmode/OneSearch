@@ -548,6 +548,7 @@ class AgentJobService:
         return job
 
     def settle_on_server_parent(self, job_id: str) -> str:
+        """Return readiness only; ingestion owns terminal reconciliation/deletion."""
         parent = self.db.get(AgentJob, job_id)
         if parent is None or parent.kind != "scan" or parent.processing_mode != "on_server":
             raise JobConflict("on-server scan required")
@@ -556,13 +557,6 @@ class AgentJobService:
             for job in self.db.scalars(select(AgentJob).where(AgentJob.kind == "extract_file"))
             if json.loads(job.payload).get("parent_job_id") == parent.id
         ]
-        if any(child.status in {"pending", "claimed", "running", "cancelling"} for child in children):
-            return parent.status
-        if any(child.status in {"failed", "cancelled"} for child in children):
-            parent.status, parent.error = "failed", "remote child extraction failed"
-        else:
-            parent.status = "completed"
-        parent.completed_at, parent.active_key = _now(), None
         return parent.status
 
     def cancel(self, job_id: str) -> AgentJob:

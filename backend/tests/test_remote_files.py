@@ -161,7 +161,7 @@ def test_extract_upload_preserves_only_validated_suffix(tmp_path):
     registry.cleanup("job")
 
 
-def test_on_server_parent_waits_for_children_before_terminal_success(db_session, remote):
+def test_on_server_parent_release_keeps_parent_nonterminal(db_session, remote):
     from app.services.agent_jobs import AgentJobService
 
     _agent, source = remote
@@ -175,4 +175,29 @@ def test_on_server_parent_waits_for_children_before_terminal_success(db_session,
     db_session.refresh(parent)
     assert parent.status == "running" and parent.active_key == source.id
     children[0].status = "completed"
-    assert AgentJobService(db_session).settle_on_server_parent(parent.id) == "completed"
+    assert AgentJobService(db_session).settle_on_server_parent(parent.id) == "running"
+
+
+@pytest.mark.asyncio
+async def test_server_parent_settlement_waits_then_completes_without_children(db_session, remote):
+    import json
+
+    from onesearch_shared import ScanManifest
+
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_ingest import RemoteIngestService
+
+    _agent, source = remote
+    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
+    parent.status = "running"
+    parent.lease_token_hash = parent.lease_expires_at = None
+    parent.checkpoint = json.dumps({"version": 1, "remote_manifest": ScanManifest(
+        job_id=parent.id, source_id=source.id, complete=True
+    ).model_dump(mode="json")})
+
+    class Search:
+        async def delete_documents_confirmed(self, ids):
+            assert ids == []
+
+    result = await RemoteIngestService(db_session, Search()).settle_server_parent(parent.id)
+    assert result == "completed" and parent.active_key is None

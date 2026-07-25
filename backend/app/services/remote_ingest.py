@@ -183,6 +183,59 @@ class RemoteIngestService:
             raise JobConflict("remote extraction receipt conflict")
         jobs.complete(agent_id, job_id, lease_token, "succeeded")
 
+    async def settle_server_parent(self, parent_id: str) -> str:
+        """Settle a lease-released on-server scan only after all child work is terminal."""
+        parent = self.db.get(AgentJob, parent_id)
+        if (
+            parent is None
+            or parent.kind != "scan"
+            or parent.processing_mode != "on_server"
+            or parent.status != "running"
+            or parent.lease_token_hash is not None
+        ):
+            raise JobConflict("invalid server parent")
+        children = [
+            child
+            for child in self.db.scalars(select(AgentJob).where(AgentJob.kind == "extract_file"))
+            if json.loads(child.payload).get("parent_job_id") == parent_id
+        ]
+        if any(child.status in {"pending", "claimed", "running", "cancelling"} for child in children):
+            return "running"
+        if any(child.status in {"failed", "cancelled"} for child in children):
+            parent.status, parent.error, parent.active_key, parent.completed_at = (
+                "failed", "remote child extraction failed", None, datetime.now(timezone.utc).replace(tzinfo=None)
+            )
+            return "failed"
+        checkpoint = json.loads(parent.checkpoint)
+        raw = checkpoint.get("remote_manifest") if checkpoint.get("version") == 1 else None
+        if raw is None:
+            raise JobConflict("complete manifest required")
+        manifest = ScanManifest.model_validate(raw)
+        if not manifest.complete or manifest.job_id != parent.id or manifest.source_id != parent.source_id:
+            parent.status, parent.error, parent.active_key, parent.completed_at = (
+                "failed", "complete manifest required", None, datetime.now(timezone.utc).replace(tzinfo=None)
+            )
+            return "failed"
+        current = {canonical_remote_path(item.path) for item in manifest.files}
+        current.update(canonical_remote_path(item.path) for item in manifest.failures)
+        rows = list(self.db.scalars(select(IndexedFile).where(IndexedFile.source_id == parent.source_id)))
+        missing = [row for row in rows if row.path not in current]
+        ids = [remote_document_id(parent.source_id, row.path) for row in missing]
+        confirmed_many = getattr(self.search_service, "delete_documents_confirmed", None)
+        if ids and confirmed_many:
+            await confirmed_many(ids)
+        elif ids:
+            for document_id in ids:
+                confirmed = getattr(self.search_service, "delete_document_confirmed", None)
+                await (confirmed(document_id) if confirmed else self.search_service.delete_document(document_id))
+        for row in missing:
+            self.db.delete(row)
+        parent.status, parent.active_key, parent.completed_at = (
+            "completed", None, datetime.now(timezone.utc).replace(tzinfo=None)
+        )
+        self.db.flush()
+        return "completed"
+
     def accept_manifest(
         self, agent_id: str, job_id: str, lease_token: str, manifest: ScanManifest
     ) -> None:

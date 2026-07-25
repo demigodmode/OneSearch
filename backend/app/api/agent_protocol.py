@@ -321,7 +321,7 @@ async def complete_job(
             and job.processing_mode == "on_server"
         ):
             jobs.release_on_server_parent(job_id)
-            jobs.settle_on_server_parent(job_id)
+            await get_remote_ingest_service(db).settle_server_parent(job_id)
         else:
             jobs.complete(
                 agent.id,
@@ -404,7 +404,7 @@ async def receive_file_chunk(
                         agent.id, job_id, lease_token, result
                     )
                     parent_id = payload["parent_job_id"]
-                    AgentJobService(db).settle_on_server_parent(parent_id)
+                    await get_remote_ingest_service(db).settle_server_parent(parent_id)
                 finally:
                     extract_uploads.cleanup(job_id)
             else:
