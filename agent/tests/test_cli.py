@@ -1,9 +1,12 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from click.testing import CliRunner
 from onesearch_agent.cli import main
 from onesearch_agent.client import (
+    AgentDisabled,
+    AgentIncompatible,
     AgentRevoked,
 )
 
@@ -187,3 +190,28 @@ def test_run_preserves_terminal_agent_error(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("onesearch_agent.cli.run_runtime", fail)
     result = CliRunner().invoke(main, ["--config", str(config), "run"])
     assert "agent revoked" in result.output and "configuration unavailable" not in result.output
+
+
+@pytest.mark.parametrize("error", [AgentDisabled("disabled"), AgentIncompatible("incompatible")])
+def test_run_preserves_other_terminal_agent_errors(tmp_path: Path, monkeypatch, error):
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    _config(config, root)
+    monkeypatch.setattr(
+        "onesearch_agent.cli.credential_store", lambda value: SimpleNamespace(load=lambda: "token")
+    )
+
+    async def fail(client):
+        raise error
+
+    monkeypatch.setattr("onesearch_agent.cli.run_runtime", fail)
+    result = CliRunner().invoke(main, ["--config", str(config), "run"])
+    assert str(error) in result.output and "configuration unavailable" not in result.output
+
+
+def test_run_malformed_config_is_safe(tmp_path: Path):
+    config = tmp_path / "agent.toml"
+    config.write_text("not = [valid")
+    result = CliRunner().invoke(main, ["--config", str(config), "run"])
+    assert "configuration is unavailable" in result.output
