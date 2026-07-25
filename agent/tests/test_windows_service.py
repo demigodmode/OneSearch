@@ -173,6 +173,34 @@ def test_install_service_result_controls_rollback(monkeypatch, result):
     assert (("restore", {"old": 1}) in calls) is (result not in (None, 0))
 
 
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        {},
+        {"ConfigPath": ("old", 1)},
+        {"MachineCredential": (b"old", 3)},
+        {"ConfigPath": ("old", 1), "MachineCredential": (b"old", 3)},
+    ],
+)
+def test_install_exception_restores_each_prior_owned_state(monkeypatch, snapshot):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    restored = []
+    monkeypatch.setattr(
+        module,
+        "win32serviceutil",
+        SimpleNamespace(
+            HandleCommandLine=lambda *args, **kwargs: (_ for _ in ()).throw(OSError("failed"))
+        ),
+    )
+    monkeypatch.setattr(module, "persist_config", lambda value: None)
+    monkeypatch.setattr(module, "persist_machine_credential", lambda value: None)
+    monkeypatch.setattr(module, "_snapshot_parameters", lambda: snapshot)
+    monkeypatch.setattr(module, "_restore_parameters", lambda value: restored.append(value))
+    with pytest.raises(RuntimeError):
+        module.install_service("C:/agent.toml", "secret")
+    assert restored == [snapshot]
+
+
 def test_service_class_exposes_scm_stop_and_runtime_methods():
     module = importlib.import_module("onesearch_agent.windows_service")
     assert module.OneSearchAgentService._svc_name_ == "OneSearchAgent"
