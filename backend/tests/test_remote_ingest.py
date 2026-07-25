@@ -150,6 +150,7 @@ async def test_remote_ingest_preserves_exact_nanoseconds_for_next_incremental_sc
     job.status = "completed"
     job.lease_expires_at = None
     source = db.get(Source, "s")
+    db.expire(source, ["indexed_files"])
     next_job = AgentJobService(db).enqueue_scan(source, full=False)
     known = json.loads(next_job.payload)["known_files"][path]
     assert known["modified_at"] == modified_at_ns
