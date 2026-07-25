@@ -387,6 +387,36 @@ async def test_completion_guard_wins_before_external_delete(remote_job):
 
 
 @pytest.mark.asyncio
+async def test_reconciliation_deletes_multiple_missing_documents_in_one_confirmed_call(remote_job):
+    db, lease, job = remote_job
+
+    class BatchSearch(Search):
+        def __init__(self):
+            super().__init__()
+            self.calls = []
+
+        async def delete_documents_confirmed(self, ids):
+            self.calls.append(ids)
+
+    search = BatchSearch()
+    db.add_all(
+        [
+            IndexedFile(source_id="s", path="old-a.txt", status="success"),
+            IndexedFile(source_id="s", path="old-b.txt", status="success"),
+        ]
+    )
+    db.commit()
+    service = RemoteIngestService(db, search)
+    service.accept_manifest(
+        "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=True)
+    )
+    await service.reconcile_completion("a", job.id, lease.lease_token)
+    assert search.calls == [[remote_document_id("s", "old-a.txt"), remote_document_id("s", "old-b.txt")]]
+    assert list(db.scalars(select(IndexedFile).where(IndexedFile.source_id == "s"))) == []
+    assert db.get(type(job), job.id).status == "completed"
+
+
+@pytest.mark.asyncio
 async def test_partial_manifest_rejects_success_without_deleting(remote_job):
     db, lease, job = remote_job
     search = Search()
