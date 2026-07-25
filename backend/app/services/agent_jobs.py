@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from datetime import timezone
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -61,7 +62,14 @@ class AgentJobService:
                 "modified_at": item.modified_at_ns
                 if item.modified_at_ns is not None
                 else (
-                    int(item.modified_at.timestamp() * 1_000_000_000)
+                    int(
+                        (
+                            item.modified_at.replace(tzinfo=timezone.utc)
+                            if item.modified_at.tzinfo is None
+                            else item.modified_at
+                        ).timestamp()
+                        * 1_000_000_000
+                    )
                     if item.modified_at is not None
                     else None
                 ),
