@@ -1,7 +1,11 @@
+import hashlib
+import json
+
 import pytest
 from onesearch_shared import DocumentBatch, NormalizedRemoteDocument, ScanFile, ScanManifest
+from sqlalchemy import select
 
-from app.models import Agent, Source
+from app.models import Agent, AgentBatch, IndexedFile, Source
 from app.services.agent_jobs import AgentJobService, JobConflict, JobLeaseError
 from app.services.remote_ingest import (
     RemoteIngestService,
@@ -101,3 +105,57 @@ def test_manifest_requires_valid_lease_and_preserves_versioned_complete_state(re
     assert '"version":1' in job.checkpoint
     with pytest.raises(JobLeaseError):
         service.accept_manifest("a", job.id, "wrong", manifest)
+
+
+@pytest.mark.asyncio
+async def test_receipt_collision_same_checksum_returns_duplicate_without_losing_work(
+    remote_job, monkeypatch
+):
+    db, lease, job = remote_job
+    batch = DocumentBatch(job_id=job.id, batch_id="collision", documents=[])
+    payload = json.dumps(
+        batch.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    checksum = hashlib.sha256(payload.encode()).hexdigest()
+    db.add(AgentBatch(job_id=job.id, idempotency_key=batch.batch_id, checksum=checksum))
+    db.commit()
+    original, calls = db.scalar, 0
+
+    def hide_first(statement, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return None if calls == 1 else original(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db, "scalar", hide_first)
+    search = Search()
+    ack = await RemoteIngestService(db, search).accept_batch("a", job.id, lease.lease_token, batch)
+    assert ack.duplicate is True and search.indexed == []
+    db.expire_all()
+    assert len(list(db.scalars(select(AgentBatch).where(AgentBatch.job_id == job.id)))) == 1
+    assert list(db.scalars(select(IndexedFile).where(IndexedFile.source_id == "s"))) == []
+
+
+@pytest.mark.asyncio
+async def test_receipt_collision_different_checksum_conflicts_without_losing_work(
+    remote_job, monkeypatch
+):
+    db, lease, job = remote_job
+    db.add(AgentBatch(job_id=job.id, idempotency_key="collision", checksum="different"))
+    db.commit()
+    batch = DocumentBatch(job_id=job.id, batch_id="collision", documents=[])
+    original, calls = db.scalar, 0
+
+    def hide_first(statement, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return None if calls == 1 else original(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db, "scalar", hide_first)
+    search = Search()
+    with pytest.raises(JobConflict):
+        await RemoteIngestService(db, search).accept_batch("a", job.id, lease.lease_token, batch)
+    db.rollback()
+    db.expire_all()
+    assert len(list(db.scalars(select(AgentBatch).where(AgentBatch.job_id == job.id)))) == 1
+    assert search.indexed == []
+    assert list(db.scalars(select(IndexedFile).where(IndexedFile.source_id == "s"))) == []
