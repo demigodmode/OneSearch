@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import ntpath
 import os
 import stat
@@ -15,6 +16,10 @@ from onesearch_shared import AllowedRoot
 
 
 class PathOutsideAllowedRoots(ValueError):  # noqa: N818
+    pass
+
+
+class ConfinedFileMissing(PathOutsideAllowedRoots):
     pass
 
 
@@ -180,6 +185,8 @@ def open_confined_file(
             file_fd = -1
             yield handle
     except OSError as error:
+        if error.errno == errno.ENOENT:
+            raise ConfinedFileMissing("confined file is missing") from error
         raise PathOutsideAllowedRoots("path cannot be opened safely") from error
     finally:
         if file_fd != -1:

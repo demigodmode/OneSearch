@@ -35,7 +35,12 @@ from app.services.extractor_config import choose_extractor
 from app.services.remote_files import RemoteExtractionError, extract_in_process, extraction_process
 
 from .client import AgentAmbiguousResultError, JobConflict, JobLeaseError
-from .paths import list_confined_entries_page, open_confined_file, resolve_allowed_path
+from .paths import (
+    ConfinedFileMissing,
+    list_confined_entries_page,
+    open_confined_file,
+    resolve_allowed_path,
+)
 from .scanner import RemoteScanner
 
 
@@ -627,11 +632,7 @@ async def _run_file_transfer_job(lease, client, *, roots, expected_kind, chunk_b
         await client.cancel_ack(lease.id, lease.lease_token)
         return
     except Exception as error:
-        missing = isinstance(error, FileNotFoundError) or not any(
-            (Path(root.path) / payload.get("path", "")).exists()
-            for root in roots
-            if root.root_id == payload.get("root_id")
-        )
+        missing = isinstance(error, (FileNotFoundError, ConfinedFileMissing))
         changed = isinstance(error, ExtractionError) and "changed" in str(error)
         await _complete_with_recovery(
             client,
