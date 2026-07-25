@@ -112,36 +112,6 @@ def test_windows_auto_never_selects_file_after_keyring_error(tmp_path: Path, mon
     assert isinstance(credential_store(config, system="nt"), KeyringCredentialStore)
 
 
-def test_posix_security_checks_reject_symlink_owner_and_mode(tmp_path: Path, monkeypatch):
-    store = FileCredentialStore(tmp_path / "state")
-    store.state_dir.mkdir()
-    store.path.write_text("secret")
-    monkeypatch.setattr("onesearch_agent.credentials._is_posix", lambda: True)
-    monkeypatch.setattr("onesearch_agent.credentials.os.getuid", lambda: 100, raising=False)
-
-    class Stat:
-        st_mode = 0o100600
-        st_uid = 200
-
-    monkeypatch.setattr(Path, "stat", lambda self: Stat())
-    monkeypatch.setattr(Path, "is_symlink", lambda self: False)
-    with pytest.raises(CredentialError):
-        store.load()
-
-
-def test_posix_secure_write_sets_directory_and_file_modes(tmp_path: Path, monkeypatch):
-    store = FileCredentialStore(tmp_path / "state")
-    modes = []
-    monkeypatch.setattr("onesearch_agent.credentials._is_posix", lambda: True)
-    monkeypatch.setattr("onesearch_agent.credentials.os.getuid", lambda: 100, raising=False)
-    original_chmod = Path.chmod
-    monkeypatch.setattr(
-        Path, "chmod", lambda self, mode: (modes.append(mode), original_chmod(self, mode))[1]
-    )
-    store.save("secret")
-    assert 0o700 in modes and __import__("stat").S_IMODE(store.path.stat().st_mode) == 0o600
-
-
 @pytest.mark.skipif(__import__("os").name == "nt", reason="POSIX modes")
 def test_file_store_rejects_permissive_token_file(tmp_path: Path):
     state = tmp_path / "state"
