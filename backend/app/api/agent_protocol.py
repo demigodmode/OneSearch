@@ -292,14 +292,25 @@ async def complete_job(
     if request.job_id != job_id or lease_token is None:
         raise HTTPException(status_code=401, detail="Invalid or expired job lease")
     try:
-        AgentJobService(db).complete(
-            agent.id,
-            job_id,
-            lease_token,
-            request.status.value,
-            error=request.detail,
-            checkpoint=request.checkpoint.model_dump(mode="json") if request.checkpoint else None,
-        )
+        jobs = AgentJobService(db)
+        job = jobs.validate_lease(agent.id, job_id, lease_token)
+        if (
+            request.status.value == "succeeded"
+            and job.kind == "scan"
+            and job.processing_mode == "on_agent"
+        ):
+            await get_remote_ingest_service(db).reconcile_completion(agent.id, job_id, lease_token)
+        else:
+            jobs.complete(
+                agent.id,
+                job_id,
+                lease_token,
+                request.status.value,
+                error=request.detail,
+                checkpoint=request.checkpoint.model_dump(mode="json")
+                if request.checkpoint
+                else None,
+            )
         db.commit()
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()

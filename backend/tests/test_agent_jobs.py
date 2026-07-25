@@ -115,7 +115,7 @@ def test_completion_and_cancellation_clear_active_key(db_session, remote):
     db_session.commit()
     lease = service.claim_next(agent.id)
     db_session.commit()
-    service.complete(agent.id, job.id, lease.lease_token, "succeeded")
+    service.complete_reconciled_scan(agent.id, job.id, lease.lease_token)
     db_session.commit()
     db_session.refresh(job)
     assert job.status == "completed" and job.active_key is None and job.lease_token_hash is None
@@ -175,6 +175,9 @@ def test_agent_job_api_claim_progress_batch_completion_and_cancellation_ack(
     class FakeIngest:
         async def ingest(self, *args):
             return []
+
+        async def reconcile_completion(self, agent_id, job_id, token):
+            AgentJobService(db_session).complete_reconciled_scan(agent_id, job_id, token)
 
     monkeypatch.setattr(agent_protocol, "get_remote_ingest_service", lambda db: FakeIngest())
     job = service.enqueue_scan(source, full=True)

@@ -199,6 +199,10 @@ class AgentJobService:
             raise JobConflict()
         return job
 
+    def validate_lease(self, agent_id: str, job_id: str, token: str) -> AgentJob:
+        """Public lease validation for operations with external side effects."""
+        return self._leased_job(agent_id, job_id, token)
+
     def extend_lease(
         self,
         agent_id: str,
@@ -306,6 +310,13 @@ class AgentJobService:
     ) -> AgentJob:
         if status not in {"succeeded", "failed", "cancelled"}:
             raise JobConflict()
+        guarded = self._leased_job(agent_id, job_id, token, active=False)
+        if (
+            status == "succeeded"
+            and guarded.kind == "scan"
+            and guarded.processing_mode == "on_agent"
+        ):
+            raise JobConflict("on-agent scan requires reconciliation")
         now = _now()
         allowed = ("cancelling",) if status == "cancelled" else ("claimed", "running")
         values = {
@@ -330,6 +341,32 @@ class AgentJobService:
                 AgentJob.status.in_(allowed),
             )
             .values(**values)
+        )
+        if result.rowcount != 1:
+            self._leased_job(agent_id, job_id, token, active=False)
+            raise JobConflict()
+        return self.db.get(AgentJob, job_id)
+
+    def complete_reconciled_scan(self, agent_id: str, job_id: str, token: str) -> AgentJob:
+        now = _now()
+        result = self.db.execute(
+            update(AgentJob)
+            .where(
+                AgentJob.id == job_id,
+                AgentJob.agent_id == agent_id,
+                AgentJob.kind == "scan",
+                AgentJob.processing_mode == "on_agent",
+                AgentJob.lease_token_hash == hash_token(token),
+                AgentJob.lease_expires_at > now,
+                AgentJob.status.in_(("claimed", "running")),
+            )
+            .values(
+                status="completed",
+                completed_at=now,
+                active_key=None,
+                lease_token_hash=None,
+                lease_expires_at=None,
+            )
         )
         if result.rowcount != 1:
             self._leased_job(agent_id, job_id, token, active=False)

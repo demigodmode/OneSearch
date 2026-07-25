@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from ..models import AgentJob, IndexedFile, Source
 from ..schemas import Document
-from .agent_jobs import JobConflict
+from .agent_jobs import AgentJobService, JobConflict
 
 
 def canonical_remote_path(path: str) -> str:
@@ -108,7 +108,47 @@ class RemoteIngestService:
         for failure in manifest.failures:
             canonical_remote_path(failure.path)
         job.checkpoint = json.dumps(
-            {"remote_manifest": manifest.model_dump(mode="json")},
+            {"version": 1, "remote_manifest": manifest.model_dump(mode="json")},
             sort_keys=True,
             separators=(",", ":"),
         )
+
+    async def reconcile_completion(self, agent_id: str, job_id: str, lease_token: str) -> None:
+        jobs = AgentJobService(self.db)
+        job = jobs.validate_lease(agent_id, job_id, lease_token)
+        if job.kind != "scan" or job.processing_mode != "on_agent" or not job.source_id:
+            raise JobConflict("invalid remote completion")
+        checkpoint = json.loads(job.checkpoint)
+        raw = checkpoint.get("remote_manifest") if checkpoint.get("version") == 1 else None
+        if raw is None:
+            raise JobConflict("complete manifest required")
+        manifest = ScanManifest.model_validate(raw)
+        if (
+            not manifest.complete
+            or manifest.job_id != job_id
+            or manifest.source_id != job.source_id
+        ):
+            raise JobConflict("complete manifest required")
+        current = {canonical_remote_path(item.path) for item in manifest.files}
+        current.update(canonical_remote_path(item.path) for item in manifest.failures)
+        rows = list(
+            self.db.scalars(select(IndexedFile).where(IndexedFile.source_id == job.source_id))
+        )
+        missing = [row for row in rows if row.path not in current]
+        for row in missing:
+            await self.search_service.delete_document(remote_document_id(job.source_id, row.path))
+        for row in missing:
+            self.db.delete(row)
+        for failure in manifest.failures:
+            path = canonical_remote_path(failure.path)
+            row = self.db.scalar(
+                select(IndexedFile).where(
+                    IndexedFile.source_id == job.source_id, IndexedFile.path == path
+                )
+            )
+            if row is None:
+                row = IndexedFile(source_id=job.source_id, path=path)
+                self.db.add(row)
+            row.status, row.error_message = "failed", failure.error
+        self.db.flush()
+        jobs.complete_reconciled_scan(agent_id, job_id, lease_token)
