@@ -252,6 +252,12 @@ class ExtractUploadRegistry:
     def has(self, job_id: str) -> bool:
         return job_id in self._sessions
 
+    def expire(self, maximum_age: float) -> None:
+        cutoff = time.monotonic() - maximum_age
+        for job_id, session in list(self._sessions.items()):
+            if session.touched_at <= cutoff:
+                self.cleanup(job_id)
+
 
 class RemoteFileCoordinator:
     """Coordinates durable parent cancellation with ephemeral upload cleanup."""
@@ -277,13 +283,6 @@ class RemoteFileCoordinator:
         if all(child.status == "cancelled" for child in children):
             parent.status, parent.active_key = "cancelled", None
         return parent
-
-    def expire(self, maximum_age: float) -> None:
-        cutoff = time.monotonic() - maximum_age
-        for job_id, session in list(self._sessions.items()):
-            if session.touched_at <= cutoff:
-                self.cleanup(job_id)
-
 
 def app_data_temp_directory(database_url: str) -> Path:
     """Keep transient originals next to the configured application database."""
