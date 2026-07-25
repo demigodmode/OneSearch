@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import hashlib
+import os
 import stat
 import tempfile
 from pathlib import Path

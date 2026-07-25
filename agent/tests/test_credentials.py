@@ -55,8 +55,8 @@ def test_docker_forces_file_store(tmp_path: Path):
 
 def test_keyring_name_is_server_scoped():
     assert (
-        KeyringCredentialStore("https://one.test", "agent").service
-        != KeyringCredentialStore("https://two.test", "agent").service
+        KeyringCredentialStore("https://one.test", "agent").username
+        != KeyringCredentialStore("https://two.test", "agent").username
     )
 
 
