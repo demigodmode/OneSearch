@@ -39,7 +39,9 @@ class RemoteExtractionError(RuntimeError):
 
 def _send_extraction_message(connection, payload) -> None:
     data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    connection.send_bytes(data[:1_000_000])
+    if len(data) > 1_000_000:
+        data = b'{"error_type":"RemoteExtractionError","error":"extraction result exceeds IPC limit"}'
+    connection.send_bytes(data)
 
 
 def extraction_process(snapshot, source_id, extraction, connection) -> None:
@@ -48,12 +50,23 @@ def extraction_process(snapshot, source_id, extraction, connection) -> None:
         document = asyncio.run(extractor.extract_with_timeout(snapshot)) if extractor else None
         _send_extraction_message(connection, {"document": document.model_dump(mode="json") if document else None})
     except BaseException as error:
-        _send_extraction_message(connection, {"error": str(error).replace(snapshot, "<temporary>")[:500]})
+        detail = "".join(char for char in str(error).replace(snapshot, "<temporary>") if char >= " ")
+        _send_extraction_message(
+            connection, {"error_type": type(error).__name__, "error": detail[:500]}
+        )
     finally:
         connection.close()
 
 
-async def extract_in_process(snapshot, source_id, extraction, timeout_seconds, *, process_target=extraction_process):
+async def extract_in_process(
+    snapshot,
+    source_id,
+    extraction,
+    timeout_seconds,
+    *,
+    process_target=extraction_process,
+    on_process_start=None,
+):
     """Spawn-isolated extraction with bounded IPC and unconditional child cleanup."""
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
@@ -61,11 +74,18 @@ async def extract_in_process(snapshot, source_id, extraction, timeout_seconds, *
     try:
         process.start()
         sender.close()
+        if on_process_start is not None:
+            on_process_start(process.pid)
         deadline = asyncio.get_running_loop().time() + timeout_seconds
         while asyncio.get_running_loop().time() < deadline:
             if receiver.poll():
-                message = json.loads(receiver.recv_bytes(1_000_000).decode())
+                try:
+                    message = json.loads(receiver.recv_bytes(1_000_000).decode())
+                except (EOFError, OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+                    raise RemoteExtractionError("invalid extractor process result") from error
                 if "error" in message:
+                    if message.get("error_type") == "ValueError":
+                        raise ValueError(message["error"])
                     raise RemoteExtractionError(message["error"])
                 return Document.model_validate(message["document"]) if message["document"] else None
             if not process.is_alive():
@@ -82,7 +102,8 @@ async def extract_in_process(snapshot, source_id, extraction, timeout_seconds, *
             if process.is_alive():
                 process.kill()
                 process.join(timeout=2)
-            process.close()
+            if not process.is_alive():
+                process.close()
         receiver.close()
 
 
