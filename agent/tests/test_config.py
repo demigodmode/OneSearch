@@ -28,3 +28,21 @@ def test_config_preserves_advertised_path_and_rejects_unknown_toml(tmp_path: Pat
     )
     with pytest.raises(ValidationError):
         load_config(config)
+
+
+@pytest.mark.parametrize("url", ["ftp://host", "https://host/?q=1", "https://host/#x"])
+def test_config_rejects_unsafe_urls(tmp_path: Path, url: str):
+    root = tmp_path / "root"
+    root.mkdir()
+    with pytest.raises(ValidationError):
+        AgentConfig(server_url=url, allowed_roots=[{"root_id": "r", "path": str(root)}])
+
+
+def test_config_strips_trailing_slash_and_has_no_secret_field(tmp_path: Path):
+    root = tmp_path / "root"
+    root.mkdir()
+    value = AgentConfig(
+        server_url="http://host/", allowed_roots=[{"root_id": "r", "path": str(root)}]
+    )
+    assert value.server_url == "http://host"
+    assert "token" not in repr(value).lower()

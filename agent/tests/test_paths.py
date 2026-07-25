@@ -44,3 +44,17 @@ def test_symlink_escape_is_rejected_when_supported(tmp_path: Path):
         pytest.skip("symlink creation unavailable")
     with pytest.raises(PathOutsideAllowedRoots):
         resolve_allowed_path(str(link), [AllowedRoot(root_id="docs", path=str(root))])
+
+
+def test_browse_suppresses_symlink_escape(tmp_path: Path):
+    root = tmp_path / "docs"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "safe").write_text("x")
+    try:
+        (root / "escape").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+    entries = browse("docs", "", [AllowedRoot(root_id="docs", path=str(root))])
+    assert [entry.name for entry in entries] == ["safe"]
