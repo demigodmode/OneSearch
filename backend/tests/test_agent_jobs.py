@@ -2,6 +2,13 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from onesearch_shared import (
+    REMOTE_MAX_BATCH_BYTES,
+    REMOTE_MAX_BATCH_DOCUMENTS,
+    REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+    REMOTE_MAX_SCAN_FILES,
+    REMOTE_MAX_SNAPSHOT_BYTES,
+)
 
 from app.api import agent_protocol
 from app.models import Agent, AppSetting, Source
@@ -50,6 +57,45 @@ def test_enqueue_coalesces_one_active_scan_per_source(db_session, remote):
     assert payload["full"] is True
     assert payload["root_path"] == source.root_path
     assert payload["known_files"] == {}
+    assert payload["limits"] == {
+        "max_snapshot_bytes": REMOTE_MAX_SNAPSHOT_BYTES,
+        "max_batch_documents": REMOTE_MAX_BATCH_DOCUMENTS,
+        "max_batch_bytes": REMOTE_MAX_BATCH_BYTES,
+        "max_scan_files": REMOTE_MAX_SCAN_FILES,
+        "max_entries_per_directory": REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+    }
+    assert {
+        "source_name",
+        "unsupported_file_policy",
+        "index_gps_metadata",
+        "max_text_file_size_mb",
+        "media_probe_max_size_mb",
+    } <= set(payload["extraction"])
+
+
+def test_enqueue_snapshots_persisted_extraction_settings(db_session, remote):
+    _agent, source = remote
+    db_session.add_all(
+        [
+            AppSetting(key="unsupported_file_policy", value="skip"),
+            AppSetting(key="index_gps_metadata", value="true"),
+            AppSetting(key="media_probe_max_size_mb", value="0"),
+        ]
+    )
+    db_session.commit()
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    payload = json.loads(job.payload)
+    assert payload["extraction"]["unsupported_file_policy"] == "skip"
+    assert payload["extraction"]["index_gps_metadata"] is True
+    assert payload["extraction"]["media_probe_max_size_mb"] == 0
+    assert payload["limits"]["max_snapshot_bytes"] == REMOTE_MAX_SNAPSHOT_BYTES
+    db_session.scalar(
+        __import__("sqlalchemy")
+        .select(AppSetting)
+        .where(AppSetting.key == "unsupported_file_policy")
+    ).value = "metadata_only"
+    db_session.commit()
+    assert json.loads(job.payload)["extraction"]["unsupported_file_policy"] == "skip"
 
 
 def test_claim_issues_hashed_lease_and_rejects_wrong_agent(db_session, remote):
