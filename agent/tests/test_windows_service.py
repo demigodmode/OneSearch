@@ -201,6 +201,28 @@ def test_install_exception_restores_each_prior_owned_state(monkeypatch, snapshot
     assert restored == [snapshot]
 
 
+@pytest.mark.parametrize("result", [None, 0, 1060])
+def test_remove_clears_owned_values_only_after_success(monkeypatch, result):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    calls = []
+    monkeypatch.setattr(
+        module,
+        "win32serviceutil",
+        SimpleNamespace(HandleCommandLine=lambda *args, **kwargs: calls.append("scm") or result),
+    )
+    monkeypatch.setattr(module, "_delete_value", lambda name: calls.append(("delete", name)))
+    if result in (None, 0):
+        module.remove_service()
+    else:
+        with pytest.raises(RuntimeError):
+            module.remove_service()
+    assert calls[0] == "scm"
+    assert (
+        [item for item in calls if isinstance(item, tuple)]
+        == [("delete", "ConfigPath"), ("delete", "MachineCredential")]
+    ) is (result in (None, 0))
+
+
 def test_service_class_exposes_scm_stop_and_runtime_methods():
     module = importlib.import_module("onesearch_agent.windows_service")
     assert module.OneSearchAgentService._svc_name_ == "OneSearchAgent"
