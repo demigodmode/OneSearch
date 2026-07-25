@@ -40,6 +40,98 @@ def test_scanner_marks_file_bound_incomplete(tmp_path: Path):
     assert manifest.failures[0].error == "scan file limit exceeded"
 
 
+def test_scanner_stops_listing_after_small_file_cap(monkeypatch, tmp_path):
+    from onesearch_agent.paths import SafeDirectoryEntry, SafeDirectoryPage
+
+    listed = []
+
+    def listing(_root_id, relative, _roots, max_entries):
+        listed.append(relative)
+        if relative == "":
+            return SafeDirectoryPage(
+                (
+                    SafeDirectoryEntry("a", "a", True, 0, 0),
+                    SafeDirectoryEntry("later", "later", True, 0, 0),
+                ),
+                False,
+            )
+        if relative == "a":
+            return SafeDirectoryPage(
+                (
+                    SafeDirectoryEntry("a/one.txt", "one.txt", False, 1, 1),
+                    SafeDirectoryEntry("a/two.txt", "two.txt", False, 1, 1),
+                ),
+                False,
+            )
+        raise AssertionError(f"scanner listed after cap: {relative}")
+
+    monkeypatch.setattr(scanner_module, "list_confined_entries_page", listing)
+    manifest = RemoteScanner(
+        "root", [AllowedRoot(root_id="root", path=str(tmp_path))], max_files=1
+    ).scan(job_id="j", source_id="s")
+
+    assert [item.path for item in manifest.files] == ["a/one.txt"]
+    assert manifest.complete is False
+    assert listed == ["", "a"]
+
+
+def test_scanner_prunes_excluded_unreadable_subtree_before_listing(monkeypatch, tmp_path):
+    from onesearch_agent.paths import SafeDirectoryEntry, SafeDirectoryPage
+
+    listed = []
+
+    def listing(_root_id, relative, _roots, max_entries):
+        listed.append(relative)
+        if relative == "":
+            return SafeDirectoryPage(
+                (
+                    SafeDirectoryEntry("excluded", "excluded", True, 0, 0),
+                    SafeDirectoryEntry("keep.txt", "keep.txt", False, 1, 1),
+                ),
+                False,
+            )
+        if relative == "excluded":
+            raise AssertionError("excluded subtree must never be listed")
+        raise AssertionError(f"unexpected directory: {relative}")
+
+    monkeypatch.setattr(scanner_module, "list_confined_entries_page", listing)
+    manifest = RemoteScanner(
+        "root",
+        [AllowedRoot(root_id="root", path=str(tmp_path))],
+        exclude_patterns=["excluded/**"],
+    ).scan(job_id="j", source_id="s")
+
+    assert manifest.complete is True
+    assert [item.path for item in manifest.files] == ["keep.txt"]
+    assert listed == [""]
+
+
+def test_scanner_keeps_deterministic_order_while_streaming(monkeypatch, tmp_path):
+    from onesearch_agent.paths import SafeDirectoryEntry, SafeDirectoryPage
+
+    pages = {
+        "": (
+            SafeDirectoryEntry("z.txt", "z.txt", False, 1, 1),
+            SafeDirectoryEntry("a", "a", True, 0, 0),
+        ),
+        "a": (
+            SafeDirectoryEntry("a/b.txt", "b.txt", False, 1, 1),
+            SafeDirectoryEntry("a/a.txt", "a.txt", False, 1, 1),
+        ),
+    }
+    monkeypatch.setattr(
+        scanner_module,
+        "list_confined_entries_page",
+        lambda _root_id, relative, _roots, max_entries: SafeDirectoryPage(pages[relative], False),
+    )
+
+    manifest = RemoteScanner("root", [AllowedRoot(root_id="root", path=str(tmp_path))]).scan(
+        job_id="j", source_id="s"
+    )
+
+    assert [item.path for item in manifest.files] == ["a/a.txt", "a/b.txt", "z.txt"]
+
+
 def test_scanner_retries_prior_failed_file_with_matching_metadata(tmp_path: Path):
     file = tmp_path / "retry.txt"
     file.write_text("x")
