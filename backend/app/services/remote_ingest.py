@@ -212,9 +212,9 @@ class RemoteIngestService:
         jobs.complete_reconciled_scan(agent_id, job_id, lease_token)
         ids = [remote_document_id(job.source_id, row.path) for row in missing]
         confirmed_many = getattr(self.search_service, "delete_documents_confirmed", None)
-        if confirmed_many:
+        if ids and confirmed_many:
             await confirmed_many(ids)
-        else:
+        elif ids:
             for document_id in ids:
                 confirmed = getattr(self.search_service, "delete_document_confirmed", None)
                 await (

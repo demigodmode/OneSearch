@@ -46,6 +46,14 @@ async def test_confirmed_batch_delete_waits_for_one_successful_task(connected_se
         await connected_service.delete_documents_confirmed(["a", "b"])
 
 
+@pytest.mark.asyncio
+async def test_confirmed_batch_delete_accepts_sdk_task_object(connected_service):
+    connected_service.index.delete_documents.return_value = SimpleNamespace(task_uid=10)
+    connected_service.client.wait_for_task.return_value = SimpleNamespace(status="succeeded")
+    await connected_service.delete_documents_confirmed(["a"])
+    connected_service.client.wait_for_task.assert_called_once_with(10, timeout_in_ms=30000)
+
+
 @pytest.fixture
 def service():
     return MeilisearchService()

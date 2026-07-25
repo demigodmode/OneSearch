@@ -230,7 +230,10 @@ class MeilisearchService:
         if not self.index:
             raise RuntimeError("Index not initialized")
         task = await asyncio.to_thread(self.index.delete_documents, document_ids)
-        task_id = task.get("task_uid") or task.get("taskUid")
+        task_id = (
+            task.get("task_uid") if isinstance(task, dict) else getattr(task, "task_uid", None)
+        )
+        task_id = task_id or (task.get("taskUid") if isinstance(task, dict) else None)
         if task_id is None or self.client is None:
             raise RuntimeError("delete task confirmation unavailable")
         result = await asyncio.to_thread(self.client.wait_for_task, task_id, timeout_in_ms=30000)
