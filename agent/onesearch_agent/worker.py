@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, Strict
 
 from app.services.extractor_config import choose_extractor
 
-from .client import AgentAmbiguousResultError, JobConflict
+from .client import AgentAmbiguousResultError, JobConflict, JobLeaseError
 from .paths import open_confined_file
 from .scanner import RemoteScanner
 
@@ -182,6 +182,42 @@ async def _submit_idempotent(operation, *, attempts=3, sleep=asyncio.sleep):
             if attempt == attempts - 1:
                 raise
             await sleep(min(5, 2**attempt))
+
+
+async def _complete_with_recovery(client, lease, completion):
+    async def status_matches():
+        status = await client.job_status(lease.id)
+        expected = {
+            JobStatus.SUCCEEDED: "completed",
+            JobStatus.FAILED: "failed",
+            JobStatus.CANCELLED: "cancelled",
+        }[completion.status]
+        return status.status, status.status == expected
+
+    try:
+        await client.complete(lease.id, completion, lease.lease_token)
+        return
+    except AgentAmbiguousResultError as error:
+        first = error
+    try:
+        status, matches = await status_matches()
+        if matches:
+            return
+    except Exception as error:
+        raise AgentAmbiguousResultError("terminal completion unresolved") from error
+    if status not in {"claimed", "running"}:
+        raise AgentAmbiguousResultError("terminal completion unresolved") from first
+    try:
+        await client.complete(lease.id, completion, lease.lease_token)
+        return
+    except (AgentAmbiguousResultError, JobLeaseError, JobConflict) as error:
+        try:
+            _status, matches = await status_matches()
+            if matches:
+                return
+        except Exception as query_error:
+            raise AgentAmbiguousResultError("terminal completion unresolved") from query_error
+        raise AgentAmbiguousResultError("terminal completion unresolved") from error
 
 
 class LeaseKeeper:
@@ -341,15 +377,15 @@ async def run_scan_job(
         or (payload is not None and payload.root_id not in {root.root_id for root in roots})
     )
     if invalid:
-        await client.complete(
-            lease.id,
+        await _complete_with_recovery(
+            client,
+            lease,
             JobCompletion(
                 job_id=lease.id,
                 status=JobStatus.FAILED,
                 reason=JobFailureReason.INVALID_REQUEST,
                 detail="invalid scan payload",
             ),
-            lease.lease_token,
         )
         return
     root_id, limits = payload.root_id, payload.limits
@@ -435,8 +471,9 @@ async def run_scan_job(
         )
         await keeper.check()
         if not manifest.complete:
-            await client.complete(
-                lease.id,
+            await _complete_with_recovery(
+                client,
+                lease,
                 JobCompletion(
                     job_id=lease.id,
                     status=JobStatus.FAILED,
@@ -444,11 +481,10 @@ async def run_scan_job(
                     detail="incomplete scan",
                     checkpoint=manifest.checkpoint,
                 ),
-                lease.lease_token,
             )
             return
-        await client.complete(
-            lease.id, JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED), lease.lease_token
+        await _complete_with_recovery(
+            client, lease, JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED)
         )
     except ScanCancelled:
         return

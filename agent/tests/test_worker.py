@@ -1402,3 +1402,51 @@ async def test_worker_cancellation_closes_lease_keeper(monkeypatch, tmp_path):
         for pending in asyncio.all_tasks() - before
         if "LeaseKeeper._run" in repr(pending.get_coro()) and not pending.done()
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcomes,statuses,calls,raises",
+    [
+        (["ambiguous"], ["completed"], 1, None),
+        (["ambiguous", None], ["running"], 2, None),
+        (["ambiguous", "ambiguous"], ["running", "completed"], 2, None),
+        (["ambiguous"], ["failed"], 1, "ambiguous"),
+        (["ambiguous"], ["pending"], 1, "ambiguous"),
+        (["ambiguous"], [RuntimeError("status down")], 1, "ambiguous"),
+    ],
+)
+async def test_complete_recovery_is_bounded_and_never_reverses(outcomes, statuses, calls, raises):
+    from types import SimpleNamespace
+
+    from onesearch_agent.client import AgentAmbiguousResultError
+    from onesearch_agent.worker import _complete_with_recovery
+    from onesearch_shared import JobCompletion, JobStatus
+
+    class Client:
+        def __init__(self):
+            self.outcomes, self.statuses, self.completions = list(outcomes), list(statuses), []
+
+        async def complete(self, *args):
+            self.completions.append(args[1])
+            outcome = self.outcomes.pop(0)
+            if outcome == "ambiguous":
+                raise AgentAmbiguousResultError("lost")
+
+        async def job_status(self, job_id):
+            outcome = self.statuses.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return SimpleNamespace(status=outcome)
+
+    client = Client()
+    lease = SimpleNamespace(id="j", lease_token="t")
+    completion = JobCompletion(job_id="j", status=JobStatus.SUCCEEDED)
+    if raises:
+        with pytest.raises(AgentAmbiguousResultError):
+            await _complete_with_recovery(client, lease, completion)
+    else:
+        await _complete_with_recovery(client, lease, completion)
+    assert len(client.completions) == calls and all(
+        item is completion for item in client.completions
+    )
