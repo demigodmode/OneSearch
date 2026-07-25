@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, Strict
 from app.services.extractor_config import choose_extractor
 
 from .client import AgentAmbiguousResultError, JobConflict, JobLeaseError
-from .paths import open_confined_file
+from .paths import list_confined_entries_page, open_confined_file, resolve_allowed_path
 from .scanner import RemoteScanner
 
 
@@ -490,3 +490,50 @@ async def run_scan_job(
         return
     finally:
         await keeper.close()
+
+
+async def run_browse_job(lease, client, *, roots) -> None:
+    payload = getattr(lease, "payload", {})
+    try:
+        if lease.kind.value != "browse" or payload.get("operation") != "validate":
+            raise ValueError("invalid browse payload")
+        target = resolve_allowed_path(payload["root_path"], roots)
+        if not target.is_dir():
+            raise ValueError("browse root is not a directory")
+        candidates = []
+        for root in roots:
+            root_path = Path(root.path).resolve()
+            try:
+                candidates.append((len(root_path.parts), root, target.relative_to(root_path)))
+            except ValueError:
+                continue
+        _depth, root, relative = max(candidates, key=lambda item: item[0])
+        list_confined_entries_page(root.root_id, relative.as_posix(), roots, max_entries=1)
+    except Exception:
+        completion = JobCompletion(
+            job_id=lease.id,
+            status=JobStatus.FAILED,
+            reason=JobFailureReason.INVALID_REQUEST,
+            detail="invalid browse payload",
+        )
+    else:
+        completion = JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED)
+    await _complete_with_recovery(client, lease, completion)
+
+
+async def dispatch_job(lease, client, *, roots) -> None:
+    if getattr(getattr(lease, "kind", None), "value", None) == "scan":
+        await run_scan_job(lease, client, roots=roots)
+    elif getattr(getattr(lease, "kind", None), "value", None) == "browse":
+        await run_browse_job(lease, client, roots=roots)
+    else:
+        await _complete_with_recovery(
+            client,
+            lease,
+            JobCompletion(
+                job_id=lease.id,
+                status=JobStatus.FAILED,
+                reason=JobFailureReason.INVALID_REQUEST,
+                detail="unsupported job kind",
+            ),
+        )

@@ -18,7 +18,7 @@ from .credentials import (
 )
 from .runtime import run_runtime
 from .service import ServiceError, install, uninstall
-from .worker import run_scan_job
+from .worker import dispatch_job
 
 
 def _config(ctx):
@@ -118,7 +118,7 @@ def run(ctx):
             async with AgentClient(value.server_url, token) as client:
 
                 async def worker(lease, active_client):
-                    await run_scan_job(lease, active_client, roots=value.allowed_roots)
+                    await dispatch_job(lease, active_client, roots=value.allowed_roots)
 
                 await run_runtime(client, worker=worker)
 
