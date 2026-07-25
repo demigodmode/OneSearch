@@ -6,7 +6,15 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
-from onesearch_shared import BatchAck, DocumentBatch, ScanManifest, remote_path_hash
+from onesearch_shared import (
+    REMOTE_MAX_BATCH_BYTES,
+    REMOTE_MAX_MANIFEST_BYTES,
+    BatchAck,
+    DocumentBatch,
+    ScanManifest,
+    canonical_wire_bytes,
+    remote_path_hash,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -37,6 +45,8 @@ class RemoteIngestService:
     async def accept_batch(
         self, agent_id: str, job_id: str, lease_token: str, batch: DocumentBatch
     ):
+        if len(canonical_wire_bytes(batch)) > REMOTE_MAX_BATCH_BYTES:
+            raise JobConflict("batch exceeds wire size limit")
         jobs = AgentJobService(self.db)
         jobs.validate_lease(agent_id, job_id, lease_token)
         if batch.job_id != job_id:
@@ -143,6 +153,8 @@ class RemoteIngestService:
     def accept_manifest(
         self, agent_id: str, job_id: str, lease_token: str, manifest: ScanManifest
     ) -> None:
+        if len(canonical_wire_bytes(manifest)) > REMOTE_MAX_MANIFEST_BYTES:
+            raise JobConflict("manifest exceeds wire size limit")
         AgentJobService(self.db).validate_lease(agent_id, job_id, lease_token)
         job = self.db.get(AgentJob, job_id)
         if (
@@ -161,6 +173,12 @@ class RemoteIngestService:
             if path in paths:
                 raise JobConflict("duplicate manifest path")
             paths.add(path)
+        deleted = [canonical_remote_path(path) for path in manifest.deleted_paths]
+        if len(deleted) != len(set(deleted)):
+            raise JobConflict("duplicate manifest deleted path")
+        failures = [canonical_remote_path(failure.path) for failure in manifest.failures]
+        if len(failures) != len(set(failures)):
+            raise JobConflict("duplicate manifest failure path")
         for failure in manifest.failures:
             canonical_remote_path(failure.path)
         job.checkpoint = json.dumps(
