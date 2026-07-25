@@ -78,6 +78,42 @@ def test_two_sqlite_sessions_coalesce_concurrent_enqueue(tmp_path):
     engine.dispose()
 
 
+def test_server_parent_reconcile_lock_serializes_late_cancel(tmp_path):
+    import json
+
+    from onesearch_shared import ScanManifest
+
+    engine, sessions = _database(tmp_path)
+    seed = sessions()
+    source = seed.get(Source, "source")
+    source.processing_mode = "on_server"
+    parent = AgentJobService(seed).enqueue_scan(source, full=True)
+    parent.status, parent.lease_token_hash, parent.lease_expires_at = "running", None, None
+    parent.checkpoint = json.dumps({"version": 1, "remote_manifest": ScanManifest(job_id=parent.id, source_id=source.id, complete=True).model_dump(mode="json")})
+    seed.add(IndexedFile(source_id="source", path="old.txt", status="success"))
+    seed.commit(); parent_id = parent.id; seed.close()
+    started, release, cancelled, errors = threading.Event(), threading.Event(), threading.Event(), []
+    class Search:
+        async def delete_documents_confirmed(self, ids):
+            started.set(); assert release.wait(5)
+    def settle():
+        db = sessions()
+        try:
+            asyncio.run(RemoteIngestService(db, Search()).settle_server_parent(parent_id)); db.commit()
+        finally: db.close()
+    def cancel():
+        db = sessions()
+        try:
+            assert started.wait(5); AgentJobService(db).cancel(parent_id); db.commit(); cancelled.set()
+        finally: db.close()
+    first = threading.Thread(target=_capture, args=(errors, settle)); second = threading.Thread(target=_capture, args=(errors, cancel))
+    first.start(); assert started.wait(5); second.start(); assert not cancelled.wait(.2); release.set()
+    first.join(10); second.join(10)
+    assert not first.is_alive() and not second.is_alive() and errors == []
+    check = sessions(); assert check.get(AgentJob, parent_id).status == "completed"; assert check.query(IndexedFile).filter_by(path="old.txt").count() == 0
+    check.close(); engine.dispose()
+
+
 def test_two_sqlite_sessions_issue_only_one_claim_lease(tmp_path):
     engine, sessions = _database(tmp_path)
     db = sessions()
