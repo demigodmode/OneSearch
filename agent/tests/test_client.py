@@ -74,6 +74,40 @@ async def test_claim_server_ambiguity_is_not_replayed(status):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["claim", "batch", "complete", "cancel"])
+@pytest.mark.parametrize(
+    "error_type", [httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError, httpx.ConnectError]
+)
+async def test_mutation_transport_errors_are_conservatively_one_request(operation, error_type):
+    calls = 0
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        if error_type is httpx.RemoteProtocolError:
+            raise error_type("lost")
+        raise error_type("lost", request=request)
+
+    class Body:
+        def model_dump(self, mode):
+            return {"job_id": "job"}
+
+    async with AgentClient(
+        "http://server.test", "token", transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(AgentAmbiguousResultError):
+            if operation == "claim":
+                await client.claim()
+            elif operation == "batch":
+                await client.submit_batch("job", Body(), "lease")
+            elif operation == "complete":
+                await client.complete("job", Body(), "lease")
+            else:
+                await client.cancel_ack("job", "lease")
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_auth_status_maps_to_terminal_exception():
     async def handler(request):
         return httpx.Response(401)
