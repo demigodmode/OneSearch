@@ -117,6 +117,20 @@ async def test_bounded_queue_failure_unblocks_backpressured_producer():
         await blocked
 
 
+@pytest.mark.asyncio
+async def test_stream_registry_close_removes_entry_and_wakes_waiter():
+    from app.services.remote_files import RemoteStreamRegistry, RemoteStreamTimeout
+
+    registry = RemoteStreamRegistry()
+    queue = registry.open("job")
+    waiting = asyncio.create_task(queue.get())
+    await asyncio.sleep(0)
+    await registry.close("job")
+    assert registry.get("job") is None
+    with pytest.raises(RemoteStreamTimeout):
+        await waiting
+
+
 def test_on_server_manifest_enqueues_one_extract_job_per_file(db_session, remote):
     from app.models import AgentJob
     from app.services.agent_jobs import AgentJobService

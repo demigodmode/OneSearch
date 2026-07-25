@@ -187,8 +187,16 @@ class RemoteStreamRegistry:
     def get(self, job_id: str) -> BoundedByteQueue | None:
         return self._streams.get(job_id)
 
-    def close(self, job_id: str) -> None:
-        self._streams.pop(job_id, None)
+    def require(self, job_id: str) -> BoundedByteQueue:
+        queue = self.get(job_id)
+        if queue is None:
+            raise RemoteStreamTimeout("stream is not open")
+        return queue
+
+    async def close(self, job_id: str, error: RemoteFileError | None = None) -> None:
+        queue = self._streams.pop(job_id, None)
+        if queue is not None:
+            await queue.fail(error or RemoteStreamTimeout("stream closed"))
 
 
 remote_streams = RemoteStreamRegistry()
