@@ -211,7 +211,11 @@ class AgentJobService:
         for _ in range(3):
             job_id = self.db.scalar(
                 select(AgentJob.id)
-                .where(AgentJob.agent_id == agent_id, AgentJob.status == "pending")
+                .where(
+                    AgentJob.agent_id == agent_id,
+                    AgentJob.status == "pending",
+                    AgentJob.kind.in_(("scan", "browse")),
+                )
                 .order_by(AgentJob.created_at, AgentJob.id)
                 .limit(1)
             )

@@ -613,6 +613,128 @@ def _scan_lease(*, limits=None):
     )
 
 
+def _browse_lease(path: Path, *, operation="validate"):
+    from types import SimpleNamespace
+
+    from onesearch_shared import JobKind
+
+    return SimpleNamespace(
+        id="browse-job",
+        kind=JobKind.BROWSE,
+        lease_token="browse-token",
+        payload={"operation": operation, "root_path": str(path)},
+    )
+
+
+class _BrowseClient:
+    def __init__(self):
+        self.completions = []
+
+    async def complete(self, _job_id, completion, _lease_token):
+        self.completions.append(completion)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_routes_scan_jobs(monkeypatch):
+    called = []
+
+    async def scan(lease, client, *, roots):
+        called.append((lease, client, roots))
+
+    monkeypatch.setattr(worker_module, "run_scan_job", scan)
+    lease = _scan_lease()
+    client = object()
+    await worker_module.dispatch_job(lease, client, roots=[])
+    assert called == [(lease, client, [])]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nested", [False, True])
+async def test_browse_validation_accepts_exact_root_and_nested_directory(tmp_path, nested):
+    target = tmp_path / "nested" if nested else tmp_path
+    target.mkdir(exist_ok=True)
+    client = _BrowseClient()
+
+    await worker_module.run_browse_job(
+        _browse_lease(target),
+        client,
+        roots=[AllowedRoot(root_id="root", path=str(tmp_path))],
+    )
+
+    assert [completion.status.value for completion in client.completions] == ["succeeded"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["outside", "missing", "malformed"])
+async def test_browse_validation_rejects_bad_payloads_without_host_paths(tmp_path, case):
+    target = {
+        "outside": tmp_path.parent,
+        "missing": tmp_path / "missing",
+        "malformed": tmp_path,
+    }[case]
+    client = _BrowseClient()
+    lease = _browse_lease(target, operation="unexpected" if case == "malformed" else "validate")
+
+    await worker_module.run_browse_job(
+        lease, client, roots=[AllowedRoot(root_id="root", path=str(tmp_path))]
+    )
+
+    completion = client.completions[0]
+    assert completion.status.value == "failed"
+    assert completion.detail == "invalid browse payload"
+    assert str(tmp_path) not in completion.detail
+
+
+@pytest.mark.asyncio
+async def test_browse_validation_rejects_unreadable_directory_without_host_path(
+    monkeypatch, tmp_path
+):
+    client = _BrowseClient()
+
+    def unreadable(*_args, **_kwargs):
+        raise OSError(f"permission denied: {tmp_path}")
+
+    monkeypatch.setattr(worker_module, "list_confined_entries_page", unreadable)
+    await worker_module.run_browse_job(
+        _browse_lease(tmp_path),
+        client,
+        roots=[AllowedRoot(root_id="root", path=str(tmp_path))],
+    )
+
+    completion = client.completions[0]
+    assert completion.status.value == "failed"
+    assert completion.detail == "invalid browse payload"
+    assert str(tmp_path) not in completion.detail
+
+
+@pytest.mark.asyncio
+async def test_dispatch_browse_never_calls_scan_job(monkeypatch, tmp_path):
+    async def scan(*_args, **_kwargs):
+        raise AssertionError("browse must not run scan")
+
+    monkeypatch.setattr(worker_module, "run_scan_job", scan)
+    client = _BrowseClient()
+    await worker_module.dispatch_job(
+        _browse_lease(tmp_path),
+        client,
+        roots=[AllowedRoot(root_id="root", path=str(tmp_path))],
+    )
+    assert client.completions[0].status.value == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_unknown_kind_does_not_complete_job():
+    from types import SimpleNamespace
+
+    class Client:
+        async def complete(self, *_args):
+            raise AssertionError("unsupported job must remain uncompleted")
+
+    lease = SimpleNamespace(kind=SimpleNamespace(value="extract_file"))
+    with pytest.raises(ValueError, match="unsupported job kind"):
+        await worker_module.dispatch_job(lease, Client(), roots=[])
+
+
 @pytest.mark.asyncio
 async def test_incomplete_manifest_is_submitted_then_failed_with_checkpoint(monkeypatch, tmp_path):
     from onesearch_shared import JobFailureReason, ScanCheckpoint, ScanManifest

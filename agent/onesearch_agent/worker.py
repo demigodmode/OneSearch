@@ -527,13 +527,4 @@ async def dispatch_job(lease, client, *, roots) -> None:
     elif getattr(getattr(lease, "kind", None), "value", None) == "browse":
         await run_browse_job(lease, client, roots=roots)
     else:
-        await _complete_with_recovery(
-            client,
-            lease,
-            JobCompletion(
-                job_id=lease.id,
-                status=JobStatus.FAILED,
-                reason=JobFailureReason.INVALID_REQUEST,
-                detail="unsupported job kind",
-            ),
-        )
+        raise ValueError("unsupported job kind")

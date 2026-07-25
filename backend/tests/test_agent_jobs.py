@@ -11,7 +11,7 @@ from onesearch_shared import (
 )
 
 from app.api import agent_protocol
-from app.models import Agent, AppSetting, Source
+from app.models import Agent, AgentJob, AppSetting, Source
 from app.services.agent_auth import create_agent_token, hash_token
 from app.services.agent_jobs import AgentJobService, JobConflict, JobNotFound
 
@@ -71,6 +71,24 @@ def test_enqueue_coalesces_one_active_scan_per_source(db_session, remote):
         "max_text_file_size_mb",
         "media_probe_max_size_mb",
     } <= set(payload["extraction"])
+
+
+def test_claim_next_leaves_unsupported_pending_job_for_future_worker(db_session, remote):
+    agent, source = remote
+    unsupported = AgentJob(
+        id="extract-later",
+        agent_id=agent.id,
+        source_id=source.id,
+        kind="extract_file",
+        status="pending",
+    )
+    db_session.add(unsupported)
+    db_session.commit()
+
+    assert AgentJobService(db_session).claim_next(agent.id) is None
+    db_session.refresh(unsupported)
+    assert unsupported.status == "pending"
+    assert unsupported.attempts == 0
 
 
 def test_enqueue_snapshots_persisted_extraction_settings(db_session, remote):
