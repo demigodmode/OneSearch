@@ -96,14 +96,14 @@ class AgentClient:
         return result
 
     async def _request(
-        self, method, path, *, json=None, token=True, headers=None, retry=True, mutation=False
+        self, method, path, *, json=None, content=None, params=None, token=True, headers=None, retry=True, mutation=False
     ):
         for attempt in range(4):
             try:
                 request_headers = self._headers(token)
                 request_headers.update(headers or {})
                 response = await self.client.request(
-                    method, path, json=json, headers=request_headers
+                    method, path, json=json, content=content, params=params, headers=request_headers
                 )
             except httpx.TransportError as error:
                 if attempt == 3 or not retry:
@@ -261,11 +261,12 @@ class AgentClient:
             params["checksum"] = checksum
         if stream_checksum is not None:
             params["stream_checksum"] = stream_checksum
-        response = await self.client.put(
+        return await self._request(
+            "PUT",
             f"/api/agent/v1/jobs/{job_id}/file-chunks",
-            params=params,
             content=data,
-            headers={**self._headers(), "X-OneSearch-Lease-Token": lease_token},
+            params=params,
+            headers={"X-OneSearch-Lease-Token": lease_token},
+            retry=False,
+            mutation=True,
         )
-        response.raise_for_status()
-        return response

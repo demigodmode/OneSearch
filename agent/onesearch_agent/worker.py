@@ -613,6 +613,9 @@ async def run_extract_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) 
         )
     except asyncio.CancelledError:
         raise
+    except JobConflict:
+        await client.cancel_ack(lease.id, lease.lease_token)
+        return
     except Exception as error:
         await _complete_with_recovery(
             client,
