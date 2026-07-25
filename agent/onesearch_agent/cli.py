@@ -38,9 +38,9 @@ def enroll(ctx, server):
     try:
         if store.load(optional=True) is not None:
             raise click.ClickException("a credential already exists")
-    except (AttributeError, TypeError):
+    except (AttributeError, TypeError) as error:
         if getattr(store, "path", None) and store.path.exists():
-            raise click.ClickException("a credential already exists")
+            raise click.ClickException("a credential already exists") from error
     code = click.prompt("Enrollment code", hide_input=True)
 
     async def go():
