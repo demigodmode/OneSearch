@@ -75,22 +75,26 @@ def test_enqueue_coalesces_one_active_scan_per_source(db_session, remote):
     } <= set(payload["extraction"])
 
 
-def test_claim_next_leaves_unsupported_pending_job_for_future_worker(db_session, remote):
+def test_claim_next_leases_extract_file_job_for_remote_transfer(db_session, remote):
     agent, source = remote
-    unsupported = AgentJob(
+    job = AgentJob(
         id="extract-later",
         agent_id=agent.id,
         source_id=source.id,
         kind="extract_file",
         status="pending",
     )
-    db_session.add(unsupported)
+    db_session.add(job)
     db_session.commit()
 
-    assert AgentJobService(db_session).claim_next(agent.id) is None
-    db_session.refresh(unsupported)
-    assert unsupported.status == "pending"
-    assert unsupported.attempts == 0
+    lease = AgentJobService(db_session).claim_next(agent.id)
+
+    assert lease is not None
+    assert lease.id == job.id and lease.kind.value == "extract_file"
+    assert lease.source_id == source.id and lease.lease_token
+    db_session.refresh(job)
+    assert job.status == "claimed" and job.attempts == 1
+    assert job.lease_token_hash is not None and job.lease_expires_at is not None
 
 
 def test_enqueue_snapshots_persisted_extraction_settings(db_session, remote):
