@@ -17,6 +17,7 @@ except ImportError:  # keep package imports safe on Linux
 
 CONFIG_VALUE = "ConfigPath"
 TOKEN_VALUE = "MachineCredential"
+_MISSING = object()
 
 
 def _parameters_key():
@@ -57,6 +58,44 @@ def clear_config() -> None:
         raise RuntimeError("unable to remove service configuration") from error
 
 
+def _raw_value(name):
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _parameters_key())
+        try:
+            return winreg.QueryValueEx(key, name)
+        finally:
+            winreg.CloseKey(key)
+    except OSError:
+        return _MISSING
+
+
+def _delete_value(name):
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _parameters_key(), 0, winreg.KEY_SET_VALUE)
+        try:
+            winreg.DeleteValue(key, name)
+        finally:
+            winreg.CloseKey(key)
+    except FileNotFoundError:
+        return
+
+
+def _snapshot_parameters():
+    return {CONFIG_VALUE: _raw_value(CONFIG_VALUE), TOKEN_VALUE: _raw_value(TOKEN_VALUE)}
+
+
+def _restore_parameters(snapshot) -> None:
+    for name, value in snapshot.items():
+        if value is _MISSING:
+            _delete_value(name)
+        else:
+            key = winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, _parameters_key())
+            try:
+                winreg.SetValueEx(key, name, 0, value[1], value[0])
+            finally:
+                winreg.CloseKey(key)
+
+
 def persist_machine_credential(token: str) -> None:
     if not token or winreg is None:
         raise RuntimeError("machine credential storage is unavailable")
@@ -88,6 +127,34 @@ def machine_credential() -> str:
         return token
     except Exception as error:
         raise RuntimeError("machine credential is unavailable") from error
+
+
+def install_service(config: str, token: str) -> None:
+    """Register SCM service after writing machine credential in-process."""
+    if win32serviceutil is None:
+        raise RuntimeError("pywin32 is required for the Windows service")
+    snapshot = _snapshot_parameters()
+    try:
+        persist_config(config)
+        persist_machine_credential(token)
+        result = win32serviceutil.HandleCommandLine(
+            OneSearchAgentService, argv=[sys.argv[0], "--startup", "auto", "install"]
+        )
+        if result not in (None, 0):
+            raise RuntimeError("Windows service command failed")
+    except Exception as error:
+        _restore_parameters(snapshot)
+        raise RuntimeError("Windows service installation failed") from error
+
+
+def remove_service() -> None:
+    if win32serviceutil is None:
+        raise RuntimeError("pywin32 is required for the Windows service")
+    result = win32serviceutil.HandleCommandLine(OneSearchAgentService, argv=[sys.argv[0], "remove"])
+    if result not in (None, 0):
+        raise RuntimeError("Windows service command failed")
+    _delete_value(CONFIG_VALUE)
+    _delete_value(TOKEN_VALUE)
 
 
 _ServiceBase = win32serviceutil.ServiceFramework if win32serviceutil else object

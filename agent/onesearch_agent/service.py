@@ -43,19 +43,13 @@ def install(config: Path, executable: str, *, system: str | None = None, home: P
         raise ServiceError("services are unsupported in containers")
     validate_service_backend(config)
     if system == "nt":
-        _run(
-            [
-                executable,
-                "-m",
-                "onesearch_agent.windows_service",
-                "--config",
-                str(config),
-                "--startup",
-                "auto",
-                "install",
-            ]
-        )
-        _run([executable, "-m", "onesearch_agent.windows_service", "start"])
+        from . import windows_service
+
+        token = credential_store(load_config(config)).load()
+        try:
+            windows_service.install_service(str(config), token)
+        except Exception as error:
+            raise ServiceError("Windows service installation failed") from error
         return
     if system == "posix":
         unit = (home or Path.home()) / ".config/systemd/user/onesearch-agent.service"
@@ -74,9 +68,12 @@ def install(config: Path, executable: str, *, system: str | None = None, home: P
 def uninstall(*, system: str | None = None, home: Path | None = None):
     system = system or os.name
     if system == "nt":
-        executable = os.sys.executable
-        _run([executable, "-m", "onesearch_agent.windows_service", "stop"])
-        _run([executable, "-m", "onesearch_agent.windows_service", "remove"])
+        from . import windows_service
+
+        try:
+            windows_service.remove_service()
+        except Exception as error:
+            raise ServiceError("Windows service removal failed") from error
         return
     if system == "posix":
         unit = (home or Path.home()) / ".config/systemd/user/onesearch-agent.service"

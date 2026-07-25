@@ -192,11 +192,21 @@ async def test_worker_can_acknowledge_cancellation_lease():
 def test_windows_service_uses_pywin32_argv(monkeypatch, tmp_path: Path):
     calls = []
     monkeypatch.setattr("onesearch_agent.service.validate_service_backend", lambda path: None)
-    monkeypatch.setattr("onesearch_agent.service._run", lambda args: calls.append(args))
+    monkeypatch.setattr("onesearch_agent.service.load_config", lambda path: object())
+    monkeypatch.setattr(
+        "onesearch_agent.service.credential_store",
+        lambda config: type("S", (), {"load": lambda self: "secret"})(),
+    )
+    monkeypatch.setattr(
+        "onesearch_agent.windows_service.install_service",
+        lambda path, token: calls.append((path, token)),
+    )
+    monkeypatch.setattr(
+        "onesearch_agent.windows_service.remove_service", lambda: calls.append(("remove",))
+    )
     install(tmp_path / "config.toml", "C:/Program Files/agent.exe", system="nt")
     uninstall(system="nt")
-    assert calls[0][1:3] == ["-m", "onesearch_agent.windows_service"]
-    assert calls[-1][1:3] == ["-m", "onesearch_agent.windows_service"]
+    assert calls[0][1] == "secret" and calls[-1] == ("remove",)
 
 
 def test_unsupported_service_fails(tmp_path: Path):
