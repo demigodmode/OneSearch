@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.api import agent_protocol
 from app.models import Agent, AppSetting, Source
 from app.services.agent_auth import create_agent_token, hash_token
 from app.services.agent_jobs import AgentJobService, JobConflict, JobNotFound
@@ -162,7 +163,7 @@ def test_expired_cancelling_job_is_finalized_and_frees_the_source(db_session, re
 
 
 def test_agent_job_api_claim_progress_batch_completion_and_cancellation_ack(
-    client, db_session, remote
+    client, db_session, remote, monkeypatch
 ):
     agent, source = remote
     token = create_agent_token()
@@ -170,6 +171,12 @@ def test_agent_job_api_claim_progress_batch_completion_and_cancellation_ack(
     db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
     db_session.commit()
     service = AgentJobService(db_session)
+
+    class FakeIngest:
+        async def ingest(self, *args):
+            return []
+
+    monkeypatch.setattr(agent_protocol, "get_remote_ingest_service", lambda db: FakeIngest())
     job = service.enqueue_scan(source, full=True)
     db_session.commit()
     headers = {"Authorization": f"Bearer {token}"}

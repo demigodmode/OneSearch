@@ -148,6 +148,16 @@ class ScanFile(WireModel):
     content_hash: str | None = None
 
 
+class ScanFailure(WireModel):
+    path: str = Field(min_length=1)
+    error: str = Field(min_length=1, max_length=500)
+
+    @field_validator("error", mode="before")
+    @classmethod
+    def normalize_error(cls, value: object) -> object:
+        return _strip_nonempty(value)
+
+
 class ScanCheckpoint(WireModel):
     cursor: str = Field(min_length=1)
     scanned_count: int = Field(ge=0)
@@ -157,9 +167,17 @@ class ScanManifest(WireModel):
     job_id: str = Field(min_length=1)
     source_id: str = Field(min_length=1)
     files: list[ScanFile] = Field(default_factory=list)
+    failures: list[ScanFailure] = Field(default_factory=list)
     deleted_paths: list[str] = Field(default_factory=list)
     checkpoint: ScanCheckpoint | None = None
     complete: bool = False
+
+    @model_validator(mode="after")
+    def validate_unique_paths(self) -> ScanManifest:
+        paths = [item.path for item in self.files]
+        if len(paths) != len(set(paths)):
+            raise ValueError("manifest file paths must be unique")
+        return self
 
 
 class NormalizedRemoteDocument(WireModel):

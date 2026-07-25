@@ -21,6 +21,7 @@ from onesearch_shared.protocol import (
     ProtocolCompatibilityResponse,
     ProtocolVersionRange,
     ScanCheckpoint,
+    ScanFailure,
     ScanFile,
     ScanManifest,
 )
@@ -272,6 +273,26 @@ def test_scan_manifest_round_trip_preserves_checkpoint():
     )
 
     assert_json_round_trip(manifest)
+
+
+def test_complete_manifest_carries_bounded_file_failures_and_rejects_duplicate_paths():
+    manifest = ScanManifest(
+        job_id="job-1",
+        source_id="remote-1",
+        files=[ScanFile(path="a.txt", size_bytes=1, modified_at=1)],
+        failures=[ScanFailure(path="a.txt", error="extract failed")],
+        complete=True,
+    )
+    assert_json_round_trip(manifest)
+    with pytest.raises(ValidationError):
+        ScanManifest(
+            job_id="job-1",
+            source_id="remote-1",
+            files=[
+                ScanFile(path="a.txt", size_bytes=1, modified_at=1),
+                ScanFile(path="a.txt", size_bytes=1, modified_at=1),
+            ],
+        )
 
 
 def test_document_batch_and_ack_round_trip():

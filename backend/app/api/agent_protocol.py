@@ -4,6 +4,7 @@
 """Versioned protocol endpoints used by remote indexing agents."""
 
 import asyncio
+import hashlib
 import json
 import time
 import uuid
@@ -19,14 +20,16 @@ from onesearch_shared import (
     DocumentBatch,
     JobCompletion,
     JobProgress,
+    ScanManifest,
 )
 from onesearch_shared import (
     AgentHeartbeat as AgentHeartbeatRequest,
 )
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db.database import get_db
-from ..models import Agent
+from ..models import Agent, AgentBatch
 from ..schemas import AgentHeartbeatResponse
 from ..services.agent_auth import (
     consume_enrollment_code,
@@ -38,6 +41,8 @@ from ..services.agent_auth import (
     require_remote_agents_enabled,
 )
 from ..services.agent_jobs import AgentJobService, JobConflict, JobLeaseError, JobNotFound
+from ..services.remote_ingest import RemoteIngestService
+from ..services.search import meili_service
 
 router = APIRouter(prefix="/api/agent/v1", tags=["agent-protocol"])
 Database = Annotated[Session, Depends(get_db)]
@@ -48,6 +53,10 @@ CLAIM_TIMEOUT_SECONDS = 25
 CLAIM_POLL_SECONDS = 1
 claim_clock = time.monotonic
 claim_sleep = asyncio.sleep
+
+
+def get_remote_ingest_service(db: Session) -> RemoteIngestService:
+    return RemoteIngestService(db, meili_service)
 
 
 def make_claim_session(db: Session) -> Session:
@@ -223,7 +232,25 @@ async def submit_batch(
     if request.job_id != job_id or lease_token is None:
         raise HTTPException(status_code=401, detail="Invalid or expired job lease")
     try:
-        result = AgentJobService(db).accept_batch(
+        jobs = AgentJobService(db)
+        leased = jobs._leased_job(agent.id, job_id, lease_token)
+        canonical = json.dumps(
+            request.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+        checksum = hashlib.sha256(canonical.encode()).hexdigest()
+        previous = db.scalar(
+            select(AgentBatch).where(
+                AgentBatch.job_id == job_id, AgentBatch.idempotency_key == request.batch_id
+            )
+        )
+        if previous is not None and previous.checksum != checksum:
+            raise JobConflict()
+        if leased.processing_mode == "on_agent" and previous is None:
+            await get_remote_ingest_service(db).ingest(agent.id, job_id, request)
+        result = jobs.accept_batch(
             agent.id, job_id, lease_token, request.batch_id, request.model_dump(mode="json")
         )
         db.commit()
@@ -231,6 +258,27 @@ async def submit_batch(
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()
         raise _job_error(error) from error
+
+
+@router.post("/jobs/{job_id}/manifest", dependencies=[Depends(require_remote_agents_enabled)])
+async def submit_manifest(
+    job_id: str,
+    request: ScanManifest,
+    agent: ApprovedAgent,
+    db: Database,
+    lease_token: Annotated[str | None, Header(alias=LEASE_TOKEN_HEADER)] = None,
+):
+    if request.job_id != job_id or lease_token is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired job lease")
+    try:
+        jobs = AgentJobService(db)
+        jobs._leased_job(agent.id, job_id, lease_token)
+        get_remote_ingest_service(db).store_manifest(agent.id, job_id, request)
+        db.commit()
+    except (JobNotFound, JobLeaseError, JobConflict) as error:
+        db.rollback()
+        raise _job_error(error) from error
+    return {"status": "ok"}
 
 
 @router.post("/jobs/{job_id}/complete", dependencies=[Depends(require_remote_agents_enabled)])

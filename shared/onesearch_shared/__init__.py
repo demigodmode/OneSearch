@@ -22,6 +22,7 @@ from .protocol import (
     ProtocolCompatibilityResponse,
     ProtocolVersionRange,
     ScanCheckpoint,
+    ScanFailure,
     ScanFile,
     ScanManifest,
     WireModel,
@@ -50,6 +51,7 @@ __all__ = [
     "ProtocolVersionRange",
     "ScanCheckpoint",
     "ScanFile",
+    "ScanFailure",
     "ScanManifest",
     "WireModel",
 ]

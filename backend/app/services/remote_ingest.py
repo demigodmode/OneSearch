@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timezone
 
-from onesearch_shared import DocumentBatch
+from onesearch_shared import DocumentBatch, ScanManifest
 from sqlalchemy import select
 
 from ..models import AgentJob, IndexedFile, Source
@@ -87,3 +88,27 @@ class RemoteIngestService:
                 None,
             )
         return documents
+
+    def store_manifest(self, agent_id: str, job_id: str, manifest: ScanManifest) -> None:
+        job = self.db.get(AgentJob, job_id)
+        if (
+            job is None
+            or job.agent_id != agent_id
+            or job.source_id != manifest.source_id
+            or job.processing_mode != "on_agent"
+            or manifest.job_id != job_id
+        ):
+            raise JobConflict("invalid remote manifest")
+        paths = set()
+        for item in manifest.files:
+            path = canonical_remote_path(item.path)
+            if path in paths:
+                raise JobConflict("duplicate manifest path")
+            paths.add(path)
+        for failure in manifest.failures:
+            canonical_remote_path(failure.path)
+        job.checkpoint = json.dumps(
+            {"remote_manifest": manifest.model_dump(mode="json")},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
