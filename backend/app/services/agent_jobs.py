@@ -304,7 +304,27 @@ class AgentJobService:
                 lease_expires_at=None,
             )
         )
+        self.finalize_cancelled_server_parents()
         return result.rowcount + cancelling.rowcount
+
+    def finalize_cancelled_server_parents(self, parent_ids=None) -> int:
+        parents = self.db.scalars(
+            select(AgentJob).where(
+                AgentJob.kind == "scan", AgentJob.processing_mode == "on_server", AgentJob.status == "cancelling"
+            )
+        )
+        count = 0
+        for parent in parents:
+            if parent_ids is not None and parent.id not in parent_ids:
+                continue
+            children = [
+                child for child in self.db.scalars(select(AgentJob).where(AgentJob.kind == "extract_file"))
+                if json.loads(child.payload).get("parent_job_id") == parent.id
+            ]
+            if all(child.status in {"completed", "failed", "cancelled"} for child in children):
+                parent.status, parent.active_key, parent.completed_at = "cancelled", None, _now()
+                count += 1
+        return count
 
     def claim_next(self, agent_id: str) -> AgentJobLease | None:
         self.fail_expired_leases()
@@ -623,4 +643,7 @@ class AgentJobService:
         if result.rowcount != 1:
             self._leased_job(agent_id, job_id, token, active=False)
             raise JobConflict()
-        return self.db.get(AgentJob, job_id)
+        job = self.db.get(AgentJob, job_id)
+        if job.kind == "extract_file":
+            self.finalize_cancelled_server_parents([json.loads(job.payload).get("parent_job_id")])
+        return job
