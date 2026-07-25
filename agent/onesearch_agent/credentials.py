@@ -61,7 +61,10 @@ class FileCredentialStore:
                 os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w") as handle:
                 handle.write(token)
-            os.replace(name, self.path)
+            try:
+                os.link(name, self.path)
+            except FileExistsError as error:
+                raise CredentialError("credential already exists") from error
         finally:
             if os.path.exists(name):
                 os.unlink(name)
