@@ -68,3 +68,10 @@ def test_registry_cleanup_error_is_safe(monkeypatch):
     monkeypatch.setattr(module, "winreg", Registry())
     with pytest.raises(RuntimeError, match="unable to remove service configuration"):
         module.clear_config()
+
+
+def test_service_class_exposes_scm_stop_and_runtime_methods():
+    module = importlib.import_module("onesearch_agent.windows_service")
+    assert module.OneSearchAgentService._svc_name_ == "OneSearchAgent"
+    assert callable(module.OneSearchAgentService.SvcStop)
+    assert callable(module.OneSearchAgentService.SvcDoRun)
