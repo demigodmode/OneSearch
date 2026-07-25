@@ -85,6 +85,7 @@ def _run_service(stop_event) -> None:
         run_runtime(
             agent_client(config.server_url, token),
             stopped=lambda: win32event.WaitForSingleObject(stop_event, 0) == 0,
+            wait_stopped=lambda: asyncio.to_thread(win32event.WaitForSingleObject, stop_event, -1),
         )
     )
 

@@ -17,7 +17,20 @@ async def run_runtime(
     sleep=asyncio.sleep,
     random=lambda: 0,
     stopped=lambda: False,
+    wait_stopped=None,
 ):
+    async def pause(seconds):
+        if wait_stopped is None:
+            await sleep(seconds)
+            return stopped()
+        timer = asyncio.create_task(sleep(seconds))
+        stopper = asyncio.create_task(wait_stopped())
+        done, pending = await asyncio.wait({timer, stopper}, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        return stopper in done
+
     failures = 0
     while True:
         if stopped():
@@ -36,7 +49,9 @@ async def run_runtime(
             failures += 1
             if stopped():
                 return
-            await sleep(min(60, 2 ** min(failures, 6) + random()))
+            if await pause(min(60, 2 ** min(failures, 6) + random())):
+                return
             continue
         failures = 0
-        await sleep(interval)
+        if await pause(interval):
+            return
