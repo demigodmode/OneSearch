@@ -27,6 +27,30 @@ async def test_claim_204_returns_none_and_headers_do_not_leak_token():
 
 
 @pytest.mark.asyncio
+async def test_job_status_uses_authenticated_get_and_strict_response_model():
+    seen = {}
+
+    async def handler(request):
+        seen["method"], seen["path"], seen["authorization"] = (
+            request.method,
+            request.url.path,
+            request.headers.get("authorization"),
+        )
+        return httpx.Response(200, json={"job_id": "job", "status": "completed"})
+
+    async with AgentClient(
+        "http://server.test", "token", transport=httpx.MockTransport(handler)
+    ) as client:
+        response = await client.job_status("job")
+    assert response.job_id == "job" and response.status == "completed"
+    assert seen == {
+        "method": "GET",
+        "path": "/api/agent/v1/jobs/job/status",
+        "authorization": "Bearer token",
+    }
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ["claim", "batch", "complete", "cancel"])
 async def test_mutation_lost_response_is_one_request_and_ambiguous(operation):
     calls = 0
