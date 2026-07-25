@@ -194,10 +194,36 @@ async def test_server_parent_settlement_waits_then_completes_without_children(db
     parent.checkpoint = json.dumps({"version": 1, "remote_manifest": ScanManifest(
         job_id=parent.id, source_id=source.id, complete=True
     ).model_dump(mode="json")})
+    db_session.flush()
 
     class Search:
         async def delete_documents_confirmed(self, ids):
             assert ids == []
 
     result = await RemoteIngestService(db_session, Search()).settle_server_parent(parent.id)
+    db_session.refresh(parent)
     assert result == "completed" and parent.active_key is None
+
+
+@pytest.mark.asyncio
+async def test_server_parent_failed_child_never_deletes_indexed_file(db_session, remote):
+    import json
+
+    from onesearch_shared import ScanManifest
+
+    from app.models import IndexedFile
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_ingest import RemoteIngestService
+
+    _agent, source = remote
+    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
+    child = AgentJobService(db_session).enqueue_extract_files(parent, [{"path":"a.txt","size_bytes":1,"modified_at":1,"content_hash":None}])[0]
+    parent.status, parent.lease_token_hash = "running", None
+    parent.checkpoint = json.dumps({"version":1,"remote_manifest":ScanManifest(job_id=parent.id, source_id=source.id, complete=True).model_dump(mode="json")})
+    child.status = "failed"
+    old = IndexedFile(source_id=source.id, path="old.txt", status="success")
+    db_session.add(old)
+    class Search:
+        async def delete_documents_confirmed(self, ids): raise AssertionError("must not delete")
+    assert await RemoteIngestService(db_session, Search()).settle_server_parent(parent.id) == "failed"
+    assert old in db_session and parent.status == "failed"

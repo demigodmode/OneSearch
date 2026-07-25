@@ -576,6 +576,17 @@ class AgentJobService:
         job = self.db.get(AgentJob, job_id)
         if job is None:
             raise JobNotFound()
+        if job.kind == "scan" and job.processing_mode == "on_server":
+            children = [
+                child
+                for child in self.db.scalars(select(AgentJob).where(AgentJob.kind == "extract_file"))
+                if json.loads(child.payload).get("parent_job_id") == job.id
+            ]
+            for child in children:
+                if child.status == "pending":
+                    child.status, child.active_key, child.completed_at = "cancelled", None, now
+                elif child.status in {"claimed", "running"}:
+                    child.status = "cancelling"
         if job.status not in {"cancelling", "completed", "failed", "cancelled"}:
             raise JobConflict()
         return job

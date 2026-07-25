@@ -15,7 +15,7 @@ from onesearch_shared import (
     canonical_wire_bytes,
     remote_path_hash,
 )
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from ..models import AgentBatch, AgentJob, IndexedFile, Source
@@ -221,6 +221,17 @@ class RemoteIngestService:
         rows = list(self.db.scalars(select(IndexedFile).where(IndexedFile.source_id == parent.source_id)))
         missing = [row for row in rows if row.path not in current]
         ids = [remote_document_id(parent.source_id, row.path) for row in missing]
+        locked = self.db.execute(
+            update(AgentJob)
+            .where(
+                AgentJob.id == parent.id,
+                AgentJob.status == "running",
+                AgentJob.lease_token_hash.is_(None),
+            )
+            .values(status="completed", active_key=None, completed_at=datetime.now(timezone.utc).replace(tzinfo=None))
+        )
+        if locked.rowcount != 1:
+            return self.db.get(AgentJob, parent.id).status
         confirmed_many = getattr(self.search_service, "delete_documents_confirmed", None)
         if ids and confirmed_many:
             await confirmed_many(ids)
@@ -230,9 +241,6 @@ class RemoteIngestService:
                 await (confirmed(document_id) if confirmed else self.search_service.delete_document(document_id))
         for row in missing:
             self.db.delete(row)
-        parent.status, parent.active_key, parent.completed_at = (
-            "completed", None, datetime.now(timezone.utc).replace(tzinfo=None)
-        )
         self.db.flush()
         return "completed"
 

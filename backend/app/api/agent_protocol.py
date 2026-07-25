@@ -333,6 +333,9 @@ async def complete_job(
                 if request.checkpoint
                 else None,
             )
+            if job.kind == "extract_file" and job.processing_mode == "on_server":
+                parent_id = json.loads(job.payload)["parent_job_id"]
+                await get_remote_ingest_service(db).settle_server_parent(parent_id)
         db.commit()
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()
