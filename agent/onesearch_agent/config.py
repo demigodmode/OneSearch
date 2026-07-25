@@ -68,6 +68,8 @@ class AgentConfig(BaseModel):
             ids.add(root.root_id)
         if self.state_dir.exists() and self.state_dir.is_symlink():
             raise ValueError("state directory must not be a symlink")
+        if not self.state_dir.is_absolute():
+            raise ValueError("state directory must be absolute")
         return self
 
 

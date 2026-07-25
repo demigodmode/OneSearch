@@ -51,6 +51,10 @@ class JobLeaseError(AgentError):
     pass
 
 
+class AgentAmbiguousResult(AgentError):
+    pass
+
+
 def retry_delay(attempt: int, *, random=_random.random) -> float:
     return min(60, (2**attempt) + random())
 
@@ -90,7 +94,9 @@ class AgentClient:
             result["Authorization"] = f"Bearer {self.token}"
         return result
 
-    async def _request(self, method, path, *, json=None, token=True, headers=None, retry=True):
+    async def _request(
+        self, method, path, *, json=None, token=True, headers=None, retry=True, mutation=False
+    ):
         for attempt in range(4):
             try:
                 request_headers = self._headers(token)
@@ -100,6 +106,8 @@ class AgentClient:
                 )
             except httpx.TransportError as error:
                 if attempt == 3 or not retry:
+                    if mutation:
+                        raise AgentAmbiguousResult("operation result is unknown") from error
                     raise AgentError("server connection failed") from error
                 await self.sleep(retry_delay(attempt, random=self.random))
                 continue
@@ -167,7 +175,9 @@ class AgentClient:
         )
 
     async def claim(self):
-        response = await self._request("POST", "/api/agent/v1/jobs/claim")
+        response = await self._request(
+            "POST", "/api/agent/v1/jobs/claim", retry=False, mutation=True
+        )
         return (
             None if response.status_code == 204 else AgentJobLease.model_validate(response.json())
         )
@@ -178,6 +188,8 @@ class AgentClient:
             f"/api/agent/v1/jobs/{job_id}/heartbeat",
             json=request.model_dump(mode="json"),
             headers={"X-OneSearch-Lease-Token": lease_token},
+            retry=False,
+            mutation=True,
         )
 
     async def submit_batch(self, job_id, request, lease_token):
@@ -188,6 +200,8 @@ class AgentClient:
                     f"/api/agent/v1/jobs/{job_id}/batches",
                     json=request.model_dump(mode="json"),
                     headers={"X-OneSearch-Lease-Token": lease_token},
+                    retry=False,
+                    mutation=True,
                 )
             ).json()
         )
@@ -198,6 +212,8 @@ class AgentClient:
             f"/api/agent/v1/jobs/{job_id}/complete",
             json=request.model_dump(mode="json"),
             headers={"X-OneSearch-Lease-Token": lease_token},
+            retry=False,
+            mutation=True,
         )
 
     async def cancel_ack(self, job_id, lease_token):
@@ -205,4 +221,6 @@ class AgentClient:
             "POST",
             f"/api/agent/v1/jobs/{job_id}/cancel-ack",
             headers={"X-OneSearch-Lease-Token": lease_token},
+            retry=False,
+            mutation=True,
         )
