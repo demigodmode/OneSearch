@@ -552,11 +552,6 @@ class AgentJobService:
         parent = self.db.get(AgentJob, job_id)
         if parent is None or parent.kind != "scan" or parent.processing_mode != "on_server":
             raise JobConflict("on-server scan required")
-        children = [
-            job
-            for job in self.db.scalars(select(AgentJob).where(AgentJob.kind == "extract_file"))
-            if json.loads(job.payload).get("parent_job_id") == parent.id
-        ]
         return parent.status
 
     def cancel(self, job_id: str) -> AgentJob:
