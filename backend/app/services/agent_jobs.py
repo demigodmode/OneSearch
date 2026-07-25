@@ -30,6 +30,14 @@ def _now() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _cleanup_extract_uploads(job_ids) -> None:
+    """Remove only transient originals tied to durable extract job transitions."""
+    from .remote_files import extract_uploads
+
+    for job_id in job_ids:
+        extract_uploads.cleanup(job_id)
+
+
 class JobNotFound(Exception):  # noqa: N818 - kept concise for HTTP error mapping
     """The job is not visible to this agent."""
 
@@ -285,6 +293,15 @@ class AgentJobService:
 
     def fail_expired_leases(self) -> int:
         now = _now()
+        expired_extract_ids = list(
+            self.db.scalars(
+                select(AgentJob.id).where(
+                    AgentJob.kind == "extract_file",
+                    AgentJob.status.in_(("claimed", "running", "cancelling")),
+                    AgentJob.lease_expires_at <= now,
+                )
+            )
+        )
         result = self.db.execute(
             update(AgentJob)
             .where(AgentJob.status.in_(("claimed", "running")), AgentJob.lease_expires_at <= now)
@@ -301,6 +318,7 @@ class AgentJobService:
                 lease_expires_at=None,
             )
         )
+        _cleanup_extract_uploads(expired_extract_ids)
         self.finalize_cancelled_server_parents()
         return result.rowcount + cancelling.rowcount
 
@@ -620,6 +638,7 @@ class AgentJobService:
                     child.status, child.active_key, child.completed_at = "cancelled", None, now
                 elif child.status in {"claimed", "running"}:
                     child.status = "cancelling"
+            _cleanup_extract_uploads(child.id for child in children)
         if job.status not in {"cancelling", "completed", "failed", "cancelled"}:
             raise JobConflict()
         return job

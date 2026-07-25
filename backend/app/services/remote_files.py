@@ -13,6 +13,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..config import settings as runtime_settings
 from ..schemas import Document
 from .extractor_config import choose_extractor
 
@@ -329,6 +330,10 @@ def app_data_temp_directory(database_url: str) -> Path:
     if database_url.startswith(prefix):
         return Path(database_url.removeprefix(prefix)).parent / "tmp"
     return Path("/app/data/tmp")
+
+
+# Process-local transient state. Durable job transitions target exact job IDs.
+extract_uploads = ExtractUploadRegistry(app_data_temp_directory(runtime_settings.database_url))
 
 
 async def copy_bounded(

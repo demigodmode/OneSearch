@@ -28,7 +28,6 @@ from onesearch_shared import (
 )
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..config import settings as runtime_settings
 from ..db.database import get_db
 from ..models import Agent
 from ..schemas import AgentHeartbeatResponse
@@ -43,12 +42,11 @@ from ..services.agent_auth import (
 )
 from ..services.agent_jobs import AgentJobService, JobConflict, JobLeaseError, JobNotFound
 from ..services.remote_files import (
-    ExtractUploadRegistry,
     RemoteFileChanged,
     RemoteFileMissing,
     RemoteStreamTimeout,
-    app_data_temp_directory,
     extract_in_process,
+    extract_uploads,
     remote_streams,
 )
 from ..services.remote_ingest import RemoteIngestService, canonical_remote_path
@@ -63,9 +61,6 @@ CLAIM_TIMEOUT_SECONDS = 25
 CLAIM_POLL_SECONDS = 1
 claim_clock = time.monotonic
 claim_sleep = asyncio.sleep
-extract_uploads = ExtractUploadRegistry(app_data_temp_directory(runtime_settings.database_url))
-
-
 def get_remote_ingest_service(db: Session) -> RemoteIngestService:
     return RemoteIngestService(db, meili_service)
 
