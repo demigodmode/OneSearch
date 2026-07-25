@@ -341,6 +341,8 @@ async def complete_job(
                 parent_id = json.loads(job.payload)["parent_job_id"]
                 await get_remote_ingest_service(db).settle_server_parent(parent_id)
         db.commit()
+        if job.kind == "extract_file" and request.status.value in {"failed", "cancelled"}:
+            extract_uploads.cleanup(job_id)
         if job.kind == "stream_file" and request.status.value == "failed":
             terminal_error = (
                 RemoteFileMissing("remote file missing")
