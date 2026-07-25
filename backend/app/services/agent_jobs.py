@@ -226,7 +226,10 @@ class AgentJobService:
             )
             if size > limits["max_snapshot_bytes"]:
                 child.status, child.error, child.completed_at, child.active_key = (
-                    "failed", "remote file exceeds snapshot limit", _now(), None
+                    "failed",
+                    "remote file exceeds snapshot limit",
+                    _now(),
+                    None,
                 )
             self.db.add(child)
             jobs.append(child)
@@ -237,9 +240,9 @@ class AgentJobService:
         """A parent manifest is immutable once fan-out has started."""
         checkpoint = json.loads(scan_job.checkpoint or "{}")
         existing = checkpoint.get("remote_manifest") if checkpoint.get("version") == 1 else None
-        if existing is not None and json.dumps(existing, sort_keys=True, separators=(",", ":")) != json.dumps(
-            manifest, sort_keys=True, separators=(",", ":")
-        ):
+        if existing is not None and json.dumps(
+            existing, sort_keys=True, separators=(",", ":")
+        ) != json.dumps(manifest, sort_keys=True, separators=(",", ":")):
             raise JobConflict("remote manifest conflict")
 
     def enqueue_stream_file(
@@ -304,7 +307,9 @@ class AgentJobService:
     def finalize_cancelled_server_parents(self, parent_ids=None) -> int:
         parents = self.db.scalars(
             select(AgentJob).where(
-                AgentJob.kind == "scan", AgentJob.processing_mode == "on_server", AgentJob.status == "cancelling"
+                AgentJob.kind == "scan",
+                AgentJob.processing_mode == "on_server",
+                AgentJob.status == "cancelling",
             )
         )
         count = 0
@@ -312,7 +317,10 @@ class AgentJobService:
             if parent_ids is not None and parent.id not in parent_ids:
                 continue
             children = [
-                child for child in self.db.scalars(select(AgentJob).where(AgentJob.kind == "extract_file"))
+                child
+                for child in self.db.scalars(
+                    select(AgentJob).where(AgentJob.kind == "extract_file")
+                )
                 if json.loads(child.payload).get("parent_job_id") == parent.id
             ]
             if all(child.status in {"completed", "failed", "cancelled"} for child in children):
@@ -601,7 +609,10 @@ class AgentJobService:
             raise JobNotFound()
         if job.kind == "scan" and job.processing_mode == "on_server":
             children = [
-                child for child in self.db.scalars(select(AgentJob).where(AgentJob.kind == "extract_file"))
+                child
+                for child in self.db.scalars(
+                    select(AgentJob).where(AgentJob.kind == "extract_file")
+                )
                 if json.loads(child.payload).get("parent_job_id") == job.id
             ]
             for child in children:

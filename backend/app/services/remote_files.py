@@ -40,7 +40,9 @@ class RemoteExtractionError(RuntimeError):
 def _send_extraction_message(connection, payload) -> None:
     data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     if len(data) > 1_000_000:
-        data = b'{"error_type":"RemoteExtractionError","error":"extraction result exceeds IPC limit"}'
+        data = (
+            b'{"error_type":"RemoteExtractionError","error":"extraction result exceeds IPC limit"}'
+        )
     connection.send_bytes(data)
 
 
@@ -48,9 +50,13 @@ def extraction_process(snapshot, source_id, extraction, connection) -> None:
     try:
         extractor = choose_extractor(snapshot, source_id, extraction["source_name"], extraction)
         document = asyncio.run(extractor.extract_with_timeout(snapshot)) if extractor else None
-        _send_extraction_message(connection, {"document": document.model_dump(mode="json") if document else None})
+        _send_extraction_message(
+            connection, {"document": document.model_dump(mode="json") if document else None}
+        )
     except BaseException as error:
-        detail = "".join(char for char in str(error).replace(snapshot, "<temporary>") if char >= " ")
+        detail = "".join(
+            char for char in str(error).replace(snapshot, "<temporary>") if char >= " "
+        )
         _send_extraction_message(
             connection, {"error_type": type(error).__name__, "error": detail[:500]}
         )
@@ -70,7 +76,9 @@ async def extract_in_process(
     """Spawn-isolated extraction with bounded IPC and unconditional child cleanup."""
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
-    process = context.Process(target=process_target, args=(snapshot, source_id, extraction, sender), daemon=True)
+    process = context.Process(
+        target=process_target, args=(snapshot, source_id, extraction, sender), daemon=True
+    )
     try:
         process.start()
         sender.close()
@@ -313,6 +321,7 @@ class RemoteFileCoordinator:
         if all(child.status == "cancelled" for child in children):
             parent.status, parent.active_key = "cancelled", None
         return parent
+
 
 def app_data_temp_directory(database_url: str) -> Path:
     """Keep transient originals next to the configured application database."""

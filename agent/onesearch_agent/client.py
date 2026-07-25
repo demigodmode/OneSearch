@@ -96,7 +96,17 @@ class AgentClient:
         return result
 
     async def _request(
-        self, method, path, *, json=None, content=None, params=None, token=True, headers=None, retry=True, mutation=False
+        self,
+        method,
+        path,
+        *,
+        json=None,
+        content=None,
+        params=None,
+        token=True,
+        headers=None,
+        retry=True,
+        mutation=False,
     ):
         for attempt in range(4):
             try:

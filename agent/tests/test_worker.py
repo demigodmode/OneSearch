@@ -1048,9 +1048,7 @@ async def test_run_scan_job_rejects_malformed_payload_without_starting(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "kind,mode", [(None, "on_agent"), ("delete", "on_agent"), ("scan", None)]
-)
+@pytest.mark.parametrize("kind,mode", [(None, "on_agent"), ("delete", "on_agent"), ("scan", None)])
 async def test_run_scan_job_rejects_unsupported_kind_or_mode_without_starting(
     monkeypatch, tmp_path, kind, mode
 ):

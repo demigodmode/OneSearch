@@ -353,11 +353,21 @@ async def test_upload_chunk_500_is_ambiguous_once_with_raw_transport():
     async def handler(request):
         nonlocal calls
         calls += 1
-        seen["body"], seen["query"], seen["lease"] = request.content, request.url.query.decode(), request.headers.get("X-OneSearch-Lease-Token")
+        seen["body"], seen["query"], seen["lease"] = (
+            request.content,
+            request.url.query.decode(),
+            request.headers.get("X-OneSearch-Lease-Token"),
+        )
         return httpx.Response(500)
 
-    async with AgentClient("http://server.test", "token", transport=httpx.MockTransport(handler)) as client:
+    async with AgentClient(
+        "http://server.test", "token", transport=httpx.MockTransport(handler)
+    ) as client:
         with pytest.raises(AgentAmbiguousResultError):
             await client.upload_file_chunk("job", "lease", sequence=2, data=b"raw", checksum="abc")
     assert calls == 1
-    assert seen == {"body": b"raw", "query": "sequence=2&complete=false&checksum=abc", "lease": "lease"}
+    assert seen == {
+        "body": b"raw",
+        "query": "sequence=2&complete=false&checksum=abc",
+        "lease": "lease",
+    }

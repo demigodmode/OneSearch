@@ -567,7 +567,9 @@ async def run_browse_job(lease, client, *, roots) -> None:
     await _complete_with_recovery(client, lease, completion)
 
 
-async def _run_file_transfer_job(lease, client, *, roots, expected_kind, chunk_bytes=512 * 1024) -> None:
+async def _run_file_transfer_job(
+    lease, client, *, roots, expected_kind, chunk_bytes=512 * 1024
+) -> None:
     """Revalidate a pinned remote file then upload it in bounded raw chunks."""
     payload = getattr(lease, "payload", {})
     keeper = LeaseKeeper(lease, client)
@@ -599,7 +601,10 @@ async def _run_file_transfer_job(lease, client, *, roots, expected_kind, chunk_b
                 await _submit_or_cancel(
                     keeper,
                     lambda chunk=chunk, sequence=sequence: client.upload_file_chunk(
-                        lease.id, lease.lease_token, sequence=sequence, data=chunk,
+                        lease.id,
+                        lease.lease_token,
+                        sequence=sequence,
+                        data=chunk,
                         checksum=hashlib.sha256(chunk).hexdigest(),
                     ),
                     attempts=3,
@@ -618,7 +623,10 @@ async def _run_file_transfer_job(lease, client, *, roots, expected_kind, chunk_b
         await _submit_or_cancel(
             keeper,
             lambda: client.upload_file_chunk(
-                lease.id, lease.lease_token, sequence=sequence, complete=True,
+                lease.id,
+                lease.lease_token,
+                sequence=sequence,
+                complete=True,
                 stream_checksum=digest.hexdigest(),
             ),
             attempts=3,

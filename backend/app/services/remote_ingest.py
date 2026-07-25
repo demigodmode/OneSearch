@@ -211,11 +211,16 @@ class RemoteIngestService:
             for child in self.db.scalars(select(AgentJob).where(AgentJob.kind == "extract_file"))
             if json.loads(child.payload).get("parent_job_id") == parent_id
         ]
-        if any(child.status in {"pending", "claimed", "running", "cancelling"} for child in children):
+        if any(
+            child.status in {"pending", "claimed", "running", "cancelling"} for child in children
+        ):
             return "running"
         if any(child.status in {"failed", "cancelled"} for child in children):
             parent.status, parent.error, parent.active_key, parent.completed_at = (
-                "failed", "remote child extraction failed", None, datetime.now(timezone.utc).replace(tzinfo=None)
+                "failed",
+                "remote child extraction failed",
+                None,
+                datetime.now(timezone.utc).replace(tzinfo=None),
             )
             return "failed"
         checkpoint = json.loads(parent.checkpoint)
@@ -223,14 +228,23 @@ class RemoteIngestService:
         if raw is None:
             raise JobConflict("complete manifest required")
         manifest = ScanManifest.model_validate(raw)
-        if not manifest.complete or manifest.job_id != parent.id or manifest.source_id != parent.source_id:
+        if (
+            not manifest.complete
+            or manifest.job_id != parent.id
+            or manifest.source_id != parent.source_id
+        ):
             parent.status, parent.error, parent.active_key, parent.completed_at = (
-                "failed", "complete manifest required", None, datetime.now(timezone.utc).replace(tzinfo=None)
+                "failed",
+                "complete manifest required",
+                None,
+                datetime.now(timezone.utc).replace(tzinfo=None),
             )
             return "failed"
         current = {canonical_remote_path(item.path) for item in manifest.files}
         current.update(canonical_remote_path(item.path) for item in manifest.failures)
-        rows = list(self.db.scalars(select(IndexedFile).where(IndexedFile.source_id == parent.source_id)))
+        rows = list(
+            self.db.scalars(select(IndexedFile).where(IndexedFile.source_id == parent.source_id))
+        )
         missing = [row for row in rows if row.path not in current]
         ids = [remote_document_id(parent.source_id, row.path) for row in missing]
         locked = self.db.execute(
@@ -240,7 +254,11 @@ class RemoteIngestService:
                 AgentJob.status == "running",
                 AgentJob.lease_token_hash.is_(None),
             )
-            .values(status="completed", active_key=None, completed_at=datetime.now(timezone.utc).replace(tzinfo=None))
+            .values(
+                status="completed",
+                active_key=None,
+                completed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            )
         )
         if locked.rowcount != 1:
             return self.db.get(AgentJob, parent.id).status
@@ -251,7 +269,11 @@ class RemoteIngestService:
             elif ids:
                 for document_id in ids:
                     confirmed = getattr(self.search_service, "delete_document_confirmed", None)
-                    await (confirmed(document_id) if confirmed else self.search_service.delete_document(document_id))
+                    await (
+                        confirmed(document_id)
+                        if confirmed
+                        else self.search_service.delete_document(document_id)
+                    )
         except BaseException:
             self.db.rollback()
             raise
