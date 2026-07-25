@@ -15,6 +15,7 @@ _SETTERS = (
     ("set_comic_extraction_max_size_mb", "comic_extraction_max_size_mb"),
     ("set_media_metadata_mode", "media_metadata_mode"),
     ("set_media_probe_max_size_mb", "media_probe_max_size_mb"),
+    ("set_raw_metadata_timeout_seconds", "raw_metadata_timeout_seconds"),
 )
 
 
@@ -23,6 +24,21 @@ def configure_extractor(extractor, settings):
         if hasattr(extractor, setter):
             value = settings[field] if isinstance(settings, dict) else getattr(settings, field)
             getattr(extractor, setter)(value)
+    module = extractor.__class__.__module__
+    timeout_field = (
+        "pdf_extraction_timeout"
+        if module.endswith(".pdf")
+        else "office_extraction_timeout"
+        if module.endswith((".office", ".images", ".comic", ".epub", ".media"))
+        else "text_extraction_timeout"
+    )
+    timeout = (
+        settings.get(timeout_field)
+        if isinstance(settings, dict)
+        else getattr(settings, timeout_field, None)
+    )
+    if timeout is not None and hasattr(extractor, "set_extraction_timeout"):
+        extractor.set_extraction_timeout(timeout)
     return extractor
 
 
