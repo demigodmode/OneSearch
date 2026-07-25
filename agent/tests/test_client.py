@@ -1,6 +1,7 @@
 import httpx
 import pytest
 from onesearch_agent.client import (
+    AgentAmbiguousResultError,
     AgentClient,
     AgentError,
     AgentRevoked,
@@ -23,6 +24,35 @@ async def test_claim_204_returns_none_and_headers_do_not_leak_token():
     ) as client:
         assert await client.heartbeat("1", "test") is not None
     assert seen["authorization"] == "Bearer top-secret"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["claim", "batch", "complete", "cancel"])
+async def test_mutation_lost_response_is_one_request_and_ambiguous(operation):
+    calls = 0
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("lost", request=request)
+
+    class Body:
+        def model_dump(self, mode):
+            return {"job_id": "job"}
+
+    async with AgentClient(
+        "http://server.test", "token", transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(AgentAmbiguousResultError):
+            if operation == "claim":
+                await client.claim()
+            elif operation == "batch":
+                await client.submit_batch("job", Body(), "lease")
+            elif operation == "complete":
+                await client.complete("job", Body(), "lease")
+            else:
+                await client.cancel_ack("job", "lease")
+    assert calls == 1
 
 
 @pytest.mark.asyncio
