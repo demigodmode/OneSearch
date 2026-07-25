@@ -517,3 +517,220 @@ async def test_run_invalid_payload_only_fails():
     c = C()
     await run_scan_job(lease, c, roots=[])
     assert len(c.calls) == 1 and c.calls[0].reason is JobFailureReason.INVALID_REQUEST
+
+
+def _scan_lease(*, limits=None):
+    from types import SimpleNamespace
+
+    from onesearch_shared import JobKind, ProcessingMode
+
+    return SimpleNamespace(
+        id="j",
+        kind=JobKind.SCAN,
+        processing_mode=ProcessingMode.ON_AGENT,
+        source_id="s",
+        lease_token="t",
+        payload={
+            "root_id": "r",
+            "extraction": extraction(),
+            "limits": {
+                "max_snapshot_bytes": 1024,
+                "max_batch_documents": 10,
+                "max_batch_bytes": 10_000,
+                "max_scan_files": 10,
+                "max_entries_per_directory": 10,
+                **(limits or {}),
+            },
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_incomplete_manifest_is_submitted_then_failed_with_checkpoint(monkeypatch, tmp_path):
+    from onesearch_shared import JobFailureReason, ScanCheckpoint, ScanManifest
+
+    class Scanner:
+        changed_paths = []
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def scan(self, **kwargs):
+            return ScanManifest(
+                **kwargs,
+                complete=False,
+                checkpoint=ScanCheckpoint(cursor="page-2", scanned_count=4),
+            )
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        async def job_heartbeat(self, *args):
+            self.calls.append(("progress", args[1]))
+
+        async def submit_manifest(self, *args):
+            self.calls.append(("manifest", args[1]))
+
+        async def complete(self, *args):
+            self.calls.append(("complete", args[1]))
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    client = Client()
+    await worker_module.run_scan_job(
+        _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+    assert [kind for kind, _ in client.calls] == ["progress", "manifest", "complete"]
+    completion = client.calls[-1][1]
+    assert completion.status.value == "failed"
+    assert completion.reason is JobFailureReason.INTERNAL_ERROR
+    assert completion.checkpoint.cursor == "page-2"
+
+
+@pytest.mark.asyncio
+async def test_extraction_failure_is_manifested_but_scan_succeeds(monkeypatch, tmp_path):
+    from onesearch_shared import ScanFile, ScanManifest
+
+    class Scanner:
+        changed_paths = ["a.txt"]
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def scan(self, **kwargs):
+            return ScanManifest(
+                **kwargs, files=[ScanFile(path="a.txt", size_bytes=1, modified_at=1)], complete=True
+            )
+
+    class Client:
+        def __init__(self):
+            self.manifest = self.completion = None
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_batch(self, *args):
+            raise AssertionError("failed extraction must not submit a batch")
+
+        async def submit_manifest(self, *args):
+            self.manifest = args[1]
+
+        async def complete(self, *args):
+            self.completion = args[1]
+
+    async def fail(*args, **kwargs):
+        raise ExtractionError("stable extraction failure")
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    monkeypatch.setattr(worker_module, "extract_confined", fail)
+    client = Client()
+    await worker_module.run_scan_job(
+        _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+    assert client.manifest.failures[0].path == "a.txt"
+    assert client.manifest.failures[0].error == "stable extraction failure"
+    assert client.completion.status.value == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_unknown_extraction_error_does_not_leak_path_or_controls(monkeypatch, tmp_path):
+    from onesearch_shared import ScanFile, ScanManifest
+
+    class Scanner:
+        changed_paths = ["a.txt"]
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def scan(self, **kwargs):
+            return ScanManifest(
+                **kwargs, files=[ScanFile(path="a.txt", size_bytes=1, modified_at=1)], complete=True
+            )
+
+    class Client:
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_manifest(self, *args):
+            self.manifest = args[1]
+
+        async def complete(self, *args):
+            pass
+
+    async def fail(*args, **kwargs):
+        raise RuntimeError(f"{tmp_path}\\x00secret\\n")
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    monkeypatch.setattr(worker_module, "extract_confined", fail)
+    client = Client()
+    await worker_module.run_scan_job(
+        _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+    error = client.manifest.failures[0].error
+    assert error == "extraction failed: RuntimeError"
+    assert str(tmp_path) not in error and all(ord(char) >= 32 and char != "\x7f" for char in error)
+
+
+@pytest.mark.asyncio
+async def test_oversized_document_keeps_buffered_batch_and_reports_failure(monkeypatch, tmp_path):
+    from onesearch_agent.worker import _batch_wire_bytes
+    from onesearch_shared import ScanFile, ScanManifest
+
+    first = NormalizedRemoteDocument(source_id="s", path="a.txt", content="x", modified_at=1)
+    second = NormalizedRemoteDocument(
+        source_id="s", path="b.txt", content="x" * 5_000, modified_at=1
+    )
+    cap = len(
+        _batch_wire_bytes(DocumentBatch(job_id="j", batch_id="j:0:" + "0" * 64, documents=[first]))
+    )
+
+    class Scanner:
+        changed_paths = ["a.txt", "b.txt"]
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def scan(self, **kwargs):
+            return ScanManifest(
+                **kwargs,
+                files=[
+                    ScanFile(path="a.txt", size_bytes=1, modified_at=1),
+                    ScanFile(path="b.txt", size_bytes=1, modified_at=1),
+                ],
+                complete=True,
+            )
+
+    class Client:
+        def __init__(self):
+            self.batches, self.progress, self.manifest = [], [], None
+
+        async def job_heartbeat(self, *args):
+            self.progress.append(args[1].completed_items)
+
+        async def submit_batch(self, *args):
+            self.batches.append(args[1])
+
+        async def submit_manifest(self, *args):
+            self.manifest = args[1]
+
+        async def complete(self, *args):
+            pass
+
+    async def documents(*args, **kwargs):
+        return {"a.txt": first, "b.txt": second}[args[1]]
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
+    monkeypatch.setattr(worker_module, "extract_confined", documents)
+    client = Client()
+    await worker_module.run_scan_job(
+        _scan_lease(limits={"max_batch_bytes": cap}),
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+    )
+    assert [[document.path for document in batch.documents] for batch in client.batches] == [
+        ["a.txt"]
+    ]
+    assert [(failure.path, failure.error) for failure in client.manifest.failures] == [
+        ("b.txt", "extraction failed: OversizedDocumentError")
+    ]
+    assert client.progress == [0, 1, 2]

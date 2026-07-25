@@ -15,6 +15,7 @@ from onesearch_shared import (
     DocumentBatch,
     JobCompletion,
     JobFailureReason,
+    JobProgress,
     JobStatus,
     NormalizedRemoteDocument,
     ScanFailure,
@@ -202,9 +203,7 @@ async def run_scan_job(lease, client, *, roots) -> None:
     expected = {item.path: item for item in manifest.files}
     await client.job_heartbeat(
         lease.id,
-        __import__("onesearch_shared").JobProgress(
-            job_id=lease.id, completed_items=0, total_items=len(scanner.changed_paths)
-        ),
+        JobProgress(job_id=lease.id, completed_items=0, total_items=len(scanner.changed_paths)),
         lease.lease_token,
     )
     builder = StreamingBatchBuilder(
@@ -237,7 +236,7 @@ async def run_scan_job(lease, client, *, roots) -> None:
             completed += 1
             await client.job_heartbeat(
                 lease.id,
-                __import__("onesearch_shared").JobProgress(
+                JobProgress(
                     job_id=lease.id,
                     completed_items=completed,
                     total_items=len(scanner.changed_paths),
@@ -253,7 +252,13 @@ async def run_scan_job(lease, client, *, roots) -> None:
     if not manifest.complete:
         await client.complete(
             lease.id,
-            JobCompletion(job_id=lease.id, status=JobStatus.FAILED, detail="incomplete scan"),
+            JobCompletion(
+                job_id=lease.id,
+                status=JobStatus.FAILED,
+                reason=JobFailureReason.INTERNAL_ERROR,
+                detail="incomplete scan",
+                checkpoint=manifest.checkpoint,
+            ),
             lease.lease_token,
         )
         return
