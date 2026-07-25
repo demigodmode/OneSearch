@@ -116,3 +116,14 @@ def test_enroll_honors_file_credential_policy(tmp_path: Path, monkeypatch):
         main, ["--config", str(config), "enroll", "--server", "http://host"], input="code\n"
     )
     assert result.exit_code == 0 and seen == ["secret"] and "secret" not in result.output
+
+
+def test_enroll_rejects_mismatched_server_before_prompt(tmp_path: Path):
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    _config(config, root)
+    result = CliRunner().invoke(
+        main, ["--config", str(config), "enroll", "--server", "https://other"]
+    )
+    assert result.exit_code != 0 and "match configured" in result.output

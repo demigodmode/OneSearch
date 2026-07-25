@@ -35,6 +35,8 @@ def enroll(ctx, server):
     """Enroll this machine."""
     current = _config(ctx)
     config = current.__class__.model_validate({**current.model_dump(), "server_url": server})
+    if config.server_url != current.server_url:
+        raise click.ClickException("enrollment server must match configured server")
     store = credential_store(config)
     try:
         if store.load(optional=True) is not None:
