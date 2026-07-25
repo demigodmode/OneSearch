@@ -78,6 +78,18 @@ async def test_runtime_caps_backoff_after_jitter():
 
 
 @pytest.mark.asyncio
+async def test_runtime_stops_before_another_heartbeat():
+    calls = []
+
+    class Client:
+        async def heartbeat(self, *args):
+            calls.append("heartbeat")
+
+    await run_runtime(Client(), stopped=lambda: True)
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_worker_can_acknowledge_cancellation_lease():
     class Client:
         async def heartbeat(self, *args):

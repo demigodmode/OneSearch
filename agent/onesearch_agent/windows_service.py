@@ -45,6 +45,17 @@ def service_config() -> str | None:
         return None
 
 
+def clear_config() -> None:
+    if winreg is None:
+        return
+    try:
+        winreg.DeleteKey(winreg.HKEY_LOCAL_MACHINE, _parameters_key())
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        raise RuntimeError("unable to remove service configuration") from error
+
+
 _ServiceBase = win32serviceutil.ServiceFramework if win32serviceutil else object
 
 
@@ -72,7 +83,12 @@ class OneSearchAgentService(_ServiceBase):
             config_path(service_config() or os.environ.get("ONESEARCH_AGENT_CONFIG"))
         )
         token = credential_store(config).load()
-        asyncio.run(run_runtime(AgentClient(config.server_url, token)))
+        asyncio.run(
+            run_runtime(
+                AgentClient(config.server_url, token),
+                stopped=lambda: win32event.WaitForSingleObject(self.stop_event, 0) == 0,
+            )
+        )
 
 
 def main():
@@ -84,6 +100,8 @@ def main():
         persist_config(arguments[index + 1])
         del arguments[index : index + 2]
     win32serviceutil.HandleCommandLine(OneSearchAgentService, argv=[sys.argv[0], *arguments])
+    if "remove" in arguments:
+        clear_config()
 
 
 if __name__ == "__main__":  # pragma: no cover
