@@ -4,6 +4,7 @@
 """Tests for authenticated image/RAW preview API."""
 
 import asyncio
+import hashlib
 import json
 from datetime import datetime, timezone
 from io import BytesIO
@@ -191,6 +192,35 @@ def _remote_download_link(client, document):
     response = client.post(f"/api/documents/{document['id']}/download-link")
     assert response.status_code == 200
     return response.json()["url"]
+
+
+@pytest.fixture
+def streaming_client(db_session, auth_headers):
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        test_client.headers.update(auth_headers)
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def remote_queue_feeder(monkeypatch):
+    from app.api import preview
+
+    original_open = preview.remote_streams.open
+
+    def install(feed):
+        def open_and_feed(job_id, **kwargs):
+            queue = original_open(job_id, **kwargs)
+            asyncio.get_running_loop().create_task(feed(queue))
+            return queue
+
+        monkeypatch.setattr(preview.remote_streams, "open", open_and_feed)
+
+    return install
 
 
 @pytest.mark.asyncio
@@ -432,6 +462,129 @@ def test_independent_remote_downloads_use_distinct_stream_jobs(
     jobs = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").all()
     assert len(jobs) == 2
     assert len({job.id for job in jobs}) == 2
+
+
+def test_remote_download_streams_chunks_and_finishes_durable_job(
+    streaming_client, db_session, remote_download, remote_queue_feeder, tmp_path
+):
+    _agent, source, _indexed, document = remote_download
+    payload = b"first bounded chunk" + b"second bounded chunk"
+
+    async def feed(queue):
+        await queue.put(0, payload[:19])
+        await queue.put(1, payload[19:])
+        await queue.finish(2, hashlib.sha256(payload).hexdigest())
+
+    remote_queue_feeder(feed)
+    url = _remote_download_link(streaming_client, document)
+    response = streaming_client.get(url)
+
+    assert response.status_code == 200 and response.content == payload
+    assert response.headers["content-disposition"].startswith("attachment;")
+    job = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").one()
+    assert job.status == "completed" and job.active_key is None
+    from app.services.remote_files import remote_streams
+
+    assert remote_streams.get(job.id) is None and list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_status", "expected_code"),
+    [
+        ("missing", 404, "remote_file_missing"),
+        ("changed", 409, "remote_file_changed"),
+    ],
+)
+def test_remote_download_first_terminal_error_is_structured(
+    streaming_client,
+    db_session,
+    remote_download,
+    remote_queue_feeder,
+    error,
+    expected_status,
+    expected_code,
+):
+    from app.services.remote_files import RemoteFileChanged, RemoteFileMissing, remote_streams
+
+    _agent, source, _indexed, document = remote_download
+
+    async def feed(queue):
+        await queue.fail(
+            RemoteFileMissing("missing") if error == "missing" else RemoteFileChanged("changed")
+        )
+
+    remote_queue_feeder(feed)
+    response = streaming_client.get(_remote_download_link(streaming_client, document))
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"]["code"] == expected_code
+    job = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").one()
+    assert job.status in {"failed", "cancelled"} and remote_streams.get(job.id) is None
+
+
+def test_remote_download_timeout_cancels_job_and_releases_queue(
+    streaming_client, db_session, remote_download, monkeypatch
+):
+    from app.api import preview
+    from app.services.remote_files import remote_streams
+
+    _agent, source, _indexed, document = remote_download
+    real_wait_for = preview.asyncio.wait_for
+
+    async def short_wait_for(awaitable, timeout):
+        return await real_wait_for(awaitable, timeout=0.01 if timeout == 30 else timeout)
+
+    monkeypatch.setattr(preview.asyncio, "wait_for", short_wait_for)
+    response = streaming_client.get(_remote_download_link(streaming_client, document))
+
+    assert response.status_code == 504
+    assert response.json()["detail"]["code"] == "remote_stream_timeout"
+    job = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").one()
+    assert (
+        job.status == "cancelled" and job.active_key is None and remote_streams.get(job.id) is None
+    )
+
+
+def test_remote_preview_streams_standard_image_without_attachment(
+    streaming_client, db_session, remote_download, remote_queue_feeder
+):
+    _agent, source, _indexed, document = remote_download
+    document.update({"type": "image", "extension": "jpg"})
+    payload = b"remote jpeg bytes"
+
+    async def feed(queue):
+        await queue.put(0, payload)
+        await queue.finish(1, hashlib.sha256(payload).hexdigest())
+
+    remote_queue_feeder(feed)
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+
+    assert response.status_code == 200 and response.content == payload
+    assert response.headers["content-type"] == "image/jpeg"
+    assert "content-disposition" not in response.headers
+    job = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").one()
+    from app.services.remote_files import remote_streams
+
+    assert remote_streams.get(job.id) is None
+
+
+def test_remote_download_content_disposition_encodes_malicious_basename(
+    streaming_client, remote_download, remote_queue_feeder
+):
+    _agent, _source, _indexed, document = remote_download
+    document["basename"] = 'evil"\r\nX-Injected: yes.jpg'
+
+    async def feed(queue):
+        await queue.put(0, b"x")
+        await queue.finish(1, hashlib.sha256(b"x").hexdigest())
+
+    remote_queue_feeder(feed)
+    response = streaming_client.get(_remote_download_link(streaming_client, document))
+
+    assert response.status_code == 200
+    assert "\r" not in response.headers["content-disposition"]
+    assert "\n" not in response.headers["content-disposition"]
+    assert "X-Injected" not in response.headers["content-disposition"]
 
 
 def test_download_rejects_token_for_different_document(client, source, temp_source, monkeypatch):
