@@ -170,7 +170,7 @@ async def download_document(
                         return
                     yield item
             finally:
-                remote_streams.close(job.id)
+                await remote_streams.close(job.id)
 
         return StreamingResponse(
             stream(),
