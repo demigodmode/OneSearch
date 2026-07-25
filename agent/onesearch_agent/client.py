@@ -177,9 +177,7 @@ class AgentClient:
         )
 
     async def revoke_self(self):
-        return await self._request(
-            "POST", "/api/agent/v1/revoke-self", retry=False, mutation=True
-        )
+        return await self._request("POST", "/api/agent/v1/revoke-self", retry=False, mutation=True)
 
     async def claim(self):
         response = await self._request(

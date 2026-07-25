@@ -47,9 +47,7 @@ def open_confined_file(
             child = os.open(part, flags, dir_fd=fd)
             os.close(fd)
             fd = child
-        file_fd = os.open(
-            parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd
-        )
+        file_fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
         with os.fdopen(file_fd, "rb") as handle:
             file_fd = -1
             yield handle
@@ -130,10 +128,21 @@ def _windows_ntdll():
         _fields_ = [("Status", wintypes.LONG), ("Information", ctypes.c_size_t)]
 
     class UNICODE_STRING(ctypes.Structure):  # noqa: N801
-        _fields_ = [("Length", wintypes.USHORT), ("MaximumLength", wintypes.USHORT), ("Buffer", wintypes.LPWSTR)]
+        _fields_ = [
+            ("Length", wintypes.USHORT),
+            ("MaximumLength", wintypes.USHORT),
+            ("Buffer", wintypes.LPWSTR),
+        ]
 
     class OBJECT_ATTRIBUTES(ctypes.Structure):  # noqa: N801
-        _fields_ = [("Length", wintypes.ULONG), ("RootDirectory", wintypes.HANDLE), ("ObjectName", ctypes.POINTER(UNICODE_STRING)), ("Attributes", wintypes.ULONG), ("SecurityDescriptor", wintypes.LPVOID), ("SecurityQualityOfService", wintypes.LPVOID)]
+        _fields_ = [
+            ("Length", wintypes.ULONG),
+            ("RootDirectory", wintypes.HANDLE),
+            ("ObjectName", ctypes.POINTER(UNICODE_STRING)),
+            ("Attributes", wintypes.ULONG),
+            ("SecurityDescriptor", wintypes.LPVOID),
+            ("SecurityQualityOfService", wintypes.LPVOID),
+        ]
 
     ntdll = ctypes.WinDLL("ntdll")
     ntdll.NtQueryDirectoryFile.restype = wintypes.LONG
@@ -153,7 +162,19 @@ def _windows_directory_names(handle) -> list[str]:
     names: list[str] = []
     restart = 1
     while True:
-        status = ntdll.NtQueryDirectoryFile(handle, None, None, None, ctypes.byref(iosb), buffer, len(buffer), 12, False, None, restart)
+        status = ntdll.NtQueryDirectoryFile(
+            handle,
+            None,
+            None,
+            None,
+            ctypes.byref(iosb),
+            buffer,
+            len(buffer),
+            12,
+            False,
+            None,
+            restart,
+        )
         restart = 0
         if (status & 0xFFFFFFFF) == 0x80000006:  # STATUS_NO_MORE_FILES
             return names
@@ -178,11 +199,28 @@ def _windows_open_relative(directory_handle, name: str):
         len(name.encode("utf-16-le")), (len(name) + 1) * 2, ctypes.cast(text, ctypes.c_wchar_p)
     )
     attributes = object_attributes(
-        ctypes.sizeof(object_attributes), directory_handle, ctypes.pointer(unicode), 0x40, None, None
+        ctypes.sizeof(object_attributes),
+        directory_handle,
+        ctypes.pointer(unicode),
+        0x40,
+        None,
+        None,
     )
     handle = ctypes.c_void_p()
     iosb = io_status_block()
-    status = ntdll.NtCreateFile(ctypes.byref(handle), 0x80 | 0x100000, ctypes.byref(attributes), ctypes.byref(iosb), None, 0, 1 | 2 | 4, 1, 0x20 | 0x200000, None, 0)
+    status = ntdll.NtCreateFile(
+        ctypes.byref(handle),
+        0x80 | 0x100000,
+        ctypes.byref(attributes),
+        ctypes.byref(iosb),
+        None,
+        0,
+        1 | 2 | 4,
+        1,
+        0x20 | 0x200000,
+        None,
+        0,
+    )
     if status < 0:
         raise _windows_nt_error(ntdll, status)
     return handle.value
@@ -214,7 +252,9 @@ def _windows_is_reparse_point(handle) -> bool:
         _fields_ = [("FileAttributes", ctypes.c_ulong), ("ReparseTag", ctypes.c_ulong)]
 
     info = AttributeTagInfo()
-    if not kernel32.GetFileInformationByHandleEx(handle, 9, ctypes.byref(info), ctypes.sizeof(info)):
+    if not kernel32.GetFileInformationByHandleEx(
+        handle, 9, ctypes.byref(info), ctypes.sizeof(info)
+    ):
         raise OSError(ctypes.get_last_error(), "cannot inspect file attributes")
     return bool(info.FileAttributes & 0x400)
 

@@ -33,13 +33,17 @@ def _protect_parameters_key(key) -> None:
         import win32security
 
         dacl = win32security.ACL()
-        for sid_type in (win32security.WinLocalSystemSid, win32security.WinBuiltinAdministratorsSid):
+        for sid_type in (
+            win32security.WinLocalSystemSid,
+            win32security.WinBuiltinAdministratorsSid,
+        ):
             sid = win32security.CreateWellKnownSid(sid_type, None)
             dacl.AddAccessAllowedAce(win32security.ACL_REVISION, ntsecuritycon.KEY_ALL_ACCESS, sid)
         win32security.SetSecurityInfo(
             key,
             win32security.SE_REGISTRY_KEY,
-            win32security.DACL_SECURITY_INFORMATION | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
+            win32security.DACL_SECURITY_INFORMATION
+            | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
             None,
             None,
             dacl,
@@ -149,11 +153,7 @@ def machine_credential() -> str:
         finally:
             winreg.CloseKey(key)
         result = win32crypt.CryptUnprotectData(protected, None, None, None, 0)
-        if not (
-            isinstance(result, tuple)
-            and len(result) == 2
-            and isinstance(result[1], bytes)
-        ):
+        if not (isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], bytes)):
             raise TypeError("unexpected CryptUnprotectData result")
         token = result[1].decode()
         if not token:

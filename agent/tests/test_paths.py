@@ -99,8 +99,9 @@ def test_windows_open_confined_file_rejects_symlink_outside(tmp_path: Path):
         (root / "escape.txt").symlink_to(outside)
     except OSError:
         pytest.skip("symlink creation unavailable")
-    with pytest.raises(PathOutsideAllowedRoots), open_confined_file(
-        "docs", "escape.txt", [AllowedRoot(root_id="docs", path=str(root))]
+    with (
+        pytest.raises(PathOutsideAllowedRoots),
+        open_confined_file("docs", "escape.txt", [AllowedRoot(root_id="docs", path=str(root))]),
     ):
         pass
 
@@ -116,9 +117,13 @@ def test_windows_open_confined_file_rejects_other_allowed_root(tmp_path: Path):
         (first / "to-second").symlink_to(second, target_is_directory=True)
     except OSError:
         pytest.skip("symlink creation unavailable")
-    roots = [AllowedRoot(root_id="first", path=str(first)), AllowedRoot(root_id="second", path=str(second))]
-    with pytest.raises(PathOutsideAllowedRoots), open_confined_file(
-        "first", "to-second/secret.txt", roots
+    roots = [
+        AllowedRoot(root_id="first", path=str(first)),
+        AllowedRoot(root_id="second", path=str(second)),
+    ]
+    with (
+        pytest.raises(PathOutsideAllowedRoots),
+        open_confined_file("first", "to-second/secret.txt", roots),
     ):
         pass
 
@@ -166,9 +171,7 @@ def test_open_confined_file_rejects_symlink_and_closes_file(tmp_path: Path):
     outside.write_text("outside")
     (root / "escape.txt").symlink_to(outside)
     roots = [AllowedRoot(root_id="docs", path=str(root))]
-    with pytest.raises(PathOutsideAllowedRoots), open_confined_file(
-        "docs", "escape.txt", roots
-    ):
+    with pytest.raises(PathOutsideAllowedRoots), open_confined_file("docs", "escape.txt", roots):
         pass
     (root / "safe.txt").write_text("safe")
     with open_confined_file("docs", "safe.txt", roots) as handle:

@@ -166,7 +166,12 @@ def _keyring_backend_is_secure(backend, seen: set[int] | None = None) -> bool:
         return False
     seen.add(id(backend))
     name = f"{backend.__class__.__module__}.{backend.__class__.__name__}".lower()
-    if "keyrings.alt" in name or "fail" in name or "null" in name or getattr(backend, "priority", 0) <= 0:
+    if (
+        "keyrings.alt" in name
+        or "fail" in name
+        or "null" in name
+        or getattr(backend, "priority", 0) <= 0
+    ):
         return False
     children = getattr(backend, "backends", None)
     return not children or all(_keyring_backend_is_secure(child, seen) for child in children)

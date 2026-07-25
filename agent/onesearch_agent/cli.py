@@ -71,6 +71,7 @@ def enroll(ctx, server):
             store.save(response.agent_token)
         except Exception as error:
             try:
+
                 async def revoke():
                     async with AgentClient(config.server_url, response.agent_token) as client:
                         await client.revoke_self()
@@ -80,7 +81,9 @@ def enroll(ctx, server):
                 raise click.ClickException(
                     f"credential persistence failed; revoke agent {response.agent_id} from the admin console"
                 ) from revoke_error
-            raise click.ClickException("credential persistence failed; enrollment was revoked; use a new code") from error
+            raise click.ClickException(
+                "credential persistence failed; enrollment was revoked; use a new code"
+            ) from error
     except click.ClickException:
         raise
     except Exception as error:
