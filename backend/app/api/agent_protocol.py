@@ -472,6 +472,8 @@ async def receive_file_chunk(
         db.commit()
     except (RemoteFileChanged, RemoteStreamTimeout) as error:
         db.rollback()
+        if "job" in locals() and job.kind == "extract_file":
+            extract_uploads.cleanup(job_id)
         raise HTTPException(
             status_code=409, detail={"code": error.code, "message": str(error)}
         ) from error

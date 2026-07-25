@@ -585,6 +585,40 @@ def test_extract_final_parent_rejection_cleans_upload_session(
     assert not registry.has(child.id) and list(tmp_path.iterdir()) == []
 
 
+def test_invalid_later_extract_chunk_cleans_partial_upload(
+    client, db_session, remote, tmp_path, monkeypatch
+):
+    agent, source = remote
+    source.processing_mode = "on_server"
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
+    child = AgentJobService(db_session).enqueue_extract_files(
+        parent, [{"path": "a.txt", "size_bytes": 2, "modified_at": 1, "content_hash": None}]
+    )[0]
+    parent.status, parent.lease_token_hash, parent.lease_expires_at = "running", None, None
+    db_session.commit()
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    from app.services.remote_files import ExtractUploadRegistry
+
+    registry = ExtractUploadRegistry(tmp_path)
+    monkeypatch.setattr(agent_protocol, "extract_uploads", registry)
+    headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
+    assert client.put(
+        f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers=headers
+    ).status_code == 200
+    malformed_headers = {**headers, "Content-Length": "not-a-length"}
+    response = client.put(
+        f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=1",
+        content=b"x",
+        headers=malformed_headers,
+    )
+    assert response.status_code == 409
+    assert not registry.has(child.id) and list(tmp_path.iterdir()) == []
+
+
 def test_stream_final_checksum_requires_registered_consumer_and_durable_completion(
     client, db_session, remote
 ):
