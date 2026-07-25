@@ -124,29 +124,14 @@ def test_windows_open_confined_file_rejects_other_allowed_root(tmp_path: Path):
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows handle confinement")
-def test_windows_browse_rejects_entries_after_directory_replacement(tmp_path: Path, monkeypatch):
+def test_windows_browse_uses_native_handle_enumerator(tmp_path: Path, monkeypatch):
     root = tmp_path / "docs"
     child = root / "child"
     child.mkdir(parents=True)
     (child / "safe.txt").write_text("safe")
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "safe.txt").write_text("outside")
-    original_scandir = os.scandir
-
-    def scandir_then_replace(path):
-        result = original_scandir(path)
-        child.rename(root / "old-child")
-        try:
-            child.symlink_to(outside, target_is_directory=True)
-        except OSError:
-            result.close()
-            pytest.skip("symlink creation unavailable")
-        return result
-
-    monkeypatch.setattr(paths.os, "scandir", scandir_then_replace)
+    monkeypatch.setattr(paths, "_windows_directory_names", lambda handle: ["safe.txt"])
     entries = browse("docs", "child", [AllowedRoot(root_id="docs", path=str(root))])
-    assert entries == []
+    assert [entry.name for entry in entries] == ["safe.txt"]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="requires POSIX dirfd semantics")

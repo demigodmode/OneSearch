@@ -101,6 +101,7 @@ def _windows_kernel32():
     kernel32.GetFinalPathNameByHandleW.restype = wintypes.DWORD
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.GetFileInformationByHandleEx.restype = wintypes.BOOL
     return ctypes, kernel32
 
 
@@ -120,6 +121,73 @@ def _windows_open(path: str):
     return handle
 
 
+def _windows_ntdll():
+    """Return the small lazy ntdll surface needed for rooted directory access."""
+    import ctypes
+    from ctypes import wintypes
+
+    class IO_STATUS_BLOCK(ctypes.Structure):  # noqa: N801
+        _fields_ = [("Status", wintypes.LONG), ("Information", ctypes.c_size_t)]
+
+    class UNICODE_STRING(ctypes.Structure):  # noqa: N801
+        _fields_ = [("Length", wintypes.USHORT), ("MaximumLength", wintypes.USHORT), ("Buffer", wintypes.LPWSTR)]
+
+    class OBJECT_ATTRIBUTES(ctypes.Structure):  # noqa: N801
+        _fields_ = [("Length", wintypes.ULONG), ("RootDirectory", wintypes.HANDLE), ("ObjectName", ctypes.POINTER(UNICODE_STRING)), ("Attributes", wintypes.ULONG), ("SecurityDescriptor", wintypes.LPVOID), ("SecurityQualityOfService", wintypes.LPVOID)]
+
+    ntdll = ctypes.WinDLL("ntdll")
+    ntdll.NtQueryDirectoryFile.restype = wintypes.LONG
+    ntdll.NtCreateFile.restype = wintypes.LONG
+    ntdll.RtlNtStatusToDosError.restype = wintypes.ULONG
+    return ctypes, ntdll, IO_STATUS_BLOCK, UNICODE_STRING, OBJECT_ATTRIBUTES
+
+
+def _windows_nt_error(ntdll, status: int) -> OSError:
+    return OSError(ntdll.RtlNtStatusToDosError(status), "native directory operation failed")
+
+
+def _windows_directory_names(handle) -> list[str]:
+    ctypes, ntdll, io_status_block, _unicode, _attributes = _windows_ntdll()
+    buffer = ctypes.create_string_buffer(65536)
+    iosb = io_status_block()
+    names: list[str] = []
+    restart = 1
+    while True:
+        status = ntdll.NtQueryDirectoryFile(handle, None, None, None, ctypes.byref(iosb), buffer, len(buffer), 12, False, None, restart)
+        restart = 0
+        if (status & 0xFFFFFFFF) == 0x80000006:  # STATUS_NO_MORE_FILES
+            return names
+        if status < 0:
+            raise _windows_nt_error(ntdll, status)
+        offset = 0
+        while offset < iosb.Information:
+            next_offset = int.from_bytes(buffer[offset : offset + 4], "little")
+            name_length = int.from_bytes(buffer[offset + 8 : offset + 12], "little")
+            name = bytes(buffer[offset + 12 : offset + 12 + name_length]).decode("utf-16-le")
+            if name not in {".", ".."}:
+                names.append(name)
+            if not next_offset:
+                break
+            offset += next_offset
+
+
+def _windows_open_relative(directory_handle, name: str):
+    ctypes, ntdll, io_status_block, unicode_string, object_attributes = _windows_ntdll()
+    text = ctypes.create_unicode_buffer(name)
+    unicode = unicode_string(
+        len(name.encode("utf-16-le")), (len(name) + 1) * 2, ctypes.cast(text, ctypes.c_wchar_p)
+    )
+    attributes = object_attributes(
+        ctypes.sizeof(object_attributes), directory_handle, ctypes.pointer(unicode), 0x40, None, None
+    )
+    handle = ctypes.c_void_p()
+    iosb = io_status_block()
+    status = ntdll.NtCreateFile(ctypes.byref(handle), 0x80 | 0x100000, ctypes.byref(attributes), ctypes.byref(iosb), None, 0, 1 | 2 | 4, 1, 0x20 | 0x200000, None, 0)
+    if status < 0:
+        raise _windows_nt_error(ntdll, status)
+    return handle.value
+
+
 def _windows_close(handle) -> None:
     if handle is not None:
         _ctypes, kernel32 = _windows_kernel32()
@@ -137,6 +205,18 @@ def _windows_final_path(handle) -> str:
         if written < size:
             return buffer.value
         size = written + 1
+
+
+def _windows_is_reparse_point(handle) -> bool:
+    ctypes, kernel32 = _windows_kernel32()
+
+    class AttributeTagInfo(ctypes.Structure):
+        _fields_ = [("FileAttributes", ctypes.c_ulong), ("ReparseTag", ctypes.c_ulong)]
+
+    info = AttributeTagInfo()
+    if not kernel32.GetFileInformationByHandleEx(handle, 9, ctypes.byref(info), ctypes.sizeof(info)):
+        raise OSError(ctypes.get_last_error(), "cannot inspect file attributes")
+    return bool(info.FileAttributes & 0x400)
 
 
 def _windows_normal_path(path: str) -> str:
@@ -240,19 +320,37 @@ def resolve_relative_path(root_id: str, relative: str, roots: list[AllowedRoot])
 def browse(root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int = 200):
     if os.name == "nt":
         return _browse_windows(root_id, relative, roots, max_entries)
-    directory = resolve_relative_path(root_id, relative, roots)
-    if not directory.is_dir():
-        raise PathOutsideAllowedRoots("path is not a directory")
-    safe = []
-    for entry in sorted(directory.iterdir(), key=lambda item: item.name.casefold()):
-        try:
-            resolve_relative_path(root_id, str(entry.relative_to(_root(root_id, roots))), roots)
-        except PathOutsideAllowedRoots:
-            continue
-        safe.append(entry)
-        if len(safe) >= max_entries:
-            break
-    return safe
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    directory_fd = -1
+    try:
+        directory_fd = os.open(_root(root_id, roots), flags)
+        for part in _relative_parts(relative):
+            child_fd = os.open(part, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child_fd
+        names = sorted(os.listdir(directory_fd), key=str.casefold)
+        display_directory = _root(root_id, roots) / Path(relative)
+        safe: list[Path] = []
+        for name in names:
+            child_fd = -1
+            try:
+                child_fd = os.open(
+                    name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd
+                )
+                safe.append(display_directory / name)
+                if len(safe) >= max_entries:
+                    break
+            except OSError:
+                continue
+            finally:
+                if child_fd != -1:
+                    os.close(child_fd)
+        return safe
+    except OSError as error:
+        raise PathOutsideAllowedRoots("path cannot be browsed safely") from error
+    finally:
+        if directory_fd != -1:
+            os.close(directory_fd)
 
 
 def _browse_windows(
@@ -264,19 +362,15 @@ def _browse_windows(
         root_handle, root_path, directory_handle, directory_path = _windows_verified_directory(
             root_id, relative, roots
         )
-        enumerated_path = directory_path
-        names = sorted((entry.name for entry in os.scandir(enumerated_path)), key=str.casefold)
-        # The name used for enumeration can be replaced after the handle was
-        # opened.  Re-resolve the held handle before validating its children.
-        directory_path = _windows_final_path(directory_handle)
-        if not _windows_is_within(directory_path, root_path):
-            raise PathOutsideAllowedRoots("path is outside selected root")
+        names = sorted(_windows_directory_names(directory_handle), key=str.casefold)
         display_directory = _root(root_id, roots) / Path(relative)
         safe: list[Path] = []
         for name in names:
             child_handle = None
             try:
-                child_handle = _windows_open(ntpath.join(enumerated_path, name))
+                child_handle = _windows_open_relative(directory_handle, name)
+                if _windows_is_reparse_point(child_handle):
+                    continue
                 child_path = _windows_final_path(child_handle)
                 if not (
                     _windows_is_within(child_path, root_path)
