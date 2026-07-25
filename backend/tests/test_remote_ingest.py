@@ -1,9 +1,8 @@
 import hashlib
 import json
-import os
-from pathlib import Path
-
 import pytest
+import onesearch_agent.scanner as scanner_module
+from onesearch_agent.paths import SafeDirectoryEntry, SafeDirectoryPage
 from onesearch_agent.scanner import RemoteScanner
 from onesearch_shared import (
     AllowedRoot,
@@ -123,7 +122,7 @@ async def test_batch_duplicate_is_not_reindexed_and_bad_paths_are_rejected(remot
 
 @pytest.mark.asyncio
 async def test_remote_ingest_preserves_exact_nanoseconds_for_next_incremental_scan(
-    remote_job, tmp_path
+    remote_job, tmp_path, monkeypatch
 ):
     db, lease, job = remote_job
     path, modified_at_ns = "precise.txt", 1_700_000_000_123_456_789
@@ -156,9 +155,13 @@ async def test_remote_ingest_preserves_exact_nanoseconds_for_next_incremental_sc
     known = json.loads(next_job.payload)["known_files"][path]
     assert known["modified_at"] == modified_at_ns
 
-    file = Path(tmp_path) / path
-    file.write_text("x")
-    os.utime(file, ns=(modified_at_ns, modified_at_ns))
+    monkeypatch.setattr(
+        scanner_module,
+        "list_confined_entries_page",
+        lambda *args, **kwargs: SafeDirectoryPage(
+            (SafeDirectoryEntry(path, path, False, 1, modified_at_ns),), False
+        ),
+    )
     scanner = RemoteScanner(
         "r", [AllowedRoot(root_id="r", path=str(tmp_path))], known={path: known}
     )
