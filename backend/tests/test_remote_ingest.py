@@ -417,6 +417,31 @@ async def test_reconciliation_deletes_multiple_missing_documents_in_one_confirme
 
 
 @pytest.mark.asyncio
+async def test_pre_cancelled_reconciliation_never_deletes(remote_job):
+    db, lease, job = remote_job
+
+    class BatchSearch(Search):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        async def delete_documents_confirmed(self, ids):
+            self.calls += 1
+
+    search = BatchSearch()
+    db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
+    db.commit()
+    RemoteIngestService(db, search).accept_manifest(
+        "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=True)
+    )
+    AgentJobService(db).cancel(job.id)
+    with pytest.raises((JobConflict, JobLeaseError)):
+        await RemoteIngestService(db, search).reconcile_completion("a", job.id, lease.lease_token)
+    assert search.calls == 0
+    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is not None
+
+
+@pytest.mark.asyncio
 async def test_partial_manifest_rejects_success_without_deleting(remote_job):
     db, lease, job = remote_job
     search = Search()
