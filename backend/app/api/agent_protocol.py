@@ -45,6 +45,7 @@ from ..services.agent_jobs import AgentJobService, JobConflict, JobLeaseError, J
 from ..services.remote_files import (
     ExtractUploadRegistry,
     RemoteFileChanged,
+    RemoteStreamTimeout,
     app_data_temp_directory,
     extract_in_process,
     remote_streams,
@@ -435,7 +436,7 @@ async def receive_file_chunk(
                     suffix=__import__("pathlib").Path(payload["path"]).suffix,
                 )
         else:
-            queue = remote_streams.open(job_id)
+            queue = remote_streams.require(job_id)
             if complete:
                 if stream_checksum is None:
                     raise RemoteFileChanged("stream checksum required")
@@ -448,7 +449,7 @@ async def receive_file_chunk(
                         raise RemoteFileChanged("chunk exceeds limit")
                 await queue.put(sequence, bytes(body), checksum)
         db.commit()
-    except RemoteFileChanged as error:
+    except (RemoteFileChanged, RemoteStreamTimeout) as error:
         db.rollback()
         raise HTTPException(
             status_code=409, detail={"code": error.code, "message": str(error)}

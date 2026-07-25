@@ -131,6 +131,22 @@ async def test_stream_registry_close_removes_entry_and_wakes_waiter():
         await waiting
 
 
+@pytest.mark.asyncio
+async def test_stream_registry_reopens_fresh_and_requires_existing_stream():
+    from app.services.remote_files import RemoteStreamRegistry, RemoteStreamTimeout
+
+    registry = RemoteStreamRegistry()
+    first = registry.open("job")
+    assert registry.open("job") is first and registry.require("job") is first
+    await registry.close("job")
+    with pytest.raises(RemoteStreamTimeout):
+        registry.require("job")
+    second = registry.open("job")
+    assert second is not first
+    await second.put(0, b"x")
+    assert await second.get() == b"x"
+
+
 def test_on_server_manifest_enqueues_one_extract_job_per_file(db_session, remote):
     from app.models import AgentJob
     from app.services.agent_jobs import AgentJobService
