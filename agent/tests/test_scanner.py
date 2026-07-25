@@ -1,7 +1,10 @@
 from pathlib import Path
 
+import onesearch_agent.scanner as scanner_module
 from onesearch_agent.scanner import RemoteScanner
 from onesearch_shared import AllowedRoot
+
+from app.services.scanner import FileScanner
 
 
 def test_scanner_emits_canonical_paths_and_skips_unchanged(tmp_path: Path):
@@ -41,3 +44,39 @@ def test_scanner_marks_unknown_root_incomplete(tmp_path: Path):
         job_id="job", source_id="source"
     )
     assert manifest.complete is False
+
+
+def test_scanner_per_directory_truncation_is_incomplete(tmp_path: Path):
+    (tmp_path / "a").write_text("a")
+    (tmp_path / "b").write_text("b")
+    manifest = RemoteScanner(
+        "root", [AllowedRoot(root_id="root", path=str(tmp_path))], max_entries_per_directory=1
+    ).scan(job_id="job", source_id="source")
+    assert manifest.complete is False and manifest.failures
+
+
+def test_remote_scanner_matches_backend_patterns_without_opening_files(tmp_path: Path, monkeypatch):
+    (tmp_path / "root.txt").write_text("x")
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "keep.txt").write_text("x")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "skip.txt").write_text("x")
+    expected = [
+        Path(item).relative_to(tmp_path).as_posix()
+        for item in FileScanner(
+            str(tmp_path), include_patterns=["**/*.txt"], exclude_patterns=["**/node_modules/**"]
+        ).scan()
+    ]
+    monkeypatch.setattr(
+        scanner_module,
+        "open_confined_file",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("opened file")),
+        raising=False,
+    )
+    manifest = RemoteScanner(
+        "root",
+        [AllowedRoot(root_id="root", path=str(tmp_path))],
+        include_patterns=["**/*.txt"],
+        exclude_patterns=["**/node_modules/**"],
+    ).scan(job_id="job", source_id="source")
+    assert [item.path for item in manifest.files] == expected == ["nested/keep.txt", "root.txt"]
