@@ -310,7 +310,9 @@ def test_streaming_exact_boundary_and_nonpositive_caps():
     doc = NormalizedRemoteDocument(source_id="s", path="x", content="x", modified_at=1)
     size = len(_batch_wire_bytes("j", [doc]))
     assert StreamingBatchBuilder("j", max_bytes=size).add(doc) == []
-    with pytest.raises(Exception):
+    from onesearch_agent.worker import OversizedDocumentError
+
+    with pytest.raises(OversizedDocumentError):
         StreamingBatchBuilder("j", max_bytes=size - 1).add(doc)
     with pytest.raises(BatchBuildError):
         StreamingBatchBuilder("j", max_bytes=0)
