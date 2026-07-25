@@ -32,3 +32,18 @@ async def test_auth_status_maps_to_terminal_exception():
 
 def test_retry_backoff_is_capped():
     assert retry_delay(20, random=lambda: 0) == 60
+
+
+@pytest.mark.asyncio
+async def test_job_calls_send_lease_token_header():
+    seen = []
+
+    async def handler(request):
+        seen.append((request.url.path, request.headers["X-OneSearch-Lease-Token"]))
+        return httpx.Response(200, json={"status": "ok"})
+
+    async with AgentClient(
+        "http://server.test", "token", transport=httpx.MockTransport(handler)
+    ) as client:
+        await client.cancel_ack("job", "lease-secret")
+    assert seen == [("/api/agent/v1/jobs/job/cancel-ack", "lease-secret")]
