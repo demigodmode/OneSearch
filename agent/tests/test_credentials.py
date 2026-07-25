@@ -71,7 +71,10 @@ def test_linux_auto_falls_back_to_file_when_keyring_errors(tmp_path: Path, monke
             "state_dir": tmp_path,
         },
     )()
-    monkeypatch.setattr("onesearch_agent.credentials.keyring.get_password", lambda *args: (_ for _ in ()).throw(RuntimeError("unavailable")))
+    monkeypatch.setattr(
+        "onesearch_agent.credentials.keyring.get_password",
+        lambda *args: (_ for _ in ()).throw(RuntimeError("unavailable")),
+    )
     assert isinstance(credential_store(config, system="posix"), FileCredentialStore)
 
 

@@ -22,7 +22,18 @@ def install(config: Path, executable: str, *, system: str | None = None, home: P
     if os.environ.get("DOCKER_CONTAINER"):
         raise ServiceError("services are unsupported in containers")
     if system == "nt":
-        _run([executable, "-m", "onesearch_agent.windows_service", "--startup", "auto", "install"])
+        _run(
+            [
+                executable,
+                "-m",
+                "onesearch_agent.windows_service",
+                "--config",
+                str(config),
+                "--startup",
+                "auto",
+                "install",
+            ]
+        )
         _run([executable, "-m", "onesearch_agent.windows_service", "start"])
         return
     if system == "posix":

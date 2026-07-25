@@ -1,50 +1,89 @@
-"""Windows SCM host, imported only by the Windows service manager."""
+"""Module-level pywin32 SCM host; imports safely when pywin32 is absent."""
 
 from __future__ import annotations
 
 import asyncio
 import os
+import sys
+
+try:  # pragma: no cover - availability is platform-specific
+    import winreg
+
+    import win32event
+    import win32service
+    import win32serviceutil
+except ImportError:  # keep package imports safe on Linux
+    win32event = win32service = win32serviceutil = winreg = None
+
+CONFIG_VALUE = "ConfigPath"
 
 
-def _modules():
+def _parameters_key():
+    if winreg is None:
+        raise RuntimeError("pywin32 is required for the Windows service")
+    return r"SYSTEM\CurrentControlSet\Services\OneSearchAgent\Parameters"
+
+
+def persist_config(path: str) -> None:
+    key = winreg.CreateKey(winreg.HKEY_LOCAL_MACHINE, _parameters_key())
     try:
-        import win32event
-        import win32serviceutil
-    except ImportError as error:  # pragma: no cover - Windows-only dependency
-        raise RuntimeError("pywin32 is required for the Windows service") from error
-    return win32event, win32serviceutil
+        winreg.SetValueEx(key, CONFIG_VALUE, 0, winreg.REG_SZ, path)
+    finally:
+        winreg.CloseKey(key)
 
 
-def service_class():
-    win32event, win32serviceutil = _modules()
-    from .client import AgentClient
-    from .config import config_path, load_config
-    from .credentials import credential_store
-    from .runtime import run_runtime
+def service_config() -> str | None:
+    if winreg is None:
+        return None
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _parameters_key())
+        try:
+            return winreg.QueryValueEx(key, CONFIG_VALUE)[0]
+        finally:
+            winreg.CloseKey(key)
+    except OSError:
+        return None
 
-    class OneSearchAgentService(win32serviceutil.ServiceFramework):
-        _svc_name_ = "OneSearchAgent"
-        _svc_display_name_ = "OneSearch Agent"
 
-        def __init__(self, args):
-            super().__init__(args)
-            self.stop_event = win32event.CreateEvent(None, 0, 0, None)
+_ServiceBase = win32serviceutil.ServiceFramework if win32serviceutil else object
 
-        def SvcStop(self):  # noqa: N802
-            self.ReportServiceStatus(3)
-            win32event.SetEvent(self.stop_event)
 
-        def SvcDoRun(self):  # noqa: N802
-            config = load_config(config_path(os.environ.get("ONESEARCH_AGENT_CONFIG")))
-            token = credential_store(config, docker=False).load()
-            asyncio.run(run_runtime(AgentClient(config.server_url, token)))
+class OneSearchAgentService(_ServiceBase):
+    _svc_name_ = "OneSearchAgent"
+    _svc_display_name_ = "OneSearch Agent"
 
-    return OneSearchAgentService
+    def __init__(self, args):
+        if win32serviceutil is None:
+            raise RuntimeError("pywin32 is required for the Windows service")
+        super().__init__(args)
+        self.stop_event = win32event.CreateEvent(None, 0, 0, None)
+
+    def SvcStop(self):  # noqa: N802
+        self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+        win32event.SetEvent(self.stop_event)
+
+    def SvcDoRun(self):  # noqa: N802
+        from .client import AgentClient
+        from .config import config_path, load_config
+        from .credentials import credential_store
+        from .runtime import run_runtime
+
+        config = load_config(
+            config_path(service_config() or os.environ.get("ONESEARCH_AGENT_CONFIG"))
+        )
+        token = credential_store(config).load()
+        asyncio.run(run_runtime(AgentClient(config.server_url, token)))
 
 
 def main():
-    _, win32serviceutil = _modules()
-    win32serviceutil.HandleCommandLine(service_class())
+    if win32serviceutil is None:
+        raise RuntimeError("pywin32 is required for the Windows service")
+    arguments = sys.argv[1:]
+    if "--config" in arguments:
+        index = arguments.index("--config")
+        persist_config(arguments[index + 1])
+        del arguments[index : index + 2]
+    win32serviceutil.HandleCommandLine(OneSearchAgentService, argv=[sys.argv[0], *arguments])
 
 
 if __name__ == "__main__":  # pragma: no cover
