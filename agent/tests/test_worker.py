@@ -260,3 +260,71 @@ async def test_text_snapshot_matches_backend_without_temp_path_leak(tmp_path, mo
     assert remote.content == original.content and remote.title == original.title
     rendered = str({"title": remote.title, "content": remote.content, "metadata": remote.metadata})
     assert str(captured[0]) not in rendered and str(captured[0].parent) not in rendered
+
+
+@pytest.mark.asyncio
+async def test_agent_honors_configured_text_size_limit(tmp_path):
+    file = tmp_path / "large.txt"
+    with file.open("wb") as handle:
+        handle.seek(1024 * 1024)
+        handle.write(b"x")
+    info = file.stat()
+    config = extraction()
+    config["max_text_file_size_mb"] = 1
+    from app.services.extractor_config import choose_extractor
+
+    backend = choose_extractor(str(file), "s", "source", config)
+    with pytest.raises(ValueError, match="too large"):
+        await backend.extract_with_timeout(str(file))
+    with pytest.raises(ValueError, match="too large"):
+        await extract_confined(
+            "r",
+            "large.txt",
+            [AllowedRoot(root_id="r", path=str(tmp_path))],
+            expected=ScanFile(
+                path="large.txt", size_bytes=info.st_size, modified_at=info.st_mtime_ns
+            ),
+            source_id="s",
+            extraction=config,
+            max_snapshot_bytes=2 * 1024 * 1024,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(__import__("os").name == "nt", reason="POSIX modes")
+async def test_snapshot_directory_is_private_on_posix(tmp_path, monkeypatch):
+    file = tmp_path / "x.txt"
+    file.write_text("x")
+    info = file.stat()
+    seen = []
+
+    class Fake:
+        async def extract_with_timeout(self, value):
+            seen.append(Path(value).parent.stat().st_mode & 0o777)
+            from app.schemas import Document
+
+            return Document(
+                id="x",
+                source_id="s",
+                source_name="source",
+                path=value,
+                basename="x.txt",
+                extension="txt",
+                type="text",
+                size_bytes=1,
+                modified_at=1,
+                indexed_at=1,
+                content="x",
+            )
+
+    monkeypatch.setattr(worker_module, "choose_extractor", lambda *args: Fake())
+    await extract_confined(
+        "r",
+        "x.txt",
+        [AllowedRoot(root_id="r", path=str(tmp_path))],
+        expected=ScanFile(path="x.txt", size_bytes=1, modified_at=info.st_mtime_ns),
+        source_id="s",
+        extraction=extraction(),
+        max_snapshot_bytes=10,
+    )
+    assert seen == [0o700]
