@@ -56,6 +56,24 @@ async def test_mutation_lost_response_is_one_request_and_ambiguous(operation):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status", [429, 500, 503])
+async def test_claim_server_ambiguity_is_not_replayed(status):
+    calls = 0
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(status)
+
+    async with AgentClient(
+        "http://server.test", "token", transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(AgentAmbiguousResultError):
+            await client.claim()
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_auth_status_maps_to_terminal_exception():
     async def handler(request):
         return httpx.Response(401)

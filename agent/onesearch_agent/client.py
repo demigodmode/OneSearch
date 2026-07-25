@@ -133,6 +133,8 @@ class AgentClient:
                 if "conflict" in detail.lower():
                     raise JobConflict("job state conflict")
                 raise AgentIncompatible("agent protocol is incompatible")
+            if mutation and (response.status_code == 429 or response.status_code >= 500):
+                raise AgentAmbiguousResultError("operation result is unknown")
             if retry and (response.status_code == 429 or response.status_code >= 500):
                 if attempt == 3:
                     raise AgentError("server request failed")
