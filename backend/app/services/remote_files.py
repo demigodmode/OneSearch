@@ -252,6 +252,32 @@ class ExtractUploadRegistry:
     def has(self, job_id: str) -> bool:
         return job_id in self._sessions
 
+
+class RemoteFileCoordinator:
+    """Coordinates durable parent cancellation with ephemeral upload cleanup."""
+
+    def __init__(self, db, uploads: ExtractUploadRegistry):
+        self.db, self.uploads = db, uploads
+
+    def cancel_server_parent(self, parent_id: str):
+        from ..models import AgentJob
+        from .agent_jobs import AgentJobService, JobConflict
+
+        parent = self.db.get(AgentJob, parent_id)
+        if parent is None or parent.kind != "scan" or parent.processing_mode != "on_server":
+            raise JobConflict("on-server scan required")
+        AgentJobService(self.db).cancel(parent_id)
+        children = [
+            child
+            for child in self.db.query(AgentJob).filter(AgentJob.kind == "extract_file")
+            if __import__("json").loads(child.payload).get("parent_job_id") == parent_id
+        ]
+        for child in children:
+            self.uploads.cleanup(child.id)
+        if all(child.status == "cancelled" for child in children):
+            parent.status, parent.active_key = "cancelled", None
+        return parent
+
     def expire(self, maximum_age: float) -> None:
         cutoff = time.monotonic() - maximum_age
         for job_id, session in list(self._sessions.items()):
