@@ -319,6 +319,60 @@ def test_streaming_exact_boundary_and_nonpositive_caps():
 
 
 @pytest.mark.asyncio
+async def test_run_scan_job_unchanged_submits_manifest_before_success(tmp_path):
+    from types import SimpleNamespace
+
+    from onesearch_agent.worker import run_scan_job
+    from onesearch_shared import JobKind, ProcessingMode
+
+    file = tmp_path / "a.txt"
+    file.write_text("x")
+    info = file.stat()
+    limits = {
+        "max_snapshot_bytes": 1024,
+        "max_batch_documents": 10,
+        "max_batch_bytes": 1024,
+        "max_scan_files": 10,
+        "max_entries_per_directory": 10,
+    }
+    lease = SimpleNamespace(
+        id="j",
+        kind=JobKind.SCAN,
+        processing_mode=ProcessingMode.ON_AGENT,
+        source_id="s",
+        lease_token="t",
+        payload={
+            "root_id": "r",
+            "known_files": {"a.txt": {"size_bytes": 1, "modified_at": info.st_mtime_ns}},
+            "extraction": extraction(),
+            "limits": limits,
+        },
+    )
+
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        async def job_heartbeat(self, *args):
+            self.calls.append("heartbeat")
+
+        async def submit_batch(self, *args):
+            self.calls.append("batch")
+
+        async def submit_manifest(self, *args):
+            self.calls.append("manifest")
+
+        async def complete(self, *args):
+            self.calls.append(("complete", args[1].status))
+
+    client = Client()
+    await run_scan_job(lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))])
+    assert "batch" not in client.calls and client.calls.index("manifest") < next(
+        i for i, value in enumerate(client.calls) if value[0] == "complete"
+    )
+
+
+@pytest.mark.asyncio
 async def test_agent_honors_configured_text_size_limit(tmp_path):
     file = tmp_path / "large.txt"
     with file.open("wb") as handle:
@@ -384,3 +438,76 @@ async def test_snapshot_directory_is_private_on_posix(tmp_path, monkeypatch):
         max_snapshot_bytes=10,
     )
     assert seen == [0o700]
+
+
+@pytest.mark.asyncio
+async def test_run_changed_orders_batch_manifest_success(tmp_path):
+    from types import SimpleNamespace
+
+    from onesearch_agent.worker import run_scan_job
+    from onesearch_shared import JobKind, ProcessingMode
+
+    (tmp_path / "a.txt").write_text("x")
+    limits = {
+        "max_snapshot_bytes": 1024,
+        "max_batch_documents": 10,
+        "max_batch_bytes": 1024,
+        "max_scan_files": 10,
+        "max_entries_per_directory": 10,
+    }
+    lease = SimpleNamespace(
+        id="j",
+        kind=JobKind.SCAN,
+        processing_mode=ProcessingMode.ON_AGENT,
+        source_id="s",
+        lease_token="t",
+        payload={"root_id": "r", "known_files": {}, "extraction": extraction(), "limits": limits},
+    )
+
+    class C:
+        def __init__(self):
+            self.calls = []
+
+        async def job_heartbeat(self, *a):
+            self.calls.append("heartbeat")
+
+        async def submit_batch(self, *a):
+            self.calls.append("batch")
+
+        async def submit_manifest(self, *a):
+            self.calls.append("manifest")
+
+        async def complete(self, *a):
+            self.calls.append("complete")
+
+    c = C()
+    await run_scan_job(lease, c, roots=[AllowedRoot(root_id="r", path=str(tmp_path))])
+    assert c.calls.index("batch") < c.calls.index("manifest") < c.calls.index("complete")
+
+
+@pytest.mark.asyncio
+async def test_run_invalid_payload_only_fails():
+    from types import SimpleNamespace
+
+    from onesearch_agent.worker import run_scan_job
+    from onesearch_shared import JobFailureReason, JobKind, ProcessingMode
+
+    lease = SimpleNamespace(
+        id="j",
+        kind=JobKind.SCAN,
+        processing_mode=ProcessingMode.ON_AGENT,
+        source_id="s",
+        lease_token="t",
+        payload={},
+    )
+
+    class C:
+        def __init__(self):
+            self.calls = []
+
+        async def complete(self, *a):
+            self.calls.append(a[1])
+
+    c = C()
+    await run_scan_job(lease, c, roots=[])
+    assert len(c.calls) == 1 and c.calls[0].reason is JobFailureReason.INVALID_REQUEST

@@ -13,6 +13,7 @@ from pathlib import Path
 from onesearch_shared import (
     DocumentBatch,
     JobCompletion,
+    JobFailureReason,
     JobStatus,
     NormalizedRemoteDocument,
     ScanFile,
@@ -145,17 +146,31 @@ async def extract_confined(
 
 async def run_scan_job(lease, client, *, roots) -> None:
     """Execute only on-agent scan leases; individual files never abort a scan."""
-    if (
+    invalid = (
         lease.kind.value != "scan"
         or lease.processing_mode is None
         or lease.processing_mode.value != "on_agent"
-    ):
-        return
+    )
     payload, root_id = lease.payload, lease.payload.get("root_id")
-    if not root_id or not lease.source_id:
+    limits = payload.get("limits", {})
+    required = {"source_name", "unsupported_file_policy", "max_text_file_size_mb"}
+    invalid = (
+        invalid
+        or not root_id
+        or not lease.source_id
+        or root_id not in {root.root_id for root in roots}
+        or not required <= set(payload.get("extraction", {}))
+        or any(not isinstance(value, int) or value <= 0 for value in limits.values())
+    )
+    if invalid:
         await client.complete(
             lease.id,
-            JobCompletion(job_id=lease.id, status=JobStatus.FAILED, detail="invalid scan payload"),
+            JobCompletion(
+                job_id=lease.id,
+                status=JobStatus.FAILED,
+                reason=JobFailureReason.INVALID_REQUEST,
+                detail="invalid scan payload",
+            ),
             lease.lease_token,
         )
         return
@@ -165,10 +180,24 @@ async def run_scan_job(lease, client, *, roots) -> None:
         include_patterns=payload.get("include_patterns"),
         exclude_patterns=payload.get("exclude_patterns"),
         known=payload.get("known_files"),
+        max_files=limits.get("max_scan_files", 100000),
+        max_entries_per_directory=limits.get("max_entries_per_directory", 100000),
     )
     manifest = scanner.scan(job_id=lease.id, source_id=lease.source_id)
     expected = {item.path: item for item in manifest.files}
-    documents = []
+    await client.job_heartbeat(
+        lease.id,
+        __import__("onesearch_shared").JobProgress(
+            job_id=lease.id, completed_items=0, total_items=len(scanner.changed_paths)
+        ),
+        lease.lease_token,
+    )
+    builder = StreamingBatchBuilder(
+        lease.id,
+        max_documents=limits.get("max_batch_documents", 100),
+        max_bytes=limits.get("max_batch_bytes", 1_000_000),
+    )
+    completed = 0
     for path in scanner.changed_paths:
         try:
             document = await extract_confined(
@@ -183,12 +212,29 @@ async def run_scan_job(lease, client, *, roots) -> None:
                 ),
             )
             if document is not None:
-                documents.append(document)
+                for batch in builder.add(document):
+                    await client.submit_batch(lease.id, batch, lease.lease_token)
         except Exception:
             # The terminal manifest remains complete; this file will have no success receipt.
             continue
-    for batch in batch_documents(lease.id, documents):
+        completed += 1
+        await client.job_heartbeat(
+            lease.id,
+            __import__("onesearch_shared").JobProgress(
+                job_id=lease.id, completed_items=completed, total_items=len(scanner.changed_paths)
+            ),
+            lease.lease_token,
+        )
+    for batch in builder.finish():
         await client.submit_batch(lease.id, batch, lease.lease_token)
+    await client.submit_manifest(lease.id, manifest, lease.lease_token)
+    if not manifest.complete:
+        await client.complete(
+            lease.id,
+            JobCompletion(job_id=lease.id, status=JobStatus.FAILED, detail="incomplete scan"),
+            lease.lease_token,
+        )
+        return
     await client.complete(
         lease.id, JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED), lease.lease_token
     )
