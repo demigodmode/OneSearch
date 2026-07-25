@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import random as _random
+from contextlib import suppress
 
 import httpx
 from onesearch_shared import (
@@ -104,10 +105,8 @@ class AgentClient:
                 raise AgentPending("agent is pending or disabled")
             if response.status_code == 409:
                 detail = ""
-                try:
+                with suppress(ValueError):
                     detail = str(response.json().get("detail", ""))
-                except ValueError:
-                    pass
                 if detail == "remote_agents_disabled":
                     raise RemoteAgentsDisabled("remote agents are disabled")
                 if "conflict" in detail.lower():
