@@ -68,14 +68,16 @@ class AgentClient:
             result["Authorization"] = f"Bearer {self.token}"
         return result
 
-    async def _request(self, method, path, *, json=None, token=True):
+    async def _request(self, method, path, *, json=None, token=True, headers=None, retry=True):
         for attempt in range(4):
             try:
+                request_headers = self._headers(token)
+                request_headers.update(headers or {})
                 response = await self.client.request(
-                    method, path, json=json, headers=self._headers(token)
+                    method, path, json=json, headers=request_headers
                 )
             except httpx.TransportError as error:
-                if attempt == 3:
+                if attempt == 3 or not retry:
                     raise AgentError("server connection failed") from error
                 await self.sleep(retry_delay(attempt, random=self.random))
                 continue
@@ -85,7 +87,7 @@ class AgentClient:
                 raise AgentPending("agent is pending or disabled")
             if response.status_code == 409:
                 raise AgentIncompatible("agent protocol is incompatible")
-            if response.status_code == 429 or response.status_code >= 500:
+            if retry and (response.status_code == 429 or response.status_code >= 500):
                 if attempt == 3:
                     raise AgentError("server request failed")
                 await self.sleep(retry_delay(attempt, random=self.random))
@@ -103,7 +105,11 @@ class AgentClient:
             allowed_roots=config.allowed_roots,
         )
         response = await self._request(
-            "POST", "/api/agent/v1/enroll", json=request.model_dump(mode="json"), token=False
+            "POST",
+            "/api/agent/v1/enroll",
+            json=request.model_dump(mode="json"),
+            token=False,
+            retry=False,
         )
         return AgentEnrollmentResponse.model_validate(response.json())
 
@@ -121,7 +127,10 @@ class AgentClient:
 
     async def job_heartbeat(self, job_id, request, lease_token):
         return await self._request(
-            "POST", f"/api/agent/v1/jobs/{job_id}/heartbeat", json=request.model_dump(mode="json")
+            "POST",
+            f"/api/agent/v1/jobs/{job_id}/heartbeat",
+            json=request.model_dump(mode="json"),
+            headers={"X-OneSearch-Lease-Token": lease_token},
         )
 
     async def submit_batch(self, job_id, request, lease_token):
@@ -131,14 +140,22 @@ class AgentClient:
                     "POST",
                     f"/api/agent/v1/jobs/{job_id}/batches",
                     json=request.model_dump(mode="json"),
+                    headers={"X-OneSearch-Lease-Token": lease_token},
                 )
             ).json()
         )
 
     async def complete(self, job_id, request, lease_token):
         return await self._request(
-            "POST", f"/api/agent/v1/jobs/{job_id}/complete", json=request.model_dump(mode="json")
+            "POST",
+            f"/api/agent/v1/jobs/{job_id}/complete",
+            json=request.model_dump(mode="json"),
+            headers={"X-OneSearch-Lease-Token": lease_token},
         )
 
     async def cancel_ack(self, job_id, lease_token):
-        return await self._request("POST", f"/api/agent/v1/jobs/{job_id}/cancel-ack")
+        return await self._request(
+            "POST",
+            f"/api/agent/v1/jobs/{job_id}/cancel-ack",
+            headers={"X-OneSearch-Lease-Token": lease_token},
+        )

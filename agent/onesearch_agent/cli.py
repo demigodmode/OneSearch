@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-import platform
 from pathlib import Path
 
 import click
 
-from . import __version__
-from .client import AgentClient, AgentIncompatible, AgentPending, AgentRevoked
+from .client import AgentClient, AgentIncompatible, AgentRevoked
 from .config import load_config
-from .credentials import CredentialError, FileCredentialStore
+from .credentials import CredentialError, credential_store
+from .runtime import run_runtime
+from .service import ServiceError, install, uninstall
 
 
 def _config(ctx):
@@ -33,9 +33,7 @@ def main(ctx, config):
 def enroll(ctx, server):
     """Enroll this machine."""
     config = _config(ctx).model_copy(update={"server_url": server})
-    store = FileCredentialStore(config.state_dir)
-    if store.path.exists():
-        raise click.ClickException("a credential already exists")
+    store = credential_store(config)
     code = click.prompt("Enrollment code", hide_input=True)
 
     async def go():
@@ -69,18 +67,11 @@ def config_check(ctx):
 def run(ctx):
     """Run the heartbeat shell; no jobs are claimed before a worker is supplied."""
     value = _config(ctx)
-    token = FileCredentialStore(value.state_dir).load()
+    token = credential_store(value).load()
 
     async def loop():
         async with AgentClient(value.server_url, token) as client:
-            while True:
-                try:
-                    await client.heartbeat(__version__, platform.platform())
-                except AgentPending:
-                    pass
-                except (AgentRevoked, AgentIncompatible):
-                    raise
-                await asyncio.sleep(30)
+            await run_runtime(client)
 
     try:
         asyncio.run(loop())
@@ -98,10 +89,17 @@ def service():
 
 
 @service.command("install")
-def service_install():
-    raise click.ClickException("service installation is unavailable in this runtime")
+@click.pass_context
+def service_install(ctx):
+    try:
+        install(Path(ctx.obj["config"]), "onesearch-agent")
+    except ServiceError as error:
+        raise click.ClickException(str(error)) from error
 
 
 @service.command("uninstall")
 def service_uninstall():
-    raise click.ClickException("service installation is unavailable in this runtime")
+    try:
+        uninstall()
+    except ServiceError as error:
+        raise click.ClickException(str(error)) from error
