@@ -92,6 +92,18 @@ async def test_bounded_queue_rejects_out_of_order_or_changed_chunks():
         await queue.put(0, b"a", checksum="0" * 64)
 
 
+@pytest.mark.asyncio
+async def test_bounded_queue_failure_unblocks_waiting_consumer():
+    from app.services.remote_files import BoundedByteQueue, RemoteFileMissing
+
+    queue = BoundedByteQueue(max_bytes=1)
+    waiting = asyncio.create_task(queue.get())
+    await asyncio.sleep(0)
+    await queue.fail(RemoteFileMissing("missing"))
+    with pytest.raises(RemoteFileMissing):
+        await waiting
+
+
 def test_on_server_manifest_enqueues_one_extract_job_per_file(db_session, remote):
     from app.models import AgentJob
     from app.services.agent_jobs import AgentJobService

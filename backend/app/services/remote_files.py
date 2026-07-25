@@ -120,6 +120,7 @@ class BoundedByteQueue:
         self._next_sequence = 0
         self._digest = hashlib.sha256()
         self._finished = False
+        self._error: RemoteFileError | None = None
 
     async def put(self, sequence: int, chunk: bytes, checksum: str | None = None) -> None:
         if self._finished or sequence != self._next_sequence:
@@ -143,8 +144,18 @@ class BoundedByteQueue:
         self._finished = True
         await self._items.put(None)
 
+    async def fail(self, error: RemoteFileError) -> None:
+        if self._finished:
+            return
+        self._error, self._finished = error, True
+        async with self._space:
+            self._space.notify_all()
+        await self._items.put(None)
+
     async def get(self) -> bytes | None:
         item = await self._items.get()
+        if item is None and self._error is not None:
+            raise self._error
         if item is not None:
             async with self._space:
                 self._bytes -= len(item)
