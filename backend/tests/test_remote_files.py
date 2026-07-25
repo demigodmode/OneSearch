@@ -134,6 +134,30 @@ def test_extract_upload_rejects_empty_chunk_without_creating_temp_file(tmp_path)
     assert list(tmp_path.iterdir()) == []
 
 
+def test_coordinator_cancels_children_and_cleans_uploads(db_session, remote, tmp_path):
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_files import ExtractUploadRegistry, RemoteFileCoordinator
+
+    agent, source = remote
+    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
+    children = AgentJobService(db_session).enqueue_extract_files(parent, [
+        {"path": "a.txt", "size_bytes": 1, "modified_at": 1, "content_hash": None},
+        {"path": "b.txt", "size_bytes": 1, "modified_at": 1, "content_hash": None},
+    ])
+    parent.status, parent.lease_token_hash, parent.lease_expires_at = "running", None, None
+    children[1].status = "running"
+    uploads = ExtractUploadRegistry(tmp_path)
+    for child in children:
+        uploads.append(child.id, sequence=0, data=b"x", expected_size=1, maximum_size=1)
+    db_session.flush()
+    coordinator = RemoteFileCoordinator(db_session, uploads)
+    coordinator.cancel_server_parent(parent.id)
+    assert children[0].status == "cancelled" and children[1].status == "cancelling"
+    assert parent.status == "cancelling" and not uploads.has(children[0].id) and not uploads.has(children[1].id)
+    coordinator.cancel_server_parent(parent.id)
+    assert children[0].status == "cancelled" and children[1].status == "cancelling"
+
+
 def test_extract_upload_streams_to_private_temp_file_and_validates_checksum(tmp_path):
     from app.services.remote_files import ExtractUploadRegistry
 
