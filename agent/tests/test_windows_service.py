@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import os
 
 
 def test_windows_service_module_import_is_lazy_off_windows():
@@ -131,6 +132,17 @@ def test_machine_credential_decrypts_and_redacts_failures(monkeypatch):
     with pytest.raises(RuntimeError) as error:
         module.machine_credential()
     assert "secret" not in str(error.value)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows DPAPI only")
+def test_live_machine_dpapi_roundtrip():
+    try:
+        import win32crypt
+
+        protected = win32crypt.CryptProtectData(b"roundtrip", None, None, None, None, 4)[1]
+        assert win32crypt.CryptUnprotectData(protected, None, None, None, 0)[1] == b"roundtrip"
+    except Exception as error:
+        pytest.skip(f"DPAPI unavailable: {error}")
 
 
 def test_service_class_exposes_scm_stop_and_runtime_methods():
