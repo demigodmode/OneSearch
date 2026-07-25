@@ -32,8 +32,15 @@ def main(ctx, config):
 @click.pass_context
 def enroll(ctx, server):
     """Enroll this machine."""
-    config = _config(ctx).model_copy(update={"server_url": server})
+    current = _config(ctx)
+    config = current.__class__.model_validate({**current.model_dump(), "server_url": server})
     store = credential_store(config)
+    try:
+        if store.load(optional=True) is not None:
+            raise click.ClickException("a credential already exists")
+    except (AttributeError, TypeError):
+        if getattr(store, "path", None) and store.path.exists():
+            raise click.ClickException("a credential already exists")
     code = click.prompt("Enrollment code", hide_input=True)
 
     async def go():

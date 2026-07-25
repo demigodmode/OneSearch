@@ -37,7 +37,14 @@ def resolve_relative_path(root_id: str, relative: str, roots: list[AllowedRoot])
     path = Path(relative)
     if path.is_absolute() or ".." in path.parts or "\\" in relative:
         raise PathOutsideAllowedRoots("invalid relative path")
-    return resolve_allowed_path(_root(root_id, roots) / path, roots)
+    root = _root(root_id, roots)
+    candidate = root / path
+    resolved = resolve_allowed_path(candidate, roots)
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise PathOutsideAllowedRoots("path is outside selected root") from error
+    return resolved
 
 
 def browse(root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int = 200):

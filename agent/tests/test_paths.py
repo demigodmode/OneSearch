@@ -58,3 +58,18 @@ def test_browse_suppresses_symlink_escape(tmp_path: Path):
         pytest.skip("symlink creation unavailable")
     entries = browse("docs", "", [AllowedRoot(root_id="docs", path=str(root))])
     assert [entry.name for entry in entries] == ["safe"]
+
+
+def test_relative_path_cannot_cross_into_another_root(tmp_path: Path):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    link = first / "to-second"
+    try:
+        link.symlink_to(second, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+    roots = [AllowedRoot(root_id="a", path=str(first)), AllowedRoot(root_id="b", path=str(second))]
+    with pytest.raises(PathOutsideAllowedRoots):
+        resolve_relative_path("a", "to-second", roots)
