@@ -547,3 +547,30 @@ def test_extract_final_parent_rejection_cleans_upload_session(client, db_session
     response = client.put(f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=1&complete=true&stream_checksum={hashlib.sha256(b'x').hexdigest()}", headers=headers)
     assert response.status_code == 409
     assert not registry.has(child.id) and list(tmp_path.iterdir()) == []
+
+
+def test_stream_final_checksum_requires_registered_consumer_and_durable_completion(client, db_session, remote):
+    from app.models import AgentJob
+    from app.services.remote_files import remote_streams
+
+    agent, source = remote
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    job = AgentJob(id="stream-red", agent_id=agent.id, source_id=source.id, kind="stream_file",
+                   status="pending", processing_mode="on_server", active_key="stream-red",
+                   payload="{}", checkpoint="{}")
+    db_session.add(job); db_session.commit()
+    lease = AgentJobService(db_session).claim_next(agent.id); db_session.commit()
+    queue = remote_streams.open(job.id)
+    headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
+    try:
+        assert client.put(f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0", content=b"x", headers=headers).status_code == 200
+        final = client.put(f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=1&complete=true&stream_checksum={hashlib.sha256(b'x').hexdigest()}", headers=headers)
+        assert final.status_code == 200
+        assert __import__("asyncio").run(queue.get()) == b"x"
+        assert __import__("asyncio").run(queue.get()) is None
+        db_session.refresh(job)
+        assert job.status == "completed"
+    finally:
+        __import__("asyncio").run(remote_streams.close(job.id))
