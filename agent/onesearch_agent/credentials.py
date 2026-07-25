@@ -57,10 +57,16 @@ class FileCredentialStore:
                 os.unlink(name)
 
     def load_backend_marker(self) -> str | None:
+        self._secure_dir()
         if not self.marker_path.exists():
             return None
         if self.marker_path.is_symlink():
             raise CredentialError("credential backend marker is unsafe")
+        if _is_posix():
+            info = self.marker_path.stat()
+            _validate_posix_metadata(
+                False, stat.S_IMODE(info.st_mode), info.st_uid, "credential backend marker"
+            )
         value = self.marker_path.read_text().strip()
         if value not in {"file", "keyring"}:
             raise CredentialError("credential backend marker is invalid")
