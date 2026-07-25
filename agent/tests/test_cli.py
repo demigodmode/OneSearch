@@ -7,8 +7,9 @@ from onesearch_agent.cli import main
 
 def _config(path: Path, root: Path):
     root_text = str(root).replace("\\", "\\\\")
+    state_text = str(path.parent / "state").replace("\\", "\\\\")
     path.write_text(
-        f'server_url = "http://host"\nallowed_roots = [{{root_id="r", path="{root_text}"}}]\n'
+        f'server_url = "http://host"\nstate_dir = "{state_text}"\nallowed_roots = [{{root_id="r", path="{root_text}"}}]\n'
     )
 
 
