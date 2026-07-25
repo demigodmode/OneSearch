@@ -24,34 +24,75 @@ from .paths import open_confined_file
 from .scanner import RemoteScanner
 
 
+class BatchBuildError(ValueError):
+    pass
+
+
+def _batch_wire_bytes(job_id, documents) -> bytes:
+    """Canonical hash payload: batch_id is excluded to avoid self-reference."""
+    return json.dumps(
+        {
+            "job_id": job_id,
+            "batch_id": "pending",
+            "documents": [item.model_dump(mode="json") for item in documents],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+class OversizedDocumentError(BatchBuildError):
+    pass
+
+
+class StreamingBatchBuilder:
+    def __init__(self, job_id, *, max_documents=100, max_bytes=1_000_000):
+        if max_documents < 1 or max_bytes < 1:
+            raise BatchBuildError("batch limits must be positive")
+        self.job_id, self.max_documents, self.max_bytes, self.sequence, self.current = (
+            job_id,
+            max_documents,
+            max_bytes,
+            0,
+            [],
+        )
+
+    def _emit(self):
+        docs = list(self.current)
+        digest = hashlib.sha256(_batch_wire_bytes(self.job_id, docs)).hexdigest()
+        batch = DocumentBatch(
+            job_id=self.job_id, batch_id=f"{self.job_id}:{self.sequence}:{digest}", documents=docs
+        )
+        self.sequence += 1
+        self.current = []
+        return batch
+
+    def add(self, doc):
+        candidate = self.current + [doc]
+        if (
+            len(candidate) <= self.max_documents
+            and len(_batch_wire_bytes(self.job_id, candidate)) <= self.max_bytes
+        ):
+            self.current = candidate
+            return []
+        if not self.current or len(_batch_wire_bytes(self.job_id, [doc])) > self.max_bytes:
+            raise OversizedDocumentError(doc.path[:200])
+        emitted = self._emit()
+        self.current = [doc]
+        return [emitted]
+
+    def finish(self):
+        return [self._emit()] if self.current else []
+
+
 def batch_documents(
-    job_id: str,
-    documents: list[NormalizedRemoteDocument],
-    *,
-    max_documents=100,
-    max_bytes=1_000_000,
+    job_id, documents, *, max_documents=100, max_bytes=1_000_000
 ) -> Iterator[DocumentBatch]:
-    """Yield stable batches bounded by count and serialized wire size."""
-    current: list[NormalizedRemoteDocument] = []
-    sequence = 0
+    builder = StreamingBatchBuilder(job_id, max_documents=max_documents, max_bytes=max_bytes)
     for document in documents:
-        candidate = current + [document]
-        encoded = json.dumps(
-            [item.model_dump(mode="json") for item in candidate],
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-        if current and (len(candidate) > max_documents or len(encoded) > max_bytes):
-            payload = DocumentBatch(job_id=job_id, batch_id="pending", documents=current)
-            checksum = hashlib.sha256(payload.model_dump_json().encode()).hexdigest()
-            yield payload.model_copy(update={"batch_id": f"{job_id}:{sequence}:{checksum}"})
-            sequence, current = sequence + 1, [document]
-        else:
-            current = candidate
-    if current:
-        payload = DocumentBatch(job_id=job_id, batch_id="pending", documents=current)
-        checksum = hashlib.sha256(payload.model_dump_json().encode()).hexdigest()
-        yield payload.model_copy(update={"batch_id": f"{job_id}:{sequence}:{checksum}"})
+        yield from builder.add(document)
+    yield from builder.finish()
 
 
 class ExtractionError(RuntimeError):

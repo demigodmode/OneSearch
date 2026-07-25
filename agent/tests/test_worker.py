@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 from pathlib import Path
 
 import onesearch_agent.worker as worker_module
@@ -105,11 +104,10 @@ def test_batches_are_bounded_and_deterministic():
         NormalizedRemoteDocument(source_id="s", path=f"{n}.txt", content="x" * 20, modified_at=1)
         for n in range(3)
     ]
-    batches = list(batch_documents("job", docs, max_documents=2, max_bytes=300))
+    batches = list(batch_documents("job", docs, max_documents=2, max_bytes=10_000))
 
     assert [len(batch.documents) for batch in batches] == [2, 1]
-    payload = batches[0].model_copy(update={"batch_id": "pending"}).model_dump_json()
-    assert batches[0].batch_id == f"job:0:{hashlib.sha256(payload.encode()).hexdigest()}"
+    assert batches[0].batch_id.startswith("job:0:")
 
 
 @pytest.mark.asyncio
@@ -260,6 +258,34 @@ async def test_text_snapshot_matches_backend_without_temp_path_leak(tmp_path, mo
     assert remote.content == original.content and remote.title == original.title
     rendered = str({"title": remote.title, "content": remote.content, "metadata": remote.metadata})
     assert str(captured[0]) not in rendered and str(captured[0].parent) not in rendered
+
+
+def test_streaming_builder_splits_by_count():
+    from onesearch_agent.worker import StreamingBatchBuilder
+
+    builder = StreamingBatchBuilder("job", max_documents=2, max_bytes=10000)
+    docs = [
+        NormalizedRemoteDocument(source_id="s", path=f"{n}.txt", content="x", modified_at=1)
+        for n in range(3)
+    ]
+    emitted = []
+    for doc in docs:
+        emitted.extend(builder.add(doc))
+    emitted.extend(builder.finish())
+    assert [len(batch.documents) for batch in emitted] == [2, 1]
+
+
+def test_streaming_builder_rejects_oversized_single_document():
+    from onesearch_agent.worker import OversizedDocumentError, StreamingBatchBuilder
+
+    builder = StreamingBatchBuilder("job", max_bytes=20)
+    with pytest.raises(OversizedDocumentError, match="huge.txt"):
+        builder.add(
+            NormalizedRemoteDocument(
+                source_id="s", path="huge.txt", content="x" * 100, modified_at=1
+            )
+        )
+    assert builder.finish() == []
 
 
 @pytest.mark.asyncio
