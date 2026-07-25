@@ -176,11 +176,25 @@ def remote_download(db_session, monkeypatch):
 
 @pytest.fixture
 def capture_remote_download_response(monkeypatch):
+    from app.services.remote_files import remote_streams
+
     def no_stream(*_args, **_kwargs):
         return Response(status_code=204)
 
+    original_open = remote_streams.open
+
+    def open_and_feed(job_id, **kwargs):
+        queue = original_open(job_id, **kwargs)
+
+        async def feed():
+            await queue.put(0, b"x")
+            await queue.finish(1, hashlib.sha256(b"x").hexdigest())
+
+        asyncio.get_running_loop().create_task(feed())
+        return queue
+
+    monkeypatch.setattr(remote_streams, "open", open_and_feed)
     monkeypatch.setattr("app.api.preview.StreamingResponse", no_stream)
-    from app.services.remote_files import remote_streams
 
     existing_jobs = set(remote_streams._streams)
     yield
