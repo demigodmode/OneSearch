@@ -59,6 +59,25 @@ def test_keyring_name_is_server_scoped():
     )
 
 
+def test_linux_auto_falls_back_to_file_when_keyring_errors(tmp_path: Path, monkeypatch):
+    config = type(
+        "Config",
+        (),
+        {
+            "credential_store": "auto",
+            "server_url": "https://host",
+            "agent_name": "a",
+            "state_dir": tmp_path,
+        },
+    )()
+    monkeypatch.setattr(
+        KeyringCredentialStore,
+        "load",
+        lambda self, optional=False: (_ for _ in ()).throw(CredentialError("unavailable")),
+    )
+    assert isinstance(credential_store(config, system="posix"), FileCredentialStore)
+
+
 @pytest.mark.skipif(__import__("os").name == "nt", reason="POSIX modes")
 def test_file_store_rejects_permissive_token_file(tmp_path: Path):
     state = tmp_path / "state"

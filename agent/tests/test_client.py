@@ -90,3 +90,44 @@ async def test_429_retry_after_controls_retry_delay():
     ) as client:
         assert await client.claim() is None
     assert delays == [7]
+
+
+@pytest.mark.asyncio
+async def test_connect_error_retries_with_injected_delay():
+    calls, delays = 0, []
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise httpx.ConnectError("offline", request=request)
+        return httpx.Response(204)
+
+    async def sleep(delay):
+        delays.append(delay)
+
+    async with AgentClient(
+        "http://server.test",
+        "token",
+        transport=httpx.MockTransport(handler),
+        sleep=sleep,
+        random=lambda: 0,
+    ) as client:
+        assert await client.claim() is None
+    assert delays == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_status_errors_do_not_include_token():
+    async def handler(request):
+        return httpx.Response(500)
+
+    async with AgentClient(
+        "http://server.test",
+        "top-secret",
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: __import__("asyncio").sleep(0),
+    ) as client:
+        with pytest.raises(AgentError) as error:
+            await client.claim()
+    assert "top-secret" not in str(error.value)
