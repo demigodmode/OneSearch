@@ -108,6 +108,21 @@ def test_enqueue_includes_index_status_in_incremental_known_files(db_session, re
     assert payload["known_files"]["retry.txt"]["status"] == "failed"
 
 
+def test_enqueue_uses_legacy_datetime_when_exact_nanoseconds_are_absent(db_session, remote):
+    from datetime import datetime, timezone
+
+    from app.models import IndexedFile
+
+    _agent, source = remote
+    moment = datetime(2024, 1, 2, 3, 4, 5, 123456, tzinfo=timezone.utc).replace(tzinfo=None)
+    db_session.add(
+        IndexedFile(source_id=source.id, path="legacy.txt", modified_at=moment, status="success")
+    )
+    db_session.commit()
+    payload = json.loads(AgentJobService(db_session).enqueue_scan(source, full=False).payload)
+    assert payload["known_files"]["legacy.txt"]["modified_at"] == 1704164645123456000
+
+
 def test_claim_issues_hashed_lease_and_rejects_wrong_agent(db_session, remote):
     agent, source = remote
     service = AgentJobService(db_session, lease_seconds=10)

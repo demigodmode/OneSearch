@@ -261,7 +261,10 @@ def test_agent_job_source_accepts_matching_agent(agent_db):
 
 
 def test_agent_job_query_indexes_are_declared(agent_db):
-    indexes = {index["name"]: index["column_names"] for index in inspect(agent_db.bind).get_indexes("agent_jobs")}
+    indexes = {
+        index["name"]: index["column_names"]
+        for index in inspect(agent_db.bind).get_indexes("agent_jobs")
+    }
 
     assert indexes["ix_agent_jobs_agent_status_created"] == ["agent_id", "status", "created_at"]
     assert indexes["ix_agent_jobs_status_lease_expires"] == ["status", "lease_expires_at"]
@@ -288,9 +291,7 @@ def test_deleting_source_cascades_jobs_batches_and_indexed_rows(agent_db, load_r
     agent_db.add(source)
     agent_db.flush()
     job = AgentJob(id="job-1", agent_id="agent-1", source_id=source.id, kind="scan")
-    agent_db.add_all(
-        [job, IndexedFile(source_id=source.id, path="file.txt", status="success")]
-    )
+    agent_db.add_all([job, IndexedFile(source_id=source.id, path="file.txt", status="success")])
     agent_db.flush()
     agent_db.add(AgentBatch(job_id=job.id, idempotency_key="batch-1", checksum="a" * 64))
     agent_db.commit()
@@ -412,9 +413,7 @@ def test_migration_is_head_and_round_trips_only_a_temporary_database(tmp_path):
                 "VALUES ('job-mismatch', 'agent-2', 'remote', 'scan', CURRENT_TIMESTAMP)"
             )
         with pytest.raises(sqlite3.IntegrityError):
-            connection.execute(
-                "UPDATE sources SET processing_mode='on_server' WHERE id='existing'"
-            )
+            connection.execute("UPDATE sources SET processing_mode='on_server' WHERE id='existing'")
         for status in ("claimed", "cancelling"):
             connection.execute(
                 "INSERT INTO agent_jobs (id, agent_id, kind, status, created_at) "
@@ -433,14 +432,22 @@ def test_migration_is_head_and_round_trips_only_a_temporary_database(tmp_path):
         index_names = {
             index[1] for index in connection.execute("PRAGMA index_list('agent_jobs')").fetchall()
         }
+        indexed_columns = {
+            column[1] for column in connection.execute("PRAGMA table_info('indexed_files')")
+        }
     assert row == ("local", None, None)
-    assert revision == "a91c5e7d2f40"
+    assert revision == "c25f7a9b1d02"
+    assert "modified_at_ns" in indexed_columns
     assert "ix_agent_jobs_agent_status_created" in index_names
     assert "ix_agent_jobs_status_lease_expires" in index_names
 
-    alembic("downgrade", "361d2b460314")
+    alembic("downgrade", "a91c5e7d2f40")
+    with sqlite3.connect(database_path) as connection:
+        assert "modified_at_ns" not in {
+            column[1] for column in connection.execute("PRAGMA table_info('indexed_files')")
+        }
     alembic("upgrade", "head")
     alembic("check")
     with sqlite3.connect(database_path) as connection:
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-    assert revision == "a91c5e7d2f40"
+    assert revision == "c25f7a9b1d02"
