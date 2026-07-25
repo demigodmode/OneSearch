@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import Agent, AgentBatch, AgentJob, Source
+from ..config import settings as runtime_settings
 from .agent_auth import hash_token, verify_token
 from .app_settings import AppSettingsService
 
@@ -101,6 +102,14 @@ class AgentJobService:
             )
         }
         extraction["source_name"] = source.name
+        extraction.update(
+            {
+                "text_extraction_timeout": runtime_settings.text_extraction_timeout,
+                "pdf_extraction_timeout": runtime_settings.pdf_extraction_timeout,
+                "office_extraction_timeout": runtime_settings.office_extraction_timeout,
+                "raw_metadata_timeout_seconds": runtime_settings.raw_metadata_timeout_seconds,
+            }
+        )
         payload = {
             "full": full,
             "root_id": root_id,

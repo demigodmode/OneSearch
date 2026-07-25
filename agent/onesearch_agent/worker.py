@@ -57,6 +57,10 @@ class ExtractionPayload(BaseModel):
     epub_extraction_max_size_mb: StrictInt = Field(gt=0)
     comic_extraction_max_size_mb: StrictInt = Field(gt=0)
     media_probe_max_size_mb: StrictInt = Field(ge=0)
+    text_extraction_timeout: StrictInt = Field(gt=0)
+    pdf_extraction_timeout: StrictInt = Field(gt=0)
+    office_extraction_timeout: StrictInt = Field(gt=0)
+    raw_metadata_timeout_seconds: StrictInt = Field(gt=0)
 
 
 class ScanLimits(BaseModel):

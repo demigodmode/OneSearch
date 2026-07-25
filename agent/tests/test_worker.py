@@ -27,6 +27,10 @@ def extraction(source_name="source", policy="metadata_only"):
         "comic_extraction_max_size_mb": 100,
         "media_metadata_mode": "auto",
         "media_probe_max_size_mb": 0,
+        "text_extraction_timeout": 5,
+        "pdf_extraction_timeout": 30,
+        "office_extraction_timeout": 30,
+        "raw_metadata_timeout_seconds": 10,
     }
 
 
