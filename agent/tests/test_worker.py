@@ -288,6 +288,34 @@ def test_streaming_builder_rejects_oversized_single_document():
     assert builder.finish() == []
 
 
+def test_streaming_batches_are_canonical_utf8_and_deterministic():
+    from onesearch_agent.worker import StreamingBatchBuilder, _batch_wire_bytes
+
+    first = NormalizedRemoteDocument(
+        source_id="s", path="ü.txt", content="\u0000é", modified_at=1, metadata={"b": 2, "a": 1}
+    )
+    second = NormalizedRemoteDocument(
+        source_id="s", path="ü.txt", content="\u0000é", modified_at=1, metadata={"a": 1, "b": 2}
+    )
+    assert _batch_wire_bytes("j", [first]) == _batch_wire_bytes("j", [second])
+    one = StreamingBatchBuilder("j", max_bytes=10_000)
+    two = StreamingBatchBuilder("j", max_bytes=10_000)
+    assert one.add(first) == two.add(second) == []
+    assert one.finish()[0].batch_id == two.finish()[0].batch_id
+
+
+def test_streaming_exact_boundary_and_nonpositive_caps():
+    from onesearch_agent.worker import BatchBuildError, StreamingBatchBuilder, _batch_wire_bytes
+
+    doc = NormalizedRemoteDocument(source_id="s", path="x", content="x", modified_at=1)
+    size = len(_batch_wire_bytes("j", [doc]))
+    assert StreamingBatchBuilder("j", max_bytes=size).add(doc) == []
+    with pytest.raises(Exception):
+        StreamingBatchBuilder("j", max_bytes=size - 1).add(doc)
+    with pytest.raises(BatchBuildError):
+        StreamingBatchBuilder("j", max_bytes=0)
+
+
 @pytest.mark.asyncio
 async def test_agent_honors_configured_text_size_limit(tmp_path):
     file = tmp_path / "large.txt"
