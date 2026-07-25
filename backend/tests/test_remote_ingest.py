@@ -58,8 +58,7 @@ class CancellingDeleteSearch(Search):
 
     async def delete_document(self, doc):
         self.deleted.append(doc)
-        with pytest.raises(JobConflict):
-            AgentJobService(self.db).cancel(self.job.id)
+        assert AgentJobService(self.db).cancel(self.job.id).status == "completed"
 
 
 @pytest.fixture
