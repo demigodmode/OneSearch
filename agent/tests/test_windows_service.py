@@ -99,6 +99,40 @@ def test_machine_credential_uses_binary_dpapi(monkeypatch):
     assert calls == [("MachineCredential", 3, b"cipher")]
 
 
+def test_machine_credential_decrypts_and_redacts_failures(monkeypatch):
+    module = importlib.import_module("onesearch_agent.windows_service")
+
+    class Registry:
+        HKEY_LOCAL_MACHINE = 1
+
+        def OpenKey(self, *args):
+            return "key"
+
+        def QueryValueEx(self, key, name):
+            return (b"cipher", 3)
+
+        def CloseKey(self, key):
+            pass
+
+    class Crypto:
+        def CryptUnprotectData(self, *args):
+            return (None, b"secret")
+
+    monkeypatch.setattr(module, "winreg", Registry())
+    monkeypatch.setitem(__import__("sys").modules, "win32crypt", Crypto())
+    assert module.machine_credential() == "secret"
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "win32crypt",
+        type(
+            "C", (), {"CryptUnprotectData": lambda *args: (_ for _ in ()).throw(OSError("secret"))}
+        )(),
+    )
+    with pytest.raises(RuntimeError) as error:
+        module.machine_credential()
+    assert "secret" not in str(error.value)
+
+
 def test_service_class_exposes_scm_stop_and_runtime_methods():
     module = importlib.import_module("onesearch_agent.windows_service")
     assert module.OneSearchAgentService._svc_name_ == "OneSearchAgent"
