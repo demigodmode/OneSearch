@@ -5,22 +5,23 @@
 Indexing service with incremental logic
 Orchestrates file scanning, extraction, and Meilisearch indexing
 """
+
 import hashlib
 import json
 import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..extractors import MetadataOnlyExtractor, extractor_registry
 from ..models import IndexedFile, Source
 from ..schemas import Document
 from .app_settings import AppSettingsService
+from .extractor_config import choose_extractor
 from .scanner import FileScanner
 from .search import SearchService
 
@@ -39,7 +40,7 @@ class IndexingStats:
         self.successful = 0
         self.failed = 0
         self.skipped = 0  # Unsupported file types
-        self.errors: List[Dict[str, str]] = []
+        self.errors: list[dict[str, str]] = []
 
     def to_dict(self) -> dict:
         """Convert stats to dictionary"""
@@ -124,6 +125,7 @@ class IndexingService:
                 await self.search_service.delete_documents_by_filter(f"source_id = {escaped_id}")
                 # Also clear indexed_files records so all files are treated as new
                 from sqlalchemy import delete
+
                 self.db.execute(delete(IndexedFile).where(IndexedFile.source_id == source_id))
                 self.db.commit()
                 logger.info(f"Full reindex: cleared existing documents for source '{source_id}'")
@@ -132,14 +134,18 @@ class IndexingService:
 
         try:
             # Parse include/exclude patterns
-            include_patterns = json.loads(source.include_patterns) if source.include_patterns else None
-            exclude_patterns = json.loads(source.exclude_patterns) if source.exclude_patterns else None
+            include_patterns = (
+                json.loads(source.include_patterns) if source.include_patterns else None
+            )
+            exclude_patterns = (
+                json.loads(source.exclude_patterns) if source.exclude_patterns else None
+            )
 
             # Scan files
             scanner = FileScanner(
                 root_path=source.root_path,
                 include_patterns=include_patterns,
-                exclude_patterns=exclude_patterns
+                exclude_patterns=exclude_patterns,
             )
 
             # Get list of current files
@@ -181,17 +187,14 @@ class IndexingService:
                         stats.modified_files += 1
 
                     # Extract document
-                    document = await self._extract_document(
-                        file_path, source.id, source.name
-                    )
+                    document = await self._extract_document(file_path, source.id, source.name)
 
                     if document is None:
                         # File type not supported
                         stats.skipped += 1
                         logger.debug(f"Skipped unsupported file type: {file_path}")
                         self._update_indexed_file(
-                            source_id, file_path, status="skipped",
-                            error="Unsupported file type"
+                            source_id, file_path, status="skipped", error="Unsupported file type"
                         )
                         continue
 
@@ -200,17 +203,14 @@ class IndexingService:
                     total_bytes_processed += document.size_bytes
 
                     # Update indexed_files table
-                    self._update_indexed_file(
-                        source_id, file_path, status="success"
-                    )
+                    self._update_indexed_file(source_id, file_path, status="success")
 
                     stats.successful += 1
 
                     # Batch index using configurable batch size
                     if len(documents_to_index) >= settings.meilisearch_batch_size:
                         logger.debug(
-                            f"Indexing batch of {len(documents_to_index)} documents "
-                            f"to Meilisearch"
+                            f"Indexing batch of {len(documents_to_index)} documents to Meilisearch"
                         )
                         await self.search_service.index_documents(documents_to_index)
                         documents_to_index = []
@@ -233,18 +233,13 @@ class IndexingService:
                 except Exception as e:
                     logger.warning(
                         f"Failed to index file '{Path(file_path).name}': {type(e).__name__}: {e}",
-                        extra={"file_path": file_path, "error": str(e)}
+                        extra={"file_path": file_path, "error": str(e)},
                     )
                     stats.failed += 1
-                    stats.errors.append({
-                        "file": file_path,
-                        "error": str(e)
-                    })
+                    stats.errors.append({"file": file_path, "error": str(e)})
 
                     # Update indexed_files with error
-                    self._update_indexed_file(
-                        source_id, file_path, status="failed", error=str(e)
-                    )
+                    self._update_indexed_file(source_id, file_path, status="failed", error=str(e))
 
             # Index remaining documents
             if documents_to_index:
@@ -263,7 +258,9 @@ class IndexingService:
             # Calculate final metrics
             elapsed_time = time.time() - start_time
             files_per_sec = stats.successful / elapsed_time if elapsed_time > 0 else 0
-            mb_per_sec = (total_bytes_processed / (1024 * 1024)) / elapsed_time if elapsed_time > 0 else 0
+            mb_per_sec = (
+                (total_bytes_processed / (1024 * 1024)) / elapsed_time if elapsed_time > 0 else 0
+            )
 
             logger.info(
                 f"✓ Indexing complete for '{source.name}': "
@@ -288,7 +285,7 @@ class IndexingService:
 
         return stats
 
-    def _get_indexed_files_map(self, source_id: str) -> Dict[str, IndexedFile]:
+    def _get_indexed_files_map(self, source_id: str) -> dict[str, IndexedFile]:
         """
         Get map of previously indexed files for a source
 
@@ -304,8 +301,8 @@ class IndexingService:
         return {indexed_file.path: indexed_file for indexed_file in indexed_files}
 
     def _check_needs_indexing(
-        self, file_path: str, indexed_files_map: Dict[str, IndexedFile]
-    ) -> tuple[bool, Optional[str]]:
+        self, file_path: str, indexed_files_map: dict[str, IndexedFile]
+    ) -> tuple[bool, str | None]:
         """
         Check if a file needs to be indexed
 
@@ -332,7 +329,9 @@ class IndexingService:
         # Check if file has been modified (size or mtime changed)
         # Convert both datetimes to timestamps for reliable comparison
         try:
-            indexed_mtime = int(indexed_file.modified_at.timestamp()) if indexed_file.modified_at else 0
+            indexed_mtime = (
+                int(indexed_file.modified_at.timestamp()) if indexed_file.modified_at else 0
+            )
         except (OSError, OverflowError):
             # Handle edge cases like dates before 1970 on Windows
             indexed_mtime = 0
@@ -345,7 +344,7 @@ class IndexingService:
 
     async def _extract_document(
         self, file_path: str, source_id: str, source_name: str
-    ) -> Optional[Document]:
+    ) -> Document | None:
         """
         Extract document content using appropriate extractor
 
@@ -357,21 +356,13 @@ class IndexingService:
         Returns:
             Extracted Document or None if no suitable extractor
         """
-        # Get appropriate extractor
-        extractor = extractor_registry.get_extractor(
-            file_path, source_id, source_name
-        )
-
+        app_settings = AppSettingsService(self.db).get_settings()
+        extractor = choose_extractor(file_path, source_id, source_name, app_settings)
         if extractor is None:
-            app_settings = AppSettingsService(self.db).get_settings()
-            if app_settings.unsupported_file_policy == "skip":
-                logger.debug(f"No extractor for file: {file_path}")
-                return None
-            logger.debug(f"Creating metadata-only document for unsupported file: {file_path}")
-            extractor = MetadataOnlyExtractor(source_id, source_name)
+            return None
 
-        app_settings = None
-        configurable_extractors = [
+        """Configured by choose_extractor; extraction remains asynchronous below."""
+        """configurable_extractors = [
             "set_index_gps_metadata",
             "set_max_text_file_size_mb",
             "set_max_pdf_file_size_mb",
@@ -404,7 +395,7 @@ class IndexingService:
         if hasattr(extractor, "set_media_metadata_mode"):
             extractor.set_media_metadata_mode(app_settings.media_metadata_mode)
         if hasattr(extractor, "set_media_probe_max_size_mb"):
-            extractor.set_media_probe_max_size_mb(app_settings.media_probe_max_size_mb)
+            extractor.set_media_probe_max_size_mb(app_settings.media_probe_max_size_mb)"""
 
         # Extract with timeout
         document = await extractor.extract_with_timeout(file_path)
@@ -440,11 +431,7 @@ class IndexingService:
             return "failed"
 
     def _update_indexed_file(
-        self,
-        source_id: str,
-        file_path: str,
-        status: str = "success",
-        error: Optional[str] = None
+        self, source_id: str, file_path: str, status: str = "success", error: str | None = None
     ):
         """
         Update or create indexed_files record
@@ -479,8 +466,7 @@ class IndexingService:
 
         # Check if record exists
         stmt = select(IndexedFile).where(
-            IndexedFile.source_id == source_id,
-            IndexedFile.path == file_path
+            IndexedFile.source_id == source_id, IndexedFile.path == file_path
         )
         indexed_file = self.db.execute(stmt).scalar_one_or_none()
 
@@ -500,15 +486,12 @@ class IndexingService:
                 modified_at=modified_at,
                 indexed_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 status=status,
-                error_message=error
+                error_message=error,
             )
             self.db.add(indexed_file)
 
     async def _handle_deleted_files(
-        self,
-        source_id: str,
-        current_files: set,
-        indexed_files_map: Dict[str, IndexedFile]
+        self, source_id: str, current_files: set, indexed_files_map: dict[str, IndexedFile]
     ) -> int:
         """
         Handle files that were indexed but no longer exist
@@ -540,7 +523,7 @@ class IndexingService:
 
         return deleted_count
 
-    def get_source_status(self, source_id: str) -> Dict[str, Any]:
+    def get_source_status(self, source_id: str) -> dict[str, Any]:
         """
         Get indexing status for a source
 
@@ -557,11 +540,11 @@ class IndexingService:
 
         # Get indexed files stats via SQL aggregation
         stats_stmt = select(
-            func.count().label('total'),
-            func.sum(case((IndexedFile.status == 'success', 1), else_=0)).label('successful'),
-            func.sum(case((IndexedFile.status == 'failed', 1), else_=0)).label('failed'),
-            func.sum(case((IndexedFile.status == 'skipped', 1), else_=0)).label('skipped'),
-            func.max(IndexedFile.indexed_at).label('last_indexed'),
+            func.count().label("total"),
+            func.sum(case((IndexedFile.status == "success", 1), else_=0)).label("successful"),
+            func.sum(case((IndexedFile.status == "failed", 1), else_=0)).label("failed"),
+            func.sum(case((IndexedFile.status == "skipped", 1), else_=0)).label("skipped"),
+            func.max(IndexedFile.indexed_at).label("last_indexed"),
         ).where(IndexedFile.source_id == source_id)
         row = self.db.execute(stats_stmt).one()
 
@@ -572,13 +555,16 @@ class IndexingService:
         last_indexed = row.last_indexed
 
         # Get failed files (only fetch the rows we actually need)
-        failed_stmt = select(IndexedFile.path, IndexedFile.error_message).where(
-            IndexedFile.source_id == source_id,
-            IndexedFile.status == "failed",
-        ).limit(50)
+        failed_stmt = (
+            select(IndexedFile.path, IndexedFile.error_message)
+            .where(
+                IndexedFile.source_id == source_id,
+                IndexedFile.status == "failed",
+            )
+            .limit(50)
+        )
         failed_files = [
-            {"path": r.path, "error": r.error_message}
-            for r in self.db.execute(failed_stmt).all()
+            {"path": r.path, "error": r.error_message} for r in self.db.execute(failed_stmt).all()
         ]
 
         return {
