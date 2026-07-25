@@ -4,7 +4,7 @@ from pathlib import Path
 import onesearch_agent.worker as worker_module
 import pytest
 from onesearch_agent.worker import ExtractionError, batch_documents, extract_confined
-from onesearch_shared import AllowedRoot, NormalizedRemoteDocument, ScanFile
+from onesearch_shared import AllowedRoot, DocumentBatch, NormalizedRemoteDocument, ScanFile
 
 
 def extraction(source_name="source", policy="metadata_only"):
@@ -297,7 +297,11 @@ def test_streaming_batches_are_canonical_utf8_and_deterministic():
     second = NormalizedRemoteDocument(
         source_id="s", path="ü.txt", content="\u0000é", modified_at=1, metadata={"a": 1, "b": 2}
     )
-    assert _batch_wire_bytes("j", [first]) == _batch_wire_bytes("j", [second])
+    assert _batch_wire_bytes(
+        DocumentBatch(job_id="j", batch_id="j:0:" + "0" * 64, documents=[first])
+    ) == _batch_wire_bytes(
+        DocumentBatch(job_id="j", batch_id="j:0:" + "0" * 64, documents=[second])
+    )
     one = StreamingBatchBuilder("j", max_bytes=10_000)
     two = StreamingBatchBuilder("j", max_bytes=10_000)
     assert one.add(first) == two.add(second) == []
@@ -308,7 +312,9 @@ def test_streaming_exact_boundary_and_nonpositive_caps():
     from onesearch_agent.worker import BatchBuildError, StreamingBatchBuilder, _batch_wire_bytes
 
     doc = NormalizedRemoteDocument(source_id="s", path="x", content="x", modified_at=1)
-    size = len(_batch_wire_bytes("j", [doc]))
+    size = len(
+        _batch_wire_bytes(DocumentBatch(job_id="j", batch_id="j:0:" + "0" * 64, documents=[doc]))
+    )
     assert StreamingBatchBuilder("j", max_bytes=size).add(doc) == []
     from onesearch_agent.worker import OversizedDocumentError
 

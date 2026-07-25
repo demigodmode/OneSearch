@@ -29,14 +29,10 @@ class BatchBuildError(ValueError):
     pass
 
 
-def _batch_wire_bytes(job_id, documents) -> bytes:
-    """Canonical hash payload: batch_id is excluded to avoid self-reference."""
+def _batch_wire_bytes(batch) -> bytes:
+    """Exact submitted DocumentBatch wire representation."""
     return json.dumps(
-        {
-            "job_id": job_id,
-            "batch_id": "pending",
-            "documents": [item.model_dump(mode="json") for item in documents],
-        },
+        batch.model_dump(mode="json"),
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
@@ -61,7 +57,10 @@ class StreamingBatchBuilder:
 
     def _emit(self):
         docs = list(self.current)
-        digest = hashlib.sha256(_batch_wire_bytes(self.job_id, docs)).hexdigest()
+        seed = DocumentBatch(
+            job_id=self.job_id, batch_id=f"{self.job_id}:{self.sequence}:{'0' * 64}", documents=docs
+        )
+        digest = hashlib.sha256(_batch_wire_bytes(seed)).hexdigest()
         batch = DocumentBatch(
             job_id=self.job_id, batch_id=f"{self.job_id}:{self.sequence}:{digest}", documents=docs
         )
@@ -69,15 +68,20 @@ class StreamingBatchBuilder:
         self.current = []
         return batch
 
+    def _fits(self, docs):
+        seed = DocumentBatch(
+            job_id=self.job_id,
+            batch_id=f"{self.job_id}:{self.sequence}:{'0' * 64}",
+            documents=list(docs),
+        )
+        return len(docs) <= self.max_documents and len(_batch_wire_bytes(seed)) <= self.max_bytes
+
     def add(self, doc):
         candidate = self.current + [doc]
-        if (
-            len(candidate) <= self.max_documents
-            and len(_batch_wire_bytes(self.job_id, candidate)) <= self.max_bytes
-        ):
+        if len(candidate) <= self.max_documents and self._fits(candidate):
             self.current = candidate
             return []
-        if not self.current or len(_batch_wire_bytes(self.job_id, [doc])) > self.max_bytes:
+        if not self.current or not self._fits([doc]):
             raise OversizedDocumentError(doc.path[:200])
         emitted = self._emit()
         self.current = [doc]
