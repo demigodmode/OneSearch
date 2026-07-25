@@ -51,7 +51,7 @@ def enroll(ctx, server):
     if marker is None:
         try:
             marker_store.save_backend_marker(desired_backend)
-        except CredentialError as error:
+        except Exception as error:
             raise click.ClickException("enrollment could not persist credential backend") from error
     try:
         if store.load(optional=True) is not None:
@@ -106,8 +106,8 @@ def config_check(ctx):
 @click.pass_context
 def run(ctx):
     """Run the heartbeat shell; no jobs are claimed before a worker is supplied."""
-    value = _config(ctx)
     try:
+        value = _config(ctx)
         token = credential_store(value).load()
 
         async def loop():
@@ -119,6 +119,8 @@ def run(ctx):
         pass
     except CredentialError as error:
         raise click.ClickException(str(error)) from error
+    except Exception as error:
+        raise click.ClickException("agent configuration is unavailable") from error
     except (AgentRevoked, AgentIncompatible, AgentDisabled) as error:
         raise click.ClickException(str(error)) from error
 

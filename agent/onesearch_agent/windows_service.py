@@ -171,10 +171,23 @@ def _command_succeeded(result) -> bool:
     return result in (None, 0)
 
 
+def _service_state():
+    """Return the SCM state, or None when the service is absent."""
+    try:
+        return win32serviceutil.QueryServiceStatus(OneSearchAgentService._svc_name_)[1]
+    except AttributeError:  # lightweight test doubles and unsupported pywin32 builds
+        return None
+    except Exception as error:
+        if getattr(error, "winerror", None) == 1060:
+            return None
+        raise RuntimeError("unable to query Windows service state") from error
+
+
 def install_service(config: str, token: str) -> None:
     """Stage protected state, install, and start with rollback on failure."""
     if win32serviceutil is None:
         raise RuntimeError("pywin32 is required for the Windows service")
+    existed_before = _service_state() is not None
     snapshot = _snapshot_parameters()
     installed = False
     try:
@@ -186,10 +199,11 @@ def install_service(config: str, token: str) -> None:
         if not _command_succeeded(result):
             raise RuntimeError("Windows service command failed")
         installed = True
-        if not _command_succeeded(_service_command("start")):
+        start_result = _service_command("start")
+        if not _command_succeeded(start_result) and start_result != 1056:
             raise RuntimeError("Windows service start failed")
     except Exception as error:
-        if installed:
+        if installed and not existed_before:
             try:
                 if not _command_succeeded(_service_command("remove")):
                     raise RuntimeError("Windows service rollback failed")
