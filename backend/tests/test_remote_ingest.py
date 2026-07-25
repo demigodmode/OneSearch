@@ -442,6 +442,30 @@ async def test_pre_cancelled_reconciliation_never_deletes(remote_job):
 
 
 @pytest.mark.asyncio
+async def test_confirmed_many_failure_rolls_back_completion_guard(remote_job):
+    db, lease, job = remote_job
+
+    class FailingBatchSearch(Search):
+        async def delete_documents_confirmed(self, ids):
+            raise RuntimeError("delete task failed")
+
+    db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
+    db.commit()
+    service = RemoteIngestService(db, FailingBatchSearch())
+    service.accept_manifest(
+        "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=True)
+    )
+    with pytest.raises(RuntimeError, match="delete task failed"):
+        await service.reconcile_completion("a", job.id, lease.lease_token)
+    db.rollback()
+    db.expire_all()
+    restored = db.get(type(job), job.id)
+    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is not None
+    assert restored.status == "claimed" and restored.active_key == "s"
+    assert restored.lease_expires_at is not None and restored.completed_at is None
+
+
+@pytest.mark.asyncio
 async def test_partial_manifest_rejects_success_without_deleting(remote_job):
     db, lease, job = remote_job
     search = Search()
