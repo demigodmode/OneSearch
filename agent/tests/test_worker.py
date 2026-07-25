@@ -947,3 +947,226 @@ async def test_streaming_submits_early_batches_before_final_extraction(monkeypat
         < client.calls.index("manifest")
         < client.calls.index("complete:succeeded")
     )
+
+
+def _changed_scanner(paths, *, complete=True):
+    from onesearch_shared import ScanFile, ScanManifest
+
+    class Scanner:
+        changed_paths = paths
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def scan(self, **kwargs):
+            return ScanManifest(
+                **kwargs,
+                complete=complete,
+                files=[
+                    ScanFile(path=path, size_bytes=1, modified_at=1) for path in self.changed_paths
+                ],
+            )
+
+    return Scanner
+
+
+@pytest.mark.asyncio
+async def test_batch_ambiguity_retries_identical_body_without_reordering(monkeypatch, tmp_path):
+    from onesearch_agent.client import AgentAmbiguousResultError
+
+    class Client:
+        def __init__(self):
+            self.calls, self.batches = [], []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_batch(self, *args):
+            batch = args[1]
+            self.calls.append(f"batch:{batch.documents[0].path}")
+            self.batches.append(batch)
+            if len(self.batches) == 1:
+                raise AgentAmbiguousResultError("unknown")
+
+        async def submit_manifest(self, *args):
+            self.calls.append("manifest")
+
+        async def complete(self, *args):
+            self.calls.append("complete")
+
+    async def extract(*args, **kwargs):
+        path = args[1]
+        return NormalizedRemoteDocument(source_id="s", path=path, content="x", modified_at=1)
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", _changed_scanner(["a.txt", "b.txt"]))
+    monkeypatch.setattr(worker_module, "extract_confined", extract)
+    client = Client()
+    await worker_module.run_scan_job(
+        _scan_lease(limits={"max_batch_documents": 1}),
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+        _sleep=lambda _: asyncio.sleep(0),
+    )
+    assert client.calls == ["batch:a.txt", "batch:a.txt", "batch:b.txt", "manifest", "complete"]
+    assert client.batches[0] is client.batches[1]
+    assert client.batches[0].batch_id == client.batches[1].batch_id
+
+
+@pytest.mark.asyncio
+async def test_batch_ambiguity_exhaustion_aborts_before_manifest_or_success(monkeypatch, tmp_path):
+    from onesearch_agent.client import AgentAmbiguousResultError
+
+    class Client:
+        def __init__(self):
+            self.batch_calls = self.manifests = self.completions = 0
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_batch(self, *args):
+            self.batch_calls += 1
+            raise AgentAmbiguousResultError("unknown")
+
+        async def submit_manifest(self, *args):
+            self.manifests += 1
+
+        async def complete(self, *args):
+            self.completions += 1
+
+    async def extract(*args, **kwargs):
+        return NormalizedRemoteDocument(source_id="s", path="a.txt", content="x", modified_at=1)
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", _changed_scanner(["a.txt"]))
+    monkeypatch.setattr(worker_module, "extract_confined", extract)
+    client = Client()
+    with pytest.raises(AgentAmbiguousResultError):
+        await worker_module.run_scan_job(
+            _scan_lease(),
+            client,
+            roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+            _sleep=lambda _: asyncio.sleep(0),
+        )
+    assert (client.batch_calls, client.manifests, client.completions) == (3, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_manifest_ambiguity_retries_identical_manifest_before_success(monkeypatch, tmp_path):
+    from onesearch_agent.client import AgentAmbiguousResultError
+
+    class Client:
+        def __init__(self):
+            self.manifests, self.completions = [], 0
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_manifest(self, *args):
+            self.manifests.append(args[1])
+            if len(self.manifests) == 1:
+                raise AgentAmbiguousResultError("unknown")
+
+        async def complete(self, *args):
+            self.completions += 1
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", _changed_scanner([]))
+    client = Client()
+    await worker_module.run_scan_job(
+        _scan_lease(),
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+        _sleep=lambda _: asyncio.sleep(0),
+    )
+    assert client.manifests[0] is client.manifests[1]
+    assert client.completions == 1
+
+
+@pytest.mark.asyncio
+async def test_manifest_ambiguity_exhaustion_never_completes_success(monkeypatch, tmp_path):
+    from onesearch_agent.client import AgentAmbiguousResultError
+
+    class Client:
+        def __init__(self):
+            self.manifests = self.completions = 0
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_manifest(self, *args):
+            self.manifests += 1
+            raise AgentAmbiguousResultError("unknown")
+
+        async def complete(self, *args):
+            self.completions += 1
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", _changed_scanner([]))
+    client = Client()
+    with pytest.raises(AgentAmbiguousResultError):
+        await worker_module.run_scan_job(
+            _scan_lease(),
+            client,
+            roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+            _sleep=lambda _: asyncio.sleep(0),
+        )
+    assert (client.manifests, client.completions) == (3, 0)
+
+
+@pytest.mark.asyncio
+async def test_job_conflict_is_not_retried(monkeypatch, tmp_path):
+    from onesearch_agent.client import JobConflict
+
+    class Client:
+        def __init__(self):
+            self.batches = self.manifests = 0
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_batch(self, *args):
+            self.batches += 1
+            raise JobConflict("conflict")
+
+        async def submit_manifest(self, *args):
+            self.manifests += 1
+
+    async def extract(*args, **kwargs):
+        return NormalizedRemoteDocument(source_id="s", path="a.txt", content="x", modified_at=1)
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", _changed_scanner(["a.txt"]))
+    monkeypatch.setattr(worker_module, "extract_confined", extract)
+    client = Client()
+    with pytest.raises(JobConflict):
+        await worker_module.run_scan_job(
+            _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+        )
+    assert (client.batches, client.manifests) == (1, 0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("complete", "expected"), [(True, "succeeded"), (False, "failed")])
+async def test_terminal_completion_ambiguity_is_not_retried_or_reversed(
+    monkeypatch, tmp_path, complete, expected
+):
+    from onesearch_agent.client import AgentAmbiguousResultError
+
+    class Client:
+        def __init__(self):
+            self.manifests, self.completions = 0, []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_manifest(self, *args):
+            self.manifests += 1
+
+        async def complete(self, *args):
+            self.completions.append(args[1])
+            raise AgentAmbiguousResultError("unknown")
+
+    monkeypatch.setattr(worker_module, "RemoteScanner", _changed_scanner([], complete=complete))
+    client = Client()
+    with pytest.raises(AgentAmbiguousResultError):
+        await worker_module.run_scan_job(
+            _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+        )
+    assert client.manifests == 1
+    assert [completion.status.value for completion in client.completions] == [expected]

@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, Strict
 
 from app.services.extractor_config import choose_extractor
 
+from .client import AgentAmbiguousResultError
 from .paths import open_confined_file
 from .scanner import RemoteScanner
 
@@ -164,6 +165,19 @@ def _safe_failure(error, fallback="extraction failed"):
     return "".join(char for char in value if char >= " " and char not in "\x7f")[:500] or fallback
 
 
+async def _submit_idempotent(operation, *, attempts=3, sleep=asyncio.sleep):
+    """Retry only uncertain results for operations with an idempotency contract."""
+    if attempts < 1:
+        raise ValueError("attempts must be positive")
+    for attempt in range(attempts):
+        try:
+            return await operation()
+        except AgentAmbiguousResultError:
+            if attempt == attempts - 1:
+                raise
+            await sleep(min(5, 2**attempt))
+
+
 async def extract_confined(
     root_id, path, roots, *, expected: ScanFile, source_id, extraction, max_snapshot_bytes
 ) -> NormalizedRemoteDocument | None:
@@ -208,7 +222,7 @@ async def extract_confined(
     )
 
 
-async def run_scan_job(lease, client, *, roots) -> None:
+async def run_scan_job(lease, client, *, roots, _mutation_attempts=3, _sleep=asyncio.sleep) -> None:
     """Execute a scan, preserving per-file failures in the terminal manifest."""
     try:
         payload = ScanPayload.model_validate(getattr(lease, "payload", None))
@@ -270,13 +284,23 @@ async def run_scan_job(lease, client, *, roots) -> None:
                 extraction=extraction,
                 max_snapshot_bytes=limits.max_snapshot_bytes,
             )
-            if document is not None:
-                for batch in builder.add(document):
-                    await client.submit_batch(lease.id, batch, lease.lease_token)
         except asyncio.CancelledError:
             raise
         except Exception as error:
             failures[path] = ScanFailure(path=path, error=_safe_failure(error))
+        else:
+            if document is not None:
+                try:
+                    for batch in builder.add(document):
+                        await _submit_idempotent(
+                            lambda batch=batch: client.submit_batch(
+                                lease.id, batch, lease.lease_token
+                            ),
+                            attempts=_mutation_attempts,
+                            sleep=_sleep,
+                        )
+                except BatchBuildError as error:
+                    failures[path] = ScanFailure(path=path, error=_safe_failure(error))
         finally:
             completed += 1
             await client.job_heartbeat(
@@ -289,11 +313,19 @@ async def run_scan_job(lease, client, *, roots) -> None:
                 lease.lease_token,
             )
     for batch in builder.finish():
-        await client.submit_batch(lease.id, batch, lease.lease_token)
+        await _submit_idempotent(
+            lambda batch=batch: client.submit_batch(lease.id, batch, lease.lease_token),
+            attempts=_mutation_attempts,
+            sleep=_sleep,
+        )
     manifest = manifest.model_copy(
         update={"failures": [failures[path] for path in sorted(failures)]}
     )
-    await client.submit_manifest(lease.id, manifest, lease.lease_token)
+    await _submit_idempotent(
+        lambda: client.submit_manifest(lease.id, manifest, lease.lease_token),
+        attempts=_mutation_attempts,
+        sleep=_sleep,
+    )
     if not manifest.complete:
         await client.complete(
             lease.id,
