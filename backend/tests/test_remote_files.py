@@ -104,6 +104,19 @@ async def test_bounded_queue_failure_unblocks_waiting_consumer():
         await waiting
 
 
+@pytest.mark.asyncio
+async def test_bounded_queue_failure_unblocks_backpressured_producer():
+    from app.services.remote_files import BoundedByteQueue, RemoteStreamTimeout
+
+    queue = BoundedByteQueue(max_bytes=1)
+    await queue.put(0, b"a")
+    blocked = asyncio.create_task(queue.put(1, b"b"))
+    await asyncio.sleep(0)
+    await queue.fail(RemoteStreamTimeout("closed"))
+    with pytest.raises(RemoteStreamTimeout):
+        await blocked
+
+
 def test_on_server_manifest_enqueues_one_extract_job_per_file(db_session, remote):
     from app.models import AgentJob
     from app.services.agent_jobs import AgentJobService

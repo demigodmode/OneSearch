@@ -124,13 +124,21 @@ class BoundedByteQueue:
 
     async def put(self, sequence: int, chunk: bytes, checksum: str | None = None) -> None:
         if self._finished or sequence != self._next_sequence:
+            if self._error is not None:
+                raise self._error
             raise RemoteFileChanged("invalid chunk sequence")
         if not chunk or len(chunk) > self.max_bytes:
             raise RemoteFileChanged("invalid chunk size")
         if checksum is not None and hashlib.sha256(chunk).hexdigest() != checksum:
             raise RemoteFileChanged("chunk checksum mismatch")
         async with self._space:
-            await self._space.wait_for(lambda: self._bytes + len(chunk) <= self.max_bytes)
+            await self._space.wait_for(
+                lambda: self._finished or self._bytes + len(chunk) <= self.max_bytes
+            )
+            if self._finished:
+                if self._error is not None:
+                    raise self._error
+                raise RemoteStreamTimeout("stream closed")
             self._bytes += len(chunk)
         self._digest.update(chunk)
         self._next_sequence += 1
