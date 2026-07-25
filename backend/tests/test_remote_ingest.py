@@ -411,7 +411,9 @@ async def test_reconciliation_deletes_multiple_missing_documents_in_one_confirme
         "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=True)
     )
     await service.reconcile_completion("a", job.id, lease.lease_token)
-    assert search.calls == [[remote_document_id("s", "old-a.txt"), remote_document_id("s", "old-b.txt")]]
+    assert search.calls == [
+        [remote_document_id("s", "old-a.txt"), remote_document_id("s", "old-b.txt")]
+    ]
     assert list(db.scalars(select(IndexedFile).where(IndexedFile.source_id == "s"))) == []
     assert db.get(type(job), job.id).status == "completed"
 

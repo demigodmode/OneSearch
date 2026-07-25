@@ -295,7 +295,32 @@ async def test_dispatcher_uses_override_or_agent_default_mode(
     db_session.add(source)
     db_session.commit()
     job = await ScanDispatcher(db_session, object()).dispatch(source.id, "manual", full=True)
-    assert job.processing_mode == expected and json.loads(job.payload) == {"full": True}
+    payload = json.loads(job.payload)
+    assert job.processing_mode == expected
+    assert payload["full"] is True
+    assert payload["root_id"] == "docs"
+    assert payload["root_path"] == source.root_path
+    assert payload["include_patterns"] is None and payload["exclude_patterns"] is None
+    assert payload["known_files"] == {}
+    assert set(payload["extraction"]) == {
+        "source_name",
+        "unsupported_file_policy",
+        "media_metadata_mode",
+        "raw_metadata_mode",
+        "index_gps_metadata",
+        "max_text_file_size_mb",
+        "max_pdf_file_size_mb",
+        "max_office_file_size_mb",
+        "image_metadata_max_size_mb",
+        "epub_extraction_max_size_mb",
+        "comic_extraction_max_size_mb",
+        "media_probe_max_size_mb",
+        "text_extraction_timeout",
+        "pdf_extraction_timeout",
+        "office_extraction_timeout",
+        "raw_metadata_timeout_seconds",
+    }
+    assert payload["extraction"]["source_name"] == source.name
 
 
 def test_remote_scheduler_coalesces_offline_jobs_without_local_lock(
