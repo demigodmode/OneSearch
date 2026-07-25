@@ -229,3 +229,34 @@ async def test_pinned_copy_races_reject_before_extractor(
             max_snapshot_bytes=5,
         )
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_text_snapshot_matches_backend_without_temp_path_leak(tmp_path, monkeypatch):
+    file = tmp_path / "note.txt"
+    file.write_text("hello parity")
+    info = file.stat()
+    expected = ScanFile(path="note.txt", size_bytes=info.st_size, modified_at=info.st_mtime_ns)
+    from app.services.extractor_config import choose_extractor as real_choose
+
+    backend = real_choose(str(file), "s", "source", extraction())
+    original = await backend.extract_with_timeout(str(file))
+    captured = []
+
+    def choose(path, *args):
+        captured.append(Path(path))
+        return real_choose(path, *args)
+
+    monkeypatch.setattr(worker_module, "choose_extractor", choose)
+    remote = await extract_confined(
+        "r",
+        "note.txt",
+        [AllowedRoot(root_id="r", path=str(tmp_path))],
+        expected=expected,
+        source_id="s",
+        extraction=extraction(),
+        max_snapshot_bytes=1024,
+    )
+    assert remote.content == original.content and remote.title == original.title
+    rendered = str({"title": remote.title, "content": remote.content, "metadata": remote.metadata})
+    assert str(captured[0]) not in rendered and str(captured[0].parent) not in rendered
