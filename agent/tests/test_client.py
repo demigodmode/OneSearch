@@ -69,3 +69,24 @@ async def test_enrollment_has_no_bearer_and_read_timeout_is_not_retried(tmp_path
         with pytest.raises(AgentError):
             await client.enroll("code", Config())
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_429_retry_after_controls_retry_delay():
+    calls, delays = 0, []
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        return (
+            httpx.Response(429, headers={"Retry-After": "7"}) if calls == 1 else httpx.Response(204)
+        )
+
+    async def sleep(delay):
+        delays.append(delay)
+
+    async with AgentClient(
+        "http://server.test", "token", transport=httpx.MockTransport(handler), sleep=sleep
+    ) as client:
+        assert await client.claim() is None
+    assert delays == [7]

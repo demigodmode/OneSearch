@@ -38,6 +38,27 @@ def test_windows_auto_selects_keyring(tmp_path: Path):
     assert isinstance(credential_store(config, system="nt"), KeyringCredentialStore)
 
 
+def test_docker_forces_file_store(tmp_path: Path):
+    config = type(
+        "Config",
+        (),
+        {
+            "credential_store": "keyring",
+            "server_url": "https://host",
+            "agent_name": "a",
+            "state_dir": tmp_path,
+        },
+    )()
+    assert isinstance(credential_store(config, docker=True), FileCredentialStore)
+
+
+def test_keyring_name_is_server_scoped():
+    assert (
+        KeyringCredentialStore("https://one.test", "agent").service
+        != KeyringCredentialStore("https://two.test", "agent").service
+    )
+
+
 @pytest.mark.skipif(__import__("os").name == "nt", reason="POSIX modes")
 def test_file_store_rejects_permissive_token_file(tmp_path: Path):
     state = tmp_path / "state"

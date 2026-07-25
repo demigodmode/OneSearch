@@ -90,7 +90,16 @@ class AgentClient:
             if retry and (response.status_code == 429 or response.status_code >= 500):
                 if attempt == 3:
                     raise AgentError("server request failed")
-                await self.sleep(retry_delay(attempt, random=self.random))
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    delay = (
+                        min(60, float(retry_after))
+                        if retry_after is not None
+                        else retry_delay(attempt, random=self.random)
+                    )
+                except ValueError:
+                    delay = retry_delay(attempt, random=self.random)
+                await self.sleep(delay)
                 continue
             response.raise_for_status()
             return response
