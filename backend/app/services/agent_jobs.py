@@ -261,7 +261,7 @@ class AgentJobService:
             kind="stream_file",
             status="pending",
             processing_mode="on_server",
-            active_key=f"stream:{source.id}:{hashlib.sha256(path.encode()).hexdigest()}",
+            active_key=f"stream:{secrets.token_urlsafe(18)}",
             payload=json.dumps(
                 {
                     "root_id": root_id,
@@ -275,16 +275,10 @@ class AgentJobService:
             ),
             checkpoint="{}",
         )
-        try:
-            with self.db.begin_nested():
-                self.db.add(job)
-                self.db.flush()
-            return job
-        except IntegrityError:
-            winner = self.db.scalar(select(AgentJob).where(AgentJob.active_key == job.active_key))
-            if winner is None:
-                raise
-            return winner
+        with self.db.begin_nested():
+            self.db.add(job)
+            self.db.flush()
+        return job
 
     def fail_expired_leases(self) -> int:
         now = _now()
@@ -607,8 +601,7 @@ class AgentJobService:
             raise JobNotFound()
         if job.kind == "scan" and job.processing_mode == "on_server":
             children = [
-                child
-                for child in self.db.scalars(select(AgentJob).where(AgentJob.kind == "extract_file"))
+                child for child in self.db.scalars(select(AgentJob).where(AgentJob.kind == "extract_file"))
                 if json.loads(child.payload).get("parent_job_id") == job.id
             ]
             for child in children:
