@@ -1,7 +1,7 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from click.testing import CliRunner
-from types import SimpleNamespace
 from onesearch_agent.cli import main
 
 
