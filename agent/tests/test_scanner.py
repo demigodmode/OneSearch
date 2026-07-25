@@ -21,6 +21,6 @@ def test_scanner_emits_canonical_paths_and_skips_unchanged(tmp_path: Path):
     manifest = scanner.scan(job_id="job", source_id="source")
 
     assert [item.path for item in manifest.files] == ["keep.txt"]
-    assert manifest.files[0].content_hash
+    assert manifest.files[0].content_hash is None
     assert scanner.changed_paths == []
     assert manifest.complete is True

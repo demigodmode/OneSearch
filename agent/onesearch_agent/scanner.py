@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import fnmatch
-import hashlib
 import os
 from collections.abc import Iterator
 
 from onesearch_shared import ScanFile, ScanManifest
 
-from app.services.scanner import _match_exclude_pattern, get_default_exclude_patterns
+from app.services.scanner import get_default_exclude_patterns, path_is_included
 
 from .paths import PathOutsideAllowedRoots, browse, open_confined_file
 
@@ -37,20 +35,10 @@ class RemoteScanner:
         self.changed_paths: list[str] = []
 
     def _included(self, path: str) -> bool:
-        return any(
-            fnmatch.fnmatchcase(path, p)
-            or (p.startswith("**/") and fnmatch.fnmatchcase(path, p[3:]))
-            for p in self.include_patterns
-        )
+        return path_is_included(path, self.include_patterns, [])
 
     def _excluded(self, path: str) -> bool:
-        parts = path.split("/")
-        candidates = ["/".join(parts[:index]) for index in range(len(parts), 0, -1)]
-        return any(
-            _match_exclude_pattern(candidate, pattern)
-            for candidate in candidates
-            for pattern in self.exclude_patterns
-        )
+        return not path_is_included(path, ["**/*"], self.exclude_patterns)
 
     def _walk(self) -> Iterator[str]:
         stack = [""]
@@ -83,14 +71,11 @@ class RemoteScanner:
                 continue
             with open_confined_file(self.root_id, path, self.roots) as handle:
                 stat = os.fstat(handle.fileno())
-                digest = hashlib.sha256()
-                for block in iter(lambda: handle.read(65536), b""):
-                    digest.update(block)
             item = ScanFile(
                 path=path,
                 size_bytes=stat.st_size,
                 modified_at=stat.st_mtime_ns,
-                content_hash=digest.hexdigest(),
+                content_hash=None,
             )
             files.append(item)
             old = self.known.get(path)
