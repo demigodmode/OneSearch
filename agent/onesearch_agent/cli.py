@@ -69,7 +69,7 @@ def enroll(ctx, server):
         response = asyncio.run(go())
         try:
             store.save(response.agent_token)
-        except CredentialError as error:
+        except Exception as error:
             try:
                 async def revoke():
                     async with AgentClient(config.server_url, response.agent_token) as client:
@@ -119,10 +119,10 @@ def run(ctx):
         pass
     except CredentialError as error:
         raise click.ClickException(str(error)) from error
-    except Exception as error:
-        raise click.ClickException("agent configuration is unavailable") from error
     except (AgentRevoked, AgentIncompatible, AgentDisabled) as error:
         raise click.ClickException(str(error)) from error
+    except Exception as error:
+        raise click.ClickException("agent configuration is unavailable") from error
 
 
 @main.group()
