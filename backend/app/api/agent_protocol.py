@@ -45,6 +45,7 @@ from ..services.agent_jobs import AgentJobService, JobConflict, JobLeaseError, J
 from ..services.remote_files import (
     ExtractUploadRegistry,
     RemoteFileChanged,
+    RemoteFileMissing,
     RemoteStreamTimeout,
     app_data_temp_directory,
     extract_in_process,
@@ -340,6 +341,19 @@ async def complete_job(
                 parent_id = json.loads(job.payload)["parent_job_id"]
                 await get_remote_ingest_service(db).settle_server_parent(parent_id)
         db.commit()
+        if job.kind == "stream_file" and request.status.value == "failed":
+            terminal_error = (
+                RemoteFileMissing("remote file missing")
+                if request.reason
+                and request.reason.value == "not_found"
+                and request.detail == "remote_file_missing"
+                else RemoteFileChanged("remote file changed")
+                if request.reason
+                and request.reason.value == "invalid_request"
+                and request.detail == "remote_file_changed"
+                else RemoteStreamTimeout("remote stream failed")
+            )
+            await remote_streams.close(job_id, terminal_error)
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()
         raise _job_error(error) from error
@@ -356,8 +370,10 @@ async def acknowledge_cancellation(
     if lease_token is None:
         raise HTTPException(status_code=401, detail="Invalid or expired job lease")
     try:
-        AgentJobService(db).acknowledge_cancellation(agent.id, job_id, lease_token)
+        job = AgentJobService(db).acknowledge_cancellation(agent.id, job_id, lease_token)
         db.commit()
+        if job.kind == "stream_file":
+            await remote_streams.close(job_id, RemoteStreamTimeout("stream cancelled"))
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()
         raise _job_error(error) from error
