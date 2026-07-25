@@ -47,3 +47,25 @@ async def test_job_calls_send_lease_token_header():
     ) as client:
         await client.cancel_ack("job", "lease-secret")
     assert seen == [("/api/agent/v1/jobs/job/cancel-ack", "lease-secret")]
+
+
+@pytest.mark.asyncio
+async def test_enrollment_has_no_bearer_and_read_timeout_is_not_retried(tmp_path):
+    calls = 0
+
+    class Config:
+        agent_name = "agent"
+        allowed_roots = [{"root_id": "r", "path": str(tmp_path)}]
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        assert "authorization" not in request.headers
+        raise httpx.ReadTimeout("uncertain")
+
+    async with AgentClient(
+        "http://server.test", "secret", transport=httpx.MockTransport(handler)
+    ) as client:
+        with pytest.raises(Exception):
+            await client.enroll("code", Config())
+    assert calls == 1
