@@ -60,3 +60,17 @@ def test_windows_service_uses_sc_argv(monkeypatch, tmp_path: Path):
 def test_unsupported_service_fails(tmp_path: Path):
     with pytest.raises(ServiceError):
         install(tmp_path / "c", "agent", system="other")
+
+
+def test_linux_service_writes_unit_and_reloads(monkeypatch, tmp_path: Path):
+    calls = []
+    monkeypatch.setattr("onesearch_agent.service._run", lambda args: calls.append(args))
+    install(tmp_path / "config.toml", "/opt/agent", system="posix", home=tmp_path)
+    assert (tmp_path / ".config/systemd/user/onesearch-agent.service").exists()
+    uninstall(system="posix", home=tmp_path)
+    assert calls == [
+        ["systemctl", "--user", "daemon-reload"],
+        ["systemctl", "--user", "enable", "--now", "onesearch-agent.service"],
+        ["systemctl", "--user", "disable", "--now", "onesearch-agent.service"],
+        ["systemctl", "--user", "daemon-reload"],
+    ]
