@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import unicodedata
 from pathlib import Path
 
 
@@ -12,7 +13,7 @@ class ServiceError(RuntimeError):
 
 
 def _systemd_arg(value: str) -> str:
-    if any(character in value for character in "\r\n\x00"):
+    if any(unicodedata.category(character).startswith("C") for character in value):
         raise ServiceError("service path is unsafe")
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%") + '"'
 

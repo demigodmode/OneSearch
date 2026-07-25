@@ -102,7 +102,16 @@ def test_run_service_wires_config_token_client_and_stop_predicate(monkeypatch):
     module = importlib.import_module("onesearch_agent.windows_service")
     config = SimpleNamespace(server_url="http://server")
     store = SimpleNamespace(load=Mock(return_value="secret"))
-    client = object()
+
+    class Client:
+        async def __aenter__(self):
+            seen["entered"] = True
+            return self
+
+        async def __aexit__(self, *args):
+            seen["exited"] = True
+
+    client = Client()
     seen = {}
     monkeypatch.setattr(module, "service_config", lambda: "C:/agent.toml")
     monkeypatch.setattr(
@@ -116,10 +125,13 @@ def test_run_service_wires_config_token_client_and_stop_predicate(monkeypatch):
             lambda value: value,
             lambda value: config,
             lambda value: store,
-            lambda value, stopped, **kwargs: seen.update(runtime=value, stopped=stopped),
+            lambda value, stopped, **kwargs: _runtime(seen, value, stopped),
         ),
     )
-    monkeypatch.setattr(module.asyncio, "run", lambda value: value)
     module._run_service("event")
     assert seen["url"] == "http://server" and seen["token"] == "secret"
-    assert seen["runtime"] is client and seen["stopped"]()
+    assert seen["runtime"] is client and seen["stopped"]() and seen["entered"] and seen["exited"]
+
+
+async def _runtime(seen, value, stopped):
+    seen.update(runtime=value, stopped=stopped)
