@@ -2,14 +2,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Tests for authenticated image/RAW preview API."""
+
 import json
+from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+from fastapi.responses import Response
 from fastapi.testclient import TestClient
-from io import BytesIO
-
+from meilisearch.models.document import Document as MeiliDocument
 from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -18,9 +21,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.auth import create_access_token, hash_password
 from app.db.database import get_db
 from app.main import app
-from app.models import AppSetting, Base, Source, User
-from meilisearch.models.document import Document as MeiliDocument
-
+from app.models import Agent, AgentJob, AppSetting, Base, IndexedFile, Source, User
 
 engine = create_engine(
     "sqlite:///:memory:",
@@ -121,6 +122,68 @@ def raw_doc(source, raw_path):
     doc = image_doc(source, raw_path)
     doc.update({"id": "photos--raw123", "extension": "cr3", "type": "raw_image"})
     return doc
+
+
+@pytest.fixture
+def remote_download(db_session, monkeypatch):
+    agent = Agent(
+        id="remote-download-agent",
+        name="Remote download agent",
+        platform="linux",
+        version="1",
+        protocol_version=1,
+        allowed_roots=json.dumps([{"root_id": "photos", "path": "remote/photos"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    source = Source(
+        id="remote-download-source",
+        name="Remote photos",
+        root_path="remote/photos",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_server",
+    )
+    indexed = IndexedFile(
+        source_id=source.id,
+        path="albums/precise.jpg",
+        size_bytes=987_654,
+        modified_at_ns=1_700_000_000_123_456_789,
+        status="success",
+    )
+    db_session.add_all(
+        [agent, source, indexed, AppSetting(key="remote_agents_enabled", value="true")]
+    )
+    db_session.commit()
+    document = {
+        "id": "remote-download-source--precise",
+        "source_id": source.id,
+        "path": indexed.path,
+        "basename": "precise.jpg",
+        "size_bytes": 1,
+        "modified_at": 1_700_000_000,
+    }
+
+    async def get_document(document_id):
+        assert document_id == document["id"]
+        return document
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+    return agent, source, indexed, document
+
+
+@pytest.fixture
+def capture_remote_download_response(monkeypatch):
+    def no_stream(*_args, **_kwargs):
+        return Response(status_code=204)
+
+    monkeypatch.setattr("app.api.preview.StreamingResponse", no_stream)
+
+
+def _remote_download_link(client, document):
+    response = client.post(f"/api/documents/{document['id']}/download-link")
+    assert response.status_code == 200
+    return response.json()["url"]
 
 
 @pytest.mark.asyncio
@@ -241,6 +304,116 @@ def test_download_streams_original_file_from_signed_link(client, source, temp_so
     assert 'filename="photo.jpg"' in response.headers["content-disposition"]
 
 
+@pytest.mark.parametrize("agent_state", ["offline", "pending", "disabled", "revoked", "missing"])
+def test_remote_download_link_rejects_unavailable_agent_without_enqueuing(
+    client, db_session, remote_download, agent_state
+):
+    agent, source, _indexed, document = remote_download
+    if agent_state == "missing":
+        source.agent_id = "missing-agent"
+    else:
+        agent.status = agent_state
+    db_session.commit()
+
+    response = client.post(f"/api/documents/{document['id']}/download-link")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "agent_offline"
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_remote_download_link_rejects_global_opt_out_without_enqueuing(
+    client, db_session, remote_download
+):
+    _agent, source, _indexed, document = remote_download
+    db_session.query(AppSetting).filter_by(key="remote_agents_enabled").update({"value": "false"})
+    db_session.commit()
+
+    response = client.post(f"/api/documents/{document['id']}/download-link")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "agent_offline"
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_remote_download_link_mints_existing_signed_contract_without_enqueuing(
+    client, db_session, remote_download
+):
+    _agent, source, _indexed, document = remote_download
+
+    response = client.post(f"/api/documents/{document['id']}/download-link")
+
+    assert response.status_code == 200
+    assert response.json()["expires_in"] == 60
+    assert response.json()["url"].startswith(f"/api/documents/{document['id']}/download?token=")
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_remote_download_rechecks_availability_after_link_creation(
+    client, db_session, remote_download, capture_remote_download_response
+):
+    agent, source, _indexed, document = remote_download
+    url = _remote_download_link(client, document)
+    agent.status = "offline"
+    db_session.commit()
+
+    response = client.get(url)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "agent_offline"
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_remote_download_job_uses_exact_indexed_file_metadata(
+    client, db_session, remote_download, capture_remote_download_response
+):
+    _agent, source, indexed, document = remote_download
+    url = _remote_download_link(client, document)
+
+    response = client.get(url)
+
+    assert response.status_code == 204
+    jobs = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").all()
+    assert len(jobs) == 1
+    payload = json.loads(jobs[0].payload)
+    assert payload["path"] == indexed.path
+    assert payload["size_bytes"] == indexed.size_bytes
+    assert payload["modified_at"] == indexed.modified_at_ns
+
+
+@pytest.mark.parametrize("indexed_status", [None, "failed", "skipped"])
+def test_remote_download_refuses_missing_or_non_success_indexed_file(
+    client, db_session, remote_download, capture_remote_download_response, indexed_status
+):
+    _agent, source, indexed, document = remote_download
+    if indexed_status is None:
+        db_session.delete(indexed)
+    else:
+        indexed.status = indexed_status
+    db_session.commit()
+    url = _remote_download_link(client, document)
+
+    response = client.get(url)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "remote_file_unavailable"
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_independent_remote_downloads_use_distinct_stream_jobs(
+    client, db_session, remote_download, capture_remote_download_response
+):
+    _agent, source, _indexed, document = remote_download
+    first = _remote_download_link(client, document)
+    second = _remote_download_link(client, document)
+
+    assert client.get(first).status_code == 204
+    assert client.get(second).status_code == 204
+    jobs = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").all()
+    assert len(jobs) == 2
+    assert len({job.id for job in jobs}) == 2
+
+
 def test_download_rejects_token_for_different_document(client, source, temp_source, monkeypatch):
     _, image_path, _ = temp_source
 
@@ -353,7 +526,9 @@ def test_raw_preview_uses_largest_embedded_jpeg(client, source, temp_source, mon
     assert len(large_jpeg) > len(small_jpeg)
 
 
-def test_raw_preview_returns_unavailable_without_embedded_jpeg(client, source, temp_source, monkeypatch):
+def test_raw_preview_returns_unavailable_without_embedded_jpeg(
+    client, source, temp_source, monkeypatch
+):
     _, _, raw_path = temp_source
 
     async def get_document(document_id):
