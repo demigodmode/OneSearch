@@ -198,7 +198,10 @@ class AgentJobService:
         jobs = []
         for item in files:
             path, size = item["path"], item["size_bytes"]
-            if size > limits["max_snapshot_bytes"]:
+            active_key = f"extract:{scan_job.id}:{hashlib.sha256(path.encode()).hexdigest()}"
+            existing = self.db.scalar(select(AgentJob).where(AgentJob.active_key == active_key))
+            if existing is not None:
+                jobs.append(existing)
                 continue
             payload = {
                 "parent_job_id": scan_job.id,
@@ -217,10 +220,14 @@ class AgentJobService:
                 kind="extract_file",
                 status="pending",
                 processing_mode="on_server",
-                active_key=f"extract:{scan_job.id}:{hashlib.sha256(path.encode()).hexdigest()}",
+                active_key=active_key,
                 payload=json.dumps(payload, sort_keys=True, separators=(",", ":")),
                 checkpoint="{}",
             )
+            if size > limits["max_snapshot_bytes"]:
+                child.status, child.error, child.completed_at, child.active_key = (
+                    "failed", "remote file exceeds snapshot limit", _now(), None
+                )
             self.db.add(child)
             jobs.append(child)
         self.db.flush()
@@ -529,6 +536,34 @@ class AgentJobService:
             self._leased_job(agent_id, job_id, token, active=False)
             raise JobConflict()
         return self.db.get(AgentJob, job_id)
+
+    def release_on_server_parent(self, job_id: str) -> AgentJob:
+        """The scan lease is done, but its active key remains until child extraction settles."""
+        job = self.db.get(AgentJob, job_id)
+        if job is None or job.kind != "scan" or job.processing_mode != "on_server":
+            raise JobConflict("on-server scan required")
+        if job.status not in {"claimed", "running"}:
+            raise JobConflict("scan is not active")
+        job.status, job.lease_token_hash, job.lease_expires_at = "running", None, None
+        return job
+
+    def settle_on_server_parent(self, job_id: str) -> str:
+        parent = self.db.get(AgentJob, job_id)
+        if parent is None or parent.kind != "scan" or parent.processing_mode != "on_server":
+            raise JobConflict("on-server scan required")
+        children = [
+            job
+            for job in self.db.scalars(select(AgentJob).where(AgentJob.kind == "extract_file"))
+            if json.loads(job.payload).get("parent_job_id") == parent.id
+        ]
+        if any(child.status in {"pending", "claimed", "running", "cancelling"} for child in children):
+            return parent.status
+        if any(child.status in {"failed", "cancelled"} for child in children):
+            parent.status, parent.error = "failed", "remote child extraction failed"
+        else:
+            parent.status = "completed"
+        parent.completed_at, parent.active_key = _now(), None
+        return parent.status
 
     def cancel(self, job_id: str) -> AgentJob:
         now = _now()

@@ -281,6 +281,11 @@ async def submit_manifest(
                 if item.path_hash != __import__("onesearch_shared").remote_path_hash(path):
                     raise JobConflict("manifest path hash mismatch")
                 files.append(item.model_dump(mode="json"))
+            job.checkpoint = json.dumps(
+                {"version": 1, "remote_manifest": request.model_dump(mode="json")},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
             AgentJobService(db).enqueue_extract_files(job, files)
         else:
             get_remote_ingest_service(db).accept_manifest(agent.id, job_id, lease_token, request)
@@ -310,6 +315,13 @@ async def complete_job(
             and job.processing_mode == "on_agent"
         ):
             await get_remote_ingest_service(db).reconcile_completion(agent.id, job_id, lease_token)
+        elif (
+            request.status.value == "succeeded"
+            and job.kind == "scan"
+            and job.processing_mode == "on_server"
+        ):
+            jobs.release_on_server_parent(job_id)
+            jobs.settle_on_server_parent(job_id)
         else:
             jobs.complete(
                 agent.id,
@@ -395,6 +407,8 @@ async def receive_file_chunk(
                     await get_remote_ingest_service(db).accept_server_document(
                         agent.id, job_id, lease_token, result
                     )
+                    parent_id = payload["parent_job_id"]
+                    AgentJobService(db).settle_on_server_parent(parent_id)
                 finally:
                     extract_uploads.cleanup(job_id)
             else:
@@ -412,6 +426,7 @@ async def receive_file_chunk(
                     data=bytes(body),
                     expected_size=payload["size_bytes"],
                     maximum_size=payload["maximum_size"],
+                    suffix=__import__("pathlib").Path(payload["path"]).suffix,
                 )
         else:
             queue = remote_streams.open(job_id)

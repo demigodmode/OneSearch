@@ -147,3 +147,32 @@ def test_extract_upload_mismatch_or_expiry_leaves_no_temp_file(tmp_path):
     registry.append("expired", sequence=0, data=b"x", expected_size=1, maximum_size=1)
     registry.expire(0)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_extract_upload_preserves_only_validated_suffix(tmp_path):
+    from app.services.remote_files import ExtractUploadRegistry
+
+    registry = ExtractUploadRegistry(tmp_path)
+    registry.append(
+        "job", sequence=0, data=b"x", expected_size=1, maximum_size=1, suffix=".txt"
+    )
+    path = registry.finish("job", sequence=1, checksum=hashlib.sha256(b"x").hexdigest())
+    assert path.suffix == ".txt"
+    registry.cleanup("job")
+
+
+def test_on_server_parent_waits_for_children_before_terminal_success(db_session, remote):
+    from app.services.agent_jobs import AgentJobService
+
+    _agent, source = remote
+    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
+    children = AgentJobService(db_session).enqueue_extract_files(
+        parent, [{"path": "a.txt", "size_bytes": 1, "modified_at": 1, "content_hash": None}]
+    )
+    parent.status = "running"
+    AgentJobService(db_session).release_on_server_parent(parent.id)
+    db_session.flush()
+    db_session.refresh(parent)
+    assert parent.status == "running" and parent.active_key == source.id
+    children[0].status = "completed"
+    assert AgentJobService(db_session).settle_on_server_parent(parent.id) == "completed"

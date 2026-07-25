@@ -118,7 +118,14 @@ class ExtractUploadRegistry:
         self.directory, self.chunk_bytes, self._sessions = Path(directory), chunk_bytes, {}
 
     def append(
-        self, job_id: str, *, sequence: int, data: bytes, expected_size: int, maximum_size: int
+        self,
+        job_id: str,
+        *,
+        sequence: int,
+        data: bytes,
+        expected_size: int,
+        maximum_size: int,
+        suffix: str = "",
     ) -> None:
         if not data or len(data) > self.chunk_bytes:
             raise RemoteFileChanged("chunk exceeds limit")
@@ -127,8 +134,9 @@ class ExtractUploadRegistry:
             if expected_size < 0 or expected_size > maximum_size:
                 raise RemoteFileChanged("declared size exceeds limit")
             self.directory.mkdir(parents=True, exist_ok=True)
+            safe_suffix = suffix if suffix.startswith(".") and suffix[1:].isalnum() else ""
             handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - session owns close lifecycle
-                prefix="onesearch-remote-", dir=self.directory, delete=False
+                prefix="onesearch-remote-", suffix=safe_suffix, dir=self.directory, delete=False
             )
             session = _ExtractUpload(handle, Path(handle.name), expected_size, maximum_size)
             self._sessions[job_id] = session
