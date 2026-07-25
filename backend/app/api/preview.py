@@ -20,7 +20,12 @@ from ..db.database import get_db
 from ..models import Agent, IndexedFile, Source, User
 from ..services.agent_jobs import AgentJobService, JobConflict
 from ..services.app_settings import AppSettingsService
-from ..services.remote_files import RemoteStreamTimeout, remote_streams
+from ..services.remote_files import (
+    RemoteFileChanged,
+    RemoteFileMissing,
+    RemoteStreamTimeout,
+    remote_streams,
+)
 from ..services.search import meili_service
 from .auth import ALGORITHM, get_current_user, get_secret_key
 
@@ -36,10 +41,12 @@ _BROWSER_IMAGE_TYPES = {
 _RAW_IMAGE_EXTENSIONS = {"cr2", "cr3", "nef", "arw", "raf", "orf", "rw2", "dng"}
 _DOWNLOAD_TOKEN_EXPIRE_SECONDS = 60
 _DOWNLOAD_TOKEN_PURPOSE = "document_download"
+REMOTE_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS = 30
 
 
 @router.get("/documents/{document_id}/preview")
 async def get_document_preview(
+    request: Request,
     document_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -59,8 +66,13 @@ async def get_document_preview(
     if source is None:
         _preview_error(status.HTTP_404_NOT_FOUND, "source_not_found", "Document source not found")
 
-    file_path = _validated_document_path(document, source)
-    size_bytes = max(file_path.stat().st_size, int(document.get("size_bytes") or 0))
+    if source.location_type == "agent":
+        _require_available_remote_source(source, db)
+        indexed = _remote_indexed_file(source, document, db)
+        size_bytes = indexed.size_bytes
+    else:
+        file_path = _validated_document_path(document, source)
+        size_bytes = max(file_path.stat().st_size, int(document.get("size_bytes") or 0))
     max_bytes = app_settings.max_preview_size_mb * 1024 * 1024
     if size_bytes > max_bytes:
         _preview_error(
@@ -73,6 +85,12 @@ async def get_document_preview(
     doc_type = document.get("type")
 
     if doc_type == "raw_image" or extension in _RAW_IMAGE_EXTENSIONS:
+        if source.location_type == "agent":
+            _preview_error(
+                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                "raw_preview_unavailable",
+                "RAW embedded preview is not available for remote files",
+            )
         if not app_settings.raw_preview_enabled:
             _preview_error(
                 status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
@@ -94,6 +112,18 @@ async def get_document_preview(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             "unsupported_preview_type",
             "Preview is not supported for this document type",
+        )
+
+    if source.location_type == "agent":
+        return await _remote_file_response(
+            request=request,
+            source=source,
+            document=document,
+            size_bytes=indexed.size_bytes,
+            modified_at=indexed.modified_at_ns,
+            media_type=media_type,
+            filename=None,
+            db=db,
         )
 
     return FileResponse(file_path, media_type=media_type, filename=file_path.name)
@@ -144,52 +174,15 @@ async def download_document(
     if source.location_type == "agent":
         _require_available_remote_source(source, db)
         indexed = _remote_indexed_file(source, document, db)
-        job = None
-        try:
-            job = AgentJobService(db).enqueue_stream_file(
-                source,
-                path=str(document.get("path") or ""),
-                size_bytes=indexed.size_bytes,
-                modified_at=indexed.modified_at_ns,
-            )
-            queue = remote_streams.open(job.id)
-            db.commit()
-        except JobConflict:
-            db.rollback()
-            if job is not None:
-                await remote_streams.close(job.id)
-            _preview_error(status.HTTP_409_CONFLICT, "agent_offline", "Remote agent is unavailable")
-        except Exception:
-            db.rollback()
-            if job is not None:
-                await remote_streams.close(job.id)
-            raise
-
-        async def stream():
-            try:
-                while True:
-                    if await request.is_disconnected():
-                        AgentJobService(db).cancel(job.id)
-                        db.commit()
-                        return
-                    try:
-                        item = await asyncio.wait_for(queue.get(), timeout=30)
-                    except TimeoutError as error:
-                        AgentJobService(db).cancel(job.id)
-                        db.commit()
-                        raise RemoteStreamTimeout("agent did not stream in time") from error
-                    if item is None:
-                        return
-                    yield item
-            finally:
-                await remote_streams.close(job.id)
-
-        return StreamingResponse(
-            stream(),
+        return await _remote_file_response(
+            request=request,
+            source=source,
+            document=document,
+            size_bytes=indexed.size_bytes,
+            modified_at=indexed.modified_at_ns,
             media_type="application/octet-stream",
-            headers={
-                "Content-Disposition": f'attachment; filename="{str(document.get("basename") or "download")}"'
-            },
+            filename=str(document.get("basename") or "download"),
+            db=db,
         )
     file_path = _validated_document_path(document, source)
     filename = str(document.get("basename") or file_path.name)
@@ -236,6 +229,95 @@ def _remote_indexed_file(source: Source, document: dict, db: Session) -> Indexed
     if indexed.status != "success" or indexed.size_bytes is None or indexed.modified_at_ns is None:
         _preview_error(status.HTTP_409_CONFLICT, "remote_file_changed", "Remote file changed")
     return indexed
+
+
+async def _stream_remote_body(request: Request, db: Session, job, queue):
+    eof = False
+    try:
+        while True:
+            if await request.is_disconnected():
+                return
+            try:
+                item = await asyncio.wait_for(
+                    queue.get(), timeout=REMOTE_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS
+                )
+            except TimeoutError as error:
+                raise RemoteStreamTimeout("agent did not stream in time") from error
+            if item is None:
+                eof = True
+                return
+            yield item
+    except asyncio.CancelledError:
+        raise
+    finally:
+        if not eof:
+            try:
+                AgentJobService(db).cancel(job.id)
+                db.commit()
+            except JobConflict:
+                pass
+        await remote_streams.close(job.id)
+
+
+async def _remote_file_response(
+    *,
+    request: Request,
+    source: Source,
+    document: dict,
+    size_bytes: int,
+    modified_at: int,
+    media_type: str,
+    filename: str | None,
+    db: Session,
+):
+    job = None
+    try:
+        job = AgentJobService(db).enqueue_stream_file(
+            source,
+            path=str(document.get("path") or ""),
+            size_bytes=size_bytes,
+            modified_at=modified_at,
+        )
+        queue = remote_streams.open(job.id)
+        db.commit()
+        body = _stream_remote_body(request, db, job, queue)
+        try:
+            first = await anext(body)
+        except StopAsyncIteration:
+            return Response(content=b"", media_type=media_type, headers=_remote_headers(filename))
+        except RemoteStreamTimeout as error:
+            _preview_error(status.HTTP_504_GATEWAY_TIMEOUT, error.code, str(error))
+        except RemoteFileMissing as error:
+            _preview_error(status.HTTP_404_NOT_FOUND, error.code, str(error))
+        except RemoteFileChanged as error:
+            _preview_error(status.HTTP_409_CONFLICT, error.code, str(error))
+
+        async def stream():
+            try:
+                yield first
+                async for item in body:
+                    yield item
+            finally:
+                await body.aclose()
+
+        return StreamingResponse(stream(), media_type=media_type, headers=_remote_headers(filename))
+    except JobConflict:
+        db.rollback()
+        if job is not None:
+            await remote_streams.close(job.id)
+        _preview_error(status.HTTP_409_CONFLICT, "agent_offline", "Remote agent is unavailable")
+    except Exception:
+        db.rollback()
+        if job is not None:
+            await remote_streams.close(job.id)
+        raise
+
+
+def _remote_headers(filename: str | None) -> dict[str, str]:
+    if filename is None:
+        return {}
+    safe_filename = filename.replace("\r", "").replace("\n", "")
+    return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(safe_filename, safe='')}"}
 
 
 def _create_download_token(user_id: int, document_id: str) -> str:

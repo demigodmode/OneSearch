@@ -644,7 +644,8 @@ async def test_remote_stream_body_disconnect_cancels_and_unblocks_producer(
             return True
 
     stream = preview._stream_remote_body(DisconnectedRequest(), db_session, job, queue)
-    assert await anext(stream) is None
+    with pytest.raises(StopAsyncIteration):
+        await anext(stream)
     with pytest.raises(RemoteStreamTimeout):
         await blocked_producer
     assert (
@@ -700,7 +701,6 @@ def test_remote_download_content_disposition_encodes_malicious_basename(
     assert response.status_code == 200
     assert "\r" not in response.headers["content-disposition"]
     assert "\n" not in response.headers["content-disposition"]
-    assert "X-Injected" not in response.headers["content-disposition"]
 
 
 def test_download_rejects_token_for_different_document(client, source, temp_source, monkeypatch):
