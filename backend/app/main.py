@@ -37,9 +37,11 @@ logger = logging.getLogger(__name__)
 async def stop_extract_upload_sweeper(task: asyncio.Task, registry=extract_uploads) -> None:
     """Stop the process-local sweeper before removing every transient original."""
     task.cancel()
-    with suppress(asyncio.CancelledError):
-        await task
-    registry.cleanup_all()
+    try:
+        with suppress(asyncio.CancelledError):
+            await task
+    finally:
+        registry.cleanup_all()
 
 
 @asynccontextmanager
@@ -63,12 +65,14 @@ async def lifespan(app: FastAPI):
     app.state.scheduler = scheduler
     extract_upload_task = asyncio.create_task(sweep_extract_uploads(extract_uploads))
 
-    yield
-
-    # Shutdown
-    await stop_extract_upload_sweeper(extract_upload_task)
-    scheduler.shutdown()
-    logger.info("Shutting down OneSearch API...")
+    try:
+        yield
+    finally:
+        try:
+            await stop_extract_upload_sweeper(extract_upload_task, extract_uploads)
+        finally:
+            scheduler.shutdown()
+            logger.info("Shutting down OneSearch API...")
 
 
 # Create FastAPI app

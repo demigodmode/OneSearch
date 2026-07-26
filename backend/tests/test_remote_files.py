@@ -288,6 +288,51 @@ async def test_shutdown_stops_sweeper_and_cleans_all_extract_uploads(tmp_path):
     assert not registry.has("job") and list(tmp_path.iterdir()) == []
 
 
+@pytest.mark.asyncio
+async def test_shutdown_cleans_uploads_when_sweeper_has_failed(tmp_path):
+    from app.main import stop_extract_upload_sweeper
+    from app.services.remote_files import ExtractUploadRegistry
+
+    registry = ExtractUploadRegistry(tmp_path)
+    registry.append("job", sequence=0, data=b"x", expected_size=1, maximum_size=1)
+
+    async def fail():
+        raise RuntimeError("sweeper failed")
+
+    task = asyncio.create_task(fail())
+    await asyncio.sleep(0)
+    with pytest.raises(RuntimeError, match="sweeper failed"):
+        await stop_extract_upload_sweeper(task, registry)
+    assert not registry.has("job") and list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_lifespan_cleans_uploads_and_stops_scheduler_after_body_error(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+
+    from app import main
+    from app.services.remote_files import ExtractUploadRegistry
+
+    registry = ExtractUploadRegistry(tmp_path)
+    registry.append("job", sequence=0, data=b"x", expected_size=1, maximum_size=1)
+    scheduler = type(
+        "Scheduler", (), {"start": lambda self: None, "shutdown": lambda self: setattr(self, "stopped", True)}
+    )()
+    scheduler.stopped = False
+
+    async def wait_forever(_registry):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(main, "extract_uploads", registry)
+    monkeypatch.setattr(main, "sweep_extract_uploads", wait_forever)
+    monkeypatch.setattr(main, "SchedulerService", lambda _engine: scheduler)
+    with pytest.raises(RuntimeError, match="body failed"):
+        async with main.lifespan(FastAPI()):
+            raise RuntimeError("body failed")
+    assert scheduler.stopped
+    assert not registry.has("job") and list(tmp_path.iterdir()) == []
+
+
 def test_extract_upload_preserves_only_validated_suffix(tmp_path):
     from app.services.remote_files import ExtractUploadRegistry
 
