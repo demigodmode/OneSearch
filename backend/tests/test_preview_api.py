@@ -558,7 +558,7 @@ async def test_remote_stream_body_timeout_cancels_job_and_releases_queue(
     job = AgentJobService(db_session).enqueue_stream_file(
         source, path=document["path"], size_bytes=1, modified_at=1
     )
-    queue = remote_streams.open(job.id)
+    queue = remote_streams.open(job.id, expected_size=1)
     db_session.commit()
     monkeypatch.setattr(preview, "REMOTE_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS", 0.01, raising=False)
 
@@ -648,7 +648,7 @@ async def test_remote_stream_body_disconnect_cancels_and_unblocks_producer(
     job = AgentJobService(db_session).enqueue_stream_file(
         source, path=document["path"], size_bytes=1, modified_at=1
     )
-    queue = remote_streams.open(job.id, max_bytes=1)
+    queue = remote_streams.open(job.id, expected_size=2, max_bytes=1)
     await queue.put(0, b"x", hashlib.sha256(b"x").hexdigest())
     blocked_producer = asyncio.create_task(queue.put(1, b"y", hashlib.sha256(b"y").hexdigest()))
     db_session.commit()
@@ -680,7 +680,7 @@ async def test_remote_stream_body_task_cancellation_closes_registered_queue(
     job = AgentJobService(db_session).enqueue_stream_file(
         source, path=document["path"], size_bytes=1, modified_at=1
     )
-    queue = remote_streams.open(job.id)
+    queue = remote_streams.open(job.id, expected_size=1)
     db_session.commit()
 
     class ConnectedRequest:
@@ -715,7 +715,7 @@ async def test_remote_stream_body_preserves_typed_error_after_durable_failure(
     db_session.commit()
     jobs.complete(agent.id, job.id, lease.lease_token, "failed", error="remote_file_missing")
     db_session.commit()
-    queue = remote_streams.open(job.id)
+    queue = remote_streams.open(job.id, expected_size=1)
     await queue.fail(RemoteFileMissing("remote file missing"))
 
     class ConnectedRequest:

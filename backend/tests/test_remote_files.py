@@ -69,7 +69,7 @@ async def test_bounded_writer_checks_streaming_checksum_and_removes_partial_file
 async def test_bounded_queue_applies_backpressure_and_eof_checksum():
     from app.services.remote_files import BoundedByteQueue
 
-    queue = BoundedByteQueue(max_bytes=3)
+    queue = BoundedByteQueue(max_bytes=3, expected_size=4)
     await queue.put(0, b"abc", hashlib.sha256(b"abc").hexdigest())
     blocked = asyncio.create_task(queue.put(1, b"d", hashlib.sha256(b"d").hexdigest()))
     await asyncio.sleep(0)
@@ -85,7 +85,7 @@ async def test_bounded_queue_applies_backpressure_and_eof_checksum():
 async def test_bounded_queue_rejects_out_of_order_or_changed_chunks():
     from app.services.remote_files import BoundedByteQueue, RemoteFileChanged
 
-    queue = BoundedByteQueue(max_bytes=4)
+    queue = BoundedByteQueue(max_bytes=4, expected_size=1)
     with pytest.raises(RemoteFileChanged, match="checksum"):
         await queue.put(0, b"a")
     with pytest.raises(RemoteFileChanged, match="sequence"):
@@ -95,10 +95,29 @@ async def test_bounded_queue_rejects_out_of_order_or_changed_chunks():
 
 
 @pytest.mark.asyncio
+async def test_bounded_queue_enforces_exact_total_size_including_zero_byte_streams():
+    from app.services.remote_files import BoundedByteQueue, RemoteFileChanged
+
+    queue = BoundedByteQueue(max_bytes=2, expected_size=2)
+    await queue.put(0, b"ab", hashlib.sha256(b"ab").hexdigest())
+    assert await queue.get() == b"ab"  # consuming buffered bytes does not change total received
+    await queue.finish(1, hashlib.sha256(b"ab").hexdigest())
+    zero = BoundedByteQueue(max_bytes=1, expected_size=0)
+    await zero.finish(0, hashlib.sha256(b"").hexdigest())
+    under = BoundedByteQueue(max_bytes=2, expected_size=2)
+    await under.put(0, b"a", hashlib.sha256(b"a").hexdigest())
+    with pytest.raises(RemoteFileChanged, match="size"):
+        under.validate_finish(1, hashlib.sha256(b"a").hexdigest())
+    over = BoundedByteQueue(max_bytes=3, expected_size=1)
+    with pytest.raises(RemoteFileChanged, match="size"):
+        await over.put(0, b"ab", hashlib.sha256(b"ab").hexdigest())
+
+
+@pytest.mark.asyncio
 async def test_bounded_queue_failure_unblocks_waiting_consumer():
     from app.services.remote_files import BoundedByteQueue, RemoteFileMissing
 
-    queue = BoundedByteQueue(max_bytes=1)
+    queue = BoundedByteQueue(max_bytes=1, expected_size=0)
     waiting = asyncio.create_task(queue.get())
     await asyncio.sleep(0)
     await queue.fail(RemoteFileMissing("missing"))
@@ -110,7 +129,7 @@ async def test_bounded_queue_failure_unblocks_waiting_consumer():
 async def test_bounded_queue_failure_unblocks_backpressured_producer():
     from app.services.remote_files import BoundedByteQueue, RemoteStreamTimeout
 
-    queue = BoundedByteQueue(max_bytes=1)
+    queue = BoundedByteQueue(max_bytes=1, expected_size=2)
     await queue.put(0, b"a", hashlib.sha256(b"a").hexdigest())
     blocked = asyncio.create_task(queue.put(1, b"b", hashlib.sha256(b"b").hexdigest()))
     await asyncio.sleep(0)
@@ -124,7 +143,7 @@ async def test_stream_registry_close_removes_entry_and_wakes_waiter():
     from app.services.remote_files import RemoteStreamRegistry, RemoteStreamTimeout
 
     registry = RemoteStreamRegistry()
-    queue = registry.open("job")
+    queue = registry.open("job", expected_size=0)
     waiting = asyncio.create_task(queue.get())
     await asyncio.sleep(0)
     await registry.close("job")
@@ -138,12 +157,12 @@ async def test_stream_registry_reopens_fresh_and_requires_existing_stream():
     from app.services.remote_files import RemoteStreamRegistry, RemoteStreamTimeout
 
     registry = RemoteStreamRegistry()
-    first = registry.open("job")
-    assert registry.open("job") is first and registry.require("job") is first
+    first = registry.open("job", expected_size=1)
+    assert registry.open("job", expected_size=1) is first and registry.require("job") is first
     await registry.close("job")
     with pytest.raises(RemoteStreamTimeout):
         registry.require("job")
-    second = registry.open("job")
+    second = registry.open("job", expected_size=1)
     assert second is not first
     await second.put(0, b"x", hashlib.sha256(b"x").hexdigest())
     assert await second.get() == b"x"

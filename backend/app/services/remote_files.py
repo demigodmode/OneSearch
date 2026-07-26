@@ -127,42 +127,50 @@ async def extract_in_process(
 class BoundedByteQueue:
     """A byte-counted async queue; producers cannot accumulate unbounded memory."""
 
-    def __init__(self, *, max_bytes: int):
-        if max_bytes < 1:
-            raise ValueError("max_bytes must be positive")
-        self.max_bytes = max_bytes
+    def __init__(self, *, max_bytes: int, expected_size: int):
+        if max_bytes < 1 or expected_size < 0:
+            raise ValueError("stream limits must be nonnegative")
+        self.max_bytes, self.expected_size = max_bytes, expected_size
         self._items: asyncio.Queue[bytes | None] = asyncio.Queue()
         self._space = asyncio.Condition()
         self._bytes = 0
+        self._received = 0
+        self._producer_lock = asyncio.Lock()
         self._next_sequence = 0
         self._digest = hashlib.sha256()
         self._finished = False
         self._error: RemoteFileError | None = None
 
     async def put(self, sequence: int, chunk: bytes, checksum: str | None = None) -> None:
-        if self._finished or sequence != self._next_sequence:
-            if self._error is not None:
-                raise self._error
-            raise RemoteFileChanged("invalid chunk sequence")
-        if not chunk or len(chunk) > self.max_bytes:
-            raise RemoteFileChanged("invalid chunk size")
-        _verify_chunk_checksum(chunk, checksum)
-        async with self._space:
-            await self._space.wait_for(
-                lambda: self._finished or self._bytes + len(chunk) <= self.max_bytes
-            )
-            if self._finished:
+        async with self._producer_lock:
+            if self._finished or sequence != self._next_sequence:
                 if self._error is not None:
                     raise self._error
-                raise RemoteStreamTimeout("stream closed")
-            self._bytes += len(chunk)
-        self._digest.update(chunk)
-        self._next_sequence += 1
-        await self._items.put(chunk)
+                raise RemoteFileChanged("invalid chunk sequence")
+            if not chunk or len(chunk) > self.max_bytes:
+                raise RemoteFileChanged("invalid chunk size")
+            _verify_chunk_checksum(chunk, checksum)
+            if self._received + len(chunk) > self.expected_size:
+                raise RemoteFileChanged("stream size exceeds expected size")
+            async with self._space:
+                await self._space.wait_for(
+                    lambda: self._finished or self._bytes + len(chunk) <= self.max_bytes
+                )
+                if self._finished:
+                    if self._error is not None:
+                        raise self._error
+                    raise RemoteStreamTimeout("stream closed")
+                self._bytes += len(chunk)
+            self._digest.update(chunk)
+            self._received += len(chunk)
+            self._next_sequence += 1
+            await self._items.put(chunk)
 
     def validate_finish(self, sequence: int, checksum: str) -> None:
         if self._finished or sequence != self._next_sequence:
             raise RemoteFileChanged("invalid chunk sequence")
+        if self._received != self.expected_size:
+            raise RemoteFileChanged("stream size differs from expected size")
         if self._digest.hexdigest() != checksum:
             raise RemoteFileChanged("stream checksum mismatch")
 
@@ -200,8 +208,15 @@ class RemoteStreamRegistry:
     def __init__(self):
         self._streams: dict[str, BoundedByteQueue] = {}
 
-    def open(self, job_id: str, *, max_bytes: int = 512 * 1024) -> BoundedByteQueue:
-        return self._streams.setdefault(job_id, BoundedByteQueue(max_bytes=max_bytes))
+    def open(self, job_id: str, *, expected_size: int, max_bytes: int = 512 * 1024) -> BoundedByteQueue:
+        existing = self._streams.get(job_id)
+        if existing is not None:
+            if existing.expected_size != expected_size or existing.max_bytes != max_bytes:
+                raise RemoteFileChanged("incompatible stream limits")
+            return existing
+        queue = BoundedByteQueue(max_bytes=max_bytes, expected_size=expected_size)
+        self._streams[job_id] = queue
+        return queue
 
     def get(self, job_id: str) -> BoundedByteQueue | None:
         return self._streams.get(job_id)

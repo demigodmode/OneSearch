@@ -747,7 +747,7 @@ def test_stream_final_checksum_requires_registered_consumer_and_durable_completi
     db_session.commit()
     lease = AgentJobService(db_session).claim_next(agent.id)
     db_session.commit()
-    queue = remote_streams.open(job.id)
+    queue = remote_streams.open(job.id, expected_size=1)
     headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
     try:
         assert (
@@ -836,7 +836,7 @@ def test_stream_invalid_transfer_is_changed_conflict(client, db_session, remote,
     db_session.commit()
     lease = AgentJobService(db_session).claim_next(agent.id)
     db_session.commit()
-    remote_streams.open(job.id)
+    remote_streams.open(job.id, expected_size=1)
     try:
         response = client.put(
             f"/api/agent/v1/jobs/{job.id}/file-chunks?{query}",
@@ -914,7 +914,7 @@ def test_stream_failed_completion_signals_trusted_terminal_error(
     _agent, job, token, lease = _leased_stream_job(
         db_session, remote, job_id=f"stream-failure-{reason}"
     )
-    queue = remote_files.remote_streams.open(job.id)
+    queue = remote_files.remote_streams.open(job.id, expected_size=1)
     try:
         response, result = _completion_while_stream_consumer_waits(
             client,
@@ -949,7 +949,7 @@ def test_stream_failed_completion_hides_untrusted_terminal_detail(
     _agent, job, token, lease = _leased_stream_job(
         db_session, remote, job_id=f"stream-untrusted-{reason}"
     )
-    queue = remote_files.remote_streams.open(job.id)
+    queue = remote_files.remote_streams.open(job.id, expected_size=1)
     try:
         response, result = _completion_while_stream_consumer_waits(
             client,
@@ -971,7 +971,7 @@ def test_stream_cancel_acknowledgment_closes_waiting_consumer(client, db_session
     from app.services import remote_files
 
     agent, job, token, lease = _leased_stream_job(db_session, remote, job_id="stream-cancel")
-    queue = remote_files.remote_streams.open(job.id)
+    queue = remote_files.remote_streams.open(job.id, expected_size=1)
     AgentJobService(db_session).cancel(job.id)
     db_session.commit()
     try:
@@ -1007,7 +1007,7 @@ def test_stream_cancel_acknowledgment_unblocks_backpressured_producer(client, db
     agent, job, token, lease = _leased_stream_job(
         db_session, remote, job_id="stream-cancel-producer"
     )
-    queue = remote_files.remote_streams.open(job.id, max_bytes=1)
+    queue = remote_files.remote_streams.open(job.id, expected_size=2, max_bytes=1)
     AgentJobService(db_session).cancel(job.id)
     db_session.commit()
     try:

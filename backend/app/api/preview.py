@@ -280,7 +280,7 @@ async def _remote_file_response(
             size_bytes=size_bytes,
             modified_at=modified_at,
         )
-        queue = remote_streams.open(job.id)
+        queue = remote_streams.open(job.id, expected_size=size_bytes)
         db.commit()
         body = _stream_remote_body(request, db, job, queue)
         try:
