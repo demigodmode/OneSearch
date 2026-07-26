@@ -612,7 +612,9 @@ def test_extract_final_parent_rejection_cleans_upload_session(
     headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
     assert (
         client.put(
-            f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers=headers
+            f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}",
+            content=b"x",
+            headers=headers,
         ).status_code
         == 200
     )
@@ -688,7 +690,9 @@ def test_failed_extract_completion_cleans_partial_upload(
     headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
     assert (
         client.put(
-            f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers=headers
+            f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}",
+            content=b"x",
+            headers=headers,
         ).status_code
         == 200
     )
@@ -729,7 +733,9 @@ def test_extract_cancellation_acknowledgement_cleans_partial_upload(
     headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
     assert (
         client.put(
-            f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers=headers
+            f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}",
+            content=b"x",
+            headers=headers,
         ).status_code
         == 200
     )
@@ -822,7 +828,7 @@ def test_stream_chunk_without_registered_consumer_is_structured_conflict(
         response.status_code == 409 and response.json()["detail"]["code"] == "remote_stream_timeout"
     )
     db_session.refresh(job)
-    assert job.status == "claimed" and job.active_key == "stream-no-queue"
+    assert job.status == "cancelling" and job.active_key == "stream-no-queue"
 
 
 @pytest.mark.parametrize(
@@ -871,7 +877,7 @@ def test_stream_invalid_transfer_is_changed_conflict(client, db_session, remote,
             and response.json()["detail"]["code"] == "remote_file_changed"
         )
         db_session.refresh(job)
-        assert job.status == "claimed"
+        assert job.status == "cancelling" and remote_streams.get(job.id) is None
     finally:
         asyncio.run(remote_streams.close(job.id))
 
