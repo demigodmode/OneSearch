@@ -325,6 +325,21 @@ async def _submit_or_cancel(keeper, operation, *, attempts, sleep):
         await keeper.check()
 
 
+async def _submit_file_upload(keeper, operation, *, terminal=False):
+    """Raw chunk uploads are single-attempt; only terminal ambiguity is queryable."""
+    try:
+        return await operation()
+    except JobConflict:
+        await keeper.cancel_after_conflict()
+        await keeper.check()
+    except AgentAmbiguousResultError:
+        if terminal:
+            status = await keeper.client.job_status(keeper.lease.id)
+            if status.status == "completed":
+                return
+        raise
+
+
 async def extract_confined(
     root_id,
     path,
@@ -598,7 +613,7 @@ async def _run_file_transfer_job(
                 if copied > payload["maximum_size"]:
                     raise ExtractionError("file exceeds transfer limit")
                 digest.update(chunk)
-                await _submit_or_cancel(
+                await _submit_file_upload(
                     keeper,
                     lambda chunk=chunk, sequence=sequence: client.upload_file_chunk(
                         lease.id,
@@ -607,8 +622,6 @@ async def _run_file_transfer_job(
                         data=chunk,
                         checksum=hashlib.sha256(chunk).hexdigest(),
                     ),
-                    attempts=3,
-                    sleep=asyncio.sleep,
                 )
                 sequence += 1
             after = os.fstat(handle.fileno())
@@ -620,7 +633,7 @@ async def _run_file_transfer_job(
                 raise ExtractionError("file changed during transfer")
         if payload.get("content_hash") and digest.hexdigest() != payload["content_hash"]:
             raise ExtractionError("file content changed since scan")
-        await _submit_or_cancel(
+        await _submit_file_upload(
             keeper,
             lambda: client.upload_file_chunk(
                 lease.id,
@@ -629,8 +642,7 @@ async def _run_file_transfer_job(
                 complete=True,
                 stream_checksum=digest.hexdigest(),
             ),
-            attempts=3,
-            sleep=asyncio.sleep,
+            terminal=True,
         )
     except asyncio.CancelledError:
         raise
