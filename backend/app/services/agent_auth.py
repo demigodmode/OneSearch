@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import case, update
+from sqlalchemy import case, or_, update
 from sqlalchemy.orm import Session
 
 from ..db.database import get_db
@@ -103,11 +103,18 @@ def agent_is_fresh(agent: Agent, *, now: datetime | None = None) -> bool:
 
 def mark_stale_agent_offline(db: Session, agent: Agent, *, now: datetime | None = None) -> bool:
     """Persist an offline transition only for a stale agent still marked online."""
-    if agent.status != "online" or agent_is_fresh(agent, now=now):
-        return False
-    agent.status = "offline"
-    db.flush()
-    return True
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    cutoff = now - AGENT_ONLINE_MAX_AGE
+    result = db.execute(
+        update(Agent)
+        .where(
+            Agent.id == agent.id,
+            Agent.status == "online",
+            or_(Agent.last_seen_at.is_(None), Agent.last_seen_at < cutoff),
+        )
+        .values(status="offline")
+    )
+    return result.rowcount == 1
 
 
 def record_agent_activity(db: Session, agent_id: str) -> None:
