@@ -222,6 +222,8 @@ def test_listing_failure_marks_scan_incomplete_with_directory_failure(tmp_path: 
         job_id="j", source_id="s"
     )
     assert manifest.complete is False and manifest.failures[0].path == "scan"
+    assert [item.path for item in manifest.files] == ["a.txt"]
+    assert manifest.changed_paths == ["a.txt"]
 
 
 def test_symlink_escape_is_not_manifested(tmp_path: Path):

@@ -115,7 +115,7 @@ class RemoteScanner:
             return ScanManifest(
                 job_id=job_id,
                 source_id=source_id,
-                files=[],
+                files=files,
                 changed_paths=list(self.changed_paths),
                 failures=[ScanFailure(path="scan", error=str(error)[:500])],
                 complete=False,

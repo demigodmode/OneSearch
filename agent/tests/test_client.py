@@ -9,6 +9,7 @@ from onesearch_agent.client import (
     RemoteAgentsDisabled,
     retry_delay,
 )
+from onesearch_shared import PROTOCOL_VERSION
 
 
 @pytest.mark.asyncio
@@ -318,7 +319,10 @@ async def test_all_job_endpoints_send_contract_headers_and_bodies():
         "/api/agent/v1/jobs/job/complete",
         "/api/agent/v1/jobs/job/cancel-ack",
     ]
-    assert all(item[1] == "Bearer token" and item[2] == "1" and item[4] == "lease" for item in seen)
+    assert all(
+        item[1] == "Bearer token" and item[2] == str(PROTOCOL_VERSION) and item[4] == "lease"
+        for item in seen
+    )
 
 
 @pytest.mark.asyncio
