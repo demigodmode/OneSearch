@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import multiprocessing
 import tempfile
@@ -32,6 +33,13 @@ class RemoteFileChanged(RemoteFileError):  # noqa: N818 - public wire error name
 
 class RemoteStreamTimeout(RemoteFileError):  # noqa: N818 - public wire error name
     code = "remote_stream_timeout"
+
+
+def _verify_chunk_checksum(data: bytes, checksum: str | None) -> None:
+    if not isinstance(checksum, str) or len(checksum) != 64:
+        raise RemoteFileChanged("chunk checksum required")
+    if not hmac.compare_digest(hashlib.sha256(data).hexdigest(), checksum):
+        raise RemoteFileChanged("chunk checksum mismatch")
 
 
 class RemoteExtractionError(RuntimeError):
@@ -138,8 +146,7 @@ class BoundedByteQueue:
             raise RemoteFileChanged("invalid chunk sequence")
         if not chunk or len(chunk) > self.max_bytes:
             raise RemoteFileChanged("invalid chunk size")
-        if checksum is not None and hashlib.sha256(chunk).hexdigest() != checksum:
-            raise RemoteFileChanged("chunk checksum mismatch")
+        _verify_chunk_checksum(chunk, checksum)
         async with self._space:
             await self._space.wait_for(
                 lambda: self._finished or self._bytes + len(chunk) <= self.max_bytes
@@ -242,6 +249,7 @@ class ExtractUploadRegistry:
         *,
         sequence: int,
         data: bytes,
+        checksum: str | None,
         expected_size: int,
         maximum_size: int,
         suffix: str = "",
@@ -249,6 +257,11 @@ class ExtractUploadRegistry:
         if not data or len(data) > self.chunk_bytes:
             raise RemoteFileChanged("chunk exceeds limit")
         session = self._sessions.get(job_id)
+        try:
+            _verify_chunk_checksum(data, checksum)
+        except RemoteFileChanged:
+            self.cleanup(job_id)
+            raise
         if session is None:
             if expected_size < 0 or expected_size > maximum_size:
                 raise RemoteFileChanged("declared size exceeds limit")

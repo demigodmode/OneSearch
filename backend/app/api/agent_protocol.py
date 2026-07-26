@@ -435,6 +435,8 @@ async def receive_file_chunk(
                 finally:
                     extract_uploads.cleanup(job_id)
             else:
+                if checksum is None:
+                    raise RemoteFileChanged("chunk checksum required")
                 content_length = request.headers.get("content-length")
                 if content_length is not None:
                     try:
@@ -452,6 +454,7 @@ async def receive_file_chunk(
                     job_id,
                     sequence=sequence,
                     data=bytes(body),
+                    checksum=checksum,
                     expected_size=payload["size_bytes"],
                     maximum_size=payload["maximum_size"],
                     suffix=__import__("pathlib").Path(payload["path"]).suffix,
@@ -467,6 +470,8 @@ async def receive_file_chunk(
                 await queue.finish(sequence, stream_checksum)
                 return {"status": "ok"}
             else:
+                if checksum is None:
+                    raise RemoteFileChanged("chunk checksum required")
                 body = bytearray()
                 async for part in request.stream():
                     body.extend(part)

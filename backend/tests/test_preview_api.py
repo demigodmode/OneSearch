@@ -187,7 +187,7 @@ def capture_remote_download_response(monkeypatch):
         queue = original_open(job_id, **kwargs)
 
         async def feed():
-            await queue.put(0, b"x")
+            await queue.put(0, b"x", hashlib.sha256(b"x").hexdigest())
             await queue.finish(1, hashlib.sha256(b"x").hexdigest())
 
         asyncio.get_running_loop().create_task(feed())
@@ -495,8 +495,8 @@ def test_remote_download_streams_chunks_and_finishes_durable_job(
     payload = b"first bounded chunk" + b"second bounded chunk"
 
     async def feed(queue):
-        await queue.put(0, payload[:19])
-        await queue.put(1, payload[19:])
+        await queue.put(0, payload[:19], hashlib.sha256(payload[:19]).hexdigest())
+        await queue.put(1, payload[19:], hashlib.sha256(payload[19:]).hexdigest())
         await queue.finish(2, hashlib.sha256(payload).hexdigest())
 
     remote_queue_feeder(feed)
@@ -584,7 +584,7 @@ def test_remote_preview_streams_standard_image_without_attachment(
     payload = b"remote jpeg bytes"
 
     async def feed(queue):
-        await queue.put(0, payload)
+        await queue.put(0, payload, hashlib.sha256(payload).hexdigest())
         await queue.finish(1, hashlib.sha256(payload).hexdigest())
 
     remote_queue_feeder(feed)
@@ -649,8 +649,8 @@ async def test_remote_stream_body_disconnect_cancels_and_unblocks_producer(
         source, path=document["path"], size_bytes=1, modified_at=1
     )
     queue = remote_streams.open(job.id, max_bytes=1)
-    await queue.put(0, b"x")
-    blocked_producer = asyncio.create_task(queue.put(1, b"y"))
+    await queue.put(0, b"x", hashlib.sha256(b"x").hexdigest())
+    blocked_producer = asyncio.create_task(queue.put(1, b"y", hashlib.sha256(b"y").hexdigest()))
     db_session.commit()
 
     class DisconnectedRequest:
@@ -737,7 +737,7 @@ def test_remote_preview_infers_extension_from_relative_path(
     document.pop("extension", None)
 
     async def feed(queue):
-        await queue.put(0, b"jpg")
+        await queue.put(0, b"jpg", hashlib.sha256(b"jpg").hexdigest())
         await queue.finish(1, hashlib.sha256(b"jpg").hexdigest())
 
     remote_queue_feeder(feed)
@@ -755,7 +755,7 @@ async def test_remote_response_wrapper_closes_body_after_prefetched_chunk(
     _agent, source, indexed, document = remote_download
 
     async def feed(queue):
-        await queue.put(0, b"first")
+        await queue.put(0, b"first", hashlib.sha256(b"first").hexdigest())
 
     remote_queue_feeder(feed)
 
@@ -788,7 +788,7 @@ def test_remote_download_content_disposition_encodes_malicious_basename(
     document["basename"] = 'evil"\r\nX-Injected: yes.jpg'
 
     async def feed(queue):
-        await queue.put(0, b"x")
+        await queue.put(0, b"x", hashlib.sha256(b"x").hexdigest())
         await queue.finish(1, hashlib.sha256(b"x").hexdigest())
 
     remote_queue_feeder(feed)

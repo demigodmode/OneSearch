@@ -648,7 +648,7 @@ def test_invalid_later_extract_chunk_cleans_partial_upload(
     monkeypatch.setattr(agent_protocol, "extract_uploads", registry)
     headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
     assert client.put(
-        f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers=headers
+        f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}", content=b"x", headers=headers
     ).status_code == 200
     malformed_headers = {**headers, "Content-Length": "not-a-length"}
     response = client.put(
@@ -752,7 +752,7 @@ def test_stream_final_checksum_requires_registered_consumer_and_durable_completi
     try:
         assert (
             client.put(
-                f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0", content=b"x", headers=headers
+                f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}", content=b"x", headers=headers
             ).status_code
             == 200
         )
@@ -794,7 +794,7 @@ def test_stream_chunk_without_registered_consumer_is_structured_conflict(
     lease = AgentJobService(db_session).claim_next(agent.id)
     db_session.commit()
     response = client.put(
-        f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0",
+        f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}",
         content=b"x",
         headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
     )
@@ -1013,8 +1013,10 @@ def test_stream_cancel_acknowledgment_unblocks_backpressured_producer(client, db
     try:
 
         async def acknowledge_and_produce():
-            await queue.put(0, b"x")
-            blocked_producer = asyncio.create_task(queue.put(1, b"y"))
+            await queue.put(0, b"x", hashlib.sha256(b"x").hexdigest())
+            blocked_producer = asyncio.create_task(
+                queue.put(1, b"y", hashlib.sha256(b"y").hexdigest())
+            )
             await asyncio.sleep(0)
             response = client.post(
                 f"/api/agent/v1/jobs/{job.id}/cancel-ack",
