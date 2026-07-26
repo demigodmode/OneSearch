@@ -647,9 +647,14 @@ def test_invalid_later_extract_chunk_cleans_partial_upload(
     registry = ExtractUploadRegistry(tmp_path)
     monkeypatch.setattr(agent_protocol, "extract_uploads", registry)
     headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
-    assert client.put(
-        f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}", content=b"x", headers=headers
-    ).status_code == 200
+    assert (
+        client.put(
+            f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}",
+            content=b"x",
+            headers=headers,
+        ).status_code
+        == 200
+    )
     malformed_headers = {**headers, "Content-Length": "not-a-length"}
     response = client.put(
         f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=1",
@@ -660,7 +665,9 @@ def test_invalid_later_extract_chunk_cleans_partial_upload(
     assert not registry.has(child.id) and list(tmp_path.iterdir()) == []
 
 
-def test_failed_extract_completion_cleans_partial_upload(client, db_session, remote, tmp_path, monkeypatch):
+def test_failed_extract_completion_cleans_partial_upload(
+    client, db_session, remote, tmp_path, monkeypatch
+):
     agent, source = remote
     source.processing_mode = "on_server"
     token = create_agent_token()
@@ -679,13 +686,21 @@ def test_failed_extract_completion_cleans_partial_upload(client, db_session, rem
     registry = ExtractUploadRegistry(tmp_path)
     monkeypatch.setattr(agent_protocol, "extract_uploads", registry)
     headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
-    assert client.put(
-        f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers=headers
-    ).status_code == 200
+    assert (
+        client.put(
+            f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers=headers
+        ).status_code
+        == 200
+    )
     response = client.post(
         f"/api/agent/v1/jobs/{child.id}/complete",
         headers=headers,
-        json={"job_id": child.id, "status": "failed", "reason": "internal_error", "detail": "failed"},
+        json={
+            "job_id": child.id,
+            "status": "failed",
+            "reason": "internal_error",
+            "detail": "failed",
+        },
     )
     assert response.status_code == 200
     assert not registry.has(child.id) and list(tmp_path.iterdir()) == []
@@ -712,9 +727,12 @@ def test_extract_cancellation_acknowledgement_cleans_partial_upload(
     registry = ExtractUploadRegistry(tmp_path)
     monkeypatch.setattr(agent_protocol, "extract_uploads", registry)
     headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
-    assert client.put(
-        f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers=headers
-    ).status_code == 200
+    assert (
+        client.put(
+            f"/api/agent/v1/jobs/{child.id}/file-chunks?sequence=0", content=b"x", headers=headers
+        ).status_code
+        == 200
+    )
     AgentJobService(db_session).cancel(child.id)
     db_session.commit()
     response = client.post(f"/api/agent/v1/jobs/{child.id}/cancel-ack", headers=headers)
@@ -752,7 +770,9 @@ def test_stream_final_checksum_requires_registered_consumer_and_durable_completi
     try:
         assert (
             client.put(
-                f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}", content=b"x", headers=headers
+                f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}",
+                content=b"x",
+                headers=headers,
             ).status_code
             == 200
         )
@@ -857,25 +877,41 @@ def test_stream_invalid_transfer_is_changed_conflict(client, db_session, remote,
 
 
 def test_stream_size_mismatches_reject_before_completion_or_eof(client, db_session, remote):
-    from app.services.remote_files import remote_streams
+    from app.services.remote_files import RemoteFileChanged, remote_streams
 
     agent, job, token, lease = _leased_stream_job(db_session, remote, job_id="stream-size-under")
     headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
     queue = remote_streams.open(job.id, expected_size=2)
     try:
-        assert client.put(
-            f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}",
-            content=b"x",
-            headers=headers,
-        ).status_code == 200
-        response = client.put(
-            f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=1&complete=true&stream_checksum={hashlib.sha256(b'x').hexdigest()}",
-            headers=headers,
+        assert (
+            client.put(
+                f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}",
+                content=b"x",
+                headers=headers,
+            ).status_code
+            == 200
         )
-        assert response.status_code == 409 and response.json()["detail"]["code"] == "remote_file_changed"
+
+        async def terminal_with_waiting_consumer():
+            assert await queue.get() == b"x"
+            waiting = asyncio.create_task(queue.get())
+            await asyncio.sleep(0)
+            response = await asyncio.to_thread(
+                client.put,
+                f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=1&complete=true&stream_checksum={hashlib.sha256(b'x').hexdigest()}",
+                headers=headers,
+            )
+            with pytest.raises(RemoteFileChanged):
+                await asyncio.wait_for(waiting, timeout=0.1)
+            return response
+
+        response = asyncio.run(terminal_with_waiting_consumer())
+        assert (
+            response.status_code == 409
+            and response.json()["detail"]["code"] == "remote_file_changed"
+        )
         db_session.refresh(job)
         assert job.status == "cancelling" and remote_streams.get(job.id) is None
-        assert isinstance(queue._error, __import__("app.services.remote_files", fromlist=["RemoteFileChanged"]).RemoteFileChanged)
     finally:
         asyncio.run(remote_streams.close(job.id))
 
@@ -885,12 +921,17 @@ def test_stream_size_mismatches_reject_before_completion_or_eof(client, db_sessi
         response = client.put(
             f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'ab').hexdigest()}",
             content=b"ab",
-            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-OneSearch-Lease-Token": lease.lease_token,
+            },
         )
-        assert response.status_code == 409 and response.json()["detail"]["code"] == "remote_file_changed"
+        assert (
+            response.status_code == 409
+            and response.json()["detail"]["code"] == "remote_file_changed"
+        )
         db_session.refresh(job)
         assert job.status == "cancelling" and remote_streams.get(job.id) is None
-        assert isinstance(queue._error, __import__("app.services.remote_files", fromlist=["RemoteFileChanged"]).RemoteFileChanged)
     finally:
         asyncio.run(remote_streams.close(job.id))
 
