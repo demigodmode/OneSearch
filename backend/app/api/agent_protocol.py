@@ -279,13 +279,18 @@ async def submit_manifest(
                 path = canonical_remote_path(item.path)
                 if item.path_hash != __import__("onesearch_shared").remote_path_hash(path):
                     raise JobConflict("manifest path hash mismatch")
-                files.append(item.model_dump(mode="json"))
+                files.append({**item.model_dump(mode="json"), "path": path})
+            manifest_payload = request.model_dump(mode="json")
+            manifest_payload["files"] = files
             job.checkpoint = json.dumps(
-                {"version": 1, "remote_manifest": request.model_dump(mode="json")},
+                {"version": 1, "remote_manifest": manifest_payload},
                 sort_keys=True,
                 separators=(",", ":"),
             )
-            jobs.enqueue_extract_files(job, files)
+            selected_paths = set(request.changed_paths) if request.changed_paths is not None else None
+            jobs.enqueue_extract_files(
+                job, files if selected_paths is None else [item for item in files if item["path"] in selected_paths]
+            )
         else:
             get_remote_ingest_service(db).accept_manifest(agent.id, job_id, lease_token, request)
         db.commit()

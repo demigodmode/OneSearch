@@ -10,6 +10,7 @@ from onesearch_shared import (
     REMOTE_MAX_ENTRIES_PER_DIRECTORY,
     REMOTE_MAX_SCAN_FILES,
     REMOTE_MAX_SNAPSHOT_BYTES,
+    remote_path_hash,
 )
 
 from app.api import agent_protocol
@@ -546,6 +547,46 @@ def test_other_agent_cannot_upload_to_owned_extract_job(
     assert response.status_code in {401, 403, 404}
     assert not registry._sessions
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("changed_paths", "expected_paths"),
+    [(None, ["a.txt", "b.txt"]), ([], []), (["b.txt"], ["b.txt"])],
+)
+def test_on_server_manifest_selects_changed_files_only(
+    client, db_session, remote, changed_paths, expected_paths
+):
+    agent, source = remote
+    source.processing_mode = "on_server"
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
+    db_session.commit()
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    files = [
+        {"path": path, "path_hash": remote_path_hash(path), "size_bytes": 1, "modified_at": 1}
+        for path in ["a.txt", "b.txt"]
+    ]
+    manifest = {"job_id": parent.id, "source_id": source.id, "files": files, "complete": True}
+    if changed_paths is not None:
+        manifest["changed_paths"] = changed_paths
+    response = client.post(
+        f"/api/agent/v1/jobs/{parent.id}/manifest",
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        json=manifest,
+    )
+    assert response.status_code == 200, response.text
+    retry = client.post(
+        f"/api/agent/v1/jobs/{parent.id}/manifest",
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        json=manifest,
+    )
+    assert retry.status_code == 200, retry.text
+    children = db_session.query(AgentJob).filter_by(kind="extract_file").all()
+    assert [json.loads(child.payload)["path"] for child in children] == expected_paths
+    assert len(json.loads(parent.checkpoint)["remote_manifest"]["files"]) == 2
 
 
 def test_extract_final_parent_rejection_cleans_upload_session(
