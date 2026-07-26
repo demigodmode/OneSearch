@@ -70,19 +70,20 @@ def test_create_enrollment_requires_user_auth_even_when_feature_is_disabled(clie
 
 def test_enrollment_validates_before_atomically_consuming_code(client, db_session):
     _enable(client)
+    rejected = _create_code(client)["code"]
+    assert _enroll(client, rejected, protocol_version=0).status_code in {409, 422}
+    assert _enroll(client, rejected, protocol_version=3).status_code == 409
+    assert all(item.used_at is None for item in db_session.query(AgentEnrollment).all())
+
     code = _create_code(client)["code"]
-
-    incompatible = _enroll(client, code, protocol_version=2)
-    assert incompatible.status_code == 409
-    assert db_session.query(AgentEnrollment).one().used_at is None
-
-    enrolled = _enroll(client, code)
+    enrolled = _enroll(client, code, protocol_version=1)
     assert enrolled.status_code == 201
     token = enrolled.json()["agent_token"]
     agent = db_session.query(Agent).one()
     assert agent.status == "pending"
     assert agent.token_hash == hashlib.sha256(token.encode()).hexdigest()
     assert token != agent.token_hash
+    assert enrolled.json()["protocol_version"] == agent.protocol_version == 1
     assert json.loads(agent.allowed_roots) == [
         {
             "root_id": "documents",
@@ -91,6 +92,10 @@ def test_enrollment_validates_before_atomically_consuming_code(client, db_sessio
             "read_only": True,
         }
     ]
+    enrolled_v2 = _enroll(client, _create_code(client)["code"], protocol_version=2, name="v2")
+    assert enrolled_v2.status_code == 201
+    assert enrolled_v2.json()["protocol_version"] == 2
+    assert db_session.get(Agent, enrolled_v2.json()["agent_id"]).protocol_version == 2
 
     reused = _enroll(client, code, name="second")
     assert reused.status_code == 409
@@ -239,6 +244,11 @@ def test_heartbeat_authenticates_pending_then_marks_approved_agent_online(
     online = client.post("/api/agent/v1/heartbeat", json=payload, headers=headers)
     assert online.status_code == 200
     assert online.json()["status"] == "online"
+    payload["protocol_version"] = 2
+    assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 200
+    assert db_session.get(Agent, enrolled["agent_id"]).protocol_version == 2
+    payload["protocol_version"] = 3
+    assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 409
 
 
 def test_heartbeat_rejects_user_jwt_disabled_revoked_and_global_disable(
