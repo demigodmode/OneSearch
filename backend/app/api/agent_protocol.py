@@ -11,6 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from onesearch_shared import (
+    MINIMUM_SUPPORTED_PROTOCOL_VERSION,
     PROTOCOL_VERSION,
     AgentEnrollmentRequest,
     AgentEnrollmentResponse,
@@ -93,7 +94,7 @@ def _classify_stream_failure(request: JobCompletion) -> tuple[str, RemoteFileErr
 
 
 def _validate_enrollment(request: AgentEnrollmentRequest) -> None:
-    if request.protocol_version != PROTOCOL_VERSION:
+    if not MINIMUM_SUPPORTED_PROTOCOL_VERSION <= request.protocol_version <= PROTOCOL_VERSION:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Unsupported protocol version",
@@ -145,6 +146,7 @@ async def enroll_agent(request: AgentEnrollmentRequest, db: Database):
     db.add(agent)
     db.commit()
     return AgentEnrollmentResponse(
+        protocol_version=request.protocol_version,
         agent_id=agent.id,
         agent_token=raw_token,
         allowed_roots=request.allowed_roots,
@@ -168,7 +170,7 @@ async def heartbeat(
     agent: AuthenticatedAgent,
     db: Database,
 ):
-    if request.protocol_version != PROTOCOL_VERSION:
+    if not MINIMUM_SUPPORTED_PROTOCOL_VERSION <= request.protocol_version <= PROTOCOL_VERSION:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Unsupported protocol version"
         )
@@ -177,6 +179,7 @@ async def heartbeat(
         agent_id=agent.id,
         version=request.agent_version,
         platform=request.platform,
+        protocol_version=request.protocol_version,
     )
     if agent_status is None:
         db.rollback()

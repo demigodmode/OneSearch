@@ -37,7 +37,7 @@ def assert_json_round_trip(model):
 def test_heartbeat_defaults_to_current_protocol_and_round_trips_strictly():
     heartbeat = AgentHeartbeat(agent_version="1.4.0", platform="windows-amd64")
 
-    assert heartbeat.protocol_version == PROTOCOL_VERSION == 1
+    assert heartbeat.protocol_version == PROTOCOL_VERSION == 2
     assert_json_round_trip(heartbeat)
 
 

@@ -69,6 +69,7 @@ def record_agent_heartbeat(
     agent_id: str,
     version: str,
     platform: str,
+    protocol_version: int | None = None,
 ) -> str | None:
     """Update heartbeat state only while the stored agent is still active."""
     result = db.execute(
@@ -81,6 +82,7 @@ def record_agent_heartbeat(
         .values(
             version=version,
             platform=platform,
+            **({"protocol_version": protocol_version} if protocol_version is not None else {}),
             last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
             status=case((Agent.status == "offline", "online"), else_=Agent.status),
         )

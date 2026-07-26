@@ -14,7 +14,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
+MINIMUM_SUPPORTED_PROTOCOL_VERSION = 1
 REMOTE_MAX_SNAPSHOT_BYTES = 100 * 1024 * 1024
 REMOTE_MAX_BATCH_DOCUMENTS = 100
 REMOTE_MAX_BATCH_BYTES = 1_000_000

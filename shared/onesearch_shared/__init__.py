@@ -1,6 +1,7 @@
 """Public protocol contracts for OneSearch remote indexing agents."""
 
 from .protocol import (
+    MINIMUM_SUPPORTED_PROTOCOL_VERSION,
     PROTOCOL_VERSION,
     REMOTE_JOB_HEARTBEAT_SECONDS,
     REMOTE_MAX_BATCH_BYTES,
@@ -40,6 +41,7 @@ from .protocol import (
 
 __all__ = [
     "PROTOCOL_VERSION",
+    "MINIMUM_SUPPORTED_PROTOCOL_VERSION",
     "REMOTE_MAX_SNAPSHOT_BYTES",
     "REMOTE_MAX_BATCH_DOCUMENTS",
     "REMOTE_MAX_BATCH_BYTES",
