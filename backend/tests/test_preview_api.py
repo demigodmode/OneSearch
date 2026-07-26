@@ -488,11 +488,13 @@ def test_independent_remote_downloads_use_distinct_stream_jobs(
     assert len({job.id for job in jobs}) == 2
 
 
-def test_remote_download_streams_chunks_and_finishes_durable_job(
+def test_remote_download_streams_chunks_with_queue_shim(
     streaming_client, db_session, remote_download, remote_queue_feeder, tmp_path
 ):
-    _agent, source, _indexed, document = remote_download
+    _agent, source, indexed, document = remote_download
     payload = b"first bounded chunk" + b"second bounded chunk"
+    indexed.size_bytes = len(payload)
+    db_session.commit()
 
     async def feed(queue):
         await queue.put(0, payload[:19], hashlib.sha256(payload[:19]).hexdigest())

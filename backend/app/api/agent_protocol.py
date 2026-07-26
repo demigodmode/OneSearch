@@ -488,6 +488,14 @@ async def receive_file_chunk(
         db.rollback()
         if "job" in locals() and job.kind == "extract_file":
             extract_uploads.cleanup(job_id)
+        if "job" in locals() and job.kind == "stream_file":
+            try:
+                AgentJobService(db).cancel(job_id)
+                db.commit()
+            except JobConflict:
+                db.rollback()
+            finally:
+                await remote_streams.close(job_id, error)
         raise HTTPException(
             status_code=409, detail={"code": error.code, "message": str(error)}
         ) from error

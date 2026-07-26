@@ -874,7 +874,8 @@ def test_stream_size_mismatches_reject_before_completion_or_eof(client, db_sessi
         )
         assert response.status_code == 409 and response.json()["detail"]["code"] == "remote_file_changed"
         db_session.refresh(job)
-        assert job.status == "claimed" and not queue._finished
+        assert job.status == "cancelling" and remote_streams.get(job.id) is None
+        assert isinstance(queue._error, __import__("app.services.remote_files", fromlist=["RemoteFileChanged"]).RemoteFileChanged)
     finally:
         asyncio.run(remote_streams.close(job.id))
 
@@ -888,7 +889,8 @@ def test_stream_size_mismatches_reject_before_completion_or_eof(client, db_sessi
         )
         assert response.status_code == 409 and response.json()["detail"]["code"] == "remote_file_changed"
         db_session.refresh(job)
-        assert job.status == "claimed" and queue._items.empty() and not queue._finished
+        assert job.status == "cancelling" and remote_streams.get(job.id) is None
+        assert isinstance(queue._error, __import__("app.services.remote_files", fromlist=["RemoteFileChanged"]).RemoteFileChanged)
     finally:
         asyncio.run(remote_streams.close(job.id))
 
