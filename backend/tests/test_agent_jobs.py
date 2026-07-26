@@ -856,11 +856,49 @@ def test_stream_invalid_transfer_is_changed_conflict(client, db_session, remote,
         asyncio.run(remote_streams.close(job.id))
 
 
+def test_stream_size_mismatches_reject_before_completion_or_eof(client, db_session, remote):
+    from app.services.remote_files import remote_streams
+
+    agent, job, token, lease = _leased_stream_job(db_session, remote, job_id="stream-size-under")
+    headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
+    queue = remote_streams.open(job.id, expected_size=2)
+    try:
+        assert client.put(
+            f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'x').hexdigest()}",
+            content=b"x",
+            headers=headers,
+        ).status_code == 200
+        response = client.put(
+            f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=1&complete=true&stream_checksum={hashlib.sha256(b'x').hexdigest()}",
+            headers=headers,
+        )
+        assert response.status_code == 409 and response.json()["detail"]["code"] == "remote_file_changed"
+        db_session.refresh(job)
+        assert job.status == "claimed" and not queue._finished
+    finally:
+        asyncio.run(remote_streams.close(job.id))
+
+    agent, job, token, lease = _leased_stream_job(db_session, remote, job_id="stream-size-over")
+    queue = remote_streams.open(job.id, expected_size=1)
+    try:
+        response = client.put(
+            f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0&checksum={hashlib.sha256(b'ab').hexdigest()}",
+            content=b"ab",
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+        assert response.status_code == 409 and response.json()["detail"]["code"] == "remote_file_changed"
+        db_session.refresh(job)
+        assert job.status == "claimed" and queue._items.empty() and not queue._finished
+    finally:
+        asyncio.run(remote_streams.close(job.id))
+
+
 def _leased_stream_job(db_session, remote, *, job_id):
     agent, source = remote
     token = create_agent_token()
     agent.token_hash = hash_token(token)
-    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    if db_session.get(AppSetting, "remote_agents_enabled") is None:
+        db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
     job = AgentJob(
         id=job_id,
         agent_id=agent.id,
