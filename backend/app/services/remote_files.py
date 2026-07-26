@@ -208,7 +208,9 @@ class RemoteStreamRegistry:
     def __init__(self):
         self._streams: dict[str, BoundedByteQueue] = {}
 
-    def open(self, job_id: str, *, expected_size: int, max_bytes: int = 512 * 1024) -> BoundedByteQueue:
+    def open(
+        self, job_id: str, *, expected_size: int, max_bytes: int = 512 * 1024
+    ) -> BoundedByteQueue:
         existing = self._streams.get(job_id)
         if existing is not None:
             if existing.expected_size != expected_size or existing.max_bytes != max_bytes:
@@ -290,8 +292,12 @@ class ExtractUploadRegistry:
         if sequence != session.next_sequence or session.copied + len(data) > session.maximum_size:
             self.cleanup(job_id)
             raise RemoteFileChanged("invalid chunk sequence or size")
-        session.handle.write(data)
-        session.handle.flush()
+        try:
+            session.handle.write(data)
+            session.handle.flush()
+        except BaseException:
+            self.cleanup(job_id)
+            raise
         session.digest.update(data)
         session.copied += len(data)
         session.next_sequence += 1

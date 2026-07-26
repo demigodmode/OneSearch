@@ -196,7 +196,14 @@ def test_extract_upload_rejects_oversize_before_creating_temp_file(tmp_path):
 
     registry = ExtractUploadRegistry(tmp_path, chunk_bytes=4)
     with pytest.raises(RemoteFileChanged, match="chunk"):
-        registry.append("job", sequence=0, data=b"12345", checksum=hashlib.sha256(b"12345").hexdigest(), expected_size=5, maximum_size=5)
+        registry.append(
+            "job",
+            sequence=0,
+            data=b"12345",
+            checksum=hashlib.sha256(b"12345").hexdigest(),
+            expected_size=5,
+            maximum_size=5,
+        )
     assert list(tmp_path.iterdir()) == []
 
 
@@ -205,7 +212,12 @@ def test_extract_upload_rejects_empty_chunk_without_creating_temp_file(tmp_path)
 
     with pytest.raises(RemoteFileChanged, match="chunk"):
         ExtractUploadRegistry(tmp_path).append(
-            "job", sequence=0, data=b"", checksum=hashlib.sha256(b"").hexdigest(), expected_size=1, maximum_size=1
+            "job",
+            sequence=0,
+            data=b"",
+            checksum=hashlib.sha256(b"").hexdigest(),
+            expected_size=1,
+            maximum_size=1,
         )
     assert list(tmp_path.iterdir()) == []
 
@@ -223,6 +235,73 @@ def test_extract_upload_rejects_missing_or_changed_chunk_checksum_before_writing
             "job", sequence=0, data=b"x", checksum="0" * 64, expected_size=1, maximum_size=1
         )
     assert not registry.has("job") and list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("failure", ["write", "flush"])
+def test_extract_upload_write_failures_clean_exact_session(tmp_path, monkeypatch, failure):
+    from app.services import remote_files
+    from app.services.remote_files import ExtractUploadRegistry, RemoteFileChanged
+
+    class FailingHandle:
+        def __init__(self, path):
+            self.name = str(path)
+
+        def write(self, _data):
+            if failure == "write":
+                raise OSError("write failed")
+
+        def flush(self):
+            if failure == "flush":
+                raise OSError("flush failed")
+
+        def close(self):
+            pass
+
+    registry = ExtractUploadRegistry(tmp_path)
+    first_path = tmp_path / "first"
+    first_path.touch()
+    monkeypatch.setattr(
+        remote_files.tempfile, "NamedTemporaryFile", lambda **_kwargs: FailingHandle(first_path)
+    )
+    with pytest.raises(OSError, match=failure):
+        registry.append(
+            "first",
+            sequence=0,
+            data=b"x",
+            checksum=hashlib.sha256(b"x").hexdigest(),
+            expected_size=1,
+            maximum_size=1,
+        )
+    assert not registry.has("first") and not first_path.exists()
+
+    monkeypatch.undo()
+    registry.append(
+        "other",
+        sequence=0,
+        data=b"x",
+        checksum=hashlib.sha256(b"x").hexdigest(),
+        expected_size=1,
+        maximum_size=2,
+    )
+    registry.append(
+        "later",
+        sequence=0,
+        data=b"x",
+        checksum=hashlib.sha256(b"x").hexdigest(),
+        expected_size=2,
+        maximum_size=2,
+    )
+    registry._sessions["later"].handle = FailingHandle(tmp_path / "later-failure")
+    with pytest.raises(OSError, match=failure):
+        registry.append(
+            "later",
+            sequence=1,
+            data=b"y",
+            checksum=hashlib.sha256(b"y").hexdigest(),
+            expected_size=2,
+            maximum_size=2,
+        )
+    assert not registry.has("later") and registry.has("other")
     registry.append(
         "job",
         sequence=0,
@@ -235,7 +314,7 @@ def test_extract_upload_rejects_missing_or_changed_chunk_checksum_before_writing
         registry.append(
             "job", sequence=1, data=b"y", checksum="0" * 64, expected_size=2, maximum_size=2
         )
-    assert not registry.has("job") and list(tmp_path.iterdir()) == []
+    assert not registry.has("job") and registry.has("other")
 
 
 def test_coordinator_cancels_children_and_cleans_uploads(db_session, remote, tmp_path):
@@ -255,7 +334,14 @@ def test_coordinator_cancels_children_and_cleans_uploads(db_session, remote, tmp
     children[1].status = "running"
     uploads = ExtractUploadRegistry(tmp_path)
     for child in children:
-        uploads.append(child.id, sequence=0, data=b"x", checksum=hashlib.sha256(b"x").hexdigest(), expected_size=1, maximum_size=1)
+        uploads.append(
+            child.id,
+            sequence=0,
+            data=b"x",
+            checksum=hashlib.sha256(b"x").hexdigest(),
+            expected_size=1,
+            maximum_size=1,
+        )
     db_session.flush()
     coordinator = RemoteFileCoordinator(db_session, uploads)
     coordinator.cancel_server_parent(parent.id)
@@ -273,8 +359,22 @@ def test_extract_upload_streams_to_private_temp_file_and_validates_checksum(tmp_
     from app.services.remote_files import ExtractUploadRegistry
 
     registry = ExtractUploadRegistry(tmp_path, chunk_bytes=3)
-    registry.append("job", sequence=0, data=b"abc", checksum=hashlib.sha256(b"abc").hexdigest(), expected_size=5, maximum_size=5)
-    registry.append("job", sequence=1, data=b"de", checksum=hashlib.sha256(b"de").hexdigest(), expected_size=5, maximum_size=5)
+    registry.append(
+        "job",
+        sequence=0,
+        data=b"abc",
+        checksum=hashlib.sha256(b"abc").hexdigest(),
+        expected_size=5,
+        maximum_size=5,
+    )
+    registry.append(
+        "job",
+        sequence=1,
+        data=b"de",
+        checksum=hashlib.sha256(b"de").hexdigest(),
+        expected_size=5,
+        maximum_size=5,
+    )
     path = registry.finish("job", sequence=2, checksum=hashlib.sha256(b"abcde").hexdigest())
     assert path.read_bytes() == b"abcde"
     registry.cleanup("job")
@@ -285,11 +385,25 @@ def test_extract_upload_mismatch_or_expiry_leaves_no_temp_file(tmp_path):
     from app.services.remote_files import ExtractUploadRegistry, RemoteFileChanged
 
     registry = ExtractUploadRegistry(tmp_path, chunk_bytes=4)
-    registry.append("job", sequence=0, data=b"abc", checksum=hashlib.sha256(b"abc").hexdigest(), expected_size=3, maximum_size=3)
+    registry.append(
+        "job",
+        sequence=0,
+        data=b"abc",
+        checksum=hashlib.sha256(b"abc").hexdigest(),
+        expected_size=3,
+        maximum_size=3,
+    )
     with pytest.raises(RemoteFileChanged):
         registry.finish("job", sequence=1, checksum="0" * 64)
     assert list(tmp_path.iterdir()) == []
-    registry.append("expired", sequence=0, data=b"x", checksum=hashlib.sha256(b"x").hexdigest(), expected_size=1, maximum_size=1)
+    registry.append(
+        "expired",
+        sequence=0,
+        data=b"x",
+        checksum=hashlib.sha256(b"x").hexdigest(),
+        expected_size=1,
+        maximum_size=1,
+    )
     registry.expire(0)
     assert list(tmp_path.iterdir()) == []
 
@@ -299,8 +413,22 @@ async def test_extract_upload_sweeper_expires_only_stale_sessions(tmp_path):
     from app.services.remote_files import ExtractUploadRegistry, sweep_extract_uploads
 
     registry = ExtractUploadRegistry(tmp_path)
-    registry.append("stale", sequence=0, data=b"x", checksum=hashlib.sha256(b"x").hexdigest(), expected_size=1, maximum_size=1)
-    registry.append("active", sequence=0, data=b"x", checksum=hashlib.sha256(b"x").hexdigest(), expected_size=1, maximum_size=1)
+    registry.append(
+        "stale",
+        sequence=0,
+        data=b"x",
+        checksum=hashlib.sha256(b"x").hexdigest(),
+        expected_size=1,
+        maximum_size=1,
+    )
+    registry.append(
+        "active",
+        sequence=0,
+        data=b"x",
+        checksum=hashlib.sha256(b"x").hexdigest(),
+        expected_size=1,
+        maximum_size=1,
+    )
     registry._sessions["stale"].touched_at -= 61
     calls = []
 
@@ -323,7 +451,14 @@ async def test_shutdown_stops_sweeper_and_cleans_all_extract_uploads(tmp_path):
     from app.services.remote_files import ExtractUploadRegistry
 
     registry = ExtractUploadRegistry(tmp_path)
-    registry.append("job", sequence=0, data=b"x", checksum=hashlib.sha256(b"x").hexdigest(), expected_size=1, maximum_size=1)
+    registry.append(
+        "job",
+        sequence=0,
+        data=b"x",
+        checksum=hashlib.sha256(b"x").hexdigest(),
+        expected_size=1,
+        maximum_size=1,
+    )
     started = asyncio.Event()
 
     async def wait_forever():
@@ -343,7 +478,14 @@ async def test_shutdown_cleans_uploads_when_sweeper_has_failed(tmp_path):
     from app.services.remote_files import ExtractUploadRegistry
 
     registry = ExtractUploadRegistry(tmp_path)
-    registry.append("job", sequence=0, data=b"x", checksum=hashlib.sha256(b"x").hexdigest(), expected_size=1, maximum_size=1)
+    registry.append(
+        "job",
+        sequence=0,
+        data=b"x",
+        checksum=hashlib.sha256(b"x").hexdigest(),
+        expected_size=1,
+        maximum_size=1,
+    )
 
     async def fail():
         raise RuntimeError("sweeper failed")
@@ -363,9 +505,18 @@ async def test_lifespan_cleans_uploads_and_stops_scheduler_after_body_error(tmp_
     from app.services.remote_files import ExtractUploadRegistry
 
     registry = ExtractUploadRegistry(tmp_path)
-    registry.append("job", sequence=0, data=b"x", checksum=hashlib.sha256(b"x").hexdigest(), expected_size=1, maximum_size=1)
+    registry.append(
+        "job",
+        sequence=0,
+        data=b"x",
+        checksum=hashlib.sha256(b"x").hexdigest(),
+        expected_size=1,
+        maximum_size=1,
+    )
     scheduler = type(
-        "Scheduler", (), {"start": lambda self: None, "shutdown": lambda self: setattr(self, "stopped", True)}
+        "Scheduler",
+        (),
+        {"start": lambda self: None, "shutdown": lambda self: setattr(self, "stopped", True)},
     )()
     scheduler.stopped = False
 
@@ -386,7 +537,15 @@ def test_extract_upload_preserves_only_validated_suffix(tmp_path):
     from app.services.remote_files import ExtractUploadRegistry
 
     registry = ExtractUploadRegistry(tmp_path)
-    registry.append("job", sequence=0, data=b"x", checksum=hashlib.sha256(b"x").hexdigest(), expected_size=1, maximum_size=1, suffix=".txt")
+    registry.append(
+        "job",
+        sequence=0,
+        data=b"x",
+        checksum=hashlib.sha256(b"x").hexdigest(),
+        expected_size=1,
+        maximum_size=1,
+        suffix=".txt",
+    )
     path = registry.finish("job", sequence=1, checksum=hashlib.sha256(b"x").hexdigest())
     assert path.suffix == ".txt"
     registry.cleanup("job")
