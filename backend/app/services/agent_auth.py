@@ -113,6 +113,7 @@ def mark_stale_agent_offline(db: Session, agent: Agent, *, now: datetime | None 
             or_(Agent.last_seen_at.is_(None), Agent.last_seen_at < cutoff),
         )
         .values(status="offline")
+        .execution_options(synchronize_session=False)
     )
     return result.rowcount == 1
 

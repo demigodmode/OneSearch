@@ -442,3 +442,57 @@ def test_in_flight_heartbeat_cannot_overwrite_admin_disable(tmp_path):
     finally:
         heartbeat_db.close()
         admin_db.close()
+
+
+def test_stale_agent_transition_is_compare_and_set_against_heartbeat(tmp_path):
+    from app.services.agent_auth import (
+        AGENT_ONLINE_MAX_AGE,
+        mark_stale_agent_offline,
+        record_agent_activity,
+    )
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'stale-race.db'}")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    seed = sessions()
+    seed.add(
+        Agent(
+            id="race",
+            name="Race",
+            platform="x",
+            version="1",
+            protocol_version=2,
+            token_hash="a" * 64,
+            allowed_roots="[]",
+            status="online",
+            approved_at=now,
+            last_seen_at=now - AGENT_ONLINE_MAX_AGE - timedelta(seconds=1),
+        )
+    )
+    seed.commit()
+    seed.close()
+    stale, heartbeat = sessions(), sessions()
+    try:
+        loaded = stale.get(Agent, "race")
+        record_agent_activity(heartbeat, "race")
+        heartbeat.commit()
+        assert not mark_stale_agent_offline(stale, loaded, now=now)
+        stale.commit()
+        stale.refresh(loaded)
+        assert loaded.status == "online" and loaded.last_seen_at > now - AGENT_ONLINE_MAX_AGE
+        loaded.last_seen_at = now - AGENT_ONLINE_MAX_AGE
+        stale.commit()
+        assert not mark_stale_agent_offline(stale, loaded, now=now)
+        stale.commit()
+        stale.refresh(loaded)
+        assert loaded.status == "online"
+        loaded.last_seen_at = now - AGENT_ONLINE_MAX_AGE - timedelta(seconds=1)
+        stale.commit()
+        assert mark_stale_agent_offline(stale, loaded, now=now)
+        stale.commit()
+        stale.refresh(loaded)
+        assert loaded.status == "offline"
+    finally:
+        stale.close()
+        heartbeat.close()
