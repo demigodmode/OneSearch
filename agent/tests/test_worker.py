@@ -1746,6 +1746,65 @@ async def test_stream_file_uploads_bounded_chunks_and_final_checksum(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    ("terminal_status", "expected_failed"),
+    [(None, True), ("completed", False), ("claimed", True)],
+)
+async def test_ambiguous_file_upload_is_never_retried(tmp_path, terminal_status, expected_failed):
+    from types import SimpleNamespace
+
+    from onesearch_agent.client import AgentAmbiguousResultError
+    from onesearch_shared import ProcessingMode
+
+    path = tmp_path / "a.txt"
+    path.write_bytes(b"x")
+    lease = SimpleNamespace(
+        id="transfer-ambiguous",
+        kind=SimpleNamespace(value="stream_file"),
+        processing_mode=ProcessingMode.ON_SERVER,
+        source_id="s",
+        lease_token="token",
+        payload={
+            "root_id": "r",
+            "path": "a.txt",
+            "size_bytes": 1,
+            "modified_at": path.stat().st_mtime_ns,
+            "maximum_size": 1,
+        },
+    )
+
+    class Client:
+        def __init__(self):
+            self.uploads, self.completions = [], []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def upload_file_chunk(self, *args, **kwargs):
+            self.uploads.append(kwargs)
+            if terminal_status is None and not kwargs.get("complete"):
+                raise AgentAmbiguousResultError("lost response")
+            if terminal_status is not None and kwargs.get("complete"):
+                raise AgentAmbiguousResultError("lost response")
+
+        async def job_status(self, _job_id):
+            return SimpleNamespace(status=terminal_status)
+
+        async def complete(self, _job_id, completion, _token):
+            self.completions.append(completion)
+
+    client = Client()
+    await worker_module.run_stream_file_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+    assert len(client.uploads) == (1 if terminal_status is None else 2)
+    assert [item["sequence"] for item in client.uploads] == list(range(len(client.uploads)))
+    assert [item.status.value for item in client.completions] == (
+        ["failed"] if expected_failed else []
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("path", "size", "modified", "reason", "detail"),
     [
         ("missing.txt", 1, 1, "not_found", "remote_file_missing"),
