@@ -295,6 +295,8 @@ def test_agent_job_api_claim_progress_batch_completion_and_cancellation_ack(
     assert claimed.status_code == 200
     lease = claimed.json()
     lease_headers = {**headers, "X-OneSearch-Lease-Token": lease["lease_token"]}
+    agent.last_seen_at = None
+    db_session.commit()
     assert (
         client.post(
             f"/api/agent/v1/jobs/{job.id}/heartbeat",
@@ -303,6 +305,8 @@ def test_agent_job_api_claim_progress_batch_completion_and_cancellation_ack(
         ).status_code
         == 200
     )
+    db_session.refresh(agent)
+    assert agent.last_seen_at is not None and agent.status == "online"
     batch = {"job_id": job.id, "batch_id": "batch-1", "documents": []}
     assert (
         client.post(

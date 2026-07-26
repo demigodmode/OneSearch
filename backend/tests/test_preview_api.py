@@ -6,7 +6,7 @@
 import asyncio
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -381,6 +381,30 @@ def test_remote_download_link_rejects_unavailable_agent_without_enqueuing(
 
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "agent_offline"
+
+
+def test_remote_agent_freshness_boundary_and_stale_download_gate(
+    client, db_session, remote_download
+):
+    from app.services.agent_auth import agent_is_fresh
+
+    agent, source, _indexed, document = remote_download
+    now = datetime(2026, 7, 25, 12, 0, 0)
+    agent.last_seen_at = now - timedelta(seconds=120)
+    assert agent_is_fresh(agent, now=now)
+    agent.last_seen_at = now - timedelta(seconds=121)
+    assert not agent_is_fresh(agent, now=now)
+    agent.last_seen_at = None
+    assert not agent_is_fresh(agent, now=now)
+    agent.last_seen_at = now - timedelta(seconds=121)
+    db_session.commit()
+    response = client.post(f"/api/documents/{document['id']}/download-link")
+    assert response.status_code == 409 and response.json()["detail"]["code"] == "agent_offline"
+    db_session.refresh(agent)
+    assert agent.status == "offline"
+    assert (
+        db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").count() == 0
+    )
     assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
 
 
