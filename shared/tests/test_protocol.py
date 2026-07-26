@@ -324,6 +324,15 @@ def test_complete_manifest_carries_bounded_file_failures_and_rejects_duplicate_p
         )
 
 
+def test_manifest_changed_paths_must_be_unique_file_members():
+    file = ScanFile(path="a.txt", path_hash=remote_path_hash("a.txt"), size_bytes=1, modified_at=1)
+    assert ScanManifest(job_id="job-1", source_id="remote-1", files=[file], changed_paths=[]).changed_paths == []
+    with pytest.raises(ValidationError):
+        ScanManifest(job_id="job-1", source_id="remote-1", files=[file], changed_paths=["a.txt", "a.txt"])
+    with pytest.raises(ValidationError):
+        ScanManifest(job_id="job-1", source_id="remote-1", files=[file], changed_paths=["missing.txt"])
+
+
 def test_document_batch_and_ack_round_trip():
     batch = DocumentBatch(
         job_id="job-2",

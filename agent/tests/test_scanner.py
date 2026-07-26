@@ -27,6 +27,7 @@ def test_scanner_emits_canonical_paths_and_skips_unchanged(tmp_path: Path):
     assert [item.path for item in manifest.files] == ["keep.txt"]
     assert manifest.files[0].content_hash is None
     assert scanner.changed_paths == []
+    assert manifest.changed_paths == []
     assert manifest.complete is True
 
 
@@ -37,6 +38,7 @@ def test_scanner_marks_file_bound_incomplete(tmp_path: Path):
         "root", [AllowedRoot(root_id="root", path=str(tmp_path))], max_files=1
     ).scan(job_id="job", source_id="source")
     assert manifest.complete is False
+    assert manifest.changed_paths == ["a.txt"]
     assert manifest.failures[0].error == "scan file limit exceeded"
 
 
@@ -147,8 +149,9 @@ def test_scanner_retries_prior_failed_file_with_matching_metadata(tmp_path: Path
             }
         },
     )
-    scanner.scan(job_id="j", source_id="s")
+    manifest = scanner.scan(job_id="j", source_id="s")
     assert scanner.changed_paths == ["retry.txt"]
+    assert manifest.changed_paths == ["retry.txt"]
 
 
 def test_scanner_marks_unknown_root_incomplete(tmp_path: Path):

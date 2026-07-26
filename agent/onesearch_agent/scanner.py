@@ -99,6 +99,7 @@ class RemoteScanner:
                         job_id=job_id,
                         source_id=source_id,
                         files=files[:-1],
+                        changed_paths=list(self.changed_paths),
                         failures=failures,
                         complete=False,
                     )
@@ -115,9 +116,15 @@ class RemoteScanner:
                 job_id=job_id,
                 source_id=source_id,
                 files=[],
+                changed_paths=list(self.changed_paths),
                 failures=[ScanFailure(path="scan", error=str(error)[:500])],
                 complete=False,
             )
         return ScanManifest(
-            job_id=job_id, source_id=source_id, files=files, failures=failures, complete=True
+            job_id=job_id,
+            source_id=source_id,
+            files=files,
+            changed_paths=list(self.changed_paths),
+            failures=failures,
+            complete=True,
         )

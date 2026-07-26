@@ -197,6 +197,7 @@ class ScanManifest(WireModel):
     job_id: str = Field(min_length=1)
     source_id: str = Field(min_length=1)
     files: list[ScanFile] = Field(default_factory=list, max_length=REMOTE_MAX_SCAN_FILES)
+    changed_paths: list[str] | None = Field(default=None, max_length=REMOTE_MAX_SCAN_FILES)
     failures: list[ScanFailure] = Field(default_factory=list, max_length=REMOTE_MAX_SCAN_FILES)
     deleted_paths: list[str] = Field(default_factory=list, max_length=REMOTE_MAX_SCAN_FILES)
     checkpoint: ScanCheckpoint | None = None
@@ -207,6 +208,11 @@ class ScanManifest(WireModel):
         paths = [item.path for item in self.files]
         if len(paths) != len(set(paths)):
             raise ValueError("manifest file paths must be unique")
+        if self.changed_paths is not None:
+            if len(self.changed_paths) != len(set(self.changed_paths)):
+                raise ValueError("manifest changed paths must be unique")
+            if not set(self.changed_paths).issubset(paths):
+                raise ValueError("manifest changed paths must be file members")
         if len({item.path for item in self.failures}) != len(self.failures):
             raise ValueError("manifest failure paths must be unique")
         if len(set(self.deleted_paths)) != len(self.deleted_paths):
