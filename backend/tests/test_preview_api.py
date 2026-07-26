@@ -576,6 +576,57 @@ async def test_remote_stream_body_timeout_cancels_job_and_releases_queue(
     assert list(tmp_path.iterdir()) == []
 
 
+@pytest.mark.asyncio
+async def test_leased_stream_endpoint_feeds_browser_body_and_completes_durably(
+    client, db_session, remote_download
+):
+    from app.api import preview
+    from app.services.agent_auth import create_agent_token, hash_token
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_files import remote_streams
+
+    agent, source, _indexed, document = remote_download
+    payload = b"browser-stream"
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    job = AgentJobService(db_session).enqueue_stream_file(
+        source, path=document["path"], size_bytes=len(payload), modified_at=1
+    )
+    db_session.commit()
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    queue = remote_streams.open(job.id, expected_size=len(payload))
+
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    body = preview._stream_remote_body(ConnectedRequest(), db_session, job, queue)
+    headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
+    try:
+        chunk = await asyncio.to_thread(
+            client.put,
+            f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0&checksum={hashlib.sha256(payload).hexdigest()}",
+            content=payload,
+            headers=headers,
+        )
+        terminal = await asyncio.to_thread(
+            client.put,
+            f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=1&complete=true&stream_checksum={hashlib.sha256(payload).hexdigest()}",
+            headers=headers,
+        )
+        assert chunk.status_code == terminal.status_code == 200
+        assert await anext(body) == payload
+        with pytest.raises(StopAsyncIteration):
+            await anext(body)
+        db_session.refresh(job)
+        assert job.status == "completed" and job.active_key is None and job.lease_token_hash is None
+        assert remote_streams.get(job.id) is None
+    finally:
+        await body.aclose()
+        await remote_streams.close(job.id)
+
+
 def test_remote_preview_streams_standard_image_without_attachment(
     streaming_client, db_session, remote_download, remote_queue_feeder
 ):
