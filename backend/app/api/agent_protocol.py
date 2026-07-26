@@ -43,6 +43,7 @@ from ..services.agent_auth import (
 from ..services.agent_jobs import AgentJobService, JobConflict, JobLeaseError, JobNotFound
 from ..services.remote_files import (
     RemoteFileChanged,
+    RemoteFileError,
     RemoteFileMissing,
     RemoteStreamTimeout,
     extract_in_process,
@@ -76,6 +77,16 @@ def _job_error(error: Exception) -> HTTPException:
     if isinstance(error, JobLeaseError):
         return HTTPException(status_code=401, detail="Invalid or expired job lease")
     return HTTPException(status_code=409, detail="Job state conflict")
+
+
+def _classify_stream_failure(request: JobCompletion) -> tuple[str, RemoteFileError]:
+    """Accept only the two protocol error pairs safe for persistence and streaming."""
+    reason = request.reason.value if request.reason else None
+    if reason == "not_found" and request.detail == "remote_file_missing":
+        return "remote_file_missing", RemoteFileMissing("remote file missing")
+    if reason == "invalid_request" and request.detail == "remote_file_changed":
+        return "remote_file_changed", RemoteFileChanged("remote file changed")
+    return "remote_stream_failed", RemoteStreamTimeout("remote stream failed")
 
 
 def _validate_enrollment(request: AgentEnrollmentRequest) -> None:
@@ -313,6 +324,11 @@ async def complete_job(
     try:
         jobs = AgentJobService(db)
         job = jobs.validate_lease(agent.id, job_id, lease_token)
+        stream_failure = (
+            _classify_stream_failure(request)
+            if job.kind == "stream_file" and request.status.value == "failed"
+            else None
+        )
         if (
             request.status.value == "succeeded"
             and job.kind == "scan"
@@ -332,7 +348,7 @@ async def complete_job(
                 job_id,
                 lease_token,
                 request.status.value,
-                error=request.detail,
+                error=stream_failure[0] if stream_failure else request.detail,
                 checkpoint=request.checkpoint.model_dump(mode="json")
                 if request.checkpoint
                 else None,
@@ -344,18 +360,7 @@ async def complete_job(
         if job.kind == "extract_file" and request.status.value in {"failed", "cancelled"}:
             extract_uploads.cleanup(job_id)
         if job.kind == "stream_file" and request.status.value == "failed":
-            terminal_error = (
-                RemoteFileMissing("remote file missing")
-                if request.reason
-                and request.reason.value == "not_found"
-                and request.detail == "remote_file_missing"
-                else RemoteFileChanged("remote file changed")
-                if request.reason
-                and request.reason.value == "invalid_request"
-                and request.detail == "remote_file_changed"
-                else RemoteStreamTimeout("remote stream failed")
-            )
-            await remote_streams.close(job_id, terminal_error)
+            await remote_streams.close(job_id, stream_failure[1])
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()
         raise _job_error(error) from error

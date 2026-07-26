@@ -1001,6 +1001,8 @@ def test_stream_failed_completion_hides_untrusted_terminal_detail(
         assert isinstance(result, remote_files.RemoteStreamTimeout)
         assert detail not in response.text and detail not in str(result)
         assert remote_files.remote_streams.get(job.id) is None
+        db_session.refresh(job)
+        assert job.error == "remote_stream_failed"
     finally:
         asyncio.run(remote_files.remote_streams.close(job.id))
 
