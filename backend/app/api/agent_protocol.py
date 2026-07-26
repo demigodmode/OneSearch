@@ -36,6 +36,7 @@ from ..services.agent_auth import (
     create_agent_token,
     get_authenticated_agent,
     hash_token,
+    record_agent_activity,
     record_agent_heartbeat,
     require_approved_agent,
     require_remote_agents_enabled,
@@ -62,6 +63,8 @@ CLAIM_TIMEOUT_SECONDS = 25
 CLAIM_POLL_SECONDS = 1
 claim_clock = time.monotonic
 claim_sleep = asyncio.sleep
+
+
 def get_remote_ingest_service(db: Session) -> RemoteIngestService:
     return RemoteIngestService(db, meili_service)
 
@@ -236,6 +239,7 @@ async def job_heartbeat(
             completed_items=request.completed_items,
             total_items=request.total_items,
         )
+        record_agent_activity(db, agent.id)
         db.commit()
     except (JobNotFound, JobLeaseError, JobConflict) as error:
         db.rollback()
@@ -298,9 +302,14 @@ async def submit_manifest(
                 sort_keys=True,
                 separators=(",", ":"),
             )
-            selected_paths = set(request.changed_paths) if request.changed_paths is not None else None
+            selected_paths = (
+                set(request.changed_paths) if request.changed_paths is not None else None
+            )
             jobs.enqueue_extract_files(
-                job, files if selected_paths is None else [item for item in files if item["path"] in selected_paths]
+                job,
+                files
+                if selected_paths is None
+                else [item for item in files if item["path"] in selected_paths],
             )
         else:
             get_remote_ingest_service(db).accept_manifest(agent.id, job_id, lease_token, request)

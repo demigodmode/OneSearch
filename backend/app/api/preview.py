@@ -212,8 +212,13 @@ async def _validated_indexed_file(document_id: str, db: Session) -> tuple[dict, 
 
 
 def _require_available_remote_source(source: Source, db: Session) -> Agent:
+    from ..services.agent_auth import agent_is_fresh, mark_stale_agent_offline
+
     enabled = AppSettingsService(db).get_settings().remote_agents_enabled
     agent = db.get(Agent, source.agent_id) if source.agent_id else None
+    if agent is not None and agent.status == "online" and not agent_is_fresh(agent):
+        mark_stale_agent_offline(db, agent)
+        db.commit()
     if not enabled or agent is None or agent.status != "online" or agent.approved_at is None:
         _preview_error(status.HTTP_409_CONFLICT, "agent_offline", "Remote agent is unavailable")
     return agent

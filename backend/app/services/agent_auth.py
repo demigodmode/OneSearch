@@ -6,7 +6,7 @@
 import hashlib
 import hmac
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -89,6 +89,34 @@ def record_agent_heartbeat(
     if result.rowcount != 1:
         return None
     return db.query(Agent.status).filter(Agent.id == agent_id).scalar()
+
+
+AGENT_ONLINE_MAX_AGE = timedelta(seconds=120)
+
+
+def agent_is_fresh(agent: Agent, *, now: datetime | None = None) -> bool:
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    return agent.last_seen_at is not None and agent.last_seen_at >= now - AGENT_ONLINE_MAX_AGE
+
+
+def mark_stale_agent_offline(db: Session, agent: Agent, *, now: datetime | None = None) -> bool:
+    """Persist an offline transition only for a stale agent still marked online."""
+    if agent.status != "online" or agent_is_fresh(agent, now=now):
+        return False
+    agent.status = "offline"
+    db.flush()
+    return True
+
+
+def record_agent_activity(db: Session, agent_id: str) -> None:
+    db.execute(
+        update(Agent)
+        .where(Agent.id == agent_id, Agent.status.in_(("offline", "online")))
+        .values(
+            last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            status=case((Agent.status == "offline", "online"), else_=Agent.status),
+        )
+    )
 
 
 def require_remote_agents_enabled(db: Database) -> None:

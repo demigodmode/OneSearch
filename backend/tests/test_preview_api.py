@@ -137,6 +137,7 @@ def remote_download(db_session, monkeypatch):
         allowed_roots=json.dumps([{"root_id": "photos", "path": "remote/photos"}]),
         status="online",
         approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     source = Source(
         id="remote-download-source",
