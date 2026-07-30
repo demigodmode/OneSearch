@@ -9,10 +9,11 @@ Usage:
     python scripts/release.py 0.9.1     # explicit version
 
 What this does:
-  1. Bumps version in all 5 places:
+  1. Bumps version in all 6 places:
        pyproject.toml (root workspace)
        backend/pyproject.toml
        cli/pyproject.toml
+       agent/pyproject.toml
        cli/onesearch/__init__.py
        frontend/package.json + package-lock.json (via npm)
   2. Promotes [Unreleased] section in CHANGELOG.md to versioned entry
@@ -42,6 +43,7 @@ ROOT = Path(__file__).parent.parent
 ROOT_PYPROJECT   = ROOT / "pyproject.toml"
 BACKEND_PYPROJECT = ROOT / "backend" / "pyproject.toml"
 CLI_PYPROJECT    = ROOT / "cli" / "pyproject.toml"
+AGENT_PYPROJECT  = ROOT / "agent" / "pyproject.toml"
 CLI_INIT         = ROOT / "cli" / "onesearch" / "__init__.py"
 FRONTEND_PKG     = ROOT / "frontend" / "package.json"
 CHANGELOG        = ROOT / "CHANGELOG.md"
@@ -297,10 +299,11 @@ def main():
             sys.exit(0)
 
     print(f"\nThis will:")
-    print(f"  1. Bump version in 5 files to {new_version}")
+    print(f"  1. Bump version in 6 files to {new_version}")
     print(f"       pyproject.toml (root workspace)")
     print(f"       backend/pyproject.toml")
     print(f"       cli/pyproject.toml")
+    print(f"       agent/pyproject.toml")
     print(f"       cli/onesearch/__init__.py")
     print(f"       frontend/package.json + package-lock.json")
     print(f"  2. Promote CHANGELOG.md [Unreleased] -> {new_version}")
@@ -326,6 +329,8 @@ def main():
     print(f"  ok backend/pyproject.toml")
     bump_toml_version(CLI_PYPROJECT, new_version)
     print(f"  ok cli/pyproject.toml")
+    bump_toml_version(AGENT_PYPROJECT, new_version)
+    print(f"  ok agent/pyproject.toml")
     bump_cli_init(new_version)
     print(f"  ok cli/onesearch/__init__.py")
     bump_frontend(new_version)
@@ -345,6 +350,7 @@ def main():
         "pyproject.toml "
         "backend/pyproject.toml "
         "cli/pyproject.toml "
+        "agent/pyproject.toml "
         "cli/onesearch/__init__.py "
         "frontend/package.json "
         "frontend/package-lock.json "

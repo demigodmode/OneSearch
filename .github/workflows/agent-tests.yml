@@ -1,0 +1,29 @@
+name: Agent tests
+
+on:
+  pull_request:
+    paths:
+      - "agent/**"
+      - "shared/**"
+      - ".github/workflows/agent-tests.yml"
+  push:
+    branches: [main, feat/remote-indexing-agents]
+    paths:
+      - "agent/**"
+      - "shared/**"
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --all-packages --group dev
+      - run: uv run pytest agent/tests -v

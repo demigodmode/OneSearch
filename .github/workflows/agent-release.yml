@@ -1,0 +1,97 @@
+name: Release OneSearch Agent
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-amd64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: windows-latest
+            target: windows-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      AGENT_UPDATE_PUBLIC_KEY: ${{ secrets.AGENT_UPDATE_PUBLIC_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v7
+      - name: Embed release public key
+        shell: bash
+        run: |
+          test -n "$AGENT_UPDATE_PUBLIC_KEY" || { echo "AGENT_UPDATE_PUBLIC_KEY is required" >&2; exit 1; }
+          printf '%s\n' "$AGENT_UPDATE_PUBLIC_KEY" > agent/onesearch_agent/release_public_key.txt
+      - run: uv run --with pyinstaller pyinstaller agent/packaging/onesearch-agent.spec
+      - uses: actions/upload-artifact@v7
+        with:
+          name: onesearch-agent-${{ matrix.target }}
+          path: dist/onesearch-agent*
+
+  publish:
+    needs: native
+    runs-on: ubuntu-latest
+    env:
+      AGENT_UPDATE_PRIVATE_KEY: ${{ secrets.AGENT_UPDATE_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+      - name: Sign checksums and manifests
+        shell: bash
+        run: |
+          test -n "$AGENT_UPDATE_PRIVATE_KEY" || { echo "AGENT_UPDATE_PRIVATE_KEY is required" >&2; exit 1; }
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
+          printf '%s' "$AGENT_UPDATE_PRIVATE_KEY" | base64 -d > /tmp/agent-signing-key.pem
+          openssl pkeyutl -sign -inkey /tmp/agent-signing-key.pem -rawin -in dist/SHA256SUMS -out dist/SHA256SUMS.sig
+      - uses: softprops/action-gh-release@v2
+        if: github.event_name == 'release'
+        with:
+          files: dist/**
+
+  image:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ${{ github.repository_owner }}/onesearch-agent
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/login-action@v4
+        if: secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: agent/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name == 'release' }}
+          tags: ghcr.io/${{ env.IMAGE_NAME }}:latest
+      - uses: docker/build-push-action@v7
+        if: github.event_name == 'release' && secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
+        with:
+          context: .
+          file: agent/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/onesearch-agent:latest

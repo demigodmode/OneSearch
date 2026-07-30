@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Tests for runtime Docker image dependencies."""
+
 from pathlib import Path
 
 
@@ -19,3 +20,16 @@ def test_entrypoint_supports_runtime_puid_pgid_mapping():
     assert "groupmod" in entrypoint
     assert "usermod" in entrypoint
     assert "su -s /bin/bash -p onesearch" in entrypoint
+
+
+def test_agent_image_is_non_root_without_network_ports_or_writable_roots():
+    dockerfile = Path("agent/Dockerfile").read_text(encoding="utf-8")
+    entrypoint = Path("agent/docker-entrypoint.sh").read_text(encoding="utf-8")
+
+    assert "python:3.13-slim" in dockerfile
+    assert 'ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]' in dockerfile
+    assert 'VOLUME ["/var/lib/onesearch-agent"]' in dockerfile
+    assert "useradd" in dockerfile
+    assert "EXPOSE" not in dockerfile
+    assert "PUID" in entrypoint and "PGID" in entrypoint
+    assert "exec su -s /bin/sh -c" in entrypoint

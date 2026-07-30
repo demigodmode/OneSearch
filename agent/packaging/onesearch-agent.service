@@ -1,0 +1,23 @@
+[Unit]
+Description=OneSearch remote indexing agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=onesearch-agent
+Group=onesearch-agent
+ExecStart=/usr/local/bin/onesearch-agent --config /etc/onesearch-agent/config.toml run
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60
+StartLimitBurst=5
+StateDirectory=onesearch-agent
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/onesearch-agent
+
+[Install]
+WantedBy=default.target
