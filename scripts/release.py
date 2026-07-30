@@ -44,6 +44,7 @@ ROOT_PYPROJECT   = ROOT / "pyproject.toml"
 BACKEND_PYPROJECT = ROOT / "backend" / "pyproject.toml"
 CLI_PYPROJECT    = ROOT / "cli" / "pyproject.toml"
 AGENT_PYPROJECT  = ROOT / "agent" / "pyproject.toml"
+AGENT_INIT        = ROOT / "agent" / "onesearch_agent" / "__init__.py"
 CLI_INIT         = ROOT / "cli" / "onesearch" / "__init__.py"
 FRONTEND_PKG     = ROOT / "frontend" / "package.json"
 CHANGELOG        = ROOT / "CHANGELOG.md"
@@ -121,6 +122,19 @@ def bump_cli_init(new_version: str):
     if count == 0:
         die(f"Could not find __version__ in {CLI_INIT}")
     CLI_INIT.write_text(new_content, encoding="utf-8")
+
+
+def bump_agent_init(new_version: str):
+    content = AGENT_INIT.read_text(encoding="utf-8")
+    new_content, count = re.subn(
+        r'^(__version__ = ")[^"]+("\')',
+        rf'\g<1>{new_version}\g<2>',
+        content,
+        flags=re.MULTILINE,
+    )
+    if count == 0:
+        die(f"Could not find __version__ in {AGENT_INIT}")
+    AGENT_INIT.write_text(new_content, encoding="utf-8")
 
 
 def bump_frontend(new_version: str):
@@ -331,6 +345,8 @@ def main():
     print(f"  ok cli/pyproject.toml")
     bump_toml_version(AGENT_PYPROJECT, new_version)
     print(f"  ok agent/pyproject.toml")
+    bump_agent_init(new_version)
+    print(f"  ok agent/onesearch_agent/__init__.py")
     bump_cli_init(new_version)
     print(f"  ok cli/onesearch/__init__.py")
     bump_frontend(new_version)
@@ -351,6 +367,7 @@ def main():
         "backend/pyproject.toml "
         "cli/pyproject.toml "
         "agent/pyproject.toml "
+        "agent/onesearch_agent/__init__.py "
         "cli/onesearch/__init__.py "
         "frontend/package.json "
         "frontend/package-lock.json "

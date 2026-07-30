@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import platform
 import sys
 from pathlib import Path
 
 import click
 
+from . import __version__
 from .client import AgentClient, AgentDisabled, AgentIncompatible, AgentRevoked
 from .config import config_path, load_config
 from .credentials import (
@@ -18,7 +21,13 @@ from .credentials import (
 )
 from .runtime import run_runtime
 from .service import ServiceError, install, uninstall
+from .update import UpdateError, UpdateManager
 from .worker import dispatch_job
+
+
+def _update_platform() -> str:
+    machine = platform.machine().lower().replace("amd64", "x64").replace("aarch64", "arm64")
+    return f"{sys.platform}-{machine}"
 
 
 def _config(ctx):
@@ -112,6 +121,13 @@ def run(ctx):
     """Run the heartbeat shell; no jobs are claimed before a worker is supplied."""
     try:
         value = _config(ctx)
+        if value.auto_update:
+            UpdateManager(
+                platform=_update_platform(),
+                current_version=__version__,
+                container=bool(os.environ.get("DOCKER_CONTAINER")),
+                notify=click.echo,
+            ).check(auto_update=True)
         token = credential_store(value).load()
 
         async def loop():
@@ -131,6 +147,28 @@ def run(ctx):
         raise click.ClickException(str(error)) from error
     except Exception as error:
         raise click.ClickException("agent configuration is unavailable") from error
+
+
+@main.group()
+def update():
+    """Check signed native agent releases."""
+
+
+@update.command("check")
+@click.pass_context
+def update_check(ctx):
+    """Manually check the release host; this does not install an update."""
+    try:
+        result = UpdateManager(
+            platform=_update_platform(),
+            current_version=__version__,
+            notify=click.echo,
+        ).check(auto_update=True)
+    except UpdateError as error:
+        raise click.ClickException(str(error)) from error
+    click.echo(
+        f"Signed update {result.version} is available; run the native updater to install it."
+    )
 
 
 @main.group()

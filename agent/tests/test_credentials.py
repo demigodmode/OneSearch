@@ -65,6 +65,21 @@ def test_docker_forces_file_store(tmp_path: Path):
     assert isinstance(credential_store(config, docker=True), FileCredentialStore)
 
 
+def test_docker_environment_forces_file_store(tmp_path: Path, monkeypatch):
+    config = type(
+        "Config",
+        (),
+        {
+            "credential_store": "keyring",
+            "server_url": "https://host",
+            "agent_name": "a",
+            "state_dir": tmp_path,
+        },
+    )()
+    monkeypatch.setenv("DOCKER_CONTAINER", "1")
+    assert isinstance(credential_store(config), FileCredentialStore)
+
+
 def test_keyring_name_is_server_scoped():
     assert (
         KeyringCredentialStore("https://one.test", "agent").username

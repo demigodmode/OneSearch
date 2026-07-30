@@ -21,6 +21,7 @@ RUN chmod 755 /usr/local/bin/docker-entrypoint.sh \
 
 ENV DOCKER_CONTAINER=1 \
     ONESEARCH_AGENT_CONFIG=/var/lib/onesearch-agent/config.toml \
+    ONESEARCH_AGENT_DOCKER=1 \
     PUID=1000 \
     PGID=1000
 VOLUME ["/var/lib/onesearch-agent"]

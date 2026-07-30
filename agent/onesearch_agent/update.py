@@ -41,6 +41,7 @@ class UpdateManager:
         fetch: Callable[[str], bytes | dict] | None = None,
         notify: Callable[[str], None] | None = None,
         container: bool | None = None,
+        current_version: str = "0.0.0",
     ):
         self.public_key = public_key or _embedded_public_key()
         self.platform = platform
@@ -50,6 +51,7 @@ class UpdateManager:
         self.container = (
             bool(os.environ.get("DOCKER_CONTAINER")) if container is None else container
         )
+        self.current_version = current_version
 
     def check(self, *, auto_update: bool) -> UpdateResult:
         if not auto_update:
@@ -61,6 +63,8 @@ class UpdateManager:
         manifest, signature = _signed_manifest(payload)
         _verify_signature(self.public_key, manifest, signature)
         _validate_manifest(manifest, self.platform)
+        if not _is_newer(manifest["version"], self.current_version):
+            raise UpdateError("release version is not newer than this agent")
         return UpdateResult("available", manifest["version"])
 
     def apply(
@@ -89,6 +93,14 @@ class UpdateManager:
         if hashlib.sha256(artifact).hexdigest() != manifest["sha256"]:
             raise UpdateError("artifact checksum does not match signed manifest")
         return _replace_and_check(current_binary, artifact, result.version, health_check)
+
+    def recover(self, current_binary: Path) -> bool:
+        """Restore the last known-good binary after an interrupted swap."""
+        backup = current_binary.with_name(current_binary.name + ".bak")
+        if not backup.exists():
+            return False
+        os.replace(backup, current_binary)
+        return True
 
 
 def _embedded_public_key() -> bytes:
@@ -160,6 +172,12 @@ def _validate_manifest(manifest: dict, platform: str) -> None:
         raise UpdateError("release manifest artifact size is invalid")
     if not isinstance(manifest["sha256"], str) or len(manifest["sha256"]) != 64:
         raise UpdateError("release manifest checksum is invalid")
+    if not all(character in "0123456789abcdef" for character in manifest["sha256"]):
+        raise UpdateError("release manifest checksum is invalid")
+    if not isinstance(manifest["version"], str) or not _version(manifest["version"]):
+        raise UpdateError("release manifest version is invalid")
+    if not isinstance(manifest["url"], str) or not manifest["url"].startswith("https://"):
+        raise UpdateError("release manifest artifact URL is invalid")
 
 
 def _replace_and_check(
@@ -187,3 +205,17 @@ def _replace_and_check(
 
 def _host(url: str) -> str:
     return url.split("/", 3)[2]
+
+
+def _version(value: str) -> tuple[int, ...] | None:
+    try:
+        parts = tuple(int(part) for part in value.split("."))
+    except ValueError:
+        return None
+    return parts if len(parts) == 3 and all(part >= 0 for part in parts) else None
+
+
+def _is_newer(candidate: str, current: str) -> bool:
+    candidate_parts = _version(candidate)
+    current_parts = _version(current)
+    return bool(candidate_parts and current_parts and candidate_parts > current_parts)

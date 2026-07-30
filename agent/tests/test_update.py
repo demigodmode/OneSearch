@@ -121,3 +121,20 @@ def test_docker_agent_notifies_but_never_replaces_container(signing_key, tmp_pat
     ).apply(auto_update=True, current_binary=current, health_check=lambda: True)
     assert result.action == "notify"
     assert current.read_bytes() == b"old-agent"
+
+
+def test_rejects_replayed_or_downgrade_release(signing_key):
+    payload = signed_manifest(signing_key, version="1.3.0")
+    with pytest.raises(UpdateError, match="newer"):
+        manager(signing_key, current_version="1.3.0", fetch=lambda url: payload).check(
+            auto_update=True
+        )
+
+
+def test_recovers_interrupted_replacement_from_durable_backup(signing_key, tmp_path: Path):
+    current = tmp_path / "onesearch-agent.exe"
+    backup = tmp_path / "onesearch-agent.exe.bak"
+    current.write_bytes(b"partial-agent")
+    backup.write_bytes(b"old-agent")
+    assert manager(signing_key).recover(current) is True
+    assert current.read_bytes() == b"old-agent"

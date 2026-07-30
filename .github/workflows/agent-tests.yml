@@ -5,7 +5,9 @@ on:
     paths:
       - "agent/**"
       - "shared/**"
+      - "backend/**"
       - ".github/workflows/agent-tests.yml"
+      - "agent/Dockerfile"
   push:
     branches: [main, feat/remote-indexing-agents]
     paths:
@@ -26,4 +28,4 @@ jobs:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --all-packages --group dev
-      - run: uv run pytest agent/tests -v
+      - run: uv run pytest agent/tests backend/tests/test_dockerfile.py -v

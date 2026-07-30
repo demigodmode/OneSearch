@@ -227,3 +227,11 @@ def test_linux_service_writes_unit_and_reloads(monkeypatch, tmp_path: Path):
         ["systemctl", "--user", "disable", "--now", "onesearch-agent.service"],
         ["systemctl", "--user", "daemon-reload"],
     ]
+
+
+def test_linux_service_installs_hardened_packaged_unit(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr("onesearch_agent.service.validate_service_backend", lambda path: None)
+    monkeypatch.setattr("onesearch_agent.service._run", lambda args: None)
+    install(tmp_path / "config.toml", "/opt/agent", system="posix", home=tmp_path)
+    unit = (tmp_path / ".config/systemd/user/onesearch-agent.service").read_text()
+    assert "NoNewPrivileges=yes" in unit and "RestartSec=5s" in unit

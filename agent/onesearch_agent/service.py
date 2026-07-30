@@ -37,6 +37,12 @@ def _run(args):
         raise ServiceError("service operation failed")
 
 
+def _packaged_unit(config: Path, executable: str) -> str:
+    template = (Path(__file__).parent.parent / "packaging" / "onesearch-agent.service").read_text()
+    command = f"{_systemd_arg(executable)} -m onesearch_agent.cli --config {_systemd_arg(str(config))} run"
+    return template.replace("@EXEC_START@", command)
+
+
 def install(config: Path, executable: str, *, system: str | None = None, home: Path | None = None):
     system = system or os.name
     if os.environ.get("DOCKER_CONTAINER"):
@@ -55,9 +61,7 @@ def install(config: Path, executable: str, *, system: str | None = None, home: P
         unit = (home or Path.home()) / ".config/systemd/user/onesearch-agent.service"
         unit.parent.mkdir(parents=True, exist_ok=True)
         temporary = unit.with_suffix(".tmp")
-        temporary.write_text(
-            f"[Unit]\nDescription=OneSearch Agent\n\n[Service]\nExecStart={_systemd_arg(executable)} -m onesearch_agent.cli --config {_systemd_arg(str(config))} run\nRestart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n"
-        )
+        temporary.write_text(_packaged_unit(config, executable))
         os.replace(temporary, unit)
         _run(["systemctl", "--user", "daemon-reload"])
         _run(["systemctl", "--user", "enable", "--now", "onesearch-agent.service"])

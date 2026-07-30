@@ -186,7 +186,12 @@ def credential_store(config, *, system: str | None = None, docker: bool = False)
         raise CredentialError("credential store policy is invalid")
     if system == "nt" and configured == "file" and not docker:
         raise CredentialError("file credentials are unavailable on native Windows")
-    if configured == "file" or docker or os.environ.get("ONESEARCH_AGENT_DOCKER") == "1":
+    if (
+        configured == "file"
+        or docker
+        or os.environ.get("ONESEARCH_AGENT_DOCKER") == "1"
+        or os.environ.get("DOCKER_CONTAINER") == "1"
+    ):
         if remembered == "keyring":
             raise CredentialError("credential backend changed from keyring")
         return FileCredentialStore(config.state_dir)

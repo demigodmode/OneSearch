@@ -20,7 +20,7 @@ jobs:
           - os: ubuntu-24.04-arm
             target: linux-arm64
           - os: windows-latest
-            target: windows-x64
+            target: win32-x64
     runs-on: ${{ matrix.os }}
     env:
       AGENT_UPDATE_PUBLIC_KEY: ${{ secrets.AGENT_UPDATE_PUBLIC_KEY }}
@@ -56,8 +56,14 @@ jobs:
         run: |
           test -n "$AGENT_UPDATE_PRIVATE_KEY" || { echo "AGENT_UPDATE_PRIVATE_KEY is required" >&2; exit 1; }
           find dist -type f -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
-          printf '%s' "$AGENT_UPDATE_PRIVATE_KEY" | base64 -d > /tmp/agent-signing-key.pem
-          openssl pkeyutl -sign -inkey /tmp/agent-signing-key.pem -rawin -in dist/SHA256SUMS -out dist/SHA256SUMS.sig
+          version="${GITHUB_REF_NAME#v}"
+          for platform in linux-amd64 linux-arm64 win32-x64; do
+            artifact="$(find "dist/onesearch-agent-$platform" -type f | head -n 1)"
+            uv run --package onesearch-agent python agent/packaging/make_manifest.py \
+              --artifact "$artifact" --platform "$platform" --version "$version" \
+              --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/v${version}/$(basename "$artifact")" \
+              --private-key "$AGENT_UPDATE_PRIVATE_KEY" --output "dist/agent-manifest-${platform}.json"
+          done
       - uses: softprops/action-gh-release@v2
         if: github.event_name == 'release'
         with:
@@ -86,7 +92,9 @@ jobs:
           file: agent/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'release' }}
-          tags: ghcr.io/${{ env.IMAGE_NAME }}:latest
+          tags: |
+            ghcr.io/${{ env.IMAGE_NAME }}:latest
+            ghcr.io/${{ env.IMAGE_NAME }}:${{ github.event.release.tag_name || 'manual' }}
       - uses: docker/build-push-action@v7
         if: github.event_name == 'release' && secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
         with:
@@ -94,4 +102,6 @@ jobs:
           file: agent/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/onesearch-agent:latest
+          tags: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/onesearch-agent:latest
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/onesearch-agent:${{ github.event.release.tag_name }}

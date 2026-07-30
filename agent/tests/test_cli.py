@@ -38,7 +38,31 @@ def test_config_check_is_safe(tmp_path: Path):
 def test_top_level_help_exposes_planned_commands():
     result = CliRunner().invoke(main, ["--help"])
     assert result.exit_code == 0
-    assert all(command in result.output for command in ["enroll", "run", "config", "service"])
+    assert all(
+        command in result.output for command in ["enroll", "run", "config", "service", "update"]
+    )
+
+
+def test_manual_update_check_discloses_and_checks_even_when_auto_update_is_off(
+    tmp_path: Path, monkeypatch
+):
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    _config(config, root)
+    seen = []
+
+    class Updates:
+        def __init__(self, **kwargs):
+            seen.append(kwargs)
+
+        def check(self, *, auto_update):
+            assert auto_update is True
+            return SimpleNamespace(action="available", version="1.4.0")
+
+    monkeypatch.setattr("onesearch_agent.cli.UpdateManager", Updates)
+    result = CliRunner().invoke(main, ["--config", str(config), "update", "check"])
+    assert result.exit_code == 0 and "1.4.0" in result.output and seen
 
 
 def test_enroll_uses_hidden_prompt_and_never_echoes_secret(tmp_path: Path, monkeypatch):

@@ -5,19 +5,16 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=onesearch-agent
-Group=onesearch-agent
-ExecStart=/usr/local/bin/onesearch-agent --config /etc/onesearch-agent/config.toml run
+ExecStart=@EXEC_START@
 Restart=on-failure
 RestartSec=5s
 StartLimitIntervalSec=60
 StartLimitBurst=5
-StateDirectory=onesearch-agent
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
-ReadWritePaths=/var/lib/onesearch-agent
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/onesearch-agent
 
 [Install]
 WantedBy=default.target
