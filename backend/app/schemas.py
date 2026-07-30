@@ -329,6 +329,12 @@ class AgentAdminResponse(BaseModel):
     updated_at: datetime
 
 
+class AgentAdminUpdate(BaseModel):
+    """Administrator-controlled agent defaults."""
+
+    default_processing_mode: Literal["on_agent", "on_server"]
+
+
 class AgentHeartbeatResponse(BaseModel):
     """Current server-side state after a heartbeat."""
 

@@ -223,6 +223,20 @@ def test_agent_list_and_detail_are_safe_and_admin_state_transitions_are_explicit
     assert client.post(f"/api/agents/{agent_id}/approve").status_code == 409
 
 
+def test_admin_can_change_an_agents_default_processing_mode(client, db_session):
+    _enable(client)
+    enrolled = _enroll(client, _create_code(client)["code"]).json()
+    agent_id = enrolled["agent_id"]
+
+    response = client.patch(
+        f"/api/agents/{agent_id}", json={"default_processing_mode": "on_server"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["default_processing_mode"] == "on_server"
+    assert db_session.get(Agent, agent_id).default_processing_mode == "on_server"
+
+
 def test_heartbeat_authenticates_pending_then_marks_approved_agent_online(
     client, db_session, auth_headers
 ):

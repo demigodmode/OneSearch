@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ..db.database import get_db
 from ..models import Agent, AgentEnrollment, User
-from ..schemas import AgentAdminResponse, AgentEnrollmentCodeResponse
+from ..schemas import AgentAdminResponse, AgentAdminUpdate, AgentEnrollmentCodeResponse
 from ..services.agent_auth import create_enrollment_code, hash_token, require_remote_agents_enabled
 from .auth import get_current_user
 
@@ -98,6 +98,22 @@ async def get_agent(
 ):
     del current_user
     return _response(_get_agent(agent_id, db))
+
+
+@router.patch("/{agent_id}", response_model=AgentAdminResponse)
+async def update_agent(
+    agent_id: str,
+    update: AgentAdminUpdate,
+    db: Database,
+    current_user: CurrentUser,
+):
+    """Update the defaults inherited by future remote-source jobs."""
+    del current_user
+    agent = _get_agent(agent_id, db)
+    agent.default_processing_mode = update.default_processing_mode
+    db.commit()
+    db.refresh(agent)
+    return _response(agent)
 
 
 @router.post("/{agent_id}/approve", response_model=AgentAdminResponse)
