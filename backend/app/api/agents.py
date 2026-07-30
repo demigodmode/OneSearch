@@ -14,7 +14,15 @@ from sqlalchemy.orm import Session
 
 from ..db.database import get_db
 from ..models import Agent, AgentEnrollment, AgentJob, IndexedFile, Source, User
-from ..schemas import AgentAdminDetails, AgentAdminResponse, AgentAdminSummary, AgentAdminUpdate, AgentEnrollmentCodeResponse, AgentJobSummary, AgentSourceSummary
+from ..schemas import (
+    AgentAdminDetails,
+    AgentAdminResponse,
+    AgentAdminSummary,
+    AgentAdminUpdate,
+    AgentEnrollmentCodeResponse,
+    AgentJobSummary,
+    AgentSourceSummary,
+)
 from ..services.agent_auth import create_enrollment_code, hash_token, require_remote_agents_enabled
 from .auth import get_current_user
 
@@ -64,7 +72,6 @@ def _response(agent: Agent, db: Session) -> AgentAdminResponse:
 
 def _detail_response(agent: Agent, db: Session) -> AgentAdminDetails:
     sources = db.query(Source).filter(Source.agent_id == agent.id).order_by(Source.name).all()
-    source_ids = [source.id for source in sources]
     jobs = db.query(AgentJob).filter(AgentJob.agent_id == agent.id).order_by(AgentJob.created_at.desc()).limit(10).all()
     base = _response(agent, db).model_dump()
     return AgentAdminDetails(

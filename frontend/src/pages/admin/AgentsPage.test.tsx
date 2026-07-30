@@ -24,7 +24,7 @@ describe('AgentsPage user flows', () => {
     expect(screen.getByText('Remote documents')).toBeInTheDocument()
     expect(screen.getByText('13')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Attention (2)' }))
-    expect(screen.getAllByText('Offline agent')).toHaveLength(2)
+    expect(screen.getAllByText('Offline agent')).toHaveLength(3)
     expect(screen.getAllByText('Pending agent')).toHaveLength(2)
     expect(screen.queryByText('Online agent')).not.toBeInTheDocument()
     fireEvent.click(screen.getAllByRole('button', { name: 'Approve agent' })[0])

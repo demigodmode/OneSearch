@@ -11,5 +11,6 @@ describe('AgentDetails', () => {
     fireEvent.change(screen.getByLabelText('Default processing mode'), { target: { value: 'on_server' } })
     expect(onMode).toHaveBeenCalledWith('on_server')
     expect(screen.getByText('/Volumes/Media')).toBeInTheDocument()
+    expect(screen.getByText('No attached sources.')).toBeInTheDocument()
   })
 })

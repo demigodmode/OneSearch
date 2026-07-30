@@ -119,6 +119,8 @@ export interface SourcePathTestResponse {
 export type AgentStatus = 'pending' | 'online' | 'offline' | 'degraded' | 'disabled' | 'revoked'
 export type ProcessingMode = 'on_agent' | 'on_server'
 export interface AllowedRoot { root_id: string; path: string; label?: string }
+/** Entry returned by the agent protocol for a completed directory browse job. */
+export interface DirectoryEntry { name: string; path: string; is_directory: boolean }
 export interface AgentAdminSummary { attached_sources: number; indexed_documents: number; pending_jobs: number; active_jobs: number; failed_jobs: number; earliest_next_scan_at: string | null }
 export interface AgentSourceSummary { id: string; name: string; root_path: string; next_scan_at: string | null }
 export interface AgentJobSummary { id: string; kind: string; status: string; source_id: string | null; created_at: string; completed_at: string | null; error: string | null }

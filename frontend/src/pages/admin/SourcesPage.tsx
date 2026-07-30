@@ -37,7 +37,7 @@ function formatDate(isoString: string): string {
 }
 
 // Source form component
-function SourceForm({
+export function SourceForm({
   source,
   defaultSchedule,
   remoteAgentsEnabled,
@@ -120,7 +120,8 @@ function SourceForm({
   const isEdit = !!source
   const selectedAgent = agents.find((agent) => agent.id === agentId)
   const unchangedExistingRemote = source?.location_type === 'agent' && source.agent_id === agentId && source.root_path === rootPath
-  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (locationType === 'agent' && (!agentId || (!pathTestResult?.ok && !unchangedExistingRemote))) || (
+  const queuedRemoteValidation = locationType === 'agent' && pathTestResult?.status === 'pending'
+  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (locationType === 'agent' && (!agentId || (!pathTestResult?.ok && !queuedRemoteValidation && !unchangedExistingRemote))) || (
     !useDefaultSchedule && scheduleConfig.schedule_type === 'interval' && !scheduleConfig.interval_value
   )
 

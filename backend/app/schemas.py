@@ -6,7 +6,7 @@ Pydantic schemas for request/response validation
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -28,17 +28,17 @@ class Document(BaseModel):
     modified_at: int  # Unix timestamp
     indexed_at: int  # Unix timestamp
     content: str  # Extracted full text
-    title: Optional[str] = None  # Extracted or derived title
-    metadata: Dict[str, Any] = Field(default_factory=dict)  # Additional metadata
+    title: str | None = None  # Extracted or derived title
+    metadata: dict[str, Any] = Field(default_factory=dict)  # Additional metadata
 
 
 class ScheduleConfig(BaseModel):
     """A resolved or stored schedule: either a cron expression/preset or a true interval."""
 
     schedule_type: Literal["cron", "interval"] = "cron"
-    scan_schedule: Optional[str] = Field(default=None, max_length=100)
-    interval_value: Optional[int] = Field(default=None, gt=0)
-    interval_unit: Optional[Literal["minutes", "hours", "days"]] = None
+    scan_schedule: str | None = Field(default=None, max_length=100)
+    interval_value: int | None = Field(default=None, gt=0)
+    interval_unit: Literal["minutes", "hours", "days"] | None = None
 
     @model_validator(mode="after")
     def _require_both_interval_fields(self):
@@ -57,36 +57,36 @@ class SourceBase(BaseModel):
     location_type: Literal["local", "agent"] = "local"
     agent_id: str | None = None
     processing_mode: Literal["on_agent", "on_server"] | None = None
-    include_patterns: Optional[List[str]] = None
-    exclude_patterns: Optional[List[str]] = None
-    scan_schedule: Optional[str] = Field(default=None, max_length=100)
+    include_patterns: list[str] | None = None
+    exclude_patterns: list[str] | None = None
+    scan_schedule: str | None = Field(default=None, max_length=100)
     schedule_type: Literal["cron", "interval"] = "cron"
-    interval_value: Optional[int] = Field(default=None, gt=0)
-    interval_unit: Optional[Literal["minutes", "hours", "days"]] = None
+    interval_value: int | None = Field(default=None, gt=0)
+    interval_unit: Literal["minutes", "hours", "days"] | None = None
     use_default_schedule: bool = False
 
 
 class SourceCreate(SourceBase):
     """Schema for creating a new source"""
 
-    id: Optional[str] = None  # Auto-generated if not provided
+    id: str | None = None  # Auto-generated if not provided
 
 
 class SourceUpdate(BaseModel):
     """Schema for updating a source"""
 
-    name: Optional[str] = None
-    root_path: Optional[str] = None
+    name: str | None = None
+    root_path: str | None = None
     location_type: Literal["local", "agent"] | None = None
     agent_id: str | None = None
     processing_mode: Literal["on_agent", "on_server"] | None = None
-    include_patterns: Optional[List[str]] = None
-    exclude_patterns: Optional[List[str]] = None
-    scan_schedule: Optional[str] = Field(default=None, max_length=100)
-    schedule_type: Optional[Literal["cron", "interval"]] = None
-    interval_value: Optional[int] = Field(default=None, gt=0)
-    interval_unit: Optional[Literal["minutes", "hours", "days"]] = None
-    use_default_schedule: Optional[bool] = None
+    include_patterns: list[str] | None = None
+    exclude_patterns: list[str] | None = None
+    scan_schedule: str | None = Field(default=None, max_length=100)
+    schedule_type: Literal["cron", "interval"] | None = None
+    interval_value: int | None = Field(default=None, gt=0)
+    interval_unit: Literal["minutes", "hours", "days"] | None = None
+    use_default_schedule: bool | None = None
 
 
 class SourcePathTestRequest(BaseModel):
@@ -106,10 +106,10 @@ class SourcePathTestResponse(BaseModel):
     is_directory: bool
     readable: bool
     inside_allowed_roots: bool
-    allowed_roots: List[str]
+    allowed_roots: list[str]
     looks_like_host_path: bool = False
     message: str
-    hint: Optional[str] = None
+    hint: str | None = None
     job_id: str | None = None
     status: str | None = None
 
@@ -122,8 +122,8 @@ class SourceResponse(SourceBase):
     id: str
     created_at: datetime
     updated_at: datetime
-    last_scan_at: Optional[datetime] = None
-    next_scan_at: Optional[datetime] = None
+    last_scan_at: datetime | None = None
+    next_scan_at: datetime | None = None
     effective_schedule: Optional["ScheduleConfig"] = None
 
     @classmethod
@@ -161,19 +161,11 @@ class SearchQuery(BaseModel):
     """Schema for search query request"""
 
     q: str  # Query string
-    source_id: Optional[str] = None
-    type: Optional[str] = None
+    source_id: str | None = None
+    type: str | None = None
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
-    sort: Optional[
-        Literal[
-            "relevance",
-            "modified_at:desc",
-            "modified_at:asc",
-            "size_bytes:desc",
-            "basename:asc",
-        ]
-    ] = None
+    sort: Literal["relevance", "modified_at:desc", "modified_at:asc", "size_bytes:desc", "basename:asc"] | None = None
     snippet_length: int = Field(default=300, ge=50, le=1000)
 
 
@@ -194,7 +186,7 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     """Schema for search response"""
 
-    results: List[SearchResult]
+    results: list[SearchResult]
     total: int
     limit: int
     offset: int
@@ -209,9 +201,9 @@ class SourceStatus(BaseModel):
     total_files: int
     indexed_files: int
     failed_files: int
-    last_indexed_at: Optional[datetime] = None
-    scan_schedule: Optional[str] = None
-    next_scan_at: Optional[datetime] = None
+    last_indexed_at: datetime | None = None
+    scan_schedule: str | None = None
+    next_scan_at: datetime | None = None
 
 
 class HealthResponse(BaseModel):
@@ -276,30 +268,30 @@ class AppSettingsResponse(BaseModel):
     comic_extraction_max_size_mb: int = Field(default=100, ge=1)
     readable_preview_page_chars: int = Field(default=6000, ge=1000)
     long_text_pagination_threshold_chars: int = Field(default=20000, ge=1000)
-    default_scan_schedule: Optional[ScheduleConfig] = None
+    default_scan_schedule: ScheduleConfig | None = None
     remote_agents_enabled: bool = False
 
 
 class AppSettingsUpdate(BaseModel):
     """Partial update for backend-managed indexing and preview settings."""
 
-    unsupported_file_policy: Optional[Literal["skip", "metadata_only"]] = None
-    media_metadata_mode: Optional[Literal["auto", "off"]] = None
-    raw_metadata_mode: Optional[Literal["auto", "off"]] = None
-    index_gps_metadata: Optional[bool] = None
-    show_previews: Optional[bool] = None
-    raw_preview_enabled: Optional[bool] = None
-    max_preview_size_mb: Optional[Literal[25, 50, 100]] = None
-    media_probe_max_size_mb: Optional[int] = Field(default=None, ge=0)
-    max_text_file_size_mb: Optional[int] = Field(default=None, ge=1)
-    max_pdf_file_size_mb: Optional[int] = Field(default=None, ge=1)
-    max_office_file_size_mb: Optional[int] = Field(default=None, ge=1)
-    image_metadata_max_size_mb: Optional[int] = Field(default=None, ge=1)
-    epub_extraction_max_size_mb: Optional[int] = Field(default=None, ge=1)
-    comic_extraction_max_size_mb: Optional[int] = Field(default=None, ge=1)
-    readable_preview_page_chars: Optional[int] = Field(default=None, ge=1000)
-    long_text_pagination_threshold_chars: Optional[int] = Field(default=None, ge=1000)
-    default_scan_schedule: Optional[ScheduleConfig] = None
+    unsupported_file_policy: Literal["skip", "metadata_only"] | None = None
+    media_metadata_mode: Literal["auto", "off"] | None = None
+    raw_metadata_mode: Literal["auto", "off"] | None = None
+    index_gps_metadata: bool | None = None
+    show_previews: bool | None = None
+    raw_preview_enabled: bool | None = None
+    max_preview_size_mb: Literal[25, 50, 100] | None = None
+    media_probe_max_size_mb: int | None = Field(default=None, ge=0)
+    max_text_file_size_mb: int | None = Field(default=None, ge=1)
+    max_pdf_file_size_mb: int | None = Field(default=None, ge=1)
+    max_office_file_size_mb: int | None = Field(default=None, ge=1)
+    image_metadata_max_size_mb: int | None = Field(default=None, ge=1)
+    epub_extraction_max_size_mb: int | None = Field(default=None, ge=1)
+    comic_extraction_max_size_mb: int | None = Field(default=None, ge=1)
+    readable_preview_page_chars: int | None = Field(default=None, ge=1000)
+    long_text_pagination_threshold_chars: int | None = Field(default=None, ge=1000)
+    default_scan_schedule: ScheduleConfig | None = None
     remote_agents_enabled: bool | None = None
 
 
