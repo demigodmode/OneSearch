@@ -62,8 +62,11 @@ class UpdateManager:
             "Auto-update contacts " + _host(self.release_manifest_url) + " for signed releases."
         )
         manifest = self._manifest()
-        if not _is_newer(manifest["version"], self.current_version):
-            raise UpdateError("release version is not newer than this agent")
+        comparison = _compare_versions(manifest["version"], self.current_version)
+        if comparison == 0:
+            return UpdateResult("current", manifest["version"])
+        if comparison < 0:
+            raise UpdateError("release version is older than this agent")
         return UpdateResult("available", manifest["version"])
 
     def _manifest(self) -> dict:
@@ -81,8 +84,11 @@ class UpdateManager:
             "Auto-update contacts " + _host(self.release_manifest_url) + " for signed releases."
         )
         manifest = self._manifest()
-        if not _is_newer(manifest["version"], self.current_version):
-            raise UpdateError("release version is not newer than this agent")
+        comparison = _compare_versions(manifest["version"], self.current_version)
+        if comparison == 0:
+            return UpdateResult("current", manifest["version"])
+        if comparison < 0:
+            raise UpdateError("release version is older than this agent")
         if self.container:
             self.notify(
                 "A newer agent image is available; Docker containers are never self-updated."
@@ -210,6 +216,12 @@ def _version(value: str) -> tuple[int, ...] | None:
 
 
 def _is_newer(candidate: str, current: str) -> bool:
+    return _compare_versions(candidate, current) > 0
+
+
+def _compare_versions(candidate: str, current: str) -> int:
     candidate_parts = _version(candidate)
     current_parts = _version(current)
-    return bool(candidate_parts and current_parts and candidate_parts > current_parts)
+    if not candidate_parts or not current_parts:
+        raise UpdateError("release version is invalid")
+    return (candidate_parts > current_parts) - (candidate_parts < current_parts)

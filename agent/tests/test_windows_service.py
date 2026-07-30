@@ -433,7 +433,7 @@ def test_run_service_wires_config_token_client_and_stop_predicate(monkeypatch):
             lambda value: value,
             lambda value: config,
             lambda value: store,
-            lambda value, stopped, **kwargs: _runtime(seen, value, stopped),
+            lambda value, stopped, **kwargs: _runtime(seen, value, stopped, **kwargs),
         ),
     )
     module._run_service("event")
@@ -441,5 +441,5 @@ def test_run_service_wires_config_token_client_and_stop_predicate(monkeypatch):
     assert seen["runtime"] is client and seen["stopped"]() and seen["entered"] and seen["exited"]
 
 
-async def _runtime(seen, value, stopped):
-    seen.update(runtime=value, stopped=stopped)
+async def _runtime(seen, value, stopped, **kwargs):
+    seen.update(runtime=value, stopped=stopped, **kwargs)

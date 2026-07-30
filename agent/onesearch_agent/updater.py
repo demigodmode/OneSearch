@@ -120,14 +120,19 @@ class UpdateHelper:
 
     def run(self, transaction_path: Path) -> UpdateResult:
         transaction = UpdateTransaction.load(transaction_path)
-        # Any interrupted state is returned to a known good binary before retrying.
-        if transaction.phase in {"backed_up", "switched"} and transaction.backup_binary.exists():
-            if transaction.current_binary.exists():
-                transaction.current_binary.unlink()
-            os.replace(transaction.backup_binary, transaction.current_binary)
-            transaction = transaction.save("rolled_back")
-            self.service_manager.start()
-            return UpdateResult("rolled_back", transaction.version)
+        if transaction.phase not in {
+            "staged",
+            "stopping",
+            "backed_up",
+            "switched",
+            "started",
+            "rolled_back",
+        }:
+            raise UpdateError("update transaction phase is invalid")
+        # Once the replacement was started, health has not been durably proven.  Never
+        # start a second attempt by moving the new binary over the only old copy.
+        if transaction.phase in {"backed_up", "switched", "started", "rolled_back"}:
+            return self._rollback(transaction)
         self.service_manager.stop()
         transaction = transaction.save("stopping")
         if transaction.current_binary.exists():
@@ -144,12 +149,22 @@ class UpdateHelper:
                 transaction.path.unlink(missing_ok=True)
                 return UpdateResult("installed", transaction.version)
             self.sleep(1)
+        return self._rollback(transaction)
+
+    def _rollback(self, transaction: UpdateTransaction) -> UpdateResult:
+        if not transaction.backup_binary.exists():
+            raise UpdateError("update rollback backup is missing")
         self.service_manager.stop()
         if transaction.current_binary.exists():
             transaction.current_binary.unlink()
         os.replace(transaction.backup_binary, transaction.current_binary)
-        transaction.save("rolled_back")
-        self.service_manager.start()
+        transaction = transaction.save("rolled_back")
+        try:
+            self.service_manager.start()
+        except Exception as error:
+            # Keep the transaction: a later helper invocation can restart the
+            # known-good binary, and operators have a durable diagnosis.
+            raise UpdateError("update rollback could not restart the service") from error
         return UpdateResult("rolled_back", transaction.version)
 
     def _healthy(self, transaction: UpdateTransaction) -> bool:

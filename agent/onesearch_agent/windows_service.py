@@ -257,6 +257,17 @@ class OneSearchAgentService(_ServiceBase):
 def _run_service(stop_event) -> None:
     agent_client, config_path, load_config, credential_store, run_runtime = _service_dependencies()
     config = load_config(config_path(service_config() or os.environ.get("ONESEARCH_AGENT_CONFIG")))
+    if getattr(config, "auto_update", False):
+        from . import __version__
+        from .update_runtime import stage_and_launch
+
+        stage_and_launch(
+            config=config,
+            platform="win32-x64",
+            version=__version__,
+            current_binary=__import__("pathlib").Path(sys.executable),
+            managed=True,
+        )
     token = machine_credential()
 
     async def run():
@@ -266,10 +277,15 @@ def _run_service(stop_event) -> None:
                 while win32event.WaitForSingleObject(stop_event, 0) != 0:
                     await asyncio.sleep(0.1)
 
+            from .update_runtime import write_healthy_marker
+
             await run_runtime(
                 client,
                 stopped=lambda: win32event.WaitForSingleObject(stop_event, 0) == 0,
                 wait_stopped=wait_stopped,
+                on_healthy_heartbeat=lambda version, timestamp: write_healthy_marker(
+                    config.state_dir, version, timestamp
+                ),
             )
 
     asyncio.run(run())

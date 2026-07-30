@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import platform
 import sys
 from pathlib import Path
@@ -22,7 +21,7 @@ from .credentials import (
 from .runtime import run_runtime
 from .service import ServiceError, install, uninstall
 from .update import UpdateError, UpdateManager
-from .updater_cli import launch as launch_updater
+from .update_runtime import stage_and_launch, write_healthy_marker
 from .worker import dispatch_job
 
 
@@ -123,16 +122,15 @@ def run(ctx):
     try:
         value = _config(ctx)
         if value.auto_update:
-            prepared = UpdateManager(
+            stage_and_launch(
+                config=value,
                 platform=_update_platform(),
-                current_version=__version__,
-                container=bool(os.environ.get("DOCKER_CONTAINER")),
-                notify=click.echo,
-            ).stage(
-                auto_update=True, current_binary=Path(sys.executable), state_dir=value.state_dir
+                version=__version__,
+                current_binary=Path(sys.executable),
+                # A foreground Click invocation has no service lifecycle to safely
+                # stop or restart. The SCM entry point has its own managed hook.
+                managed=False,
             )
-            if getattr(prepared, "path", None):
-                launch_updater(prepared.path)
         token = credential_store(value).load()
 
         async def loop():
@@ -142,12 +140,7 @@ def run(ctx):
                     await dispatch_job(lease, active_client, roots=value.allowed_roots)
 
                 def healthy(version, timestamp):
-                    temporary = value.state_dir / "healthy.tmp"
-                    value.state_dir.mkdir(parents=True, exist_ok=True)
-                    temporary.write_text(
-                        __import__("json").dumps({"version": version, "timestamp": timestamp})
-                    )
-                    os.replace(temporary, value.state_dir / "healthy.json")
+                    write_healthy_marker(value.state_dir, version, timestamp)
 
                 await run_runtime(client, worker=worker, on_healthy_heartbeat=healthy)
 
@@ -157,6 +150,8 @@ def run(ctx):
     except CredentialError as error:
         raise click.ClickException(str(error)) from error
     except (AgentRevoked, AgentIncompatible, AgentDisabled) as error:
+        raise click.ClickException(str(error)) from error
+    except UpdateError as error:
         raise click.ClickException(str(error)) from error
     except Exception as error:
         raise click.ClickException("agent configuration is unavailable") from error

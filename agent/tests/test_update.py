@@ -6,8 +6,9 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from onesearch_agent.update import UpdateError, UpdateManager
+from onesearch_agent.update import UpdateError, UpdateManager, UpdateResult
 from onesearch_agent.updater import UpdateHelper, UpdateTransaction
+from onesearch_agent.updater_cli import ServiceManager
 from onesearch_shared import MINIMUM_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION
 
 
@@ -122,11 +123,19 @@ def test_docker_agent_notifies_but_never_replaces_container(signing_key, tmp_pat
 
 
 def test_rejects_replayed_or_downgrade_release(signing_key):
-    payload = signed_manifest(signing_key, version="1.3.0")
-    with pytest.raises(UpdateError, match="newer"):
+    payload = signed_manifest(signing_key, version="1.2.0")
+    with pytest.raises(UpdateError, match="older"):
         manager(signing_key, current_version="1.3.0", fetch=lambda url: payload).check(
             auto_update=True
         )
+
+
+def test_same_version_is_already_current(signing_key):
+    payload = signed_manifest(signing_key, version="1.3.0")
+    result = manager(signing_key, current_version="1.3.0", fetch=lambda url: payload).check(
+        auto_update=True
+    )
+    assert result == UpdateResult("current", "1.3.0")
 
 
 def test_recovers_interrupted_replacement_from_durable_backup(signing_key, tmp_path: Path):
@@ -206,6 +215,21 @@ def test_helper_rejects_tampered_transaction_paths(tmp_path):
         UpdateHelper(service_manager=FakeServiceManager()).run(transaction.path)
 
 
+def test_helper_started_transaction_never_replaces_last_good_backup(tmp_path):
+    current = tmp_path / "onesearch-agent"
+    current.write_bytes(b"old")
+    state = tmp_path / "state"
+    transaction = UpdateTransaction.create(
+        state_dir=state, current_binary=current, artifact=b"new", version="1.4.0"
+    )
+    transaction = transaction.save("started")
+    transaction.backup_binary.write_bytes(b"old")
+    current.write_bytes(b"new")
+    result = UpdateHelper(service_manager=FakeServiceManager(), deadline=0).run(transaction.path)
+    assert result.action == "rolled_back"
+    assert current.read_bytes() == b"old"
+
+
 class FakeServiceManager:
     def __init__(self):
         self.calls = []
@@ -215,3 +239,18 @@ class FakeServiceManager:
 
     def start(self):
         self.calls.append("start")
+
+
+@pytest.mark.parametrize("method,code", [("stop", 1062), ("start", 1056)])
+def test_service_manager_accepts_only_benign_already_state(method, code):
+    seen = []
+    service = ServiceManager(platform="win32", runner=lambda args: seen.append(args) or code)
+    getattr(service, method)()
+    assert seen
+
+
+@pytest.mark.parametrize("method", ["stop", "start"])
+def test_service_manager_rejects_absent_windows_service(method):
+    service = ServiceManager(platform="win32", runner=lambda args: 1060)
+    with pytest.raises(RuntimeError, match="not installed"):
+        getattr(service, method)()

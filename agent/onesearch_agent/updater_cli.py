@@ -12,8 +12,9 @@ from .updater import UpdateHelper
 
 
 class ServiceManager:
-    def __init__(self, platform=None):
+    def __init__(self, platform=None, runner=None):
         self.platform = platform or sys.platform
+        self.runner = runner or self._subprocess_runner
 
     def stop(self):
         self._run(
@@ -30,8 +31,21 @@ class ServiceManager:
         )
 
     def _run(self, args):
-        if subprocess.run(args, check=False).returncode not in (0, 1060, 1062, 1056):
+        result = self.runner(args)
+        code = result if isinstance(result, int) else result.returncode
+        if code == 1060:
+            raise RuntimeError("OneSearch Agent service is not installed")
+        benign = {0}
+        if args[-2] == "stop":
+            benign.add(1062)
+        if args[-2] == "start":
+            benign.add(1056)
+        if code not in benign:
             raise RuntimeError("service operation failed")
+
+    @staticmethod
+    def _subprocess_runner(args):
+        return subprocess.run(args, check=False)
 
 
 @click.command()
