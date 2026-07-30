@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import platform
+import subprocess
 import sys
 from pathlib import Path
 
@@ -32,6 +34,22 @@ def _update_platform() -> str:
 
 def _config(ctx):
     return load_config(ctx.obj["config"])
+
+
+def _linux_systemd_managed() -> bool:
+    """Only trust systemd's per-invocation markers plus a live installed unit."""
+    if sys.platform != "linux" or not (
+        os.environ.get("INVOCATION_ID") or os.environ.get("SYSTEMD_EXEC_PID")
+    ):
+        return False
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "is-active", "--quiet", "onesearch-agent.service"],
+            check=False,
+        )
+        return result.returncode == 0
+    except OSError:
+        return False
 
 
 @click.group()
@@ -127,9 +145,7 @@ def run(ctx):
                 platform=_update_platform(),
                 version=__version__,
                 current_binary=Path(sys.executable),
-                # A foreground Click invocation has no service lifecycle to safely
-                # stop or restart. The SCM entry point has its own managed hook.
-                managed=False,
+                managed=_linux_systemd_managed(),
             )
         token = credential_store(value).load()
 

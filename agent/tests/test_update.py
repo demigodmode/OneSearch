@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from onesearch_agent.update import UpdateError, UpdateManager, UpdateResult
 from onesearch_agent.updater import UpdateHelper, UpdateTransaction
-from onesearch_agent.updater_cli import ServiceManager
+from onesearch_agent.updater_cli import ServiceManager, launch
 from onesearch_shared import MINIMUM_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION
 
 
@@ -202,6 +202,7 @@ def test_helper_accepts_only_new_expected_healthy_marker(tmp_path):
 
 def test_helper_rejects_tampered_transaction_paths(tmp_path):
     state = tmp_path / "state"
+    (tmp_path / "onesearch-agent").write_bytes(b"old")
     transaction = UpdateTransaction.create(
         state_dir=state,
         current_binary=tmp_path / "onesearch-agent",
@@ -212,7 +213,9 @@ def test_helper_rejects_tampered_transaction_paths(tmp_path):
     payload["current_binary"] = str(tmp_path.parent / "outside")
     transaction.path.write_text(json.dumps(payload))
     with pytest.raises(UpdateError, match="transaction path"):
-        UpdateHelper(service_manager=FakeServiceManager()).run(transaction.path)
+        UpdateHelper(service_manager=FakeServiceManager()).run(
+            transaction.path, expected_current_binary=tmp_path / "onesearch-agent"
+        )
 
 
 def test_helper_started_transaction_never_replaces_last_good_backup(tmp_path):
@@ -240,11 +243,73 @@ class FakeServiceManager:
     def start(self):
         self.calls.append("start")
 
+    def is_managed(self):
+        return True
+
+
+def test_transaction_refuses_paths_outside_fixed_sibling_layout(tmp_path):
+    current = tmp_path / "onesearch-agent"
+    current.write_bytes(b"old")
+    transaction = UpdateTransaction.create(
+        state_dir=tmp_path / "state", current_binary=current, artifact=b"new", version="1.4.0"
+    )
+    payload = json.loads(transaction.path.read_text())
+    payload["current_binary"] = str(tmp_path / "other" / "onesearch-agent")
+    payload["backup_binary"] = str(tmp_path / "other" / "onesearch-agent.previous")
+    transaction.path.write_text(json.dumps(payload))
+    with pytest.raises(UpdateError, match="expected"):
+        UpdateTransaction.load(transaction.path, expected_current_binary=current)
+
+
+def test_linux_transient_helper_is_collected_and_collision_safe(tmp_path):
+    calls = []
+
+    class Process:
+        def poll(self):
+            return None
+
+    transaction = tmp_path / "transaction.json"
+    helper = tmp_path / "onesearch-agent-updater"
+    helper.write_bytes(b"helper")
+    result = launch(
+        transaction,
+        platform="linux",
+        run=lambda args, **kwargs: calls.append((args, kwargs)) or Process(),
+        helper=helper,
+        pid=123,
+        token="safe",
+    )
+    assert result.poll() is None
+    args, kwargs = calls[0]
+    assert args[:5] == [
+        "systemd-run",
+        "--user",
+        "--collect",
+        "--property=Type=exec",
+        "--unit=onesearch-agent-updater-123-safe",
+    ]
+    assert args[-3:] == [str(helper), "--transaction", str(transaction)] and kwargs == {}
+
+
+def test_linux_transient_helper_rejects_immediate_failure(tmp_path):
+    helper = tmp_path / "onesearch-agent-updater"
+    helper.write_bytes(b"helper")
+    with pytest.raises(RuntimeError, match="failed"):
+        launch(
+            tmp_path / "t",
+            platform="linux",
+            helper=helper,
+            run=lambda *_a, **_k: type("P", (), {"poll": lambda self: 1})(),
+        )
+
 
 @pytest.mark.parametrize("method,code", [("stop", 1062), ("start", 1056)])
 def test_service_manager_accepts_only_benign_already_state(method, code):
     seen = []
-    service = ServiceManager(platform="win32", runner=lambda args: seen.append(args) or code)
+    service = ServiceManager(
+        platform="win32",
+        runner=lambda args: seen.append(args) or (0 if args[1] == "query" else code),
+    )
     getattr(service, method)()
     assert seen
 

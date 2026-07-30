@@ -24,6 +24,11 @@ def stage_and_launch(*, config, platform: str, version: str, current_binary: Pat
     """Prepare a signed replacement only from an OS-managed native process."""
     if not config.auto_update:
         return None
+    container = bool(os.environ.get("DOCKER_CONTAINER"))
+    if container:
+        return UpdateManager(platform=platform, current_version=version, container=True).stage(
+            auto_update=True, current_binary=current_binary, state_dir=config.state_dir
+        )
     if not managed:
         raise UpdateError(
             "automatic updates require the installed OneSearch Agent service; "
@@ -32,7 +37,7 @@ def stage_and_launch(*, config, platform: str, version: str, current_binary: Pat
     prepared = UpdateManager(
         platform=platform,
         current_version=version,
-        container=bool(os.environ.get("DOCKER_CONTAINER")),
+        container=False,
     ).stage(auto_update=True, current_binary=current_binary, state_dir=config.state_dir)
     if getattr(prepared, "path", None):
         launch(prepared.path)
