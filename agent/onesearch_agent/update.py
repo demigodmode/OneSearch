@@ -61,13 +61,46 @@ class UpdateManager:
         self.notify(
             "Auto-update contacts " + _host(self.release_manifest_url) + " for signed releases."
         )
+        manifest = self._manifest()
+        if not _is_newer(manifest["version"], self.current_version):
+            raise UpdateError("release version is not newer than this agent")
+        return UpdateResult("available", manifest["version"])
+
+    def _manifest(self) -> dict:
         payload = self.fetch(self.release_manifest_url)
         manifest, signature = _signed_manifest(payload)
         _verify_signature(self.public_key, manifest, signature)
         _validate_manifest(manifest, self.platform)
+        return manifest
+
+    def stage(self, *, auto_update: bool, current_binary: Path, state_dir: Path):
+        """Download a verified update without ever touching the running binary."""
+        if not auto_update:
+            return UpdateResult("disabled")
+        self.notify(
+            "Auto-update contacts " + _host(self.release_manifest_url) + " for signed releases."
+        )
+        manifest = self._manifest()
         if not _is_newer(manifest["version"], self.current_version):
             raise UpdateError("release version is not newer than this agent")
-        return UpdateResult("available", manifest["version"])
+        if self.container:
+            self.notify(
+                "A newer agent image is available; Docker containers are never self-updated."
+            )
+            return UpdateResult("notify", manifest["version"])
+        artifact = _as_bytes(self.fetch(manifest["url"]))
+        if len(artifact) != manifest["size"]:
+            raise UpdateError("artifact size does not match signed manifest")
+        if hashlib.sha256(artifact).hexdigest() != manifest["sha256"]:
+            raise UpdateError("artifact checksum does not match signed manifest")
+        from .updater import UpdateTransaction
+
+        return UpdateTransaction.create(
+            state_dir=state_dir,
+            current_binary=current_binary,
+            artifact=artifact,
+            version=manifest["version"],
+        )
 
     def apply(
         self,
@@ -76,25 +109,7 @@ class UpdateManager:
         current_binary: Path,
         health_check: Callable[[], bool],
     ) -> UpdateResult:
-        result = self.check(auto_update=auto_update)
-        if result.action != "available":
-            return result
-        if self.container:
-            self.notify(
-                "A newer agent image is available; Docker containers are never self-updated."
-            )
-            return UpdateResult("notify", result.version)
-
-        payload = self.fetch(self.release_manifest_url)
-        manifest, signature = _signed_manifest(payload)
-        _verify_signature(self.public_key, manifest, signature)
-        _validate_manifest(manifest, self.platform)
-        artifact = _as_bytes(self.fetch(manifest["url"]))
-        if len(artifact) != manifest["size"]:
-            raise UpdateError("artifact size does not match signed manifest")
-        if hashlib.sha256(artifact).hexdigest() != manifest["sha256"]:
-            raise UpdateError("artifact checksum does not match signed manifest")
-        return _replace_and_check(current_binary, artifact, result.version, health_check)
+        raise UpdateError("in-process updates are unsupported; use the separate updater helper")
 
     def recover(self, current_binary: Path) -> bool:
         """Restore the last known-good binary after an interrupted swap."""
@@ -180,29 +195,6 @@ def _validate_manifest(manifest: dict, platform: str) -> None:
         raise UpdateError("release manifest version is invalid")
     if not isinstance(manifest["url"], str) or not manifest["url"].startswith("https://"):
         raise UpdateError("release manifest artifact URL is invalid")
-
-
-def _replace_and_check(
-    current_binary: Path, artifact: bytes, version: str, health_check: Callable[[], bool]
-) -> UpdateResult:
-    staged = current_binary.with_name(f".{current_binary.name}.{version}.new")
-    backup = current_binary.with_name(current_binary.name + ".bak")
-    with staged.open("wb") as handle:
-        handle.write(artifact)
-        handle.flush()
-        os.fsync(handle.fileno())
-    try:
-        os.replace(current_binary, backup)
-        os.replace(staged, current_binary)
-        if not health_check():
-            raise UpdateError("updated agent did not report a healthy heartbeat")
-    except Exception:
-        if backup.exists():
-            os.replace(backup, current_binary)
-        staged.unlink(missing_ok=True)
-        return UpdateResult("rolled_back", version)
-    backup.unlink(missing_ok=True)
-    return UpdateResult("installed", version)
 
 
 def _host(url: str) -> str:

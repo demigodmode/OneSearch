@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import platform
+import time
 
 from . import __version__
 from .client import AgentDisabled, AgentError, AgentIncompatible, AgentPending, AgentRevoked
@@ -18,6 +19,7 @@ async def run_runtime(
     random=lambda: 0,
     stopped=lambda: False,
     wait_stopped=None,
+    on_healthy_heartbeat=None,
 ):
     async def pause(seconds):
         if wait_stopped is None:
@@ -34,6 +36,8 @@ async def run_runtime(
     async def heartbeat():
         if wait_stopped is None:
             await client.heartbeat(__version__, platform.platform())
+            if on_healthy_heartbeat is not None:
+                on_healthy_heartbeat(__version__, time.time())
             return False
         request = asyncio.create_task(client.heartbeat(__version__, platform.platform()))
         stopper = asyncio.create_task(wait_stopped())
@@ -44,6 +48,8 @@ async def run_runtime(
         if stopper in done:
             return True
         await request
+        if on_healthy_heartbeat is not None:
+            on_healthy_heartbeat(__version__, time.time())
         return False
 
     failures = 0

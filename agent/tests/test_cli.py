@@ -249,7 +249,7 @@ def test_run_preserves_terminal_agent_error(tmp_path: Path, monkeypatch):
         "onesearch_agent.cli.credential_store", lambda value: SimpleNamespace(load=lambda: "token")
     )
 
-    async def fail(client, *, worker):
+    async def fail(client, *, worker, **kwargs):
         assert worker is not None
         raise AgentRevoked("agent revoked")
 
@@ -268,7 +268,7 @@ def test_run_preserves_other_terminal_agent_errors(tmp_path: Path, monkeypatch, 
         "onesearch_agent.cli.credential_store", lambda value: SimpleNamespace(load=lambda: "token")
     )
 
-    async def fail(client, *, worker):
+    async def fail(client, *, worker, **kwargs):
         assert worker is not None
         raise error
 
