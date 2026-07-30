@@ -14,134 +14,180 @@
  * Normalized document structure from Meilisearch
  */
 export interface Document {
-  id: string // Format: "{source_id}--{path_hash}" (SHA256 truncated to 12 chars)
-  source_id: string
-  source_name: string
-  path: string
-  basename: string
-  extension: string
-  type: string // File type: text, markdown, pdf, etc.
-  size_bytes: number
-  modified_at: number // Unix timestamp
-  indexed_at: number // Unix timestamp
-  content: string // Extracted full text
-  title?: string // Extracted or derived title
-  metadata: Record<string, unknown>
+  id: string; // Format: "{source_id}--{path_hash}" (SHA256 truncated to 12 chars)
+  source_id: string;
+  source_name: string;
+  path: string;
+  basename: string;
+  extension: string;
+  type: string; // File type: text, markdown, pdf, etc.
+  size_bytes: number;
+  modified_at: number; // Unix timestamp
+  indexed_at: number; // Unix timestamp
+  content: string; // Extracted full text
+  title?: string; // Extracted or derived title
+  metadata: Record<string, unknown>;
 }
 
 // ============================================================================
 // Source Types
 // ============================================================================
 
-export type ScheduleType = 'cron' | 'interval'
-export type IntervalUnit = 'minutes' | 'hours' | 'days'
+export type ScheduleType = "cron" | "interval";
+export type IntervalUnit = "minutes" | "hours" | "days";
 
 export interface ScheduleConfig {
-  schedule_type: ScheduleType
-  scan_schedule?: string | null
-  interval_value?: number | null
-  interval_unit?: IntervalUnit | null
+  schedule_type: ScheduleType;
+  scan_schedule?: string | null;
+  interval_value?: number | null;
+  interval_unit?: IntervalUnit | null;
 }
 
 /**
  * Base source properties
  */
 export interface SourceBase {
-  name: string
-  root_path: string
-  include_patterns?: string[] | null
-  exclude_patterns?: string[] | null
-  scan_schedule?: string | null
-  schedule_type?: ScheduleType
-  interval_value?: number | null
-  interval_unit?: IntervalUnit | null
-  use_default_schedule?: boolean
-  location_type?: 'local' | 'agent'
-  agent_id?: string | null
-  processing_mode?: ProcessingMode | null
+  name: string;
+  root_path: string;
+  include_patterns?: string[] | null;
+  exclude_patterns?: string[] | null;
+  scan_schedule?: string | null;
+  schedule_type?: ScheduleType;
+  interval_value?: number | null;
+  interval_unit?: IntervalUnit | null;
+  use_default_schedule?: boolean;
+  location_type?: "local" | "agent";
+  agent_id?: string | null;
+  processing_mode?: ProcessingMode | null;
 }
 
 /**
  * Request body for creating a new source
  */
 export interface SourceCreate extends SourceBase {
-  id?: string // Auto-generated if not provided
+  id?: string; // Auto-generated if not provided
 }
 
 /**
  * Request body for updating a source (all fields optional)
  */
 export interface SourceUpdate {
-  name?: string
-  root_path?: string
-  include_patterns?: string[] | null
-  exclude_patterns?: string[] | null
-  scan_schedule?: string | null
-  schedule_type?: ScheduleType
-  interval_value?: number | null
-  interval_unit?: IntervalUnit | null
-  use_default_schedule?: boolean
-  location_type?: 'local' | 'agent'
-  agent_id?: string | null
-  processing_mode?: ProcessingMode | null
+  name?: string;
+  root_path?: string;
+  include_patterns?: string[] | null;
+  exclude_patterns?: string[] | null;
+  scan_schedule?: string | null;
+  schedule_type?: ScheduleType;
+  interval_value?: number | null;
+  interval_unit?: IntervalUnit | null;
+  use_default_schedule?: boolean;
+  location_type?: "local" | "agent";
+  agent_id?: string | null;
+  processing_mode?: ProcessingMode | null;
 }
 
 /**
  * Source response from API
  */
 export interface Source extends SourceBase {
-  id: string
-  created_at: string // ISO datetime string
-  updated_at: string // ISO datetime string
-  last_scan_at?: string | null
-  next_scan_at?: string | null
-  effective_schedule?: ScheduleConfig | null
+  id: string;
+  created_at: string; // ISO datetime string
+  updated_at: string; // ISO datetime string
+  last_scan_at?: string | null;
+  next_scan_at?: string | null;
+  effective_schedule?: ScheduleConfig | null;
 }
 
 export interface SourcePathTestRequest {
-  root_path: string
-  location_type?: 'local' | 'agent'
-  agent_id?: string | null
+  root_path: string;
+  location_type?: "local" | "agent";
+  agent_id?: string | null;
 }
 
 export interface SourcePathTestResponse {
-  path: string
-  ok: boolean
-  exists: boolean
-  is_directory: boolean
-  readable: boolean
-  inside_allowed_roots: boolean
-  allowed_roots: string[]
-  looks_like_host_path: boolean
-  message: string
-  hint?: string | null
-  job_id?: string | null
-  status?: string | null
+  path: string;
+  ok: boolean;
+  exists: boolean;
+  is_directory: boolean;
+  readable: boolean;
+  inside_allowed_roots: boolean;
+  allowed_roots: string[];
+  looks_like_host_path: boolean;
+  message: string;
+  hint?: string | null;
+  job_id?: string | null;
+  status?: string | null;
 }
 
-export type AgentStatus = 'pending' | 'online' | 'offline' | 'degraded' | 'disabled' | 'revoked'
-export type ProcessingMode = 'on_agent' | 'on_server'
-export interface AllowedRoot { root_id: string; path: string; label?: string }
+export type AgentStatus =
+  | "pending"
+  | "online"
+  | "offline"
+  | "degraded"
+  | "disabled"
+  | "revoked";
+export type ProcessingMode = "on_agent" | "on_server";
+export interface AllowedRoot {
+  root_id: string;
+  path: string;
+  label?: string;
+}
 /** Shared agent-protocol directory entry; no completed browse-list endpoint exists yet. */
 export interface DirectoryEntry {
-  name: string
-  path: string
-  is_directory: boolean
-  size_bytes?: number | null
-  modified_at?: number | null
+  name: string;
+  path: string;
+  is_directory: boolean;
+  size_bytes?: number | null;
+  modified_at?: number | null;
 }
-export interface AgentAdminSummary { attached_sources: number; indexed_documents: number; pending_jobs: number; active_jobs: number; failed_jobs: number; earliest_next_scan_at: string | null }
-export interface AgentSourceSummary { id: string; name: string; root_path: string; next_scan_at: string | null }
-export interface AgentJobSummary { id: string; kind: string; status: string; source_id: string | null; created_at: string; completed_at: string | null; error: string | null }
+export interface AgentAdminSummary {
+  attached_sources: number;
+  indexed_documents: number;
+  pending_jobs: number;
+  active_jobs: number;
+  failed_jobs: number;
+  earliest_next_scan_at: string | null;
+}
+export interface AgentSourceSummary {
+  id: string;
+  name: string;
+  root_path: string;
+  next_scan_at: string | null;
+}
+export interface AgentJobSummary {
+  id: string;
+  kind: string;
+  status: string;
+  source_id: string | null;
+  created_at: string;
+  completed_at: string | null;
+  error: string | null;
+}
 export interface Agent {
-  id: string; name: string; platform: string; version: string; protocol_version: number
-  allowed_roots: AllowedRoot[]; default_processing_mode: ProcessingMode; auto_update: boolean
-  status: AgentStatus; approved_at: string | null; last_seen_at: string | null
-  disabled_at: string | null; created_at: string; updated_at: string
-  summary: AgentAdminSummary
+  id: string;
+  name: string;
+  platform: string;
+  version: string;
+  protocol_version: number;
+  allowed_roots: AllowedRoot[];
+  default_processing_mode: ProcessingMode;
+  auto_update: boolean;
+  status: AgentStatus;
+  approved_at: string | null;
+  last_seen_at: string | null;
+  disabled_at: string | null;
+  created_at: string;
+  updated_at: string;
+  summary: AgentAdminSummary;
 }
-export interface AgentDetails extends Agent { sources: AgentSourceSummary[]; recent_jobs: AgentJobSummary[] }
-export interface AgentEnrollment { code: string; expires_at: string }
+export interface AgentDetails extends Agent {
+  sources: AgentSourceSummary[];
+  recent_jobs: AgentJobSummary[];
+}
+export interface AgentEnrollment {
+  code: string;
+  expires_at: string;
+}
 
 // ============================================================================
 // Search Types
@@ -151,39 +197,39 @@ export interface AgentEnrollment { code: string; expires_at: string }
  * Search query request
  */
 export interface SearchQuery {
-  q: string
-  source_id?: string
-  type?: string
-  limit?: number // 1-100, default 20
-  offset?: number // default 0
-  sort?: string
-  snippet_length?: number // 50-1000, default 300
+  q: string;
+  source_id?: string;
+  type?: string;
+  limit?: number; // 1-100, default 20
+  offset?: number; // default 0
+  sort?: string;
+  snippet_length?: number; // 50-1000, default 300
 }
 
 /**
  * Individual search result
  */
 export interface SearchResult {
-  id: string
-  path: string
-  basename: string
-  source_name: string
-  type: string
-  size_bytes: number
-  modified_at: number // Unix timestamp
-  snippet: string // Content with <mark> highlighting
-  score: number // Relevance score
+  id: string;
+  path: string;
+  basename: string;
+  source_name: string;
+  type: string;
+  size_bytes: number;
+  modified_at: number; // Unix timestamp
+  snippet: string; // Content with <mark> highlighting
+  score: number; // Relevance score
 }
 
 /**
  * Search response from API
  */
 export interface SearchResponse {
-  results: SearchResult[]
-  total: number
-  limit: number
-  offset: number
-  processing_time_ms: number
+  results: SearchResult[];
+  total: number;
+  limit: number;
+  offset: number;
+  processing_time_ms: number;
 }
 
 // ============================================================================
@@ -191,27 +237,27 @@ export interface SearchResponse {
 // ============================================================================
 
 export interface AppSettings {
-  unsupported_file_policy: 'skip' | 'metadata_only'
-  media_metadata_mode: 'auto' | 'off'
-  raw_metadata_mode: 'auto' | 'off'
-  index_gps_metadata: boolean
-  show_previews: boolean
-  raw_preview_enabled: boolean
-  max_preview_size_mb: 25 | 50 | 100
-  media_probe_max_size_mb: number
-  max_text_file_size_mb: number
-  max_pdf_file_size_mb: number
-  max_office_file_size_mb: number
-  image_metadata_max_size_mb: number
-  epub_extraction_max_size_mb: number
-  comic_extraction_max_size_mb: number
-  readable_preview_page_chars: number
-  long_text_pagination_threshold_chars: number
-  default_scan_schedule?: ScheduleConfig | null
-  remote_agents_enabled: boolean
+  unsupported_file_policy: "skip" | "metadata_only";
+  media_metadata_mode: "auto" | "off";
+  raw_metadata_mode: "auto" | "off";
+  index_gps_metadata: boolean;
+  show_previews: boolean;
+  raw_preview_enabled: boolean;
+  max_preview_size_mb: 25 | 50 | 100;
+  media_probe_max_size_mb: number;
+  max_text_file_size_mb: number;
+  max_pdf_file_size_mb: number;
+  max_office_file_size_mb: number;
+  image_metadata_max_size_mb: number;
+  epub_extraction_max_size_mb: number;
+  comic_extraction_max_size_mb: number;
+  readable_preview_page_chars: number;
+  long_text_pagination_threshold_chars: number;
+  default_scan_schedule?: ScheduleConfig | null;
+  remote_agents_enabled: boolean;
 }
 
-export type AppSettingsUpdate = Partial<AppSettings>
+export type AppSettingsUpdate = Partial<AppSettings>;
 
 // ============================================================================
 // Status Types
@@ -221,8 +267,8 @@ export type AppSettingsUpdate = Partial<AppSettings>
  * Failed file entry in status response
  */
 export interface FailedFile {
-  path: string
-  error: string | null
+  path: string;
+  error: string | null;
 }
 
 /**
@@ -230,36 +276,36 @@ export interface FailedFile {
  * Matches backend IndexingService.get_source_status() response
  */
 export interface SourceStatus {
-  source_id: string
-  source_name: string
-  total_files: number
-  successful: number
-  failed: number
-  skipped: number
-  last_indexed_at?: string | null // ISO datetime string
-  scan_schedule?: string | null
-  last_scan_at?: string | null
-  next_scan_at?: string | null
-  failed_files: FailedFile[]
+  source_id: string;
+  source_name: string;
+  total_files: number;
+  successful: number;
+  failed: number;
+  skipped: number;
+  last_indexed_at?: string | null; // ISO datetime string
+  scan_schedule?: string | null;
+  last_scan_at?: string | null;
+  next_scan_at?: string | null;
+  failed_files: FailedFile[];
 }
 
 /**
  * Health check response from /api/health
  */
 export interface HealthResponse {
-  status: 'healthy' | 'degraded'
-  service: string
-  version: string
-  setup_required: boolean
+  status: "healthy" | "degraded";
+  service: string;
+  version: string;
+  setup_required: boolean;
   meilisearch: {
-    status: string
-    [key: string]: unknown
-  }
+    status: string;
+    [key: string]: unknown;
+  };
   config: {
-    database: string
-    meilisearch_url: string
-    log_level: string
-  }
+    database: string;
+    meilisearch_url: string;
+    log_level: string;
+  };
 }
 
 /**
@@ -267,7 +313,7 @@ export interface HealthResponse {
  * Note: API returns { sources: [...] }, not a bare array
  */
 export interface StatusResponse {
-  sources: SourceStatus[]
+  sources: SourceStatus[];
 }
 
 // ============================================================================
@@ -278,22 +324,22 @@ export interface StatusResponse {
  * Indexing statistics from reindex operation
  */
 export interface IndexingStats {
-  total_scanned: number
-  new_files: number
-  modified_files: number
-  unchanged_files: number
-  deleted_files: number
-  successful: number
-  failed: number
-  skipped: number
+  total_scanned: number;
+  new_files: number;
+  modified_files: number;
+  unchanged_files: number;
+  deleted_files: number;
+  successful: number;
+  failed: number;
+  skipped: number;
 }
 
 /**
  * Reindex response from /api/sources/{id}/reindex
  */
 export interface ReindexResponse {
-  message: string
-  stats: IndexingStats
+  message: string;
+  stats: IndexingStats;
 }
 
 // ============================================================================
@@ -304,7 +350,7 @@ export interface ReindexResponse {
  * API error response
  */
 export interface APIError {
-  detail: string
+  detail: string;
 }
 
 // ============================================================================
@@ -315,42 +361,42 @@ export interface APIError {
  * Auth status response from /api/auth/status
  */
 export interface AuthStatusResponse {
-  setup_required: boolean
+  setup_required: boolean;
 }
 
 /**
  * Request body for initial setup
  */
 export interface SetupRequest {
-  username: string
-  password: string
+  username: string;
+  password: string;
 }
 
 /**
  * Request body for login
  */
 export interface LoginRequest {
-  username: string
-  password: string
+  username: string;
+  password: string;
 }
 
 /**
  * Auth response with JWT token
  */
 export interface AuthResponse {
-  access_token: string
-  token_type: string
-  expires_in: number
+  access_token: string;
+  token_type: string;
+  expires_in: number;
 }
 
 /**
  * User info response from /api/auth/me
  */
 export interface User {
-  id: number
-  username: string
-  is_active: boolean
-  created_at: string
+  id: number;
+  username: string;
+  is_active: boolean;
+  created_at: string;
 }
 
 /**
@@ -358,8 +404,8 @@ export interface User {
  */
 export interface ValidationError {
   detail: Array<{
-    loc: (string | number)[]
-    msg: string
-    type: string
-  }>
+    loc: (string | number)[];
+    msg: string;
+    type: string;
+  }>;
 }
