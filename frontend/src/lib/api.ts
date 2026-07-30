@@ -26,7 +26,7 @@ import type {
   User,
   AppSettings,
   AppSettingsUpdate,
-  Agent, AgentEnrollment, ProcessingMode,
+  Agent, AgentDetails, AgentEnrollment, ProcessingMode,
 } from '@/types/api'
 
 // ============================================================================
@@ -247,7 +247,7 @@ export async function updateAppSettings(data: AppSettingsUpdate): Promise<AppSet
 }
 
 export async function getAgents(): Promise<Agent[]> { return apiFetch<Agent[]>('/agents') }
-export async function getAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}`) }
+export async function getAgent(id: string): Promise<AgentDetails> { return apiFetch<AgentDetails>(`/agents/${encodeURIComponent(id)}`) }
 export async function createAgentEnrollment(): Promise<AgentEnrollment> { return apiFetch<AgentEnrollment>('/agents/enrollments', { method: 'POST' }) }
 export async function approveAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/approve`, { method: 'POST' }) }
 export async function disableAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/disable`, { method: 'POST' }) }

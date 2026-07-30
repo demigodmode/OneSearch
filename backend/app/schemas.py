@@ -327,6 +327,39 @@ class AgentAdminResponse(BaseModel):
     disabled_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    summary: "AgentAdminSummary"
+
+
+class AgentAdminSummary(BaseModel):
+    attached_sources: int
+    indexed_documents: int
+    pending_jobs: int
+    active_jobs: int
+    failed_jobs: int
+    earliest_next_scan_at: datetime | None
+
+
+class AgentSourceSummary(BaseModel):
+    id: str
+    name: str
+    root_path: str
+    next_scan_at: datetime | None
+
+
+class AgentJobSummary(BaseModel):
+    id: str
+    kind: str
+    status: str
+    source_id: str | None
+    created_at: datetime
+    completed_at: datetime | None
+    error: str | None
+
+
+class AgentAdminDetails(AgentAdminResponse):
+    summary: AgentAdminSummary
+    sources: list[AgentSourceSummary]
+    recent_jobs: list[AgentJobSummary]
 
 
 class AgentAdminUpdate(BaseModel):

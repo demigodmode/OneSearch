@@ -68,6 +68,7 @@ function SourceForm({
     source?.exclude_patterns?.join(', ') || ''
   )
   const [pathTestResult, setPathTestResult] = useState<SourcePathTestResponse | null>(null)
+  const [pathTestError, setPathTestError] = useState<string | null>(null)
   const testPathMutation = useTestSourcePath()
 
   // Schedule state
@@ -85,9 +86,13 @@ function SourceForm({
   const handleTestPath = () => {
     const candidate = rootPath.trim()
     if (!candidate) return
+    setPathTestError(null)
     testPathMutation.mutate({ root_path: candidate, location_type: locationType, agent_id: agentId || null }, {
       onSuccess: setPathTestResult,
-      onError: () => setPathTestResult(null),
+      onError: (requestError) => {
+        setPathTestResult(null)
+        setPathTestError(requestError instanceof Error ? requestError.message : 'Unable to validate this path.')
+      },
     })
   }
 
@@ -114,7 +119,8 @@ function SourceForm({
 
   const isEdit = !!source
   const selectedAgent = agents.find((agent) => agent.id === agentId)
-  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (locationType === 'agent' && !agentId) || (
+  const unchangedExistingRemote = source?.location_type === 'agent' && source.agent_id === agentId && source.root_path === rootPath
+  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (locationType === 'agent' && (!agentId || (!pathTestResult?.ok && !unchangedExistingRemote))) || (
     !useDefaultSchedule && scheduleConfig.schedule_type === 'interval' && !scheduleConfig.interval_value
   )
 
@@ -143,7 +149,7 @@ function SourceForm({
 
       <div className="space-y-2">
         {remoteAgentsEnabled && <div className="space-y-2"><Label>Location</Label><div className="flex gap-3 text-sm"><label><input type="radio" checked={locationType === 'local'} onChange={() => setLocationType('local')} /> Local</label><label><input type="radio" checked={locationType === 'agent'} onChange={() => setLocationType('agent')} /> Remote agent</label></div></div>}
-        {locationType === 'agent' ? <><Label htmlFor="agent">Approved agent</Label><select id="agent" value={agentId} onChange={(event) => { setAgentId(event.target.value); setRootPath(''); setProcessingMode('') }} className="w-full rounded-lg border border-border bg-background px-3 py-2"><option value="">Choose an approved agent</option>{agents.filter((agent) => ['online', 'offline'].includes(agent.status) && agent.approved_at).map((agent) => <option key={agent.id} value={agent.id}>{agent.name} ({agent.status})</option>)}</select><RemotePathPicker agent={selectedAgent} value={rootPath} onChange={(value) => { setRootPath(value); setPathTestResult(null) }} onTest={handleTestPath} result={pathTestResult} testing={testPathMutation.isPending} /><label className="block text-sm">Processing mode <select value={processingMode} onChange={(event) => setProcessingMode(event.target.value as ProcessingMode | '')} className="ml-2 rounded-lg border border-border bg-background px-2 py-1"><option value="">Inherit agent default ({selectedAgent?.default_processing_mode ?? '—'})</option><option value="on_agent">On agent</option><option value="on_server">On server</option></select></label></> : <>
+        {locationType === 'agent' ? <><Label htmlFor="agent">Approved agent</Label><select id="agent" value={agentId} onChange={(event) => { setAgentId(event.target.value); setRootPath(''); setProcessingMode(''); setPathTestError(null) }} className="w-full rounded-lg border border-border bg-background px-3 py-2"><option value="">Choose an approved agent</option>{agents.filter((agent) => agent.status === 'online' && agent.approved_at || (source?.agent_id === agent.id && agent.status === 'offline')).map((agent) => <option key={agent.id} value={agent.id}>{agent.name} ({agent.status})</option>)}</select><RemotePathPicker agent={selectedAgent} value={rootPath} onChange={(value) => { setRootPath(value); setPathTestResult(null); setPathTestError(null) }} onTest={handleTestPath} result={pathTestResult} testing={testPathMutation.isPending} />{pathTestError && <p className="text-xs text-destructive">{pathTestError}</p>}<label className="block text-sm">Processing mode <select value={processingMode} onChange={(event) => setProcessingMode(event.target.value as ProcessingMode | '')} className="ml-2 rounded-lg border border-border bg-background px-2 py-1"><option value="">Inherit agent default ({selectedAgent?.default_processing_mode ?? '—'})</option><option value="on_agent">On agent</option><option value="on_server">On server</option></select></label></> : <>
         <Label htmlFor="root_path">Root Path</Label>
         <Input
           id="root_path"

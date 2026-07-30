@@ -118,16 +118,19 @@ export interface SourcePathTestResponse {
 
 export type AgentStatus = 'pending' | 'online' | 'offline' | 'degraded' | 'disabled' | 'revoked'
 export type ProcessingMode = 'on_agent' | 'on_server'
-export interface DirectoryEntry { root_id: string; path: string; label?: string }
+export interface AllowedRoot { root_id: string; path: string; label?: string }
+export interface AgentAdminSummary { attached_sources: number; indexed_documents: number; pending_jobs: number; active_jobs: number; failed_jobs: number; earliest_next_scan_at: string | null }
+export interface AgentSourceSummary { id: string; name: string; root_path: string; next_scan_at: string | null }
+export interface AgentJobSummary { id: string; kind: string; status: string; source_id: string | null; created_at: string; completed_at: string | null; error: string | null }
 export interface Agent {
   id: string; name: string; platform: string; version: string; protocol_version: number
-  allowed_roots: DirectoryEntry[]; default_processing_mode: ProcessingMode; auto_update: boolean
+  allowed_roots: AllowedRoot[]; default_processing_mode: ProcessingMode; auto_update: boolean
   status: AgentStatus; approved_at: string | null; last_seen_at: string | null
   disabled_at: string | null; created_at: string; updated_at: string
+  summary: AgentAdminSummary
 }
-export type AgentDetails = Agent
+export interface AgentDetails extends Agent { sources: AgentSourceSummary[]; recent_jobs: AgentJobSummary[] }
 export interface AgentEnrollment { code: string; expires_at: string }
-export interface AgentJobSummary { queued: number; active: number; failed: number; indexed_documents: number }
 
 // ============================================================================
 // Search Types

@@ -197,7 +197,8 @@ def test_agent_list_and_detail_are_safe_and_admin_state_transitions_are_explicit
     listed = client.get("/api/agents")
     detail = client.get(f"/api/agents/{agent_id}")
     assert listed.status_code == detail.status_code == 200
-    assert listed.json() == [detail.json()]
+    assert listed.json()[0]["id"] == detail.json()["id"]
+    assert listed.json()[0]["summary"]["attached_sources"] == 0
     assert detail.json()["allowed_roots"][0]["root_id"] == "documents"
     assert "token_hash" not in detail.text
 
@@ -235,6 +236,32 @@ def test_admin_can_change_an_agents_default_processing_mode(client, db_session):
     assert response.status_code == 200, response.text
     assert response.json()["default_processing_mode"] == "on_server"
     assert db_session.get(Agent, agent_id).default_processing_mode == "on_server"
+
+
+def test_agent_detail_includes_safe_retained_documents_sources_and_job_summary(client, db_session):
+    from app.models import AgentJob, IndexedFile, Source
+
+    _enable(client)
+    enrolled = _enroll(client, _create_code(client)["code"]).json()
+    agent = db_session.get(Agent, enrolled["agent_id"])
+    agent.status = "offline"
+    agent.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    source = Source(id="detail-source", name="Detail source", root_path="/docs", location_type="agent", agent_id=agent.id)
+    db_session.add_all([
+        source,
+        IndexedFile(source_id=source.id, path="/docs/kept.pdf", status="success"),
+        AgentJob(id="detail-job", agent_id=agent.id, source_id=source.id, kind="scan", status="failed", payload="{}", error="disk unavailable"),
+    ])
+    db_session.commit()
+
+    response = client.get(f"/api/agents/{agent.id}")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["summary"] == {"attached_sources": 1, "indexed_documents": 1, "pending_jobs": 0, "active_jobs": 0, "failed_jobs": 1, "earliest_next_scan_at": None}
+    assert body["sources"] == [{"id": "detail-source", "name": "Detail source", "root_path": "/docs", "next_scan_at": None}]
+    assert body["recent_jobs"][0]["error"] == "disk unavailable"
+    assert "payload" not in response.text and "lease_token_hash" not in response.text
 
 
 def test_heartbeat_authenticates_pending_then_marks_approved_agent_online(
