@@ -8,6 +8,7 @@ const detailRefetch = vi.fn()
 const online = { id: 'online', name: 'Online agent', platform: 'linux', version: '1', protocol_version: 2, allowed_roots: [], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'online' as const, approved_at: null, last_seen_at: null, disabled_at: null, created_at: '', updated_at: '', summary: { attached_sources: 1, indexed_documents: 3, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null } }
 const offline = { ...online, id: 'offline', name: 'Offline agent', status: 'offline' as const, summary: { ...online.summary, indexed_documents: 7 } }
 const pending = { ...online, id: 'pending', name: 'Pending agent', status: 'pending' as const }
+const disabled = { ...online, id: 'disabled', name: 'Disabled agent', status: 'disabled' as const }
 let enabled = true
 let agentsState: { data: Agent[]; isLoading: boolean; error: Error | null } = { data: [online, offline, pending], isLoading: false, error: null }
 let enrollmentState: { data: { code: string; expires_at: string } | null; error: Error | null } = { data: null, error: null }
@@ -23,11 +24,11 @@ vi.mock('@/hooks/useApi', () => ({
 }))
 
 describe('AgentsPage user flows', () => {
-  beforeEach(() => { enabled = true; agentsState = { data: [online, offline, pending], isLoading: false, error: null }; enrollmentState = { data: null, error: null }; detailState = { data: null, isLoading: false, error: null }; vi.clearAllMocks(); detailRefetch.mockClear() })
+  beforeEach(() => { enabled = true; agentsState = { data: [online, offline, pending, disabled], isLoading: false, error: null }; enrollmentState = { data: null, error: null }; detailState = { data: null, isLoading: false, error: null }; vi.clearAllMocks(); detailRefetch.mockClear() })
   it('filters attention to pending and offline agents while showing retained documents', () => {
     render(<AgentsPage />)
     expect(screen.getByText('Remote documents')).toBeInTheDocument()
-    expect(screen.getByText('13')).toBeInTheDocument()
+    expect(screen.getByText('16')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Attention (2)' }))
     expect(screen.getAllByText('Offline agent')).toHaveLength(3)
     expect(screen.getAllByText('Pending agent')).toHaveLength(2)
@@ -85,5 +86,16 @@ describe('AgentsPage user flows', () => {
     detailState = { data: null, isLoading: false, error: new Error('detail unavailable') }
     view.rerender(<AgentsPage />)
     expect(screen.getByText('detail unavailable')).toBeInTheDocument()
+  })
+  it('enables a disabled agent from its detail and refreshes it after success', () => {
+    detailState = { data: { ...disabled, sources: [], recent_jobs: [] }, isLoading: false, error: null }
+    render(<AgentsPage />)
+    expect(screen.getAllByRole('button', { name: 'Enable agent' }).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getAllByText('Disabled agent')[0])
+    const enableButtons = screen.getAllByRole('button', { name: 'Enable agent' })
+    fireEvent.click(enableButtons[enableButtons.length - 1])
+    expect(hooks.approve).toHaveBeenLastCalledWith('disabled', expect.anything())
+    hooks.approve.mock.calls[hooks.approve.mock.calls.length - 1][1].onSuccess()
+    expect(detailRefetch).toHaveBeenCalled()
   })
 })

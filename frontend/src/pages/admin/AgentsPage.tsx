@@ -235,8 +235,12 @@ export default function AgentsPage() {
         <AgentDetails
           agent={detail.data}
           onClose={() => setSelectedId(null)}
-          onDisable={() => disable.mutate(selectedId)}
-          onRevoke={() => revoke.mutate(selectedId)}
+          onApprove={() => approve.mutate(selectedId, { onSuccess: () => detail.refetch() })}
+          approvalPending={approve.isPending}
+          actionPending={disable.isPending || revoke.isPending}
+          modePending={mode.isPending}
+          onDisable={() => disable.mutate(selectedId, { onSuccess: () => detail.refetch() })}
+          onRevoke={() => revoke.mutate(selectedId, { onSuccess: () => setSelectedId(null) })}
           onMode={(selectedMode) =>
             mode.mutate(
               { id: selectedId, mode: selectedMode },
