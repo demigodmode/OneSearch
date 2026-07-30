@@ -477,3 +477,9 @@ def test_protocol_compatibility_rejects_contradictory_json_input():
 def test_protocol_version_range_rejects_reversed_bounds():
     with pytest.raises(ValidationError, match="maximum_version"):
         ProtocolVersionRange(minimum_version=2, maximum_version=1)
+
+
+def test_job_completion_bounds_untrusted_detail():
+    assert JobCompletion(job_id="job", status=JobStatus.FAILED, detail="x" * 2048).detail
+    with pytest.raises(ValidationError):
+        JobCompletion(job_id="job", status=JobStatus.FAILED, detail="x" * 2049)

@@ -246,37 +246,87 @@ def test_agent_detail_includes_safe_retained_documents_sources_and_job_summary(c
     agent = db_session.get(Agent, enrolled["agent_id"])
     agent.status = "offline"
     agent.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    source = Source(id="detail-source", name="Detail source", root_path="/docs", location_type="agent", agent_id=agent.id)
-    db_session.add_all([
-        source,
-        IndexedFile(source_id=source.id, path="/docs/kept.pdf", status="success"),
-        AgentJob(id="detail-job", agent_id=agent.id, source_id=source.id, kind="scan", status="failed", payload="{}", error="disk unavailable"),
-    ])
+    source = Source(
+        id="detail-source",
+        name="Detail source",
+        root_path="/docs",
+        location_type="agent",
+        agent_id=agent.id,
+    )
+    db_session.add_all(
+        [
+            source,
+            IndexedFile(source_id=source.id, path="/docs/kept.pdf", status="success"),
+            AgentJob(
+                id="detail-job",
+                agent_id=agent.id,
+                source_id=source.id,
+                kind="scan",
+                status="failed",
+                payload="{}",
+                error="/private/path token=secret " + "x" * 3000,
+            ),
+        ]
+    )
     db_session.commit()
 
     response = client.get(f"/api/agents/{agent.id}")
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["summary"] == {"attached_sources": 1, "indexed_documents": 1, "pending_jobs": 0, "active_jobs": 0, "failed_jobs": 1, "earliest_next_scan_at": None}
-    assert body["sources"] == [{"id": "detail-source", "name": "Detail source", "root_path": "/docs", "next_scan_at": None}]
-    assert body["recent_jobs"][0]["error"] == "disk unavailable"
+    assert body["summary"] == {
+        "attached_sources": 1,
+        "indexed_documents": 1,
+        "pending_jobs": 0,
+        "active_jobs": 0,
+        "failed_jobs": 1,
+        "earliest_next_scan_at": None,
+    }
+    assert body["sources"] == [
+        {"id": "detail-source", "name": "Detail source", "root_path": "/docs", "next_scan_at": None}
+    ]
+    assert body["recent_jobs"][0]["error"] == "Scan job failed"
+    assert "/private/path" not in response.text and "secret" not in response.text
+    assert len(response.content) < 10000
     assert "payload" not in response.text and "lease_token_hash" not in response.text
 
 
 def test_agent_list_uses_constant_query_summary_aggregates(client, db_session):
     agents = [
-        Agent(id=f"summary-{index}", name=f"Agent {index}", platform="linux", version="1", protocol_version=1, allowed_roots="[]", status="offline")
+        Agent(
+            id=f"summary-{index}",
+            name=f"Agent {index}",
+            platform="linux",
+            version="1",
+            protocol_version=1,
+            allowed_roots="[]",
+            status="offline",
+        )
         for index in range(25)
     ]
     db_session.add_all(agents)
     db_session.flush()
-    source = Source(id="summary-source", name="Summary", root_path="/docs", location_type="agent", agent_id=agents[0].id)
-    db_session.add_all([source, IndexedFile(source_id=source.id, path="ok", status="success"), IndexedFile(source_id=source.id, path="failed", status="failed"), IndexedFile(source_id=source.id, path="skipped", status="skipped")])
+    source = Source(
+        id="summary-source",
+        name="Summary",
+        root_path="/docs",
+        location_type="agent",
+        agent_id=agents[0].id,
+    )
+    db_session.add_all(
+        [
+            source,
+            IndexedFile(source_id=source.id, path="ok", status="success"),
+            IndexedFile(source_id=source.id, path="failed", status="failed"),
+            IndexedFile(source_id=source.id, path="skipped", status="skipped"),
+        ]
+    )
     db_session.commit()
     statements = []
+
     def listener(conn, cursor, statement, parameters, context, executemany):
         statements.append(statement)
+
     event.listen(db_session.get_bind(), "before_cursor_execute", listener)
     try:
         response = client.get("/api/agents")

@@ -136,7 +136,9 @@ def _detail_response(agent: Agent, db: Session) -> AgentAdminDetails:
                 source_id=job.source_id,
                 created_at=job.created_at,
                 completed_at=job.completed_at,
-                error=job.error,
+                error=f"{job.kind.capitalize()} job failed"
+                if job.status == "failed" and job.error
+                else None,
             )
             for job in jobs[:10]
         ],

@@ -259,7 +259,7 @@ class JobCompletion(WireModel):
     job_id: str = Field(min_length=1)
     status: JobStatus
     reason: JobFailureReason | None = None
-    detail: str | None = None
+    detail: str | None = Field(default=None, max_length=2048)
     checkpoint: ScanCheckpoint | None = None
 
     @field_validator("status", mode="before")
