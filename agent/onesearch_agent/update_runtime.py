@@ -8,11 +8,15 @@ import sys
 from pathlib import Path
 
 from .update import UpdateError, UpdateManager
-from .updater import _durable_write
+from .updater import _durable_write, _safe_ancestry
 from .updater_cli import launch
 
 
 def _regular_native(path: Path) -> bool:
+    try:
+        _safe_ancestry(path)
+    except UpdateError:
+        return False
     return (
         path.is_file()
         and not path.is_symlink()

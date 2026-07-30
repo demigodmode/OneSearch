@@ -7,6 +7,17 @@ from unittest.mock import Mock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def disable_live_failure_policy(monkeypatch, request):
+    """Service-install unit tests never touch the host SCM."""
+    if request.node.name.startswith("test_failure_"):
+        return
+    module = importlib.import_module("onesearch_agent.windows_service")
+    monkeypatch.setattr(module, "_snapshot_failure_actions", lambda: None, raising=False)
+    monkeypatch.setattr(module, "_configure_failure_actions", lambda: None, raising=False)
+    monkeypatch.setattr(module, "_restore_failure_actions", lambda value: None, raising=False)
+
+
 def test_windows_service_module_import_is_lazy_off_windows():
     module = importlib.import_module("onesearch_agent.windows_service")
     assert module.OneSearchAgentService.__module__ == "onesearch_agent.windows_service"
@@ -325,6 +336,103 @@ def test_install_query_error_mutates_nothing(monkeypatch):
     with pytest.raises(RuntimeError):
         module.install_service("config", "secret")
     assert calls == []
+
+
+def test_failure_actions_restart_with_bounded_delays_and_close_handles(monkeypatch):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    calls = []
+    service = SimpleNamespace(
+        SC_MANAGER_CONNECT=1,
+        SERVICE_CHANGE_CONFIG=2,
+        SERVICE_QUERY_CONFIG=4,
+        SERVICE_CONFIG_FAILURE_ACTIONS=5,
+        SC_ACTION_RESTART=1,
+        OpenSCManager=lambda machine, database, access: calls.append(("manager", access)) or "scm",
+        OpenService=lambda scm, name, access: calls.append(("service", name, access)) or "service",
+        ChangeServiceConfig2=lambda handle, level, value: calls.append(
+            ("change", handle, level, value)
+        ),
+        CloseServiceHandle=lambda handle: calls.append(("close", handle)),
+    )
+    monkeypatch.setattr(module, "win32service", service)
+
+    module._configure_failure_actions()
+
+    assert calls == [
+        ("manager", 1),
+        ("service", "OneSearchAgent", 2),
+        (
+            "change",
+            "service",
+            5,
+            {
+                "ResetPeriod": 86400,
+                "RebootMsg": None,
+                "Command": None,
+                "Actions": ((1, 5000), (1, 15000), (1, 60000)),
+            },
+        ),
+        ("close", "service"),
+        ("close", "scm"),
+    ]
+
+
+def test_failure_policy_error_removes_new_service_and_restores_existing_policy(monkeypatch):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    calls = []
+    snapshot = {"ResetPeriod": 123, "RebootMsg": None, "Command": None, "Actions": ((1, 999),)}
+    monkeypatch.setattr(
+        module,
+        "win32serviceutil",
+        SimpleNamespace(
+            HandleCommandLine=lambda *args, **kwargs: calls.append(kwargs["argv"][-1]) or 0
+        ),
+    )
+    monkeypatch.setattr(module, "_service_state", lambda: 4)
+    monkeypatch.setattr(module, "_snapshot_parameters", lambda: {"old": 1})
+    monkeypatch.setattr(module, "persist_config", lambda value: calls.append("config"))
+    monkeypatch.setattr(module, "persist_machine_credential", lambda value: calls.append("token"))
+    monkeypatch.setattr(
+        module, "_restore_parameters", lambda value: calls.append(("parameters", value))
+    )
+    monkeypatch.setattr(module, "_snapshot_failure_actions", lambda: snapshot)
+    monkeypatch.setattr(
+        module,
+        "_configure_failure_actions",
+        lambda: (_ for _ in ()).throw(OSError("policy failure")),
+    )
+    monkeypatch.setattr(
+        module, "_restore_failure_actions", lambda value: calls.append(("policy", value))
+    )
+
+    with pytest.raises(RuntimeError, match="installation failed"):
+        module.install_service("config", "secret")
+
+    assert calls == ["config", "token", "install", ("policy", snapshot), ("parameters", {"old": 1})]
+    assert all("secret" not in str(item) for item in calls)
+
+
+def test_successful_install_configures_failure_actions_before_start(monkeypatch):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    calls = []
+    monkeypatch.setattr(
+        module,
+        "win32serviceutil",
+        SimpleNamespace(
+            HandleCommandLine=lambda *args, **kwargs: calls.append(kwargs["argv"][-1]) or 0
+        ),
+    )
+    monkeypatch.setattr(module, "_service_state", lambda: None)
+    monkeypatch.setattr(module, "_snapshot_parameters", lambda: {})
+    monkeypatch.setattr(module, "persist_config", lambda value: calls.append("config"))
+    monkeypatch.setattr(module, "persist_machine_credential", lambda value: calls.append("token"))
+    monkeypatch.setattr(
+        module, "_configure_failure_actions", lambda: calls.append("failure-actions")
+    )
+
+    module.install_service("config", "secret")
+
+    assert calls == ["config", "token", "install", "failure-actions", "start"]
 
 
 @pytest.mark.parametrize("stop_result", [None, 0, 1062])

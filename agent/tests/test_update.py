@@ -152,6 +152,31 @@ def test_native_update_layout_requires_fixed_frozen_siblings(monkeypatch, tmp_pa
     assert native_update_layout(agent) is None
 
 
+def test_native_update_paths_reject_a_linked_install_parent(monkeypatch, tmp_path):
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    linked = tmp_path / "linked"
+    try:
+        linked.symlink_to(actual, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"symlink creation is unavailable: {error}")
+    suffix = ".exe" if sys.platform == "win32" else ""
+    agent = actual / ("onesearch-agent" + suffix)
+    helper = actual / ("onesearch-agent-updater" + suffix)
+    agent.write_bytes(b"agent")
+    helper.write_bytes(b"helper")
+    monkeypatch.setattr("onesearch_agent.update_runtime.sys.frozen", True, raising=False)
+
+    with pytest.raises(UpdateError, match="symlink|reparse"):
+        UpdateTransaction.create(
+            state_dir=tmp_path / "state",
+            current_binary=linked / agent.name,
+            artifact=b"new",
+            version="1.4.0",
+        )
+    assert native_update_layout(linked / agent.name) is None
+
+
 def test_helper_recovers_crash_after_backup_move_while_stopping(tmp_path):
     current = tmp_path / "onesearch-agent"
     current.write_bytes(b"old")

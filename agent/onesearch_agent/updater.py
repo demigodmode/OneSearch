@@ -85,6 +85,7 @@ class UpdateTransaction:
     def create(cls, *, state_dir: Path, current_binary: Path, artifact: bytes, version: str):
         _validate_version(version)
         state_dir = _safe_directory(state_dir, create=True)
+        _safe_ancestry(current_binary)
         _regular(current_binary)
         current_binary = current_binary.absolute().resolve()
         updates = _safe_directory(state_dir / "updates", create=True)

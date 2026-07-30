@@ -18,6 +18,8 @@ except ImportError:  # keep package imports safe on Linux
 CONFIG_VALUE = "ConfigPath"
 TOKEN_VALUE = "MachineCredential"
 _MISSING = object()
+FAILURE_ACTION_RESET_SECONDS = 86400
+FAILURE_ACTION_DELAYS_MS = (5000, 15000, 60000)
 
 
 def _parameters_key():
@@ -183,13 +185,81 @@ def _service_state():
         raise RuntimeError("unable to query Windows service state") from error
 
 
+def _failure_action_value():
+    return {
+        "ResetPeriod": FAILURE_ACTION_RESET_SECONDS,
+        "RebootMsg": None,
+        "Command": None,
+        "Actions": tuple(
+            (win32service.SC_ACTION_RESTART, delay) for delay in FAILURE_ACTION_DELAYS_MS
+        ),
+    }
+
+
+def _failure_action_service(access):
+    manager = service = None
+    try:
+        manager = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+        service = win32service.OpenService(manager, OneSearchAgentService._svc_name_, access)
+        return manager, service
+    except Exception:
+        if service is not None:
+            win32service.CloseServiceHandle(service)
+        if manager is not None:
+            win32service.CloseServiceHandle(manager)
+        raise
+
+
+def _close_failure_action_handles(manager, service) -> None:
+    if service is not None:
+        win32service.CloseServiceHandle(service)
+    if manager is not None:
+        win32service.CloseServiceHandle(manager)
+
+
+def _snapshot_failure_actions():
+    """Read the exact SCM policy so an existing service can be restored."""
+    manager = service = None
+    try:
+        manager, service = _failure_action_service(win32service.SERVICE_QUERY_CONFIG)
+        return win32service.QueryServiceConfig2(
+            service, win32service.SERVICE_CONFIG_FAILURE_ACTIONS
+        )
+    finally:
+        _close_failure_action_handles(manager, service)
+
+
+def _configure_failure_actions() -> None:
+    manager = service = None
+    try:
+        manager, service = _failure_action_service(win32service.SERVICE_CHANGE_CONFIG)
+        win32service.ChangeServiceConfig2(
+            service, win32service.SERVICE_CONFIG_FAILURE_ACTIONS, _failure_action_value()
+        )
+    finally:
+        _close_failure_action_handles(manager, service)
+
+
+def _restore_failure_actions(snapshot) -> None:
+    manager = service = None
+    try:
+        manager, service = _failure_action_service(win32service.SERVICE_CHANGE_CONFIG)
+        win32service.ChangeServiceConfig2(
+            service, win32service.SERVICE_CONFIG_FAILURE_ACTIONS, snapshot
+        )
+    finally:
+        _close_failure_action_handles(manager, service)
+
+
 def install_service(config: str, token: str) -> None:
     """Stage protected state, install, and start with rollback on failure."""
     if win32serviceutil is None:
         raise RuntimeError("pywin32 is required for the Windows service")
     existed_before = _service_state() is not None
+    failure_snapshot = _snapshot_failure_actions() if existed_before else None
     snapshot = _snapshot_parameters()
     installed = False
+    failure_actions_attempted = False
     try:
         persist_config(config)
         persist_machine_credential(token)
@@ -199,10 +269,18 @@ def install_service(config: str, token: str) -> None:
         if not _command_succeeded(result):
             raise RuntimeError("Windows service command failed")
         installed = True
+        failure_actions_attempted = True
+        _configure_failure_actions()
         start_result = _service_command("start")
         if not _command_succeeded(start_result) and start_result != 1056:
             raise RuntimeError("Windows service start failed")
     except Exception as error:
+        policy_rollback_error = None
+        if existed_before and failure_actions_attempted:
+            try:
+                _restore_failure_actions(failure_snapshot)
+            except Exception as restore_error:
+                policy_rollback_error = restore_error
         if installed and not existed_before:
             try:
                 if not _command_succeeded(_service_command("remove")):
@@ -212,6 +290,10 @@ def install_service(config: str, token: str) -> None:
                     "Windows service start failed; service remains installed with protected credentials"
                 ) from rollback_error
         _restore_parameters(snapshot)
+        if policy_rollback_error is not None:
+            raise RuntimeError(
+                "Windows service failure policy rollback failed"
+            ) from policy_rollback_error
         raise RuntimeError("Windows service installation failed") from error
 
 
