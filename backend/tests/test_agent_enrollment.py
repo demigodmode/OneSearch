@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Agent, AgentEnrollment, AgentJob, Base, IndexedFile, Source, User
@@ -262,6 +262,31 @@ def test_agent_detail_includes_safe_retained_documents_sources_and_job_summary(c
     assert body["sources"] == [{"id": "detail-source", "name": "Detail source", "root_path": "/docs", "next_scan_at": None}]
     assert body["recent_jobs"][0]["error"] == "disk unavailable"
     assert "payload" not in response.text and "lease_token_hash" not in response.text
+
+
+def test_agent_list_uses_constant_query_summary_aggregates(client, db_session):
+    agents = [
+        Agent(id=f"summary-{index}", name=f"Agent {index}", platform="linux", version="1", protocol_version=1, allowed_roots="[]", status="offline")
+        for index in range(25)
+    ]
+    db_session.add_all(agents)
+    db_session.flush()
+    source = Source(id="summary-source", name="Summary", root_path="/docs", location_type="agent", agent_id=agents[0].id)
+    db_session.add_all([source, IndexedFile(source_id=source.id, path="ok", status="success"), IndexedFile(source_id=source.id, path="failed", status="failed"), IndexedFile(source_id=source.id, path="skipped", status="skipped")])
+    db_session.commit()
+    statements = []
+    def listener(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+    event.listen(db_session.get_bind(), "before_cursor_execute", listener)
+    try:
+        response = client.get("/api/agents")
+    finally:
+        event.remove(db_session.get_bind(), "before_cursor_execute", listener)
+    assert response.status_code == 200
+    assert len(statements) <= 6  # auth, list, and three grouped aggregate queries
+    first = next(item for item in response.json() if item["id"] == agents[0].id)
+    assert first["summary"]["attached_sources"] == 1
+    assert first["summary"]["indexed_documents"] == 1
 
 
 def test_heartbeat_authenticates_pending_then_marks_approved_agent_online(

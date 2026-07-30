@@ -37,15 +37,53 @@ def _utcnow() -> datetime:
 
 
 def _summaries(agent_ids: list[str], db: Session) -> dict[str, AgentAdminSummary]:
-    summaries = {agent_id: AgentAdminSummary(attached_sources=0, indexed_documents=0, pending_jobs=0, active_jobs=0, failed_jobs=0, earliest_next_scan_at=None) for agent_id in agent_ids}
+    summaries = {
+        agent_id: AgentAdminSummary(
+            attached_sources=0,
+            indexed_documents=0,
+            pending_jobs=0,
+            active_jobs=0,
+            failed_jobs=0,
+            earliest_next_scan_at=None,
+        )
+        for agent_id in agent_ids
+    }
     if not agent_ids:
         return summaries
-    for agent_id, source_count, earliest in db.query(Source.agent_id, func.count(Source.id), func.min(Source.next_scan_at)).filter(Source.agent_id.in_(agent_ids)).group_by(Source.agent_id):
-        summaries[agent_id] = summaries[agent_id].model_copy(update={'attached_sources': source_count, 'earliest_next_scan_at': earliest})
-    for agent_id, document_count in db.query(Source.agent_id, func.count(IndexedFile.id)).join(IndexedFile, IndexedFile.source_id == Source.id).filter(Source.agent_id.in_(agent_ids), IndexedFile.status == 'success').group_by(Source.agent_id):
-        summaries[agent_id] = summaries[agent_id].model_copy(update={'indexed_documents': document_count})
-    for agent_id, pending, active, failed in db.query(AgentJob.agent_id, func.sum(case((AgentJob.status == 'pending', 1), else_=0)), func.sum(case((AgentJob.status.in_(['claimed', 'running', 'cancelling']), 1), else_=0)), func.sum(case((AgentJob.status == 'failed', 1), else_=0))).filter(AgentJob.agent_id.in_(agent_ids)).group_by(AgentJob.agent_id):
-        summaries[agent_id] = summaries[agent_id].model_copy(update={'pending_jobs': pending or 0, 'active_jobs': active or 0, 'failed_jobs': failed or 0})
+    for agent_id, source_count, earliest in (
+        db.query(Source.agent_id, func.count(Source.id), func.min(Source.next_scan_at))
+        .filter(Source.agent_id.in_(agent_ids))
+        .group_by(Source.agent_id)
+    ):
+        summaries[agent_id] = summaries[agent_id].model_copy(
+            update={"attached_sources": source_count, "earliest_next_scan_at": earliest}
+        )
+    for agent_id, document_count in (
+        db.query(Source.agent_id, func.count(IndexedFile.id))
+        .join(IndexedFile, IndexedFile.source_id == Source.id)
+        .filter(Source.agent_id.in_(agent_ids), IndexedFile.status == "success")
+        .group_by(Source.agent_id)
+    ):
+        summaries[agent_id] = summaries[agent_id].model_copy(
+            update={"indexed_documents": document_count}
+        )
+    for agent_id, pending, active, failed in (
+        db.query(
+            AgentJob.agent_id,
+            func.sum(case((AgentJob.status == "pending", 1), else_=0)),
+            func.sum(case((AgentJob.status.in_(["claimed", "running", "cancelling"]), 1), else_=0)),
+            func.sum(case((AgentJob.status == "failed", 1), else_=0)),
+        )
+        .filter(AgentJob.agent_id.in_(agent_ids))
+        .group_by(AgentJob.agent_id)
+    ):
+        summaries[agent_id] = summaries[agent_id].model_copy(
+            update={
+                "pending_jobs": pending or 0,
+                "active_jobs": active or 0,
+                "failed_jobs": failed or 0,
+            }
+        )
     return summaries
 
 
@@ -71,12 +109,37 @@ def _response(agent: Agent, summary: AgentAdminSummary) -> AgentAdminResponse:
 
 def _detail_response(agent: Agent, db: Session) -> AgentAdminDetails:
     sources = db.query(Source).filter(Source.agent_id == agent.id).order_by(Source.name).all()
-    jobs = db.query(AgentJob).filter(AgentJob.agent_id == agent.id).order_by(AgentJob.created_at.desc()).limit(10).all()
+    jobs = (
+        db.query(AgentJob)
+        .filter(AgentJob.agent_id == agent.id)
+        .order_by(AgentJob.created_at.desc())
+        .limit(10)
+        .all()
+    )
     base = _response(agent, _summaries([agent.id], db)[agent.id]).model_dump()
     return AgentAdminDetails(
         **base,
-        sources=[AgentSourceSummary(id=source.id, name=source.name, root_path=source.root_path, next_scan_at=source.next_scan_at) for source in sources],
-        recent_jobs=[AgentJobSummary(id=job.id, kind=job.kind, status=job.status, source_id=job.source_id, created_at=job.created_at, completed_at=job.completed_at, error=job.error) for job in jobs[:10]],
+        sources=[
+            AgentSourceSummary(
+                id=source.id,
+                name=source.name,
+                root_path=source.root_path,
+                next_scan_at=source.next_scan_at,
+            )
+            for source in sources
+        ],
+        recent_jobs=[
+            AgentJobSummary(
+                id=job.id,
+                kind=job.kind,
+                status=job.status,
+                source_id=job.source_id,
+                created_at=job.created_at,
+                completed_at=job.completed_at,
+                error=job.error,
+            )
+            for job in jobs[:10]
+        ],
     )
 
 
