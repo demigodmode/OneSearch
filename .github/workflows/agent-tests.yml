@@ -7,12 +7,20 @@ on:
       - "shared/**"
       - "backend/**"
       - ".github/workflows/agent-tests.yml"
+      - ".github/workflows/agent-release.yml"
       - "agent/Dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
   push:
     branches: [main, feat/remote-indexing-agents]
     paths:
       - "agent/**"
       - "shared/**"
+      - "backend/**"
+      - ".github/workflows/agent-tests.yml"
+      - ".github/workflows/agent-release.yml"
+      - "pyproject.toml"
+      - "uv.lock"
 
 jobs:
   test:

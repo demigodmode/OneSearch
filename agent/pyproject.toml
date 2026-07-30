@@ -27,4 +27,4 @@ build-backend = "hatchling.build"
 packages = ["onesearch_agent"]
 
 [tool.hatch.build]
-include = ["onesearch_agent/release_public_key.txt"]
+include = ["onesearch_agent/release_public_key.txt", "onesearch_agent/onesearch-agent.service"]

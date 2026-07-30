@@ -1,10 +1,11 @@
 import asyncio
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
 from onesearch_agent.client import AgentDisabled, AgentPending, AgentRevoked
 from onesearch_agent.runtime import run_runtime
-from onesearch_agent.service import ServiceError, _systemd_arg, install, uninstall
+from onesearch_agent.service import ServiceError, _packaged_unit, _systemd_arg, install, uninstall
 
 
 class PendingClient:
@@ -235,3 +236,9 @@ def test_linux_service_installs_hardened_packaged_unit(monkeypatch, tmp_path: Pa
     install(tmp_path / "config.toml", "/opt/agent", system="posix", home=tmp_path)
     unit = (tmp_path / ".config/systemd/user/onesearch-agent.service").read_text()
     assert "NoNewPrivileges=yes" in unit and "RestartSec=5s" in unit
+
+
+def test_packaged_unit_uses_resource_matching_authoritative_template(tmp_path: Path):
+    authoritative = Path("agent/packaging/onesearch-agent.service").read_text()
+    assert files("onesearch_agent").joinpath("onesearch-agent.service").read_text() == authoritative
+    assert "ExecStart=" in _packaged_unit(tmp_path / "config.toml", "/opt/agent")

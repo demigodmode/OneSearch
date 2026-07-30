@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import unicodedata
+from importlib.resources import files
 from pathlib import Path
 
 from .config import load_config
@@ -38,7 +39,7 @@ def _run(args):
 
 
 def _packaged_unit(config: Path, executable: str) -> str:
-    template = (Path(__file__).parent.parent / "packaging" / "onesearch-agent.service").read_text()
+    template = files("onesearch_agent").joinpath("onesearch-agent.service").read_text()
     command = f"{_systemd_arg(executable)} -m onesearch_agent.cli --config {_systemd_arg(str(config))} run"
     return template.replace("@EXEC_START@", command)
 
