@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { SourceForm } from './SourcesPage'
+import { ApiError } from '@/lib/api'
 
 const testPath = vi.fn()
 vi.mock('@/hooks/useApi', async () => {
@@ -31,6 +32,55 @@ describe('SourceForm remote source flow', () => {
     render(<SourceForm remoteAgentsEnabled={false} agents={[agent]} defaultSchedule={null} onSubmit={vi.fn()} onCancel={vi.fn()} isLoading={false} />)
     expect(screen.queryByLabelText('Remote agent')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Root Path')).toBeInTheDocument()
+  })
+
+  it('shows the offline response from remote validation', () => {
+    render(<SourceForm remoteAgentsEnabled agents={[agent]} defaultSchedule={null} onSubmit={vi.fn()} onCancel={vi.fn()} isLoading={false} />)
+    fireEvent.click(screen.getByLabelText('Remote agent'))
+    fireEvent.change(screen.getByLabelText('Approved agent'), { target: { value: 'agent-1' } })
+    fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/srv/docs' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Browse / test path' }))
+    act(() => testPath.mock.calls[testPath.mock.calls.length - 1][1].onError(new ApiError('agent_offline', 409, 'agent_offline')))
+    expect(screen.getByText('agent_offline')).toBeInTheDocument()
+  })
+
+  it('shows the backend allowed-root validation message', () => {
+    render(<SourceForm remoteAgentsEnabled agents={[agent]} defaultSchedule={null} onSubmit={vi.fn()} onCancel={vi.fn()} isLoading={false} />)
+    fireEvent.click(screen.getByLabelText('Remote agent'))
+    fireEvent.change(screen.getByLabelText('Approved agent'), { target: { value: 'agent-1' } })
+    fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/outside' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Browse / test path' }))
+    act(() => testPath.mock.calls[testPath.mock.calls.length - 1][1].onError(new ApiError('path is outside allowed roots', 422, 'path is outside allowed roots')))
+    expect(screen.getByText('path is outside allowed roots')).toBeInTheDocument()
+  })
+
+  it('keeps global scheduling and agent ownership when a remote source follows the default', () => {
+    const submit = vi.fn()
+    render(<SourceForm remoteAgentsEnabled agents={[agent]} defaultSchedule={{ schedule_type: 'cron', scan_schedule: '@daily' }} onSubmit={submit} onCancel={vi.fn()} isLoading={false} />)
+    fireEvent.click(screen.getByLabelText('Remote agent'))
+    fireEvent.change(screen.getByLabelText('Approved agent'), { target: { value: 'agent-1' } })
+    fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/srv/docs' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Browse / test path' }))
+    testPath.mock.calls[testPath.mock.calls.length - 1][1].onSuccess({ ok: false, status: 'pending', message: 'Queued', path: '/srv/docs', exists: false, is_directory: false, readable: false, inside_allowed_roots: true, allowed_roots: ['/srv/docs'], looks_like_host_path: false })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Remote docs' } })
+    expect(screen.getByLabelText('Use global default')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Use global default'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Source' }))
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({ agent_id: 'agent-1', location_type: 'agent', use_default_schedule: true, schedule_type: 'cron', scan_schedule: null }))
+  })
+
+  it('supports a processing override and returning to inherited mode', () => {
+    const submit = vi.fn()
+    const source = { id: 'remote-source', name: 'Remote docs', root_path: '/srv/docs', location_type: 'agent' as const, agent_id: 'agent-1', processing_mode: null, created_at: '', updated_at: '' }
+    const view = render(<SourceForm source={source} remoteAgentsEnabled agents={[agent]} defaultSchedule={null} onSubmit={submit} onCancel={vi.fn()} isLoading={false} />)
+    fireEvent.change(screen.getByLabelText('Processing mode'), { target: { value: 'on_server' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({ processing_mode: 'on_server', agent_id: 'agent-1', root_path: '/srv/docs' }))
+    view.unmount(); submit.mockClear()
+    render(<SourceForm source={{ ...source, processing_mode: 'on_server' }} remoteAgentsEnabled agents={[agent]} defaultSchedule={null} onSubmit={submit} onCancel={vi.fn()} isLoading={false} />)
+    fireEvent.change(screen.getByLabelText('Processing mode'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({ processing_mode: null, agent_id: 'agent-1', root_path: '/srv/docs' }))
   })
 
   it('preserves a disabled remote binding while submitting a maintenance-only edit', () => {
