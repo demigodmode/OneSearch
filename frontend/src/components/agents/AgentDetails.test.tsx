@@ -13,4 +13,21 @@ describe('AgentDetails', () => {
     expect(screen.getByText('/Volumes/Media')).toBeInTheDocument()
     expect(screen.getByText('No attached sources.')).toBeInTheDocument()
   })
+
+  it('shows Enable instead of Disable for a disabled agent and locks actions while saving', () => {
+    const onApprove = vi.fn()
+    render(<AgentDetails agent={{ ...agent, status: 'disabled' }} onClose={vi.fn()} onApprove={onApprove} approvalPending={false} actionPending={false} modePending={false} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Enable agent' }))
+    expect(onApprove).toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Disable credential' })).not.toBeInTheDocument()
+  })
+
+  it('locks duplicate disabled-agent recovery and processing updates while pending', () => {
+    const onApprove = vi.fn()
+    render(<AgentDetails agent={{ ...agent, status: 'disabled' }} onClose={vi.fn()} onApprove={onApprove} approvalPending actionPending={false} modePending={false} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'Enabling…' })).toBeDisabled()
+    expect(screen.getByLabelText('Default processing mode')).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Enabling…' }))
+    expect(onApprove).not.toHaveBeenCalled()
+  })
 })

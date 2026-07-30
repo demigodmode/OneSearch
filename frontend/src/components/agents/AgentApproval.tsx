@@ -10,10 +10,12 @@ export function AgentApproval({
   onApprove: () => void
   pending: boolean
 }) {
-  if (agent.status !== 'pending') return null
+  if (agent.status !== 'pending' && agent.status !== 'disabled') return null
+
+  const label = agent.status === 'disabled' ? 'Enable agent' : 'Approve agent'
   return (
     <Button size="sm" onClick={onApprove} disabled={pending}>
-      Approve agent
+      {pending ? `${agent.status === 'disabled' ? 'Enabling' : 'Approving'}…` : label}
     </Button>
   )
 }

@@ -7,12 +7,20 @@ import type {
 export function AgentDetails({
   agent,
   onClose,
+  onApprove,
+  approvalPending = false,
+  actionPending = false,
+  modePending = false,
   onDisable,
   onRevoke,
   onMode,
 }: {
   agent: AgentDetailsModel
   onClose: () => void
+  onApprove?: () => void
+  approvalPending?: boolean
+  actionPending?: boolean
+  modePending?: boolean
   onDisable: () => void
   onRevoke: () => void
   onMode: (mode: ProcessingMode) => void
@@ -66,6 +74,7 @@ export function AgentDetails({
       <label className="block text-sm">
         Default processing mode
         <select
+          disabled={approvalPending || actionPending || modePending}
           value={agent.default_processing_mode}
           onChange={(event) => onMode(event.target.value as ProcessingMode)}
           className="mt-1 block rounded-lg border border-border bg-background px-2 py-1"
@@ -92,12 +101,27 @@ export function AgentDetails({
           <p className="text-sm text-muted-foreground">No recent jobs.</p>
         )}
       </div>
-      {agent.status !== 'revoked' && (
+      {(agent.status === 'pending' || agent.status === 'disabled') && onApprove && (
+        <Button
+          size="sm"
+          onClick={onApprove}
+          disabled={approvalPending || actionPending}
+        >
+          {approvalPending
+            ? agent.status === 'disabled'
+              ? 'Enabling…'
+              : 'Approving…'
+            : agent.status === 'disabled'
+              ? 'Enable agent'
+              : 'Approve agent'}
+        </Button>
+      )}
+      {!['pending', 'disabled', 'revoked'].includes(agent.status) && (
         <div className="flex gap-2">
-          <Button size="sm" variant="secondary" onClick={onDisable}>
+          <Button size="sm" variant="secondary" onClick={onDisable} disabled={actionPending || modePending}>
             Disable credential
           </Button>
-          <Button size="sm" variant="destructive" onClick={onRevoke}>
+          <Button size="sm" variant="destructive" onClick={onRevoke} disabled={actionPending || modePending}>
             Revoke credential
           </Button>
         </div>
