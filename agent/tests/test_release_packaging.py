@@ -81,4 +81,6 @@ def test_produced_manifest_is_accepted_by_update_manager(tmp_path: Path):
 def test_windows_frozen_entry_dispatches_only_no_cli_invocations_to_scm():
     assert should_launch_windows_service("win32", [])
     assert not should_launch_windows_service("win32", ["run"])
+    assert not should_launch_windows_service("win32", ["--help"])
+    assert not should_launch_windows_service("win32", ["unknown"])
     assert not should_launch_windows_service("linux", [])

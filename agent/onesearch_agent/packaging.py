@@ -20,8 +20,7 @@ _TARGETS = {
 
 def should_launch_windows_service(platform: str, argv: list[str]) -> bool:
     """SCM starts the frozen Windows binary without a Click subcommand."""
-    commands = {"run", "enroll", "config", "update", "service"}
-    return platform == "win32" and not any(argument in commands for argument in argv)
+    return platform == "win32" and not argv
 
 
 def artifact_name(version: str, platform: str, *, updater: bool = False) -> str:
