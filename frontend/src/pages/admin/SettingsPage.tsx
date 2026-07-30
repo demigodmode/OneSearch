@@ -12,7 +12,7 @@ import type { AppSettings, ScheduleConfig } from '@/types/api'
 import { cn } from '@/lib/utils'
 import { SchedulePicker, formatScheduleConfig } from '@/components/SchedulePicker'
 
-type SettingsPanel = 'appearance' | 'file-previews' | 'indexing' | 'scheduling' | 'search'
+type SettingsPanel = 'appearance' | 'file-previews' | 'indexing' | 'scheduling' | 'search' | 'remote-agents'
 
 export default function SettingsPage() {
   const { theme, themeMode, customHue, setPreset, setCustomHue, setThemeMode } = useTheme()
@@ -38,6 +38,7 @@ export default function SettingsPage() {
         <SettingsPanelButton label="Indexing" isOpen={openPanel === 'indexing'} onClick={() => togglePanel('indexing')} />
         <SettingsPanelButton label="Scheduling" isOpen={openPanel === 'scheduling'} onClick={() => togglePanel('scheduling')} />
         <SettingsPanelButton label="Search" isOpen={openPanel === 'search'} onClick={() => togglePanel('search')} />
+        <SettingsPanelButton label="Remote Agents" isOpen={openPanel === 'remote-agents'} onClick={() => togglePanel('remote-agents')} />
       </div>
 
       <div className="mt-6 space-y-6">
@@ -83,9 +84,14 @@ export default function SettingsPage() {
         )}
 
         {openPanel === 'search' && <SearchSection settings={settings} onUpdate={updateSettings} />}
+        {openPanel === 'remote-agents' && <RemoteAgentsSection settings={appSettings.data} isLoading={appSettings.isLoading} error={appSettings.error} isSaving={updateAppSettings.isPending} onUpdate={(partial) => updateAppSettings.mutate(partial)} />}
       </div>
     </div>
   )
+}
+
+function RemoteAgentsSection({ settings, isLoading, error, isSaving, onUpdate }: AppSettingsSectionProps) {
+  return <section className="bg-card border border-border rounded-lg p-6 max-w-lg"><div className="flex items-center justify-between gap-3 mb-4"><h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">Remote agents</h2>{isSaving && <Loader2 className="h-4 w-4 text-brand animate-spin" />}</div><SettingsLoadingState isLoading={isLoading} error={error} message="Unable to load remote agent settings." />{settings && <div className="space-y-3"><Toggle checked={settings.remote_agents_enabled} onChange={(remote_agents_enabled) => onUpdate({ remote_agents_enabled })} label="Enable remote agents" description="Allow approved machines to provide remote indexing sources." /><p className="text-xs text-muted-foreground">Agents are machine connections. Sources continue to own their schedules.</p></div>}</section>
 }
 
 function SettingsPanelButton({ label, isOpen, onClick }: { label: string; isOpen: boolean; onClick: () => void }) {

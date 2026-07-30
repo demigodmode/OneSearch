@@ -21,12 +21,15 @@ import {
   getAppSettings,
   updateAppSettings,
   queryKeys,
+  getAgents, getAgent, createAgentEnrollment, approveAgent, disableAgent, revokeAgent, updateAgentProcessingMode,
 } from '@/lib/api'
 import type {
   SourceCreate,
   SourceUpdate,
   SearchQuery,
   AppSettingsUpdate,
+  ProcessingMode,
+  SourcePathTestRequest,
 } from '@/types/api'
 
 // ============================================================================
@@ -79,6 +82,21 @@ export function useUpdateAppSettings() {
     },
   })
 }
+
+export function useAgents() { return useQuery({ queryKey: queryKeys.agents, queryFn: getAgents }) }
+export function useAgent(id: string) { return useQuery({ queryKey: queryKeys.agent(id), queryFn: () => getAgent(id), enabled: !!id }) }
+function useAgentAction<T>(mutationFn: (value: T) => Promise<unknown>) {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn, onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.agents }) })
+}
+export function useCreateAgentEnrollment() {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: createAgentEnrollment, onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.agents }) })
+}
+export function useApproveAgent() { return useAgentAction(approveAgent) }
+export function useDisableAgent() { return useAgentAction(disableAgent) }
+export function useRevokeAgent() { return useAgentAction(revokeAgent) }
+export function useUpdateAgentProcessingMode() { return useAgentAction(({ id, mode }: { id: string; mode: ProcessingMode }) => updateAgentProcessingMode(id, mode)) }
 
 // ============================================================================
 // Sources Hooks
@@ -141,7 +159,7 @@ export function useUpdateSource() {
  */
 export function useTestSourcePath() {
   return useMutation({
-    mutationFn: (rootPath: string) => testSourcePath({ root_path: rootPath }),
+    mutationFn: (data: SourcePathTestRequest) => testSourcePath(data),
   })
 }
 

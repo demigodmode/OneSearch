@@ -26,6 +26,7 @@ import type {
   User,
   AppSettings,
   AppSettingsUpdate,
+  Agent, AgentEnrollment, ProcessingMode,
 } from '@/types/api'
 
 // ============================================================================
@@ -245,6 +246,16 @@ export async function updateAppSettings(data: AppSettingsUpdate): Promise<AppSet
   })
 }
 
+export async function getAgents(): Promise<Agent[]> { return apiFetch<Agent[]>('/agents') }
+export async function getAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}`) }
+export async function createAgentEnrollment(): Promise<AgentEnrollment> { return apiFetch<AgentEnrollment>('/agents/enrollments', { method: 'POST' }) }
+export async function approveAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/approve`, { method: 'POST' }) }
+export async function disableAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/disable`, { method: 'POST' }) }
+export async function revokeAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/revoke`, { method: 'POST' }) }
+export async function updateAgentProcessingMode(id: string, default_processing_mode: ProcessingMode): Promise<Agent> {
+  return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ default_processing_mode }) })
+}
+
 // ============================================================================
 // Search
 // ============================================================================
@@ -379,4 +390,6 @@ export const queryKeys = {
   appSettings: ['appSettings'] as const,
   authStatus: ['authStatus'] as const,
   currentUser: ['currentUser'] as const,
+  agents: ['agents'] as const,
+  agent: (id: string) => ['agents', id] as const,
 }

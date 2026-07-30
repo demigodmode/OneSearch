@@ -56,6 +56,9 @@ export interface SourceBase {
   interval_value?: number | null
   interval_unit?: IntervalUnit | null
   use_default_schedule?: boolean
+  location_type?: 'local' | 'agent'
+  agent_id?: string | null
+  processing_mode?: ProcessingMode | null
 }
 
 /**
@@ -94,6 +97,8 @@ export interface Source extends SourceBase {
 
 export interface SourcePathTestRequest {
   root_path: string
+  location_type?: 'local' | 'agent'
+  agent_id?: string | null
 }
 
 export interface SourcePathTestResponse {
@@ -107,7 +112,22 @@ export interface SourcePathTestResponse {
   looks_like_host_path: boolean
   message: string
   hint?: string | null
+  job_id?: string | null
+  status?: string | null
 }
+
+export type AgentStatus = 'pending' | 'online' | 'offline' | 'degraded' | 'disabled' | 'revoked'
+export type ProcessingMode = 'on_agent' | 'on_server'
+export interface DirectoryEntry { root_id: string; path: string; label?: string }
+export interface Agent {
+  id: string; name: string; platform: string; version: string; protocol_version: number
+  allowed_roots: DirectoryEntry[]; default_processing_mode: ProcessingMode; auto_update: boolean
+  status: AgentStatus; approved_at: string | null; last_seen_at: string | null
+  disabled_at: string | null; created_at: string; updated_at: string
+}
+export type AgentDetails = Agent
+export interface AgentEnrollment { code: string; expires_at: string }
+export interface AgentJobSummary { queued: number; active: number; failed: number; indexed_documents: number }
 
 // ============================================================================
 // Search Types
@@ -174,6 +194,7 @@ export interface AppSettings {
   readable_preview_page_chars: number
   long_text_pagination_threshold_chars: number
   default_scan_schedule?: ScheduleConfig | null
+  remote_agents_enabled: boolean
 }
 
 export type AppSettingsUpdate = Partial<AppSettings>

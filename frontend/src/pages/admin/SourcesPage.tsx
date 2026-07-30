@@ -3,8 +3,9 @@
 
 import { useState } from 'react'
 import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock, CheckCircle, Link2 } from 'lucide-react'
-import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath, useAppSettings } from '@/hooks/useApi'
-import type { Source, SourceCreate, SourceUpdate, SourcePathTestResponse } from '@/types/api'
+import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath, useAppSettings, useAgents } from '@/hooks/useApi'
+import type { Agent, ProcessingMode, Source, SourceCreate, SourceUpdate, SourcePathTestResponse } from '@/types/api'
+import { RemotePathPicker } from '@/components/agents/RemotePathPicker'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import {
   Dialog,
@@ -39,6 +40,8 @@ function formatDate(isoString: string): string {
 function SourceForm({
   source,
   defaultSchedule,
+  remoteAgentsEnabled,
+  agents,
   onSubmit,
   onCancel,
   isLoading,
@@ -46,6 +49,8 @@ function SourceForm({
 }: {
   source?: Source
   defaultSchedule?: ScheduleConfig | null
+  remoteAgentsEnabled: boolean
+  agents: Agent[]
   onSubmit: (data: SourceCreate | SourceUpdate) => void
   onCancel: () => void
   isLoading: boolean
@@ -53,6 +58,9 @@ function SourceForm({
 }) {
   const [name, setName] = useState(source?.name || '')
   const [rootPath, setRootPath] = useState(source?.root_path || '')
+  const [locationType, setLocationType] = useState<'local' | 'agent'>(source?.location_type ?? 'local')
+  const [agentId, setAgentId] = useState(source?.agent_id ?? '')
+  const [processingMode, setProcessingMode] = useState<ProcessingMode | ''>(source?.processing_mode ?? '')
   const [includePatterns, setIncludePatterns] = useState(
     source?.include_patterns?.join(', ') || ''
   )
@@ -77,7 +85,7 @@ function SourceForm({
   const handleTestPath = () => {
     const candidate = rootPath.trim()
     if (!candidate) return
-    testPathMutation.mutate(candidate, {
+    testPathMutation.mutate({ root_path: candidate, location_type: locationType, agent_id: agentId || null }, {
       onSuccess: setPathTestResult,
       onError: () => setPathTestResult(null),
     })
@@ -96,13 +104,17 @@ function SourceForm({
       scan_schedule: scheduleConfig.scan_schedule ?? null,
       interval_value: scheduleConfig.interval_value ?? null,
       interval_unit: scheduleConfig.interval_unit ?? null,
+      location_type: locationType,
+      agent_id: locationType === 'agent' ? agentId : null,
+      processing_mode: locationType === 'agent' ? processingMode || null : null,
     }
 
     onSubmit(data)
   }
 
   const isEdit = !!source
-  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (
+  const selectedAgent = agents.find((agent) => agent.id === agentId)
+  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (locationType === 'agent' && !agentId) || (
     !useDefaultSchedule && scheduleConfig.schedule_type === 'interval' && !scheduleConfig.interval_value
   )
 
@@ -130,6 +142,8 @@ function SourceForm({
       </div>
 
       <div className="space-y-2">
+        {remoteAgentsEnabled && <div className="space-y-2"><Label>Location</Label><div className="flex gap-3 text-sm"><label><input type="radio" checked={locationType === 'local'} onChange={() => setLocationType('local')} /> Local</label><label><input type="radio" checked={locationType === 'agent'} onChange={() => setLocationType('agent')} /> Remote agent</label></div></div>}
+        {locationType === 'agent' ? <><Label htmlFor="agent">Approved agent</Label><select id="agent" value={agentId} onChange={(event) => { setAgentId(event.target.value); setRootPath(''); setProcessingMode('') }} className="w-full rounded-lg border border-border bg-background px-3 py-2"><option value="">Choose an approved agent</option>{agents.filter((agent) => ['online', 'offline'].includes(agent.status) && agent.approved_at).map((agent) => <option key={agent.id} value={agent.id}>{agent.name} ({agent.status})</option>)}</select><RemotePathPicker agent={selectedAgent} value={rootPath} onChange={(value) => { setRootPath(value); setPathTestResult(null) }} onTest={handleTestPath} result={pathTestResult} testing={testPathMutation.isPending} /><label className="block text-sm">Processing mode <select value={processingMode} onChange={(event) => setProcessingMode(event.target.value as ProcessingMode | '')} className="ml-2 rounded-lg border border-border bg-background px-2 py-1"><option value="">Inherit agent default ({selectedAgent?.default_processing_mode ?? '—'})</option><option value="on_agent">On agent</option><option value="on_server">On server</option></select></label></> : <>
         <Label htmlFor="root_path">Root Path</Label>
         <Input
           id="root_path"
@@ -161,6 +175,7 @@ function SourceForm({
             </AlertDescription>
           </Alert>
         )}
+        </>}
       </div>
 
       <div className="space-y-2">
@@ -305,6 +320,7 @@ export default function SourcesPage() {
   // Queries and mutations
   const { data: sources, isLoading: isLoadingSources, error: sourcesError } = useSources()
   const { data: appSettings } = useAppSettings()
+  const { data: agents = [] } = useAgents()
   const createMutation = useCreateSource()
   const updateMutation = useUpdateSource()
   const deleteMutation = useDeleteSource()
@@ -566,6 +582,8 @@ export default function SourcesPage() {
           </DialogHeader>
           <SourceForm
             defaultSchedule={appSettings?.default_scan_schedule}
+            remoteAgentsEnabled={appSettings?.remote_agents_enabled ?? false}
+            agents={agents}
             onSubmit={(data) => handleCreate(data as SourceCreate)}
             onCancel={() => setIsAddDialogOpen(false)}
             isLoading={createMutation.isPending}
@@ -587,6 +605,8 @@ export default function SourcesPage() {
             <SourceForm
               source={editingSource}
               defaultSchedule={appSettings?.default_scan_schedule}
+              remoteAgentsEnabled={appSettings?.remote_agents_enabled ?? false}
+              agents={agents}
               onSubmit={handleUpdate}
               onCancel={() => setEditingSource(null)}
               isLoading={updateMutation.isPending}

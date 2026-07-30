@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Database, Activity, ArrowLeft, Terminal, LogOut, User, Settings } from 'lucide-react'
+import { Database, Activity, ArrowLeft, Terminal, LogOut, User, Settings, Cpu } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/useAuth'
 import { Button } from '@/components/ui/button'
 import { OneSearchLogo } from '@/components/OneSearchLogo'
+import { useAppSettings } from '@/hooks/useApi'
 
 const adminNavItems = [
   { path: '/admin/sources',  label: 'Sources',  icon: Database  },
@@ -17,6 +18,10 @@ const adminNavItems = [
 export default function AdminLayout() {
   const location = useLocation()
   const { user, logout } = useAuth()
+  const { data: appSettings } = useAppSettings()
+  const visibleNavItems = appSettings?.remote_agents_enabled
+    ? [...adminNavItems.slice(0, 2), { path: '/admin/agents', label: 'Agents', icon: Cpu }, adminNavItems[2]]
+    : adminNavItems
 
   return (
     <div className="min-h-screen bg-background">
@@ -77,7 +82,7 @@ export default function AdminLayout() {
           {/* Sidebar — horizontal pills on mobile, vertical list on md+ */}
           <aside className="flex-shrink-0 md:w-56">
             <nav className="flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-x-visible pb-2 md:pb-0 border-b border-border md:border-0 mb-2 md:mb-0 scrollbar-none">
-              {adminNavItems.map((item, index) => {
+              {visibleNavItems.map((item, index) => {
                 const Icon = item.icon
                 const isActive = location.pathname === item.path
                 return (
