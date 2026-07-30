@@ -4,6 +4,7 @@ import AgentsPage from './AgentsPage'
 import type { Agent } from '@/types/api'
 
 const hooks = vi.hoisted(() => ({ updateSettings: vi.fn(), approve: vi.fn(), enrollment: vi.fn(), mode: vi.fn() }))
+const detailRefetch = vi.fn()
 const online = { id: 'online', name: 'Online agent', platform: 'linux', version: '1', protocol_version: 2, allowed_roots: [], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'online' as const, approved_at: null, last_seen_at: null, disabled_at: null, created_at: '', updated_at: '', summary: { attached_sources: 1, indexed_documents: 3, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null } }
 const offline = { ...online, id: 'offline', name: 'Offline agent', status: 'offline' as const, summary: { ...online.summary, indexed_documents: 7 } }
 const pending = { ...online, id: 'pending', name: 'Pending agent', status: 'pending' as const }
@@ -18,11 +19,11 @@ vi.mock('@/hooks/useApi', () => ({
   useCreateAgentEnrollment: () => ({ mutate: hooks.enrollment, isPending: false, ...enrollmentState }),
   useApproveAgent: () => ({ mutate: hooks.approve, isPending: false, error: null }),
   useDisableAgent: () => ({ mutate: vi.fn(), error: null }), useRevokeAgent: () => ({ mutate: vi.fn(), error: null }),
-  useUpdateAgentProcessingMode: () => ({ mutate: hooks.mode, error: null }), useAgent: () => ({ ...detailState, refetch: vi.fn() }),
+  useUpdateAgentProcessingMode: () => ({ mutate: hooks.mode, error: null }), useAgent: () => ({ ...detailState, refetch: detailRefetch }),
 }))
 
 describe('AgentsPage user flows', () => {
-  beforeEach(() => { enabled = true; agentsState = { data: [online, offline, pending], isLoading: false, error: null }; enrollmentState = { data: null, error: null }; detailState = { data: null, isLoading: false, error: null }; vi.clearAllMocks() })
+  beforeEach(() => { enabled = true; agentsState = { data: [online, offline, pending], isLoading: false, error: null }; enrollmentState = { data: null, error: null }; detailState = { data: null, isLoading: false, error: null }; vi.clearAllMocks(); detailRefetch.mockClear() })
   it('filters attention to pending and offline agents while showing retained documents', () => {
     render(<AgentsPage />)
     expect(screen.getByText('Remote documents')).toBeInTheDocument()
@@ -62,12 +63,19 @@ describe('AgentsPage user flows', () => {
     expect(screen.getByText('enrollment unavailable')).toBeInTheDocument()
   })
   it('renders agent details and persists a changed default processing mode', () => {
-    detailState = { data: { ...online, sources: [{ id: 'source-1', name: 'Remote docs', root_path: '/srv/docs', next_scan_at: null }], recent_jobs: [{ id: 'job-1', kind: 'scan', status: 'failed', source_id: 'source-1', created_at: '', completed_at: null, error: 'disk full' }] }, isLoading: false, error: null }
+    detailState = { data: { ...online, allowed_roots: [{ root_id: 'docs', path: '/srv/docs' }], auto_update: true, sources: [{ id: 'source-1', name: 'Remote docs', root_path: '/srv/docs', next_scan_at: null }], recent_jobs: [{ id: 'job-1', kind: 'scan', status: 'failed', source_id: 'source-1', created_at: '', completed_at: null, error: 'disk full' }] }, isLoading: false, error: null }
     render(<AgentsPage />)
     fireEvent.click(screen.getAllByText('Online agent')[0])
     expect(screen.getByText('Allowed roots')).toBeInTheDocument()
+    expect(screen.getByText('/srv/docs')).toBeInTheDocument()
+    expect(screen.getByText(/Remote docs: \/srv\/docs/)).toBeInTheDocument()
+    expect(screen.getByText(/scan · failed — disk full/)).toBeInTheDocument()
+    expect(screen.getByText('Auto-update: enabled.')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Default processing mode'), { target: { value: 'on_server' } })
     expect(hooks.mode).toHaveBeenCalledWith({ id: 'online', mode: 'on_server' }, expect.anything())
+    const options = hooks.mode.mock.calls[0][1]
+    options.onSuccess()
+    expect(detailRefetch).toHaveBeenCalled()
   })
   it('shows detail loading and detail API errors after selection', () => {
     detailState = { data: null, isLoading: true, error: null }
