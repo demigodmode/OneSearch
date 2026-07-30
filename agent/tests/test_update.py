@@ -76,7 +76,7 @@ def test_rejects_checksum_mismatch_before_replacing_binary(signing_key, tmp_path
     with pytest.raises(UpdateError, match="checksum"):
         manager(
             signing_key,
-            fetch=lambda url: payload if url.endswith("manifest.json") else b"new-agent",
+            fetch=lambda url: payload if url.endswith(".json") else b"new-agent",
         ).apply(auto_update=True, current_binary=current, health_check=lambda: True)
     assert current.read_bytes() == b"old-agent"
 
@@ -92,7 +92,7 @@ def test_replaces_binary_atomically_after_a_healthy_start(signing_key, tmp_path:
     current.write_bytes(b"old-agent")
     payload = signed_manifest(signing_key)
     result = manager(
-        signing_key, fetch=lambda url: payload if url.endswith("manifest.json") else b"new-agent"
+        signing_key, fetch=lambda url: payload if url.endswith(".json") else b"new-agent"
     ).apply(auto_update=True, current_binary=current, health_check=lambda: True)
     assert result.action == "installed"
     assert current.read_bytes() == b"new-agent"
@@ -104,7 +104,7 @@ def test_restores_previous_binary_when_restarted_agent_is_unhealthy(signing_key,
     current.write_bytes(b"old-agent")
     payload = signed_manifest(signing_key)
     result = manager(
-        signing_key, fetch=lambda url: payload if url.endswith("manifest.json") else b"new-agent"
+        signing_key, fetch=lambda url: payload if url.endswith(".json") else b"new-agent"
     ).apply(auto_update=True, current_binary=current, health_check=lambda: False)
     assert result.action == "rolled_back"
     assert current.read_bytes() == b"old-agent"
@@ -117,7 +117,7 @@ def test_docker_agent_notifies_but_never_replaces_container(signing_key, tmp_pat
     result = manager(
         signing_key,
         container=True,
-        fetch=lambda url: payload if url.endswith("manifest.json") else b"new-agent",
+        fetch=lambda url: payload if url.endswith(".json") else b"new-agent",
     ).apply(auto_update=True, current_binary=current, health_check=lambda: True)
     assert result.action == "notify"
     assert current.read_bytes() == b"old-agent"

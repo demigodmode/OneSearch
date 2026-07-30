@@ -35,9 +35,7 @@ class UpdateManager:
         *,
         public_key: bytes | None = None,
         platform: str,
-        release_manifest_url: str = (
-            "https://github.com/demigodmode/OneSearch/releases/latest/download/agent-manifest.json"
-        ),
+        release_manifest_url: str | None = None,
         fetch: Callable[[str], bytes | dict] | None = None,
         notify: Callable[[str], None] | None = None,
         container: bool | None = None,
@@ -45,7 +43,11 @@ class UpdateManager:
     ):
         self.public_key = public_key or _embedded_public_key()
         self.platform = platform
-        self.release_manifest_url = release_manifest_url
+        self.release_manifest_url = release_manifest_url or (
+            "https://github.com/demigodmode/OneSearch/releases/latest/download/agent-manifest-"
+            + platform
+            + ".json"
+        )
         self.fetch = fetch or _download
         self.notify = notify or (lambda message: None)
         self.container = (
