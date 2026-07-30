@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import unicodedata
 from importlib.resources import files
 from pathlib import Path
@@ -38,9 +39,19 @@ def _run(args):
         raise ServiceError("service operation failed")
 
 
-def _packaged_unit(config: Path, executable: str) -> str:
+def _service_command(config: Path, executable: str, *, frozen: bool) -> str:
+    command = f"{_systemd_arg(executable)} --config {_systemd_arg(str(config))} run"
+    return command if frozen else command.replace(" --config", " -m onesearch_agent.cli --config")
+
+
+def _packaged_unit(config: Path, executable: str, *, frozen: bool | None = None) -> str:
     template = files("onesearch_agent").joinpath("onesearch-agent.service").read_text()
-    command = f"{_systemd_arg(executable)} -m onesearch_agent.cli --config {_systemd_arg(str(config))} run"
+    if frozen is None:
+        frozen = bool(getattr(sys, "frozen", False)) and Path(executable).name in {
+            "onesearch-agent",
+            "onesearch-agent.exe",
+        }
+    command = _service_command(config, executable, frozen=frozen)
     return template.replace("@EXEC_START@", command)
 
 

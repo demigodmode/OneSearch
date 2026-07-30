@@ -1,12 +1,14 @@
 import base64
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from onesearch_agent.update import UpdateError, UpdateManager, UpdateResult
+from onesearch_agent.update_runtime import native_update_layout, stage_and_launch
 from onesearch_agent.updater import UpdateHelper, UpdateTransaction
 from onesearch_agent.updater_cli import ServiceManager, launch
 from onesearch_shared import MINIMUM_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION
@@ -120,6 +122,59 @@ def test_docker_agent_notifies_but_never_replaces_container(signing_key, tmp_pat
     ).stage(auto_update=True, current_binary=current, state_dir=tmp_path / "state")
     assert result.action == "notify"
     assert current.read_bytes() == b"old-agent"
+
+
+def test_source_python_cannot_begin_automatic_update_contact(monkeypatch, tmp_path):
+    class Config:
+        auto_update, state_dir = True, tmp_path / "state"
+
+    monkeypatch.setattr("onesearch_agent.update_runtime.sys.frozen", False, raising=False)
+    with pytest.raises(UpdateError, match="manual"):
+        stage_and_launch(
+            config=Config(),
+            platform="linux-x64",
+            version="1.3.0",
+            current_binary=tmp_path / "python",
+            managed=True,
+        )
+
+
+def test_native_update_layout_requires_fixed_frozen_siblings(monkeypatch, tmp_path):
+    suffix = ".exe" if sys.platform == "win32" else ""
+    agent = tmp_path / ("onesearch-agent" + suffix)
+    helper = tmp_path / ("onesearch-agent-updater" + suffix)
+    agent.write_bytes(b"agent")
+    helper.write_bytes(b"helper")
+    monkeypatch.setattr("onesearch_agent.update_runtime.sys.frozen", True, raising=False)
+    assert native_update_layout(agent) == helper
+    assert native_update_layout(tmp_path / "python") is None
+    helper.unlink()
+    assert native_update_layout(agent) is None
+
+
+def test_helper_recovers_crash_after_backup_move_while_stopping(tmp_path):
+    current = tmp_path / "onesearch-agent"
+    current.write_bytes(b"old")
+    transaction = UpdateTransaction.create(
+        state_dir=tmp_path / "state", current_binary=current, artifact=b"new", version="1.4.0"
+    ).save("stopping")
+    current.replace(transaction.backup_binary)
+    manager = FakeServiceManager()
+    result = UpdateHelper(service_manager=manager).run(transaction.path)
+    assert result.action == "rolled_back"
+    assert current.read_bytes() == b"old"
+    assert manager.calls == ["start"]
+
+
+def test_stopping_transaction_with_current_binary_resumes_swap_safely(tmp_path):
+    current = tmp_path / "onesearch-agent"
+    current.write_bytes(b"old")
+    transaction = UpdateTransaction.create(
+        state_dir=tmp_path / "state", current_binary=current, artifact=b"new", version="1.4.0"
+    ).save("stopping")
+    result = UpdateHelper(service_manager=FakeServiceManager(), deadline=0).run(transaction.path)
+    assert result.action == "rolled_back"
+    assert current.read_bytes() == b"old"
 
 
 def test_rejects_replayed_or_downgrade_release(signing_key):
@@ -259,6 +314,22 @@ def test_transaction_refuses_paths_outside_fixed_sibling_layout(tmp_path):
     transaction.path.write_text(json.dumps(payload))
     with pytest.raises(UpdateError, match="expected"):
         UpdateTransaction.load(transaction.path, expected_current_binary=current)
+
+
+def test_transaction_refuses_symlinked_state_ancestry(tmp_path):
+    current = tmp_path / "onesearch-agent"
+    current.write_bytes(b"old")
+    UpdateTransaction.create(
+        state_dir=tmp_path / "state", current_binary=current, artifact=b"new", version="1.4.0"
+    )
+    actual = tmp_path / "actual-state"
+    (tmp_path / "state").replace(actual)
+    try:
+        (tmp_path / "state").symlink_to(actual, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable")
+    with pytest.raises(UpdateError, match="symlink"):
+        UpdateTransaction.load(tmp_path / "state" / "updates" / "transaction.json")
 
 
 def test_linux_transient_helper_is_collected_and_collision_safe(tmp_path):

@@ -40,6 +40,14 @@ def _safe_directory(path: Path, *, create: bool = False) -> Path:
     return candidate.resolve()
 
 
+def _safe_ancestry(path: Path) -> None:
+    """Reject links in every existing ancestor without requiring the leaf to exist."""
+    candidate = path.absolute()
+    for parent in (candidate, *candidate.parents):
+        if parent.exists() and _link_or_reparse(parent):
+            raise UpdateError("update directory must not be a symlink or reparse point")
+
+
 def _validate_version(version: str) -> None:
     if not version or any(character not in "0123456789." for character in version):
         raise UpdateError("update version is invalid")
@@ -105,12 +113,28 @@ class UpdateTransaction:
         try:
             _regular(path)
             data = json.loads(path.read_text())
+            raw_state_dir = Path(data["state_dir"])
+            raw_current = Path(data["current_binary"])
+            raw_staged = Path(data["staged_binary"])
+            raw_backup = Path(data["backup_binary"])
+            # Reject raw ancestry before resolve() can erase the evidence of a link.
+            if not all(
+                item.is_absolute() for item in (raw_state_dir, raw_current, raw_staged, raw_backup)
+            ):
+                raise UpdateError("update transaction is malformed")
+            _safe_directory(raw_state_dir)
+            _safe_ancestry(raw_current.parent)
+            _safe_ancestry(raw_staged.parent)
+            _safe_ancestry(raw_backup.parent)
+            trusted_state_dir = path.absolute().parent.parent
+            if raw_state_dir.absolute() != trusted_state_dir:
+                raise UpdateError("transaction path is unsafe")
             transaction = cls(
                 path=path.resolve(),
-                state_dir=Path(data["state_dir"]).resolve(),
-                current_binary=Path(data["current_binary"]).resolve(),
-                staged_binary=Path(data["staged_binary"]).resolve(),
-                backup_binary=Path(data["backup_binary"]).resolve(),
+                state_dir=raw_state_dir.resolve(),
+                current_binary=raw_current.resolve(),
+                staged_binary=raw_staged.resolve(),
+                backup_binary=raw_backup.resolve(),
                 version=data["version"],
                 started_at=float(data["started_at"]),
                 phase=data["phase"],
@@ -189,6 +213,14 @@ class UpdateHelper:
             raise UpdateError("update transaction phase is invalid")
         if not self.service_manager.is_managed():
             raise UpdateError("OneSearch Agent service is not installed or managed")
+        # A crash can happen after current was moved but before the phase write.
+        # The backup is the only known-good copy; restore it without touching it first.
+        if transaction.phase == "stopping" and not transaction.current_binary.exists():
+            _regular(transaction.backup_binary)
+            os.replace(transaction.backup_binary, transaction.current_binary)
+            transaction = transaction.save("rolled_back")
+            self.service_manager.start()
+            return UpdateResult("rolled_back", transaction.version)
         # Once the replacement was started, health has not been durably proven. Never
         # start a second attempt by moving the new binary over the only old copy.
         if transaction.phase in {"backed_up", "switched", "started", "rolled_back"}:

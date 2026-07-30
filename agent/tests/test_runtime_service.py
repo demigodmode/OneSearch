@@ -5,7 +5,14 @@ from pathlib import Path
 import pytest
 from onesearch_agent.client import AgentDisabled, AgentPending, AgentRevoked
 from onesearch_agent.runtime import run_runtime
-from onesearch_agent.service import ServiceError, _packaged_unit, _systemd_arg, install, uninstall
+from onesearch_agent.service import (
+    ServiceError,
+    _packaged_unit,
+    _service_command,
+    _systemd_arg,
+    install,
+    uninstall,
+)
 
 
 class PendingClient:
@@ -242,3 +249,13 @@ def test_packaged_unit_uses_resource_matching_authoritative_template(tmp_path: P
     authoritative = Path("agent/packaging/onesearch-agent.service").read_text()
     assert files("onesearch_agent").joinpath("onesearch-agent.service").read_text() == authoritative
     assert "ExecStart=" in _packaged_unit(tmp_path / "config.toml", "/opt/agent")
+
+
+def test_service_command_distinguishes_frozen_agent_from_python_source(tmp_path: Path):
+    config = tmp_path / "config.toml"
+    assert _service_command(config, "/opt/onesearch-agent", frozen=True) == (
+        '"/opt/onesearch-agent" --config ' + _systemd_arg(str(config)) + " run"
+    )
+    assert _service_command(config, "/usr/bin/python", frozen=False) == (
+        '"/usr/bin/python" -m onesearch_agent.cli --config ' + _systemd_arg(str(config)) + " run"
+    )

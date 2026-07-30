@@ -4,11 +4,29 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 from .update import UpdateError, UpdateManager
 from .updater import _durable_write
 from .updater_cli import launch
+
+
+def _regular_native(path: Path) -> bool:
+    return (
+        path.is_file()
+        and not path.is_symlink()
+        and not bool(getattr(path, "is_junction", lambda: False)())
+    )
+
+
+def native_update_layout(current_binary: Path) -> Path | None:
+    """Return the sibling updater only for the fixed frozen distribution layout."""
+    suffix = ".exe" if sys.platform == "win32" else ""
+    if not getattr(sys, "frozen", False) or current_binary.name != "onesearch-agent" + suffix:
+        return None
+    helper = current_binary.with_name("onesearch-agent-updater" + suffix)
+    return helper if _regular_native(current_binary) and _regular_native(helper) else None
 
 
 def write_healthy_marker(state_dir: Path, version: str, timestamp: float) -> None:
@@ -33,6 +51,10 @@ def stage_and_launch(*, config, platform: str, version: str, current_binary: Pat
         raise UpdateError(
             "automatic updates require the installed OneSearch Agent service; "
             "run 'onesearch-agent service install' or update manually"
+        )
+    if native_update_layout(current_binary) is None:
+        raise UpdateError(
+            "automatic updates require the installed native OneSearch Agent; update manually"
         )
     prepared = UpdateManager(
         platform=platform,
