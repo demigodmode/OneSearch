@@ -109,9 +109,16 @@ export function SourceForm({
       scan_schedule: scheduleConfig.scan_schedule ?? null,
       interval_value: scheduleConfig.interval_value ?? null,
       interval_unit: scheduleConfig.interval_unit ?? null,
-      location_type: locationType,
-      agent_id: locationType === 'agent' ? agentId : null,
-      processing_mode: locationType === 'agent' ? processingMode || null : null,
+    }
+
+    const preserveDisabledRemoteBinding = Boolean(source && source.location_type === 'agent' && !remoteAgentsEnabled)
+    if (!preserveDisabledRemoteBinding) {
+      data.location_type = locationType
+      data.agent_id = locationType === 'agent' ? agentId : null
+      data.processing_mode = locationType === 'agent' ? processingMode || null : null
+      data.root_path = rootPath.trim()
+    } else {
+      delete data.root_path
     }
 
     onSubmit(data)
@@ -150,7 +157,7 @@ export function SourceForm({
 
       <div className="space-y-2">
         {remoteAgentsEnabled && <div className="space-y-2"><Label>Location</Label><div className="flex gap-3 text-sm"><label><input type="radio" checked={locationType === 'local'} onChange={() => setLocationType('local')} /> Local</label><label><input type="radio" checked={locationType === 'agent'} onChange={() => setLocationType('agent')} /> Remote agent</label></div></div>}
-        {locationType === 'agent' ? <><Label htmlFor="agent">Approved agent</Label><select id="agent" value={agentId} onChange={(event) => { setAgentId(event.target.value); setRootPath(''); setProcessingMode(''); setPathTestError(null) }} className="w-full rounded-lg border border-border bg-background px-3 py-2"><option value="">Choose an approved agent</option>{agents.filter((agent) => agent.status === 'online' && agent.approved_at || (source?.agent_id === agent.id && agent.status === 'offline')).map((agent) => <option key={agent.id} value={agent.id}>{agent.name} ({agent.status})</option>)}</select><RemotePathPicker agent={selectedAgent} value={rootPath} onChange={(value) => { setRootPath(value); setPathTestResult(null); setPathTestError(null) }} onTest={handleTestPath} result={pathTestResult} testing={testPathMutation.isPending} />{pathTestError && <p className="text-xs text-destructive">{pathTestError}</p>}<label className="block text-sm">Processing mode <select value={processingMode} onChange={(event) => setProcessingMode(event.target.value as ProcessingMode | '')} className="ml-2 rounded-lg border border-border bg-background px-2 py-1"><option value="">Inherit agent default ({selectedAgent?.default_processing_mode ?? '—'})</option><option value="on_agent">On agent</option><option value="on_server">On server</option></select></label></> : <>
+        {locationType === 'agent' && !remoteAgentsEnabled ? <p className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-muted-foreground">Remote source binding is unavailable while remote agents are disabled. This source remains attached to {selectedAgent?.name ?? agentId} at {rootPath}.</p> : locationType === 'agent' ? <><Label htmlFor="agent">Approved agent</Label><select id="agent" value={agentId} onChange={(event) => { setAgentId(event.target.value); setRootPath(''); setProcessingMode(''); setPathTestError(null) }} className="w-full rounded-lg border border-border bg-background px-3 py-2"><option value="">Choose an approved agent</option>{agents.filter((agent) => agent.status === 'online' && agent.approved_at || (source?.agent_id === agent.id && agent.status === 'offline')).map((agent) => <option key={agent.id} value={agent.id}>{agent.name} ({agent.status})</option>)}</select><RemotePathPicker agent={selectedAgent} value={rootPath} onChange={(value) => { setRootPath(value); setPathTestResult(null); setPathTestError(null) }} onTest={handleTestPath} result={pathTestResult} testing={testPathMutation.isPending} />{pathTestError && <p className="text-xs text-destructive">{pathTestError}</p>}<label className="block text-sm">Processing mode <select value={processingMode} onChange={(event) => setProcessingMode(event.target.value as ProcessingMode | '')} className="ml-2 rounded-lg border border-border bg-background px-2 py-1"><option value="">Inherit agent default ({selectedAgent?.default_processing_mode ?? '—'})</option><option value="on_agent">On agent</option><option value="on_server">On server</option></select></label></> : <>
         <Label htmlFor="root_path">Root Path</Label>
         <Input
           id="root_path"
