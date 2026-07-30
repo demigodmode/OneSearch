@@ -9,18 +9,20 @@ const offline = { ...online, id: 'offline', name: 'Offline agent', status: 'offl
 const pending = { ...online, id: 'pending', name: 'Pending agent', status: 'pending' as const }
 let enabled = true
 let agentsState: { data: Agent[]; isLoading: boolean; error: Error | null } = { data: [online, offline, pending], isLoading: false, error: null }
+let enrollmentState: { data: { code: string; expires_at: string } | null; error: Error | null } = { data: null, error: null }
+let detailState: { data: Record<string, unknown> | null; isLoading: boolean; error: Error | null } = { data: null, isLoading: false, error: null }
 vi.mock('@/hooks/useApi', () => ({
   useAppSettings: () => ({ data: { remote_agents_enabled: enabled }, isLoading: false, error: null }),
   useUpdateAppSettings: () => ({ mutate: hooks.updateSettings, isPending: false, error: null }),
   useAgents: () => agentsState,
-  useCreateAgentEnrollment: () => ({ mutate: hooks.enrollment, isPending: false, data: null, error: null }),
+  useCreateAgentEnrollment: () => ({ mutate: hooks.enrollment, isPending: false, ...enrollmentState }),
   useApproveAgent: () => ({ mutate: hooks.approve, isPending: false, error: null }),
   useDisableAgent: () => ({ mutate: vi.fn(), error: null }), useRevokeAgent: () => ({ mutate: vi.fn(), error: null }),
-  useUpdateAgentProcessingMode: () => ({ mutate: hooks.mode, error: null }), useAgent: () => ({ data: null, error: null, refetch: vi.fn() }),
+  useUpdateAgentProcessingMode: () => ({ mutate: hooks.mode, error: null }), useAgent: () => ({ ...detailState, refetch: vi.fn() }),
 }))
 
 describe('AgentsPage user flows', () => {
-  beforeEach(() => { enabled = true; agentsState = { data: [online, offline, pending], isLoading: false, error: null }; vi.clearAllMocks() })
+  beforeEach(() => { enabled = true; agentsState = { data: [online, offline, pending], isLoading: false, error: null }; enrollmentState = { data: null, error: null }; detailState = { data: null, isLoading: false, error: null }; vi.clearAllMocks() })
   it('filters attention to pending and offline agents while showing retained documents', () => {
     render(<AgentsPage />)
     expect(screen.getByText('Remote documents')).toBeInTheDocument()
@@ -48,5 +50,32 @@ describe('AgentsPage user flows', () => {
     agentsState = { data: [], isLoading: false, error: null }
     view.rerender(<AgentsPage />)
     expect(screen.getByText(/No agents match this filter/)).toBeInTheDocument()
+  })
+  it('renders enrollment success and API failures', () => {
+    enrollmentState = { data: { code: 'OS-ABCD-1234', expires_at: '2026-01-01T01:00:00Z' }, error: null }
+    const view = render(<AgentsPage />)
+    fireEvent.click(screen.getByRole('button', { name: /Add agent enrollment/ }))
+    expect(hooks.enrollment).toHaveBeenCalled()
+    expect(screen.getByText('OS-ABCD-1234')).toBeInTheDocument()
+    enrollmentState = { data: null, error: new Error('enrollment unavailable') }
+    view.rerender(<AgentsPage />)
+    expect(screen.getByText('enrollment unavailable')).toBeInTheDocument()
+  })
+  it('renders agent details and persists a changed default processing mode', () => {
+    detailState = { data: { ...online, sources: [{ id: 'source-1', name: 'Remote docs', root_path: '/srv/docs', next_scan_at: null }], recent_jobs: [{ id: 'job-1', kind: 'scan', status: 'failed', source_id: 'source-1', created_at: '', completed_at: null, error: 'disk full' }] }, isLoading: false, error: null }
+    render(<AgentsPage />)
+    fireEvent.click(screen.getAllByText('Online agent')[0])
+    expect(screen.getByText('Allowed roots')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Default processing mode'), { target: { value: 'on_server' } })
+    expect(hooks.mode).toHaveBeenCalledWith({ id: 'online', mode: 'on_server' }, expect.anything())
+  })
+  it('shows detail loading and detail API errors after selection', () => {
+    detailState = { data: null, isLoading: true, error: null }
+    const view = render(<AgentsPage />)
+    fireEvent.click(screen.getAllByText('Online agent')[0])
+    expect(screen.getByText('Loading agent details…')).toBeInTheDocument()
+    detailState = { data: null, isLoading: false, error: new Error('detail unavailable') }
+    view.rerender(<AgentsPage />)
+    expect(screen.getByText('detail unavailable')).toBeInTheDocument()
   })
 })
