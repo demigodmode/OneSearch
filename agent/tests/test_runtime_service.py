@@ -225,6 +225,10 @@ def test_unsupported_service_fails(tmp_path: Path):
 def test_linux_service_writes_unit_and_reloads(monkeypatch, tmp_path: Path):
     calls = []
     monkeypatch.setattr("onesearch_agent.service.validate_service_backend", lambda path: None)
+    monkeypatch.setattr(
+        "onesearch_agent.service.load_config",
+        lambda path: type("C", (), {"state_dir": tmp_path / "state"})(),
+    )
     monkeypatch.setattr("onesearch_agent.service._run", lambda args: calls.append(args))
     install(tmp_path / "config.toml", "/opt/agent", system="posix", home=tmp_path)
     assert (tmp_path / ".config/systemd/user/onesearch-agent.service").exists()
@@ -239,15 +243,39 @@ def test_linux_service_writes_unit_and_reloads(monkeypatch, tmp_path: Path):
 
 def test_linux_service_installs_hardened_packaged_unit(monkeypatch, tmp_path: Path):
     monkeypatch.setattr("onesearch_agent.service.validate_service_backend", lambda path: None)
+    monkeypatch.setattr(
+        "onesearch_agent.service.load_config",
+        lambda path: type("C", (), {"state_dir": tmp_path / "state"})(),
+    )
     monkeypatch.setattr("onesearch_agent.service._run", lambda args: None)
     install(tmp_path / "config.toml", "/opt/agent", system="posix", home=tmp_path)
     unit = (tmp_path / ".config/systemd/user/onesearch-agent.service").read_text()
     assert "NoNewPrivileges=yes" in unit and "RestartSec=5s" in unit
 
 
-def test_packaged_unit_uses_resource_matching_authoritative_template(tmp_path: Path):
+def test_linux_service_grants_only_configured_state_directory(monkeypatch, tmp_path: Path):
+    config = tmp_path / "state dir" / "agent%.toml"
+    config.parent.mkdir()
+    config.write_text('state_dir = "/srv/onesearch-agent-state with space%"')
+    monkeypatch.setattr("onesearch_agent.service.validate_service_backend", lambda path: None)
+    monkeypatch.setattr(
+        "onesearch_agent.service.load_config",
+        lambda path: type("C", (), {"state_dir": Path("/srv/onesearch-agent-state with space%")})(),
+    )
+    monkeypatch.setattr("onesearch_agent.service._run", lambda args: None)
+    install(config, "/opt/agent", system="posix", home=tmp_path)
+    unit = (tmp_path / ".config/systemd/user/onesearch-agent.service").read_text()
+    assert 'ReadWritePaths="\\\\srv\\\\onesearch-agent-state with space%%"' in unit
+    assert ".local/state/onesearch-agent" not in unit
+
+
+def test_packaged_unit_uses_resource_matching_authoritative_template(monkeypatch, tmp_path: Path):
     authoritative = Path("agent/packaging/onesearch-agent.service").read_text()
     assert files("onesearch_agent").joinpath("onesearch-agent.service").read_text() == authoritative
+    monkeypatch.setattr(
+        "onesearch_agent.service.load_config",
+        lambda path: type("C", (), {"state_dir": tmp_path / "state"})(),
+    )
     assert "ExecStart=" in _packaged_unit(tmp_path / "config.toml", "/opt/agent")
 
 

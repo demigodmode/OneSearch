@@ -52,7 +52,10 @@ def _packaged_unit(config: Path, executable: str, *, frozen: bool | None = None)
             "onesearch-agent.exe",
         }
     command = _service_command(config, executable, frozen=frozen)
-    return template.replace("@EXEC_START@", command)
+    state_dir = load_config(config).state_dir
+    return template.replace("@EXEC_START@", command).replace(
+        "@STATE_DIR@", _systemd_arg(str(state_dir))
+    )
 
 
 def install(config: Path, executable: str, *, system: str | None = None, home: Path | None = None):

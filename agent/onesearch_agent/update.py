@@ -21,6 +21,10 @@ class UpdateError(RuntimeError):
     """A release artifact was absent, malformed, or unsafe to install."""
 
 
+MAX_MANIFEST_BYTES = 1024 * 1024
+MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
+
+
 @dataclass(frozen=True)
 class UpdateResult:
     action: str
@@ -48,7 +52,7 @@ class UpdateManager:
             + platform
             + ".json"
         )
-        self.fetch = fetch or _download
+        self.fetch = fetch
         self.notify = notify or (lambda message: None)
         self.container = (
             bool(os.environ.get("DOCKER_CONTAINER")) if container is None else container
@@ -70,7 +74,11 @@ class UpdateManager:
         return UpdateResult("available", manifest["version"])
 
     def _manifest(self) -> dict:
-        payload = self.fetch(self.release_manifest_url)
+        payload = (
+            self.fetch(self.release_manifest_url)
+            if self.fetch
+            else _download(self.release_manifest_url, maximum=MAX_MANIFEST_BYTES)
+        )
         manifest, signature = _signed_manifest(payload)
         _verify_signature(self.public_key, manifest, signature)
         _validate_manifest(manifest, self.platform)
@@ -94,7 +102,11 @@ class UpdateManager:
                 "A newer agent image is available; Docker containers are never self-updated."
             )
             return UpdateResult("notify", manifest["version"])
-        artifact = _as_bytes(self.fetch(manifest["url"]))
+        artifact = _as_bytes(
+            self.fetch(manifest["url"])
+            if self.fetch
+            else _download(manifest["url"], maximum=MAX_ARTIFACT_BYTES)
+        )
         if len(artifact) != manifest["size"]:
             raise UpdateError("artifact size does not match signed manifest")
         if hashlib.sha256(artifact).hexdigest() != manifest["sha256"]:
@@ -140,9 +152,15 @@ def _embedded_public_key() -> bytes:
         ) from error
 
 
-def _download(url: str) -> bytes:
+def _download(url: str, *, maximum: int) -> bytes:
     with urlopen(url, timeout=30) as response:  # noqa: S310 - URL is signed only after download
-        return response.read()
+        chunks, total = [], 0
+        while chunk := response.read(64 * 1024):
+            total += len(chunk)
+            if total > maximum:
+                raise UpdateError("release download exceeds maximum size")
+            chunks.append(chunk)
+        return b"".join(chunks)
 
 
 def _as_bytes(value: bytes | dict) -> bytes:
@@ -191,7 +209,7 @@ def _validate_manifest(manifest: dict, platform: str) -> None:
         or manifest["protocol_min"] > PROTOCOL_VERSION
     ):
         raise UpdateError("release manifest protocol range is incompatible")
-    if not isinstance(manifest["size"], int) or manifest["size"] < 0:
+    if not isinstance(manifest["size"], int) or not 0 < manifest["size"] <= MAX_ARTIFACT_BYTES:
         raise UpdateError("release manifest artifact size is invalid")
     if not isinstance(manifest["sha256"], str) or len(manifest["sha256"]) != 64:
         raise UpdateError("release manifest checksum is invalid")

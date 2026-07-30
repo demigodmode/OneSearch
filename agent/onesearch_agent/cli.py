@@ -7,6 +7,7 @@ import os
 import platform
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 import click
@@ -156,7 +157,9 @@ def run(ctx):
                     await dispatch_job(lease, active_client, roots=value.allowed_roots)
 
                 def healthy(version, timestamp):
-                    write_healthy_marker(value.state_dir, version, timestamp)
+                    # An unavailable state volume must not kill the agent heartbeat.
+                    with suppress(OSError):
+                        write_healthy_marker(value.state_dir, version, timestamp)
 
                 await run_runtime(client, worker=worker, on_healthy_heartbeat=healthy)
 

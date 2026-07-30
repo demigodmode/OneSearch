@@ -35,7 +35,9 @@ def native_update_layout(current_binary: Path) -> Path | None:
 
 def write_healthy_marker(state_dir: Path, version: str, timestamp: float) -> None:
     """Publish health only after the runtime has completed a fresh heartbeat."""
+    _safe_ancestry(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
+    _safe_ancestry(state_dir)
     _durable_write(
         state_dir / "healthy.json",
         json.dumps({"version": version, "timestamp": timestamp}, sort_keys=True).encode(),

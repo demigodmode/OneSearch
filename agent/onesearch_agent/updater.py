@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,13 +54,15 @@ def _validate_version(version: str) -> None:
         raise UpdateError("update version is invalid")
 
 
-def _durable_write(path: Path, value: bytes) -> None:
+def _durable_write(path: Path, value: bytes, *, mode: int | None = None) -> None:
     temporary = path.with_name(path.name + ".tmp")
     with temporary.open("wb") as handle:
         handle.write(value)
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)
+    if mode is not None and os.name == "posix":
+        os.chmod(path, mode & 0o777)
     try:
         descriptor = os.open(path.parent, os.O_RDONLY)
         try:
@@ -80,6 +83,7 @@ class UpdateTransaction:
     version: str
     started_at: float
     phase: str
+    executable_mode: int | None = None
 
     @classmethod
     def create(cls, *, state_dir: Path, current_binary: Path, artifact: bytes, version: str):
@@ -87,6 +91,11 @@ class UpdateTransaction:
         state_dir = _safe_directory(state_dir, create=True)
         _safe_ancestry(current_binary)
         _regular(current_binary)
+        mode = None
+        if os.name == "posix":
+            mode = stat.S_IMODE(current_binary.stat().st_mode) & 0o777
+            if not mode & stat.S_IXUSR:
+                raise UpdateError("current native binary must be owner-executable")
         current_binary = current_binary.absolute().resolve()
         updates = _safe_directory(state_dir / "updates", create=True)
         staged = updates / ("agent-" + version + ".staged")
@@ -95,7 +104,7 @@ class UpdateTransaction:
         for path in (staged, backup, transaction_path):
             if path.exists() or _link_or_reparse(path):
                 raise UpdateError("update transaction has unexplained existing state")
-        _durable_write(staged, artifact)
+        _durable_write(staged, artifact, mode=mode)
         transaction = cls(
             path=transaction_path,
             state_dir=state_dir,
@@ -105,6 +114,7 @@ class UpdateTransaction:
             version=version,
             started_at=time.time(),
             phase="staged",
+            executable_mode=mode,
         )
         transaction.save()
         return transaction
@@ -139,6 +149,7 @@ class UpdateTransaction:
                 version=data["version"],
                 started_at=float(data["started_at"]),
                 phase=data["phase"],
+                executable_mode=data.get("executable_mode"),
             )
         except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise UpdateError("update transaction is malformed") from error
@@ -153,6 +164,12 @@ class UpdateTransaction:
         ):
             raise UpdateError("transaction path is unsafe")
         _validate_version(transaction.version)
+        if transaction.executable_mode is not None and (
+            not isinstance(transaction.executable_mode, int)
+            or transaction.executable_mode & ~0o777
+            or not transaction.executable_mode & stat.S_IXUSR
+        ):
+            raise UpdateError("transaction executable mode is invalid")
         if expected_current_binary is not None:
             _regular(expected_current_binary)
             if transaction.current_binary != expected_current_binary.absolute().resolve():
@@ -179,6 +196,7 @@ class UpdateTransaction:
                     "version": value.version,
                     "started_at": value.started_at,
                     "phase": value.phase,
+                    "executable_mode": value.executable_mode,
                 },
                 sort_keys=True,
             ).encode(),

@@ -280,6 +280,22 @@ def test_helper_accepts_only_new_expected_healthy_marker(tmp_path):
     assert current.read_bytes() == b"new"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes")
+def test_staged_and_swapped_native_binary_preserves_safe_executable_mode(tmp_path):
+    current = tmp_path / "onesearch-agent"
+    current.write_bytes(b"old")
+    current.chmod(0o6755)
+    transaction = UpdateTransaction.create(
+        state_dir=tmp_path / "state", current_binary=current, artifact=b"new", version="1.4.0"
+    )
+    assert transaction.staged_binary.stat().st_mode & 0o7777 == 0o755
+    (tmp_path / "state" / "healthy.json").write_text(
+        json.dumps({"version": "1.4.0", "timestamp": transaction.started_at + 1})
+    )
+    UpdateHelper(service_manager=FakeServiceManager(), sleep=lambda _: None).run(transaction.path)
+    assert current.stat().st_mode & 0o7777 == 0o755
+
+
 def test_helper_rejects_tampered_transaction_paths(tmp_path):
     state = tmp_path / "state"
     (tmp_path / "onesearch-agent").write_bytes(b"old")

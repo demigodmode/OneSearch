@@ -32,4 +32,7 @@ def test_agent_image_is_non_root_without_network_ports_or_writable_roots():
     assert "useradd" in dockerfile
     assert "EXPOSE" not in dockerfile
     assert "PUID" in entrypoint and "PGID" in entrypoint
-    assert "exec su -s /bin/sh -c" in entrypoint
+    assert "PUID must not be root" in entrypoint
+    assert "PGID must not be root" in entrypoint
+    assert "exec gosu onesearch onesearch-agent \"$@\"" in entrypoint
+    assert "chown -R \"$PUID:$PGID\" /var/lib/onesearch-agent" in entrypoint
