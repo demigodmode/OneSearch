@@ -257,15 +257,16 @@ def test_linux_service_grants_only_configured_state_directory(monkeypatch, tmp_p
     config = tmp_path / "state dir" / "agent%.toml"
     config.parent.mkdir()
     config.write_text('state_dir = "/srv/onesearch-agent-state with space%"')
+    state_dir = Path("/srv/onesearch-agent-state with space%")
     monkeypatch.setattr("onesearch_agent.service.validate_service_backend", lambda path: None)
     monkeypatch.setattr(
         "onesearch_agent.service.load_config",
-        lambda path: type("C", (), {"state_dir": Path("/srv/onesearch-agent-state with space%")})(),
+        lambda path: type("C", (), {"state_dir": state_dir})(),
     )
     monkeypatch.setattr("onesearch_agent.service._run", lambda args: None)
     install(config, "/opt/agent", system="posix", home=tmp_path)
     unit = (tmp_path / ".config/systemd/user/onesearch-agent.service").read_text()
-    assert 'ReadWritePaths="\\\\srv\\\\onesearch-agent-state with space%%"' in unit
+    assert f"ReadWritePaths={_systemd_arg(str(state_dir))}" in unit
     assert ".local/state/onesearch-agent" not in unit
 
 
