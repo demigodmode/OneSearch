@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -73,6 +74,51 @@ def _durable_write(path: Path, value: bytes, *, mode: int | None = None) -> None
         pass
 
 
+def _durable_stream(
+    path: Path,
+    stream,
+    *,
+    expected_size: int,
+    expected_sha256: str,
+    mode: int | None,
+) -> None:
+    digest = hashlib.sha256()
+    total = 0
+    created = False
+    try:
+        handle = path.open("xb")
+        created = True
+        with handle:
+            while chunk := stream.read(64 * 1024):
+                if not isinstance(chunk, bytes):
+                    raise UpdateError("release download was not binary data")
+                total += len(chunk)
+                if total > expected_size:
+                    raise UpdateError("artifact size does not match signed manifest")
+                digest.update(chunk)
+                handle.write(chunk)
+            if total != expected_size:
+                raise UpdateError("artifact size does not match signed manifest")
+            if digest.hexdigest() != expected_sha256:
+                raise UpdateError("artifact checksum does not match signed manifest")
+            if mode is not None and os.name == "posix":
+                os.fchmod(handle.fileno(), mode & 0o777)
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            descriptor = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        except OSError:  # Windows does not allow opening directories this way.
+            pass
+    except BaseException:
+        if created:
+            path.unlink(missing_ok=True)
+        raise
+
+
 @dataclass(frozen=True)
 class UpdateTransaction:
     path: Path
@@ -86,7 +132,7 @@ class UpdateTransaction:
     executable_mode: int | None = None
 
     @classmethod
-    def create(cls, *, state_dir: Path, current_binary: Path, artifact: bytes, version: str):
+    def _prepare(cls, *, state_dir: Path, current_binary: Path, version: str):
         _validate_version(version)
         state_dir = _safe_directory(state_dir, create=True)
         _safe_ancestry(current_binary)
@@ -104,7 +150,20 @@ class UpdateTransaction:
         for path in (staged, backup, transaction_path):
             if path.exists() or _link_or_reparse(path):
                 raise UpdateError("update transaction has unexplained existing state")
-        _durable_write(staged, artifact, mode=mode)
+        return state_dir, current_binary, staged, backup, transaction_path, mode
+
+    @classmethod
+    def _publish(
+        cls,
+        *,
+        state_dir: Path,
+        current_binary: Path,
+        staged: Path,
+        backup: Path,
+        transaction_path: Path,
+        version: str,
+        mode: int | None,
+    ):
         transaction = cls(
             path=transaction_path,
             state_dir=state_dir,
@@ -118,6 +177,61 @@ class UpdateTransaction:
         )
         transaction.save()
         return transaction
+
+    @classmethod
+    def create(cls, *, state_dir: Path, current_binary: Path, artifact: bytes, version: str):
+        state_dir, current_binary, staged, backup, transaction_path, mode = cls._prepare(
+            state_dir=state_dir,
+            current_binary=current_binary,
+            version=version,
+        )
+        _durable_write(staged, artifact, mode=mode)
+        return cls._publish(
+            state_dir=state_dir,
+            current_binary=current_binary,
+            staged=staged,
+            backup=backup,
+            transaction_path=transaction_path,
+            version=version,
+            mode=mode,
+        )
+
+    @classmethod
+    def create_streamed(
+        cls,
+        *,
+        state_dir: Path,
+        current_binary: Path,
+        stream,
+        version: str,
+        expected_size: int,
+        expected_sha256: str,
+    ):
+        state_dir, current_binary, staged, backup, transaction_path, mode = cls._prepare(
+            state_dir=state_dir,
+            current_binary=current_binary,
+            version=version,
+        )
+        _durable_stream(
+            staged,
+            stream,
+            expected_size=expected_size,
+            expected_sha256=expected_sha256,
+            mode=mode,
+        )
+        try:
+            return cls._publish(
+                state_dir=state_dir,
+                current_binary=current_binary,
+                staged=staged,
+                backup=backup,
+                transaction_path=transaction_path,
+                version=version,
+                mode=mode,
+            )
+        except BaseException:
+            staged.unlink(missing_ok=True)
+            raise
 
     @classmethod
     def load(cls, path: Path, *, expected_current_binary: Path | None = None):

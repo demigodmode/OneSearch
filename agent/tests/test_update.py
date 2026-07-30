@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import io
 import json
 import sys
 from pathlib import Path
@@ -7,7 +8,8 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from onesearch_agent.update import UpdateError, UpdateManager, UpdateResult
+from onesearch_agent import update as update_module
+from onesearch_agent.update import MAX_ARTIFACT_BYTES, UpdateError, UpdateManager, UpdateResult
 from onesearch_agent.update_runtime import native_update_layout, stage_and_launch
 from onesearch_agent.updater import UpdateHelper, UpdateTransaction
 from onesearch_agent.updater_cli import ServiceManager, launch
@@ -47,11 +49,228 @@ def manager(key, **kwargs):
     return UpdateManager(public_key=public_key, platform="win32-x64", **kwargs)
 
 
+class RecordingResponse:
+    def __init__(
+        self,
+        value: bytes,
+        *,
+        chunk_size: int | None = None,
+        on_read=None,
+        fail_after: int | None = None,
+    ):
+        self._value = io.BytesIO(value)
+        self._chunk_size = chunk_size
+        self._on_read = on_read
+        self._fail_after = fail_after
+        self.closed = False
+        self.reads = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.closed = True
+        self._value.close()
+
+    def read(self, size: int = -1) -> bytes:
+        self.reads += 1
+        if self._fail_after is not None and self.reads > self._fail_after:
+            raise OSError("connection lost")
+        if self._on_read:
+            self._on_read()
+        if self._chunk_size is not None:
+            size = min(size, self._chunk_size)
+        return self._value.read(size)
+
+
+def production_responses(
+    monkeypatch,
+    manifest: dict,
+    artifact: bytes,
+    *,
+    chunk_size=None,
+    artifact_on_read=None,
+    artifact_fail_after=None,
+):
+    manifest_response = RecordingResponse(json.dumps(manifest).encode())
+    artifact_response = RecordingResponse(
+        artifact,
+        chunk_size=chunk_size,
+        on_read=artifact_on_read,
+        fail_after=artifact_fail_after,
+    )
+    contacts = []
+
+    def open_url(url, *, timeout):
+        contacts.append((url, timeout))
+        return manifest_response if url.endswith(".json") else artifact_response
+
+    buffered_download = update_module._download
+
+    def manifest_only_download(url, *, maximum):
+        if not url.endswith(".json"):
+            raise AssertionError("production artifacts must not use the buffered downloader")
+        return buffered_download(url, maximum=maximum)
+
+    monkeypatch.setattr("onesearch_agent.update.urlopen", open_url)
+    monkeypatch.setattr("onesearch_agent.update._download", manifest_only_download)
+    return contacts, manifest_response, artifact_response
+
+
 def test_updates_are_off_by_default_without_contacting_release_host(signing_key):
     contacts = []
     result = manager(signing_key, fetch=lambda url: contacts.append(url)).check(auto_update=False)
     assert result.action == "disabled"
     assert contacts == []
+
+
+def test_production_download_streams_verified_artifact_before_publishing_transaction(
+    signing_key, monkeypatch, tmp_path
+):
+    artifact = b"streamed-agent-binary"
+    payload = signed_manifest(signing_key, artifact=artifact)
+    state_dir = tmp_path / "state"
+    contacts, manifest_response, artifact_response = production_responses(
+        monkeypatch,
+        payload,
+        artifact,
+        chunk_size=3,
+        artifact_on_read=lambda: assert_transaction_not_published(state_dir),
+    )
+    current = tmp_path / "onesearch-agent.exe"
+    current.write_bytes(b"old-agent")
+
+    transaction = manager(signing_key).stage(
+        auto_update=True,
+        current_binary=current,
+        state_dir=state_dir,
+    )
+
+    assert transaction.staged_binary.read_bytes() == artifact
+    assert transaction.path.exists()
+    assert contacts == [
+        (
+            "https://github.com/demigodmode/OneSearch/releases/latest/download/"
+            "agent-manifest-win32-x64.json",
+            30,
+        ),
+        ("https://releases.example/onesearch-agent.exe", 30),
+    ]
+    assert artifact_response.reads > 2
+    assert manifest_response.closed
+    assert artifact_response.closed
+
+
+def assert_transaction_not_published(state_dir: Path) -> None:
+    assert not (state_dir / "updates" / "transaction.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("artifact", "overrides", "message"),
+    [
+        (b"short", {"size": 6}, "size"),
+        (b"overflow", {"size": 7}, "size"),
+        (b"content", {"sha256": "0" * 64}, "checksum"),
+    ],
+)
+def test_production_stream_failure_closes_response_and_removes_partial_update(
+    signing_key, monkeypatch, tmp_path, artifact, overrides, message
+):
+    payload = signed_manifest(signing_key, artifact=artifact, **overrides)
+    _, _, artifact_response = production_responses(monkeypatch, payload, artifact, chunk_size=2)
+    current = tmp_path / "onesearch-agent.exe"
+    current.write_bytes(b"old-agent")
+    state_dir = tmp_path / "state"
+
+    with pytest.raises(UpdateError, match=message):
+        manager(signing_key).stage(
+            auto_update=True,
+            current_binary=current,
+            state_dir=state_dir,
+        )
+
+    assert artifact_response.closed
+    assert_transaction_not_published(state_dir)
+    assert list((state_dir / "updates").glob("*")) == []
+
+
+def test_oversized_signed_artifact_is_rejected_before_artifact_contact(signing_key, tmp_path):
+    payload = signed_manifest(signing_key, size=MAX_ARTIFACT_BYTES + 1)
+    contacts = []
+    current = tmp_path / "onesearch-agent.exe"
+    current.write_bytes(b"old-agent")
+
+    with pytest.raises(UpdateError, match="size"):
+        manager(
+            signing_key,
+            fetch=lambda url: contacts.append(url) or payload,
+        ).stage(
+            auto_update=True,
+            current_binary=current,
+            state_dir=tmp_path / "state",
+        )
+
+    assert len(contacts) == 1
+
+
+def test_production_stream_read_failure_closes_response_and_removes_partial_update(
+    signing_key, monkeypatch, tmp_path
+):
+    artifact = b"partial-download"
+    payload = signed_manifest(signing_key, artifact=artifact)
+    _, _, artifact_response = production_responses(
+        monkeypatch,
+        payload,
+        artifact,
+        chunk_size=2,
+        artifact_fail_after=2,
+    )
+    current = tmp_path / "onesearch-agent.exe"
+    current.write_bytes(b"old-agent")
+    state_dir = tmp_path / "state"
+
+    with pytest.raises(OSError, match="connection lost"):
+        manager(signing_key).stage(
+            auto_update=True,
+            current_binary=current,
+            state_dir=state_dir,
+        )
+
+    assert artifact_response.closed
+    assert_transaction_not_published(state_dir)
+    assert list((state_dir / "updates").glob("*")) == []
+
+
+def test_production_stream_publication_failure_removes_verified_staged_file(
+    signing_key, monkeypatch, tmp_path
+):
+    artifact = b"verified-download"
+    payload = signed_manifest(signing_key, artifact=artifact)
+    _, _, artifact_response = production_responses(
+        monkeypatch,
+        payload,
+        artifact,
+        chunk_size=2,
+    )
+    current = tmp_path / "onesearch-agent.exe"
+    current.write_bytes(b"old-agent")
+    state_dir = tmp_path / "state"
+
+    def fail_publication(cls, **kwargs):
+        raise UpdateError("transaction publication failed")
+
+    monkeypatch.setattr(UpdateTransaction, "_publish", classmethod(fail_publication))
+
+    with pytest.raises(UpdateError, match="publication"):
+        manager(signing_key).stage(
+            auto_update=True,
+            current_binary=current,
+            state_dir=state_dir,
+        )
+
+    assert artifact_response.closed
+    assert_transaction_not_published(state_dir)
+    assert list((state_dir / "updates").glob("*")) == []
 
 
 def test_auto_update_discloses_release_host_contact(signing_key):

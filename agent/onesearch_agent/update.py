@@ -102,17 +102,25 @@ class UpdateManager:
                 "A newer agent image is available; Docker containers are never self-updated."
             )
             return UpdateResult("notify", manifest["version"])
-        artifact = _as_bytes(
-            self.fetch(manifest["url"])
-            if self.fetch
-            else _download(manifest["url"], maximum=MAX_ARTIFACT_BYTES)
-        )
+        from .updater import UpdateTransaction
+
+        if not self.fetch:
+            with urlopen(  # noqa: S310 - the artifact URL is signed by the release key
+                manifest["url"], timeout=30
+            ) as response:
+                return UpdateTransaction.create_streamed(
+                    state_dir=state_dir,
+                    current_binary=current_binary,
+                    stream=response,
+                    version=manifest["version"],
+                    expected_size=manifest["size"],
+                    expected_sha256=manifest["sha256"],
+                )
+        artifact = _as_bytes(self.fetch(manifest["url"]))
         if len(artifact) != manifest["size"]:
             raise UpdateError("artifact size does not match signed manifest")
         if hashlib.sha256(artifact).hexdigest() != manifest["sha256"]:
             raise UpdateError("artifact checksum does not match signed manifest")
-        from .updater import UpdateTransaction
-
         return UpdateTransaction.create(
             state_dir=state_dir,
             current_binary=current_binary,
