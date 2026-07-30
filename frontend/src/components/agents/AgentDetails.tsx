@@ -1,8 +1,8 @@
-import { Button } from "@/components/ui/button";
+import { Button } from '@/components/ui/button'
 import type {
   AgentDetails as AgentDetailsModel,
   ProcessingMode,
-} from "@/types/api";
+} from '@/types/api'
 
 export function AgentDetails({
   agent,
@@ -11,11 +11,11 @@ export function AgentDetails({
   onRevoke,
   onMode,
 }: {
-  agent: AgentDetailsModel;
-  onClose: () => void;
-  onDisable: () => void;
-  onRevoke: () => void;
-  onMode: (mode: ProcessingMode) => void;
+  agent: AgentDetailsModel
+  onClose: () => void
+  onDisable: () => void
+  onRevoke: () => void
+  onMode: (mode: ProcessingMode) => void
 }) {
   return (
     <section
@@ -26,11 +26,11 @@ export function AgentDetails({
         <div>
           <h2 className="font-semibold">{agent.name}</h2>
           <p className="text-sm text-muted-foreground">
-            {agent.platform} · v{agent.version} · protocol{" "}
-            {agent.protocol_version} · last contact{" "}
+            {agent.platform} · v{agent.version} · protocol{' '}
+            {agent.protocol_version} · last contact{' '}
             {agent.last_seen_at
               ? new Date(agent.last_seen_at).toLocaleString()
-              : "never"}
+              : 'never'}
           </p>
         </div>
         <Button size="sm" variant="ghost" onClick={onClose}>
@@ -75,7 +75,7 @@ export function AgentDetails({
         </select>
       </label>
       <p className="text-sm text-muted-foreground">
-        Auto-update: {agent.auto_update ? "enabled" : "not configured"}.
+        Auto-update: {agent.auto_update ? 'enabled' : 'not configured'}.
       </p>
       <div>
         <h3 className="text-sm font-medium">Recent jobs</h3>
@@ -84,7 +84,7 @@ export function AgentDetails({
             {agent.recent_jobs.map((job) => (
               <li key={job.id}>
                 {job.kind} · {job.status}
-                {job.error ? ` — ${job.error}` : ""}
+                {job.error ? ` — ${job.error}` : ''}
               </li>
             ))}
           </ul>
@@ -92,7 +92,7 @@ export function AgentDetails({
           <p className="text-sm text-muted-foreground">No recent jobs.</p>
         )}
       </div>
-      {agent.status !== "revoked" && (
+      {agent.status !== 'revoked' && (
         <div className="flex gap-2">
           <Button size="sm" variant="secondary" onClick={onDisable}>
             Disable credential
@@ -103,5 +103,5 @@ export function AgentDetails({
         </div>
       )}
     </section>
-  );
+  )
 }

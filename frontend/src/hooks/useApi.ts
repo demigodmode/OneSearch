@@ -5,7 +5,7 @@
  * TanStack Query hooks for API data fetching
  */
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getSources,
   getSource,
@@ -21,14 +21,8 @@ import {
   getAppSettings,
   updateAppSettings,
   queryKeys,
-  getAgents,
-  getAgent,
-  createAgentEnrollment,
-  approveAgent,
-  disableAgent,
-  revokeAgent,
-  updateAgentProcessingMode,
-} from "@/lib/api";
+  getAgents, getAgent, createAgentEnrollment, approveAgent, disableAgent, revokeAgent, updateAgentProcessingMode,
+} from '@/lib/api'
 import type {
   SourceCreate,
   SourceUpdate,
@@ -36,7 +30,7 @@ import type {
   AppSettingsUpdate,
   ProcessingMode,
   SourcePathTestRequest,
-} from "@/types/api";
+} from '@/types/api'
 
 // ============================================================================
 // Health & Status Hooks
@@ -51,7 +45,7 @@ export function useHealth() {
     queryFn: getHealth,
     refetchInterval: 30000, // Refetch every 30 seconds
     staleTime: 10000,
-  });
+  })
 }
 
 /**
@@ -63,7 +57,7 @@ export function useStatus() {
     queryFn: getStatus,
     refetchInterval: 30000,
     staleTime: 10000,
-  });
+  })
 }
 
 // ============================================================================
@@ -74,61 +68,35 @@ export function useAppSettings() {
   return useQuery({
     queryKey: queryKeys.appSettings,
     queryFn: getAppSettings,
-  });
+  })
 }
 
 export function useUpdateAppSettings() {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (data: AppSettingsUpdate) => updateAppSettings(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.appSettings });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sources });
+      queryClient.invalidateQueries({ queryKey: queryKeys.appSettings })
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources })
     },
-  });
+  })
 }
 
-export function useAgents() {
-  return useQuery({ queryKey: queryKeys.agents, queryFn: getAgents });
-}
-export function useAgent(id: string) {
-  return useQuery({
-    queryKey: queryKeys.agent(id),
-    queryFn: () => getAgent(id),
-    enabled: !!id,
-  });
-}
+export function useAgents() { return useQuery({ queryKey: queryKeys.agents, queryFn: getAgents }) }
+export function useAgent(id: string) { return useQuery({ queryKey: queryKeys.agent(id), queryFn: () => getAgent(id), enabled: !!id }) }
 function useAgentAction<T>(mutationFn: (value: T) => Promise<unknown>) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn,
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
-  });
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn, onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.agents }) })
 }
 export function useCreateAgentEnrollment() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: createAgentEnrollment,
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
-  });
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: createAgentEnrollment, onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.agents }) })
 }
-export function useApproveAgent() {
-  return useAgentAction(approveAgent);
-}
-export function useDisableAgent() {
-  return useAgentAction(disableAgent);
-}
-export function useRevokeAgent() {
-  return useAgentAction(revokeAgent);
-}
-export function useUpdateAgentProcessingMode() {
-  return useAgentAction(({ id, mode }: { id: string; mode: ProcessingMode }) =>
-    updateAgentProcessingMode(id, mode),
-  );
-}
+export function useApproveAgent() { return useAgentAction(approveAgent) }
+export function useDisableAgent() { return useAgentAction(disableAgent) }
+export function useRevokeAgent() { return useAgentAction(revokeAgent) }
+export function useUpdateAgentProcessingMode() { return useAgentAction(({ id, mode }: { id: string; mode: ProcessingMode }) => updateAgentProcessingMode(id, mode)) }
 
 // ============================================================================
 // Sources Hooks
@@ -141,7 +109,7 @@ export function useSources() {
   return useQuery({
     queryKey: queryKeys.sources,
     queryFn: getSources,
-  });
+  })
 }
 
 /**
@@ -152,38 +120,38 @@ export function useSource(id: string) {
     queryKey: queryKeys.source(id),
     queryFn: () => getSource(id),
     enabled: !!id,
-  });
+  })
 }
 
 /**
  * Hook to create a new source
  */
 export function useCreateSource() {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (data: SourceCreate) => createSource(data),
     onSuccess: () => {
       // Invalidate sources list to refetch
-      queryClient.invalidateQueries({ queryKey: queryKeys.sources });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources })
     },
-  });
+  })
 }
 
 /**
  * Hook to update a source
  */
 export function useUpdateSource() {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: SourceUpdate }) =>
       updateSource(id, data),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sources });
-      queryClient.invalidateQueries({ queryKey: queryKeys.source(id) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources })
+      queryClient.invalidateQueries({ queryKey: queryKeys.source(id) })
     },
-  });
+  })
 }
 
 /**
@@ -192,22 +160,22 @@ export function useUpdateSource() {
 export function useTestSourcePath() {
   return useMutation({
     mutationFn: (data: SourcePathTestRequest) => testSourcePath(data),
-  });
+  })
 }
 
 /**
  * Hook to delete a source
  */
 export function useDeleteSource() {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: (id: string) => deleteSource(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.sources });
-      queryClient.invalidateQueries({ queryKey: queryKeys.status });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources })
+      queryClient.invalidateQueries({ queryKey: queryKeys.status })
     },
-  });
+  })
 }
 
 /**
@@ -215,17 +183,17 @@ export function useDeleteSource() {
  * @param full - If true, wipe and rebuild entire index
  */
 export function useReindexSource() {
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: ({ id, full = false }: { id: string; full?: boolean }) =>
       reindexSource(id, full),
     onSuccess: () => {
       // Invalidate both sources (for updated_at) and status (for indexing info)
-      queryClient.invalidateQueries({ queryKey: queryKeys.sources });
-      queryClient.invalidateQueries({ queryKey: queryKeys.status });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sources })
+      queryClient.invalidateQueries({ queryKey: queryKeys.status })
     },
-  });
+  })
 }
 
 // ============================================================================
@@ -242,7 +210,7 @@ export function useSearch(query: SearchQuery) {
     queryFn: () => searchDocuments(query),
     enabled: query.q.length > 0,
     staleTime: 60000, // Cache search results for 1 minute
-  });
+  })
 }
 
 // ============================================================================
@@ -258,5 +226,5 @@ export function useDocument(id: string) {
     queryFn: () => getDocument(id),
     enabled: !!id,
     staleTime: 300000, // Cache document for 5 minutes
-  });
+  })
 }

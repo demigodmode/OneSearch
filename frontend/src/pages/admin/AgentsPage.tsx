@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { AlertCircle, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { AgentApproval } from "@/components/agents/AgentApproval";
-import { AgentDetails } from "@/components/agents/AgentDetails";
+import { useState } from 'react'
+import { AlertCircle, Plus } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { AgentApproval } from '@/components/agents/AgentApproval'
+import { AgentDetails } from '@/components/agents/AgentDetails'
 import {
   useAgent,
   useAgents,
@@ -13,40 +13,40 @@ import {
   useRevokeAgent,
   useUpdateAgentProcessingMode,
   useUpdateAppSettings,
-} from "@/hooks/useApi";
-import type { Agent, AgentStatus } from "@/types/api";
+} from '@/hooks/useApi'
+import type { Agent, AgentStatus } from '@/types/api'
 
-const attentionStatuses: AgentStatus[] = ["pending", "offline", "degraded"];
+const attentionStatuses: AgentStatus[] = ['pending', 'offline', 'degraded']
 const statusText: Record<AgentStatus, string> = {
-  pending: "Pending approval",
-  online: "Online",
-  offline: "Offline",
-  degraded: "Degraded",
-  disabled: "Disabled",
-  revoked: "Revoked",
-};
+  pending: 'Pending approval',
+  online: 'Online',
+  offline: 'Offline',
+  degraded: 'Degraded',
+  disabled: 'Disabled',
+  revoked: 'Revoked',
+}
 
 export default function AgentsPage() {
-  const settings = useAppSettings();
-  const updateSettings = useUpdateAppSettings();
-  const agents = useAgents();
-  const enrollment = useCreateAgentEnrollment();
-  const approve = useApproveAgent();
-  const disable = useDisableAgent();
-  const revoke = useRevokeAgent();
-  const mode = useUpdateAgentProcessingMode();
-  const [filter, setFilter] = useState<"all" | "online" | "attention">("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const detail = useAgent(selectedId ?? "");
+  const settings = useAppSettings()
+  const updateSettings = useUpdateAppSettings()
+  const agents = useAgents()
+  const enrollment = useCreateAgentEnrollment()
+  const approve = useApproveAgent()
+  const disable = useDisableAgent()
+  const revoke = useRevokeAgent()
+  const mode = useUpdateAgentProcessingMode()
+  const [filter, setFilter] = useState<'all' | 'online' | 'attention'>('all')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const detail = useAgent(selectedId ?? '')
 
   if (settings.isLoading || agents.isLoading)
-    return <p className="text-muted-foreground">Loading agents…</p>;
+    return <p className="text-muted-foreground">Loading agents…</p>
   if (settings.error || agents.error)
     return (
       <p className="text-destructive">
         Unable to load remote-agent administration.
       </p>
-    );
+    )
   if (!settings.data?.remote_agents_enabled)
     return (
       <section className="space-y-4">
@@ -61,23 +61,23 @@ export default function AgentsPage() {
         </Button>
         {updateSettings.error && <ErrorMessage error={updateSettings.error} />}
       </section>
-    );
+    )
 
-  const list = agents.data ?? [];
+  const list = agents.data ?? []
   const attention = list.filter((agent) =>
     attentionStatuses.includes(agent.status),
-  );
+  )
   const visible = list.filter(
     (agent) =>
-      filter === "all" ||
-      (filter === "online"
-        ? agent.status === "online"
+      filter === 'all' ||
+      (filter === 'online'
+        ? agent.status === 'online'
         : attentionStatuses.includes(agent.status)),
-  );
+  )
   const documents = list.reduce(
     (sum, agent) => sum + agent.summary.indexed_documents,
     0,
-  );
+  )
   return (
     <div className="space-y-5 animate-fade-in">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -98,7 +98,7 @@ export default function AgentsPage() {
       </div>
       {enrollment.data && (
         <div className="rounded-lg border border-brand/30 bg-brand/10 p-3 text-sm">
-          Enrollment code: <code>{enrollment.data.code}</code> · expires{" "}
+          Enrollment code: <code>{enrollment.data.code}</code> · expires{' '}
           {new Date(enrollment.data.expires_at).toLocaleString()}
         </div>
       )}
@@ -107,7 +107,7 @@ export default function AgentsPage() {
         <Summary label="Registered" value={list.length} />
         <Summary
           label="Online"
-          value={list.filter((agent) => agent.status === "online").length}
+          value={list.filter((agent) => agent.status === 'online').length}
         />
         <Summary label="Attention" value={attention.length} />
         <Summary label="Remote documents" value={documents} />
@@ -120,13 +120,13 @@ export default function AgentsPage() {
         />
       </div>
       {list
-        .filter((agent) => agent.status === "offline")
+        .filter((agent) => agent.status === 'offline')
         .map((agent) => (
           <p
             key={agent.id}
             className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-foreground"
           >
-            <strong>{agent.name}</strong> is offline; its{" "}
+            <strong>{agent.name}</strong> is offline; its{' '}
             {agent.summary.indexed_documents} indexed documents remain
             searchable. Last contact: {formatContact(agent.last_seen_at)}.
             Original files need the agent to reconnect.
@@ -135,19 +135,19 @@ export default function AgentsPage() {
       <div className="flex flex-wrap gap-2" aria-label="Agent filters">
         {(
           [
-            { value: "all", label: "All", count: list.length },
+            { value: 'all', label: 'All', count: list.length },
             {
-              value: "online",
-              label: "Online",
-              count: list.filter((agent) => agent.status === "online").length,
+              value: 'online',
+              label: 'Online',
+              count: list.filter((agent) => agent.status === 'online').length,
             },
-            { value: "attention", label: "Attention", count: attention.length },
+            { value: 'attention', label: 'Attention', count: attention.length },
           ] as const
         ).map((item) => (
           <Button
             key={item.value}
             size="sm"
-            variant={filter === item.value ? "default" : "secondary"}
+            variant={filter === item.value ? 'default' : 'secondary'}
             onClick={() => setFilter(item.value)}
           >
             {item.label} ({item.count})
@@ -204,9 +204,9 @@ export default function AgentsPage() {
                   <td className="p-3">{agent.summary.attached_sources}</td>
                   <td className="p-3">{nextActivity(agent)}</td>
                   <td className="p-3">
-                    {agent.default_processing_mode === "on_agent"
-                      ? "On agent"
-                      : "On server"}
+                    {agent.default_processing_mode === 'on_agent'
+                      ? 'On agent'
+                      : 'On server'}
                   </td>
                   <td className="p-3">{agent.version}</td>
                   <td className="p-3">{formatContact(agent.last_seen_at)}</td>
@@ -247,7 +247,7 @@ export default function AgentsPage() {
       )}
       {selectedId && detail.error && <ErrorMessage error={detail.error} />}
     </div>
-  );
+  )
 }
 
 function AgentCard({
@@ -256,10 +256,10 @@ function AgentCard({
   onApprove,
   approving,
 }: {
-  agent: Agent;
-  onSelect: () => void;
-  onApprove: () => void;
-  approving: boolean;
+  agent: Agent
+  onSelect: () => void
+  onApprove: () => void
+  approving: boolean
 }) {
   return (
     <article className="rounded-lg border border-border bg-card p-4 space-y-2">
@@ -273,8 +273,8 @@ function AgentCard({
         <Status agent={agent} />
       </div>
       <p className="text-xs text-muted-foreground">
-        {agent.summary.attached_sources} sources ·{" "}
-        {agent.summary.indexed_documents} retained documents ·{" "}
+        {agent.summary.attached_sources} sources ·{' '}
+        {agent.summary.indexed_documents} retained documents ·{' '}
         {nextActivity(agent)}
       </p>
       <p className="text-xs text-muted-foreground">
@@ -282,21 +282,21 @@ function AgentCard({
       </p>
       <AgentApproval agent={agent} pending={approving} onApprove={onApprove} />
     </article>
-  );
+  )
 }
 function Status({ agent }: { agent: Agent }) {
   const color =
-    agent.status === "online"
-      ? "bg-success"
+    agent.status === 'online'
+      ? 'bg-success'
       : attentionStatuses.includes(agent.status)
-        ? "bg-amber-500"
-        : "bg-muted-foreground";
+        ? 'bg-amber-500'
+        : 'bg-muted-foreground'
   return (
     <span className="inline-flex items-center gap-1">
       <span className={`h-2 w-2 rounded-full ${color}`} />
       {statusText[agent.status]}
     </span>
-  );
+  )
 }
 function Summary({ label, value }: { label: string; value: number }) {
   return (
@@ -304,19 +304,19 @@ function Summary({ label, value }: { label: string; value: number }) {
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="text-xl font-semibold">{value}</p>
     </div>
-  );
+  )
 }
 function formatContact(value: string | null) {
-  return value ? new Date(value).toLocaleString() : "Never";
+  return value ? new Date(value).toLocaleString() : 'Never'
 }
 function nextActivity(agent: Agent) {
   return agent.summary.active_jobs
-    ? `${agent.summary.active_jobs} active job${agent.summary.active_jobs === 1 ? "" : "s"}`
+    ? `${agent.summary.active_jobs} active job${agent.summary.active_jobs === 1 ? '' : 's'}`
     : agent.summary.pending_jobs
-      ? `${agent.summary.pending_jobs} pending job${agent.summary.pending_jobs === 1 ? "" : "s"}`
+      ? `${agent.summary.pending_jobs} pending job${agent.summary.pending_jobs === 1 ? '' : 's'}`
       : agent.summary.earliest_next_scan_at
         ? new Date(agent.summary.earliest_next_scan_at).toLocaleString()
-        : "No scheduled activity";
+        : 'No scheduled activity'
 }
 function ErrorMessage({ error }: { error: unknown }) {
   return (
@@ -324,7 +324,7 @@ function ErrorMessage({ error }: { error: unknown }) {
       <AlertCircle className="h-4 w-4" />
       {error instanceof Error
         ? error.message
-        : "The requested action could not be completed."}
+        : 'The requested action could not be completed.'}
     </p>
-  );
+  )
 }

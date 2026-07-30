@@ -1,40 +1,12 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { useState } from "react";
-import {
-  Database,
-  Plus,
-  FolderOpen,
-  RefreshCw,
-  Pencil,
-  Trash2,
-  Loader2,
-  AlertCircle,
-  Clock,
-  CheckCircle,
-  Link2,
-} from "lucide-react";
-import {
-  useSources,
-  useCreateSource,
-  useUpdateSource,
-  useDeleteSource,
-  useReindexSource,
-  useTestSourcePath,
-  useAppSettings,
-  useAgents,
-} from "@/hooks/useApi";
-import type {
-  Agent,
-  ProcessingMode,
-  Source,
-  SourceCreate,
-  SourceUpdate,
-  SourcePathTestResponse,
-} from "@/types/api";
-import { RemotePathPicker } from "@/components/agents/RemotePathPicker";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { useState } from 'react'
+import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock, CheckCircle, Link2 } from 'lucide-react'
+import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath, useAppSettings, useAgents } from '@/hooks/useApi'
+import type { Agent, ProcessingMode, Source, SourceCreate, SourceUpdate, SourcePathTestResponse } from '@/types/api'
+import { RemotePathPicker } from '@/components/agents/RemotePathPicker'
+import { cn, formatRelativeTime } from '@/lib/utils'
 import {
   Dialog,
   DialogContent,
@@ -42,31 +14,26 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  SchedulePicker,
-  formatScheduleConfig,
-  parseFakeIntervalCron,
-} from "@/components/SchedulePicker";
-import type { ScheduleConfig } from "@/types/api";
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { SchedulePicker, formatScheduleConfig, parseFakeIntervalCron } from '@/components/SchedulePicker'
+import type { ScheduleConfig } from '@/types/api'
 
 // Format date for display
 function formatDate(isoString: string): string {
-  const date = new Date(isoString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const date = new Date(isoString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
 
-  if (diffHours < 1) return "Just now";
-  if (diffHours < 24)
-    return `${diffHours} hour${diffHours !== 1 ? "s" : ""} ago`;
-  if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? "s" : ""} ago`;
-  return date.toLocaleDateString();
+  if (diffHours < 1) return 'Just now'
+  if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`
+  if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`
+  return date.toLocaleDateString()
 }
 
 // Source form component
@@ -80,139 +47,90 @@ export function SourceForm({
   isLoading,
   error,
 }: {
-  source?: Source;
-  defaultSchedule?: ScheduleConfig | null;
-  remoteAgentsEnabled: boolean;
-  agents: Agent[];
-  onSubmit: (data: SourceCreate | SourceUpdate) => void;
-  onCancel: () => void;
-  isLoading: boolean;
-  error?: Error | null;
+  source?: Source
+  defaultSchedule?: ScheduleConfig | null
+  remoteAgentsEnabled: boolean
+  agents: Agent[]
+  onSubmit: (data: SourceCreate | SourceUpdate) => void
+  onCancel: () => void
+  isLoading: boolean
+  error?: Error | null
 }) {
-  const [name, setName] = useState(source?.name || "");
-  const [rootPath, setRootPath] = useState(source?.root_path || "");
-  const [locationType, setLocationType] = useState<"local" | "agent">(
-    source?.location_type ?? "local",
-  );
-  const [agentId, setAgentId] = useState(source?.agent_id ?? "");
-  const [processingMode, setProcessingMode] = useState<ProcessingMode | "">(
-    source?.processing_mode ?? "",
-  );
+  const [name, setName] = useState(source?.name || '')
+  const [rootPath, setRootPath] = useState(source?.root_path || '')
+  const [locationType, setLocationType] = useState<'local' | 'agent'>(source?.location_type ?? 'local')
+  const [agentId, setAgentId] = useState(source?.agent_id ?? '')
+  const [processingMode, setProcessingMode] = useState<ProcessingMode | ''>(source?.processing_mode ?? '')
   const [includePatterns, setIncludePatterns] = useState(
-    source?.include_patterns?.join(", ") || "",
-  );
+    source?.include_patterns?.join(', ') || ''
+  )
   const [excludePatterns, setExcludePatterns] = useState(
-    source?.exclude_patterns?.join(", ") || "",
-  );
-  const [pathTestResult, setPathTestResult] =
-    useState<SourcePathTestResponse | null>(null);
-  const [pathTestError, setPathTestError] = useState<string | null>(null);
-  const testPathMutation = useTestSourcePath();
+    source?.exclude_patterns?.join(', ') || ''
+  )
+  const [pathTestResult, setPathTestResult] = useState<SourcePathTestResponse | null>(null)
+  const [pathTestError, setPathTestError] = useState<string | null>(null)
+  const testPathMutation = useTestSourcePath()
 
   // Schedule state
-  const [useDefaultSchedule, setUseDefaultSchedule] = useState(
-    source?.use_default_schedule ?? false,
-  );
+  const [useDefaultSchedule, setUseDefaultSchedule] = useState(source?.use_default_schedule ?? false)
   const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>({
-    schedule_type: source?.schedule_type ?? "cron",
+    schedule_type: source?.schedule_type ?? 'cron',
     scan_schedule: source?.scan_schedule ?? null,
     interval_value: source?.interval_value ?? null,
     interval_unit: source?.interval_unit ?? null,
-  });
-  const fakeInterval = parseFakeIntervalCron(source?.scan_schedule);
-  const [dismissedMigrationBanner, setDismissedMigrationBanner] =
-    useState(false);
-  const showMigrationBanner =
-    !useDefaultSchedule &&
-    !dismissedMigrationBanner &&
-    scheduleConfig.schedule_type === "cron" &&
-    !!fakeInterval;
+  })
+  const fakeInterval = parseFakeIntervalCron(source?.scan_schedule)
+  const [dismissedMigrationBanner, setDismissedMigrationBanner] = useState(false)
+  const showMigrationBanner = !useDefaultSchedule && !dismissedMigrationBanner && scheduleConfig.schedule_type === 'cron' && !!fakeInterval
 
   const handleTestPath = () => {
-    const candidate = rootPath.trim();
-    if (!candidate) return;
-    setPathTestError(null);
-    testPathMutation.mutate(
-      {
-        root_path: candidate,
-        location_type: locationType,
-        agent_id: agentId || null,
+    const candidate = rootPath.trim()
+    if (!candidate) return
+    setPathTestError(null)
+    testPathMutation.mutate({ root_path: candidate, location_type: locationType, agent_id: agentId || null }, {
+      onSuccess: setPathTestResult,
+      onError: (requestError) => {
+        setPathTestResult(null)
+        setPathTestError(requestError instanceof Error ? requestError.message : 'Unable to validate this path.')
       },
-      {
-        onSuccess: setPathTestResult,
-        onError: (requestError) => {
-          setPathTestResult(null);
-          setPathTestError(
-            requestError instanceof Error
-              ? requestError.message
-              : "Unable to validate this path.",
-          );
-        },
-      },
-    );
-  };
+    })
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
 
     const data: SourceCreate | SourceUpdate = {
       name: name.trim(),
       root_path: rootPath.trim(),
-      include_patterns: includePatterns
-        ? includePatterns
-            .split(",")
-            .map((p) => p.trim())
-            .filter(Boolean)
-        : [],
-      exclude_patterns: excludePatterns
-        ? excludePatterns
-            .split(",")
-            .map((p) => p.trim())
-            .filter(Boolean)
-        : [],
+      include_patterns: includePatterns ? includePatterns.split(',').map(p => p.trim()).filter(Boolean) : [],
+      exclude_patterns: excludePatterns ? excludePatterns.split(',').map(p => p.trim()).filter(Boolean) : [],
       use_default_schedule: useDefaultSchedule,
       schedule_type: scheduleConfig.schedule_type,
       scan_schedule: scheduleConfig.scan_schedule ?? null,
       interval_value: scheduleConfig.interval_value ?? null,
       interval_unit: scheduleConfig.interval_unit ?? null,
-    };
-
-    const preserveDisabledRemoteBinding = Boolean(
-      source && source.location_type === "agent" && !remoteAgentsEnabled,
-    );
-    if (!preserveDisabledRemoteBinding) {
-      data.location_type = locationType;
-      data.agent_id = locationType === "agent" ? agentId : null;
-      data.processing_mode =
-        locationType === "agent" ? processingMode || null : null;
-      data.root_path = rootPath.trim();
-    } else {
-      delete data.root_path;
     }
 
-    onSubmit(data);
-  };
+    const preserveDisabledRemoteBinding = Boolean(source && source.location_type === 'agent' && !remoteAgentsEnabled)
+    if (!preserveDisabledRemoteBinding) {
+      data.location_type = locationType
+      data.agent_id = locationType === 'agent' ? agentId : null
+      data.processing_mode = locationType === 'agent' ? processingMode || null : null
+      data.root_path = rootPath.trim()
+    } else {
+      delete data.root_path
+    }
 
-  const isEdit = !!source;
-  const selectedAgent = agents.find((agent) => agent.id === agentId);
-  const unchangedExistingRemote =
-    source?.location_type === "agent" &&
-    source.agent_id === agentId &&
-    source.root_path === rootPath;
-  const queuedRemoteValidation =
-    locationType === "agent" && pathTestResult?.status === "pending";
-  const isSubmitDisabled =
-    isLoading ||
-    !name.trim() ||
-    !rootPath.trim() ||
-    (locationType === "agent" &&
-      (!agentId ||
-        (!pathTestResult?.ok &&
-          !queuedRemoteValidation &&
-          !unchangedExistingRemote))) ||
-    (!useDefaultSchedule &&
-      scheduleConfig.schedule_type === "interval" &&
-      !scheduleConfig.interval_value);
+    onSubmit(data)
+  }
+
+  const isEdit = !!source
+  const selectedAgent = agents.find((agent) => agent.id === agentId)
+  const unchangedExistingRemote = source?.location_type === 'agent' && source.agent_id === agentId && source.root_path === rootPath
+  const queuedRemoteValidation = locationType === 'agent' && pathTestResult?.status === 'pending'
+  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (locationType === 'agent' && (!agentId || (!pathTestResult?.ok && !queuedRemoteValidation && !unchangedExistingRemote))) || (
+    !useDefaultSchedule && scheduleConfig.schedule_type === 'interval' && !scheduleConfig.interval_value
+  )
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -220,7 +138,7 @@ export function SourceForm({
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            {error.message || "An error occurred"}
+            {error.message || 'An error occurred'}
           </AlertDescription>
         </Alert>
       )}
@@ -238,148 +156,40 @@ export function SourceForm({
       </div>
 
       <div className="space-y-2">
-        {remoteAgentsEnabled && (
-          <div className="space-y-2">
-            <Label>Location</Label>
-            <div className="flex gap-3 text-sm">
-              <label>
-                <input
-                  type="radio"
-                  checked={locationType === "local"}
-                  onChange={() => setLocationType("local")}
-                />{" "}
-                Local
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  checked={locationType === "agent"}
-                  onChange={() => setLocationType("agent")}
-                />{" "}
-                Remote agent
-              </label>
-            </div>
-          </div>
+        {remoteAgentsEnabled && <div className="space-y-2"><Label>Location</Label><div className="flex gap-3 text-sm"><label><input type="radio" checked={locationType === 'local'} onChange={() => setLocationType('local')} /> Local</label><label><input type="radio" checked={locationType === 'agent'} onChange={() => setLocationType('agent')} /> Remote agent</label></div></div>}
+        {locationType === 'agent' && !remoteAgentsEnabled ? <p className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-muted-foreground">Remote source binding is unavailable while remote agents are disabled. This source remains attached to {selectedAgent?.name ?? agentId} at {rootPath}.</p> : locationType === 'agent' ? <><Label htmlFor="agent">Approved agent</Label><select id="agent" value={agentId} onChange={(event) => { setAgentId(event.target.value); setRootPath(''); setProcessingMode(''); setPathTestError(null) }} className="w-full rounded-lg border border-border bg-background px-3 py-2"><option value="">Choose an approved agent</option>{agents.filter((agent) => agent.status === 'online' && agent.approved_at || (source?.agent_id === agent.id && agent.status === 'offline')).map((agent) => <option key={agent.id} value={agent.id}>{agent.name} ({agent.status})</option>)}</select><RemotePathPicker agent={selectedAgent} value={rootPath} onChange={(value) => { setRootPath(value); setPathTestResult(null); setPathTestError(null) }} onTest={handleTestPath} result={pathTestResult} testing={testPathMutation.isPending} />{pathTestError && <p className="text-xs text-destructive">{pathTestError}</p>}<label className="block text-sm">Processing mode <select value={processingMode} onChange={(event) => setProcessingMode(event.target.value as ProcessingMode | '')} className="ml-2 rounded-lg border border-border bg-background px-2 py-1"><option value="">Inherit agent default ({selectedAgent?.default_processing_mode ?? '—'})</option><option value="on_agent">On agent</option><option value="on_server">On server</option></select></label></> : <>
+        <Label htmlFor="root_path">Root Path</Label>
+        <Input
+          id="root_path"
+          value={rootPath}
+          onChange={(e) => {
+            setRootPath(e.target.value)
+            setPathTestResult(null)
+          }}
+          placeholder="/data/documents"
+          title="Path inside the OneSearch container, not necessarily the host path."
+          className="font-mono text-sm"
+          required
+        />
+        <p className="text-xs text-muted-foreground">
+          Use the path OneSearch can see inside the container, usually under the configured allowed source roots.
+        </p>
+        {pathTestResult && (
+          <Alert
+            variant={pathTestResult.ok ? 'default' : 'destructive'}
+            className={pathTestResult.ok ? 'border-success/50 text-foreground [&>svg]:text-success' : undefined}
+          >
+            {pathTestResult.ok ? <CheckCircle className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+            <AlertDescription>
+              <p>{pathTestResult.message}</p>
+              {pathTestResult.hint && <p className="mt-1 text-xs opacity-80">{pathTestResult.hint}</p>}
+              <p className="mt-2 text-xs opacity-80">
+                Allowed: {pathTestResult.inside_allowed_roots ? 'yes' : 'no'} · Exists: {pathTestResult.exists ? 'yes' : 'no'} · Directory: {pathTestResult.is_directory ? 'yes' : 'no'} · Readable: {pathTestResult.readable ? 'yes' : 'no'}
+              </p>
+            </AlertDescription>
+          </Alert>
         )}
-        {locationType === "agent" && !remoteAgentsEnabled ? (
-          <p className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-muted-foreground">
-            Remote source binding is unavailable while remote agents are
-            disabled. This source remains attached to{" "}
-            {selectedAgent?.name ?? agentId} at {rootPath}.
-          </p>
-        ) : locationType === "agent" ? (
-          <>
-            <Label htmlFor="agent">Approved agent</Label>
-            <select
-              id="agent"
-              value={agentId}
-              onChange={(event) => {
-                setAgentId(event.target.value);
-                setRootPath("");
-                setProcessingMode("");
-                setPathTestError(null);
-              }}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2"
-            >
-              <option value="">Choose an approved agent</option>
-              {agents
-                .filter(
-                  (agent) =>
-                    (agent.status === "online" && agent.approved_at) ||
-                    (source?.agent_id === agent.id &&
-                      agent.status === "offline"),
-                )
-                .map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name} ({agent.status})
-                  </option>
-                ))}
-            </select>
-            <RemotePathPicker
-              agent={selectedAgent}
-              value={rootPath}
-              onChange={(value) => {
-                setRootPath(value);
-                setPathTestResult(null);
-                setPathTestError(null);
-              }}
-              onTest={handleTestPath}
-              result={pathTestResult}
-              testing={testPathMutation.isPending}
-            />
-            {pathTestError && (
-              <p className="text-xs text-destructive">{pathTestError}</p>
-            )}
-            <label className="block text-sm">
-              Processing mode{" "}
-              <select
-                value={processingMode}
-                onChange={(event) =>
-                  setProcessingMode(event.target.value as ProcessingMode | "")
-                }
-                className="ml-2 rounded-lg border border-border bg-background px-2 py-1"
-              >
-                <option value="">
-                  Inherit agent default (
-                  {selectedAgent?.default_processing_mode ?? "—"})
-                </option>
-                <option value="on_agent">On agent</option>
-                <option value="on_server">On server</option>
-              </select>
-            </label>
-          </>
-        ) : (
-          <>
-            <Label htmlFor="root_path">Root Path</Label>
-            <Input
-              id="root_path"
-              value={rootPath}
-              onChange={(e) => {
-                setRootPath(e.target.value);
-                setPathTestResult(null);
-              }}
-              placeholder="/data/documents"
-              title="Path inside the OneSearch container, not necessarily the host path."
-              className="font-mono text-sm"
-              required
-            />
-            <p className="text-xs text-muted-foreground">
-              Use the path OneSearch can see inside the container, usually under
-              the configured allowed source roots.
-            </p>
-            {pathTestResult && (
-              <Alert
-                variant={pathTestResult.ok ? "default" : "destructive"}
-                className={
-                  pathTestResult.ok
-                    ? "border-success/50 text-foreground [&>svg]:text-success"
-                    : undefined
-                }
-              >
-                {pathTestResult.ok ? (
-                  <CheckCircle className="h-4 w-4" />
-                ) : (
-                  <AlertCircle className="h-4 w-4" />
-                )}
-                <AlertDescription>
-                  <p>{pathTestResult.message}</p>
-                  {pathTestResult.hint && (
-                    <p className="mt-1 text-xs opacity-80">
-                      {pathTestResult.hint}
-                    </p>
-                  )}
-                  <p className="mt-2 text-xs opacity-80">
-                    Allowed:{" "}
-                    {pathTestResult.inside_allowed_roots ? "yes" : "no"} ·
-                    Exists: {pathTestResult.exists ? "yes" : "no"} · Directory:{" "}
-                    {pathTestResult.is_directory ? "yes" : "no"} · Readable:{" "}
-                    {pathTestResult.readable ? "yes" : "no"}
-                  </p>
-                </AlertDescription>
-              </Alert>
-            )}
-          </>
-        )}
+        </>}
       </div>
 
       <div className="space-y-2">
@@ -420,9 +230,8 @@ export function SourceForm({
 
         {useDefaultSchedule ? (
           <p className="text-xs text-muted-foreground rounded-lg border border-border bg-secondary/30 p-3">
-            Following the global default:{" "}
-            <strong>{formatScheduleConfig(defaultSchedule)}</strong>. Change it
-            in Settings &rarr; Scheduling.
+            Following the global default: <strong>{formatScheduleConfig(defaultSchedule)}</strong>.
+            Change it in Settings &rarr; Scheduling.
           </p>
         ) : (
           <>
@@ -430,9 +239,7 @@ export function SourceForm({
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription className="flex items-center justify-between gap-3">
-                  <span>
-                    This looks like a fixed interval — switch to true interval?
-                  </span>
+                  <span>This looks like a fixed interval — switch to true interval?</span>
                   <div className="flex gap-2">
                     <Button
                       type="button"
@@ -440,64 +247,43 @@ export function SourceForm({
                       variant="secondary"
                       onClick={() => {
                         setScheduleConfig({
-                          schedule_type: "interval",
+                          schedule_type: 'interval',
                           scan_schedule: null,
                           interval_value: Number(fakeInterval.value),
                           interval_unit: fakeInterval.unit,
-                        });
-                        setDismissedMigrationBanner(true);
+                        })
+                        setDismissedMigrationBanner(true)
                       }}
                     >
                       Switch
                     </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setDismissedMigrationBanner(true)}
-                    >
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setDismissedMigrationBanner(true)}>
                       Dismiss
                     </Button>
                   </div>
                 </AlertDescription>
               </Alert>
             )}
-            <SchedulePicker
-              value={scheduleConfig}
-              onChange={setScheduleConfig}
-              idPrefix="source-schedule"
-            />
+            <SchedulePicker value={scheduleConfig} onChange={setScheduleConfig} idPrefix="source-schedule" />
           </>
         )}
       </div>
 
       <DialogFooter>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={handleTestPath}
-          disabled={isLoading || testPathMutation.isPending || !rootPath.trim()}
-        >
-          {testPathMutation.isPending && (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          )}
+        <Button type="button" variant="secondary" onClick={handleTestPath} disabled={isLoading || testPathMutation.isPending || !rootPath.trim()}>
+          {testPathMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Test
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCancel}
-          disabled={isLoading}
-        >
+        <Button type="button" variant="outline" onClick={onCancel} disabled={isLoading}>
           Cancel
         </Button>
         <Button type="submit" disabled={isSubmitDisabled}>
           {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {isEdit ? "Save Changes" : "Add Source"}
+          {isEdit ? 'Save Changes' : 'Add Source'}
         </Button>
       </DialogFooter>
     </form>
-  );
+  )
 }
 
 // Delete confirmation dialog
@@ -508,11 +294,11 @@ function DeleteConfirmDialog({
   onConfirm,
   isLoading,
 }: {
-  source: Source | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
-  isLoading: boolean;
+  source: Source | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+  isLoading: boolean
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -520,111 +306,90 @@ function DeleteConfirmDialog({
         <DialogHeader>
           <DialogTitle>Delete Source</DialogTitle>
           <DialogDescription>
-            Are you sure you want to delete "{source?.name}"? This will remove
-            all indexed documents from this source. This action cannot be
-            undone.
+            Are you sure you want to delete "{source?.name}"? This will remove all indexed documents from this source.
+            This action cannot be undone.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isLoading}
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
             Cancel
           </Button>
-          <Button
-            variant="destructive"
-            onClick={onConfirm}
-            disabled={isLoading}
-          >
+          <Button variant="destructive" onClick={onConfirm} disabled={isLoading}>
             {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Delete
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
+  )
 }
 
 export default function SourcesPage() {
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [editingSource, setEditingSource] = useState<Source | null>(null);
-  const [deletingSource, setDeletingSource] = useState<Source | null>(null);
-  const [fullReindexSource, setFullReindexSource] = useState<Source | null>(
-    null,
-  );
-  const [reindexingId, setReindexingId] = useState<string | null>(null);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [editingSource, setEditingSource] = useState<Source | null>(null)
+  const [deletingSource, setDeletingSource] = useState<Source | null>(null)
+  const [fullReindexSource, setFullReindexSource] = useState<Source | null>(null)
+  const [reindexingId, setReindexingId] = useState<string | null>(null)
 
   // Queries and mutations
-  const {
-    data: sources,
-    isLoading: isLoadingSources,
-    error: sourcesError,
-  } = useSources();
-  const { data: appSettings } = useAppSettings();
-  const { data: agents = [] } = useAgents();
-  const createMutation = useCreateSource();
-  const updateMutation = useUpdateSource();
-  const deleteMutation = useDeleteSource();
-  const reindexMutation = useReindexSource();
+  const { data: sources, isLoading: isLoadingSources, error: sourcesError } = useSources()
+  const { data: appSettings } = useAppSettings()
+  const { data: agents = [] } = useAgents()
+  const createMutation = useCreateSource()
+  const updateMutation = useUpdateSource()
+  const deleteMutation = useDeleteSource()
+  const reindexMutation = useReindexSource()
 
   const handleCreate = (data: SourceCreate) => {
     createMutation.mutate(data, {
       onSuccess: () => {
-        setIsAddDialogOpen(false);
+        setIsAddDialogOpen(false)
       },
-    });
-  };
+    })
+  }
 
   const handleUpdate = (data: SourceUpdate) => {
-    if (!editingSource) return;
+    if (!editingSource) return
     updateMutation.mutate(
       { id: editingSource.id, data },
       {
         onSuccess: () => {
-          setEditingSource(null);
+          setEditingSource(null)
         },
-      },
-    );
-  };
+      }
+    )
+  }
 
   const handleDelete = () => {
-    if (!deletingSource) return;
+    if (!deletingSource) return
     deleteMutation.mutate(deletingSource.id, {
       onSuccess: () => {
-        setDeletingSource(null);
+        setDeletingSource(null)
       },
-    });
-  };
+    })
+  }
 
   const handleReindex = (id: string) => {
-    setReindexingId(id);
-    reindexMutation.mutate(
-      { id },
-      {
-        onSettled: () => {
-          setReindexingId(null);
-        },
+    setReindexingId(id)
+    reindexMutation.mutate({ id }, {
+      onSettled: () => {
+        setReindexingId(null)
       },
-    );
-  };
+    })
+  }
 
   const handleFullReindex = () => {
-    if (!fullReindexSource) return;
-    setReindexingId(fullReindexSource.id);
-    reindexMutation.mutate(
-      { id: fullReindexSource.id, full: true },
-      {
-        onSettled: () => {
-          setReindexingId(null);
-          setFullReindexSource(null);
-        },
+    if (!fullReindexSource) return
+    setReindexingId(fullReindexSource.id)
+    reindexMutation.mutate({ id: fullReindexSource.id, full: true }, {
+      onSettled: () => {
+        setReindexingId(null)
+        setFullReindexSource(null)
       },
-    );
-  };
+    })
+  }
 
-  const hasSources = sources && sources.length > 0;
+  const hasSources = sources && sources.length > 0
 
   if (isLoadingSources) {
     return (
@@ -638,15 +403,12 @@ export default function SourcesPage() {
         <div className="bg-card border border-border rounded-lg p-8">
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="h-16 bg-secondary rounded animate-pulse"
-              />
+              <div key={i} className="h-16 bg-secondary rounded animate-pulse" />
             ))}
           </div>
         </div>
       </div>
-    );
+    )
   }
 
   if (sourcesError) {
@@ -654,17 +416,13 @@ export default function SourcesPage() {
       <div className="animate-fade-in">
         <div className="bg-card border border-border rounded-lg p-8 text-center">
           <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-foreground mb-2">
-            Failed to load sources
-          </h3>
+          <h3 className="text-lg font-medium text-foreground mb-2">Failed to load sources</h3>
           <p className="text-muted-foreground">
-            {sourcesError instanceof Error
-              ? sourcesError.message
-              : "An error occurred"}
+            {sourcesError instanceof Error ? sourcesError.message : 'An error occurred'}
           </p>
         </div>
       </div>
-    );
+    )
   }
 
   return (
@@ -679,12 +437,7 @@ export default function SourcesPage() {
             Manage directories and locations to index
           </p>
         </div>
-        <Button
-          onClick={() => {
-            createMutation.reset();
-            setIsAddDialogOpen(true);
-          }}
-        >
+        <Button onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}>
           <Plus className="h-4 w-4" />
           Add Source
         </Button>
@@ -718,10 +471,7 @@ export default function SourcesPage() {
                 <tr
                   key={source.id}
                   className="hover:bg-secondary/30 transition-colors animate-fade-in-up animate-initial"
-                  style={{
-                    animationDelay: `${index * 50}ms`,
-                    animationFillMode: "forwards",
-                  }}
+                  style={{ animationDelay: `${index * 50}ms`, animationFillMode: 'forwards' }}
                 >
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-3">
@@ -729,9 +479,7 @@ export default function SourcesPage() {
                         <FolderOpen className="h-4 w-4 text-brand" />
                       </div>
                       <div>
-                        <p className="font-medium text-foreground">
-                          {source.name}
-                        </p>
+                        <p className="font-medium text-foreground">{source.name}</p>
                         <p className="text-xs text-muted-foreground font-mono @[560px]:hidden truncate max-w-[200px]">
                           {source.root_path}
                         </p>
@@ -739,22 +487,15 @@ export default function SourcesPage() {
                     </div>
                   </td>
                   <td className="px-4 py-4 hidden @[560px]:table-cell">
-                    <code className="text-sm text-muted-foreground font-mono">
-                      {source.root_path}
-                    </code>
+                    <code className="text-sm text-muted-foreground font-mono">{source.root_path}</code>
                   </td>
                   <td className="px-4 py-4 hidden @[800px]:table-cell">
                     <div className="flex items-center gap-1.5">
                       <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="text-sm text-muted-foreground">
-                        {formatScheduleConfig(source.effective_schedule)}
-                      </span>
+                      <span className="text-sm text-muted-foreground">{formatScheduleConfig(source.effective_schedule)}</span>
                       {source.use_default_schedule && (
                         <span title="Following the global default (Settings → Scheduling)">
-                          <Link2
-                            className="h-3.5 w-3.5 text-brand"
-                            aria-label="Following the global default"
-                          />
+                          <Link2 className="h-3.5 w-3.5 text-brand" aria-label="Following the global default" />
                         </span>
                       )}
                     </div>
@@ -765,9 +506,7 @@ export default function SourcesPage() {
                     )}
                   </td>
                   <td className="px-4 py-4 text-right hidden @[400px]:table-cell">
-                    <span className="text-sm text-muted-foreground">
-                      {formatDate(source.updated_at)}
-                    </span>
+                    <span className="text-sm text-muted-foreground">{formatDate(source.updated_at)}</span>
                   </td>
                   <td className="px-4 py-4 text-right">
                     <div className="flex items-center justify-end gap-1">
@@ -776,19 +515,14 @@ export default function SourcesPage() {
                           "min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg transition-all active:scale-95 disabled:active:scale-100",
                           reindexingId === source.id
                             ? "text-brand bg-brand/10"
-                            : "text-muted-foreground hover:text-brand hover:bg-brand/10",
+                            : "text-muted-foreground hover:text-brand hover:bg-brand/10"
                         )}
                         title="Scan this source for new, changed, or removed files."
                         aria-label={`Reindex ${source.name}`}
                         onClick={() => handleReindex(source.id)}
                         disabled={reindexingId === source.id}
                       >
-                        <RefreshCw
-                          className={cn(
-                            "h-4 w-4 transition-transform",
-                            reindexingId === source.id && "animate-spin",
-                          )}
-                        />
+                        <RefreshCw className={cn("h-4 w-4 transition-transform", reindexingId === source.id && "animate-spin")} />
                       </button>
                       <button
                         className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-brand hover:bg-brand/10 rounded-lg transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
@@ -803,10 +537,7 @@ export default function SourcesPage() {
                         className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-all active:scale-95"
                         title="Edit this source path, patterns, or scan schedule."
                         aria-label={`Edit ${source.name}`}
-                        onClick={() => {
-                          updateMutation.reset();
-                          setEditingSource(source);
-                        }}
+                        onClick={() => { updateMutation.reset(); setEditingSource(source) }}
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
@@ -836,15 +567,9 @@ export default function SourcesPage() {
               No sources configured
             </h3>
             <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
-              Add a source to start indexing your files. Sources are directories
-              that OneSearch will scan and index.
+              Add a source to start indexing your files. Sources are directories that OneSearch will scan and index.
             </p>
-            <Button
-              onClick={() => {
-                createMutation.reset();
-                setIsAddDialogOpen(true);
-              }}
-            >
+            <Button onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}>
               <Plus className="h-4 w-4" />
               Add Your First Source
             </Button>
@@ -855,12 +580,8 @@ export default function SourcesPage() {
       {/* Help text */}
       <div className="mt-6 p-4 rounded-lg bg-secondary/30 border border-border">
         <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">Tip:</span> Mount your
-          NAS shares in Docker, then add the container path as a source. Use{" "}
-          <code className="px-1.5 py-0.5 bg-secondary rounded font-mono text-xs">
-            :ro
-          </code>{" "}
-          for read-only mounts.
+          <span className="font-medium text-foreground">Tip:</span> Mount your NAS shares in Docker, then add the container path as a source.
+          Use <code className="px-1.5 py-0.5 bg-secondary rounded font-mono text-xs">:ro</code> for read-only mounts.
         </p>
       </div>
 
@@ -870,8 +591,7 @@ export default function SourcesPage() {
           <DialogHeader>
             <DialogTitle>Add Source</DialogTitle>
             <DialogDescription>
-              Add a new directory to index. The path should be accessible from
-              inside the Docker container.
+              Add a new directory to index. The path should be accessible from inside the Docker container.
             </DialogDescription>
           </DialogHeader>
           <SourceForm
@@ -887,16 +607,12 @@ export default function SourcesPage() {
       </Dialog>
 
       {/* Edit Source Dialog */}
-      <Dialog
-        open={!!editingSource}
-        onOpenChange={(open) => !open && setEditingSource(null)}
-      >
+      <Dialog open={!!editingSource} onOpenChange={(open) => !open && setEditingSource(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Source</DialogTitle>
             <DialogDescription>
-              Update the source configuration. Changes will apply on the next
-              reindex.
+              Update the source configuration. Changes will apply on the next reindex.
             </DialogDescription>
           </DialogHeader>
           {editingSource && (
@@ -915,43 +631,28 @@ export default function SourcesPage() {
       </Dialog>
 
       {/* Full Reindex Confirmation Dialog */}
-      <Dialog
-        open={!!fullReindexSource}
-        onOpenChange={(open) => !open && setFullReindexSource(null)}
-      >
+      <Dialog open={!!fullReindexSource} onOpenChange={(open) => !open && setFullReindexSource(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Full reindex source?</DialogTitle>
             <DialogDescription>
-              This clears indexed metadata for {fullReindexSource?.name} and
-              rebuilds every matching file from scratch. Use this after
-              migrating to managed Meilisearch or when search index data is out
-              of sync.
+              This clears indexed metadata for {fullReindexSource?.name} and rebuilds every matching file from scratch.
+              Use this after migrating to managed Meilisearch or when search index data is out of sync.
             </DialogDescription>
           </DialogHeader>
           {fullReindexSource && (
             <Alert>
               <AlertDescription>
-                Confirm the path exists inside the container first:{" "}
-                <code className="font-mono">{fullReindexSource.root_path}</code>
+                Confirm the path exists inside the container first: <code className="font-mono">{fullReindexSource.root_path}</code>
               </AlertDescription>
             </Alert>
           )}
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setFullReindexSource(null)}
-              disabled={reindexMutation.isPending}
-            >
+            <Button variant="outline" onClick={() => setFullReindexSource(null)} disabled={reindexMutation.isPending}>
               Cancel
             </Button>
-            <Button
-              onClick={handleFullReindex}
-              disabled={reindexMutation.isPending}
-            >
-              {reindexMutation.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
+            <Button onClick={handleFullReindex} disabled={reindexMutation.isPending}>
+              {reindexMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Full reindex
             </Button>
           </DialogFooter>
@@ -967,5 +668,5 @@ export default function SourcesPage() {
         isLoading={deleteMutation.isPending}
       />
     </div>
-  );
+  )
 }

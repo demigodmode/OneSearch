@@ -1,5 +1,5 @@
-import { Button } from "@/components/ui/button";
-import type { Agent, SourcePathTestResponse } from "@/types/api";
+import { Button } from '@/components/ui/button'
+import type { Agent, SourcePathTestResponse } from '@/types/api'
 
 export function RemotePathPicker({
   agent,
@@ -9,12 +9,12 @@ export function RemotePathPicker({
   result,
   testing,
 }: {
-  agent?: Agent;
-  value: string;
-  onChange: (value: string) => void;
-  onTest: () => void;
-  result?: SourcePathTestResponse | null;
-  testing: boolean;
+  agent?: Agent
+  value: string
+  onChange: (value: string) => void
+  onTest: () => void
+  result?: SourcePathTestResponse | null
+  testing: boolean
 }) {
   return (
     <div className="space-y-2">
@@ -46,11 +46,11 @@ export function RemotePathPicker({
         size="sm"
         variant="secondary"
         onClick={onTest}
-        disabled={!agent || agent.status !== "online" || testing}
+        disabled={!agent || agent.status !== 'online' || testing}
       >
         Browse / test path
       </Button>
-      {agent?.status !== "online" && (
+      {agent?.status !== 'online' && (
         <p className="text-xs text-destructive">
           The agent must be online before OneSearch can browse or test its path.
         </p>
@@ -58,15 +58,15 @@ export function RemotePathPicker({
       {result && (
         <p
           className={
-            result.ok ? "text-xs text-success" : "text-xs text-destructive"
+            result.ok ? 'text-xs text-success' : 'text-xs text-destructive'
           }
         >
           {result.message}
-          {result.status === "pending"
-            ? " Directory browsing is still pending; allowed roots and manual entry remain available."
-            : ""}
+          {result.status === 'pending'
+            ? ' Directory browsing is still pending; allowed roots and manual entry remain available.'
+            : ''}
         </p>
       )}
     </div>
-  );
+  )
 }
