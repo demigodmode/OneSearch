@@ -9,7 +9,7 @@ vi.mock('@/hooks/useApi', async () => {
   return { ...actual, useTestSourcePath: () => ({ mutate: testPath, isPending: false }) }
 })
 
-const agent = { id: 'agent-1', name: 'Online agent', platform: 'linux', version: '1', protocol_version: 1, allowed_roots: [{ root_id: 'docs', path: '/srv/docs' }], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'online' as const, approved_at: '2026-01-01T00:00:00Z', last_seen_at: null, disabled_at: null, created_at: '', updated_at: '', summary: { attached_sources: 0, indexed_documents: 0, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null } }
+const agent = { id: 'agent-1', name: 'Online agent', platform: 'linux', version: '1', protocol_version: 1, allowed_roots: [{ root_id: 'docs', path: '/srv/docs' }], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'online' as const, approved_at: '2026-01-01T00:00:00Z', last_seen_at: null, disabled_at: null, created_at: '', updated_at: '', health: null, summary: { attached_sources: 0, indexed_documents: 0, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null } }
 
 describe('SourceForm remote source flow', () => {
   it('requires completed remote validation before saving a new path', () => {
@@ -44,6 +44,17 @@ describe('SourceForm remote source flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Test path' }))
     act(() => testPath.mock.calls[testPath.mock.calls.length - 1][1].onError(new ApiError('agent_offline', 409, 'agent_offline')))
     expect(screen.getByText('agent_offline')).toBeInTheDocument()
+  })
+
+  it('allows a degraded connected agent to be selected and tested', () => {
+    const degraded = { ...agent, status: 'degraded' as const, health: { code: 'recent_indexing_failures' as const, affected_sources: 1, truncated: false, observed_at: '2026-01-01T00:00:00Z' } }
+    render(<SourceForm remoteAgentsEnabled agents={[degraded]} defaultSchedule={null} onSubmit={vi.fn()} onCancel={vi.fn()} isLoading={false} />)
+
+    fireEvent.click(screen.getByLabelText('Remote agent'))
+    fireEvent.change(screen.getByLabelText('Approved agent'), { target: { value: 'agent-1' } })
+    fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/srv/docs' } })
+
+    expect(screen.getByRole('button', { name: 'Test path' })).toBeEnabled()
   })
 
   it('shows the backend allowed-root validation message', () => {

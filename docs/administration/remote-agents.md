@@ -130,7 +130,7 @@ The server owns source configuration and scheduling. After the agent is online, 
 4. Choose a processing mode or inherit the agent default.
 5. Use the global schedule, set a schedule for this source, or leave it manual.
 
-The agent has no separate schedule. If a due scan cannot run while the agent is offline, OneSearch retains one pending scan for that source. Repeated due times do not create a backlog. The pending scan runs after the agent reconnects.
+The agent has no separate schedule. If a due scan cannot run while the agent is offline, OneSearch retains one pending scan for that source. Repeated due times do not create a backlog. The job is recorded with the `catch_up` reason and runs after the agent reconnects. An ordinary scheduled job that was already pending keeps its original `schedule` reason.
 
 ## Processing modes
 
@@ -154,11 +154,14 @@ The Agents page shows last contact, attached sources, indexed document count, re
 | --- | --- |
 | `pending` | Enrollment succeeded, but an administrator has not approved the agent. |
 | `online` | The approved agent has contacted the server recently. |
+| `degraded` | The agent is connected, but one or more sources had an indexing failure in the last 24 hours. It can still run jobs and test paths. |
 | `offline` | The agent is approved, but its heartbeat is stale or it has not connected since approval. |
 | `disabled` | The server rejects the credential until an administrator enables the agent again. Sources and indexed data remain attached. |
 | `revoked` | The server has permanently invalidated the agent token. Re-enrollment with a new code is required. |
 
 Disable an agent for a reversible stop. Revoke it if the credential or machine is lost, compromised, or retired. Revocation cannot be undone.
+
+Degraded health is based on each source's most recent completed or failed scan. A failed scan marks the source as affected. A completed scan also counts when the source still has failed file records. A later successful scan with no remaining file failures clears the warning. The warning also expires when the source has no qualifying scan in the last 24 hours. Offline, disabled, and revoked states take priority over degraded health.
 
 ## Updates
 

@@ -7,7 +7,7 @@ const agent = {
   id: 'agent-1', name: 'Agent', platform: 'linux', version: '1', protocol_version: 1,
   allowed_roots: [{ root_id: 'docs', path: '/srv/docs' }], default_processing_mode: 'on_agent',
   auto_update: false, status: 'online', approved_at: '2026-01-01', last_seen_at: null,
-  disabled_at: null, created_at: '', updated_at: '', summary: { attached_sources: 0,
+  disabled_at: null, created_at: '', updated_at: '', health: null, summary: { attached_sources: 0,
     indexed_documents: 0, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null },
 } satisfies Agent
 
@@ -31,5 +31,12 @@ describe('RemotePathPicker', () => {
 
     expect(screen.getByRole('button', { name: 'Test path' })).toBeEnabled()
     expect(screen.getByText('Exists: yes · Directory: yes · Readable: yes')).toBeInTheDocument()
+  })
+
+  it('keeps path testing available while a connected agent is degraded', () => {
+    render(<RemotePathPicker agent={{ ...agent, status: 'degraded' }} value="/srv/docs" onChange={vi.fn()} onTest={vi.fn()} testing={false} result={null} />)
+
+    expect(screen.getByRole('button', { name: 'Test path' })).toBeEnabled()
+    expect(screen.queryByText(/must be online/i)).not.toBeInTheDocument()
   })
 })

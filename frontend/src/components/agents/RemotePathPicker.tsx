@@ -16,6 +16,7 @@ export function RemotePathPicker({
   result?: SourcePathTestResponse | null
   testing: boolean
 }) {
+  const connected = agent?.status === 'online' || agent?.status === 'degraded'
   return (
     <div className="space-y-2">
       <label className="text-sm font-medium" htmlFor="remote-root-path">
@@ -46,11 +47,11 @@ export function RemotePathPicker({
         size="sm"
         variant="secondary"
         onClick={onTest}
-        disabled={!agent || agent.status !== 'online' || testing}
+        disabled={!connected || testing}
       >
         {testing ? 'Testing path...' : 'Test path'}
       </Button>
-      {agent?.status !== 'online' && (
+      {agent && !connected && (
         <p className="text-xs text-destructive">
           The agent must be online before OneSearch can test its path.
         </p>

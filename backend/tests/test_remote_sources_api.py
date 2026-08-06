@@ -556,7 +556,85 @@ def test_remote_scheduler_coalesces_offline_jobs_without_local_lock(
     jobs = db_session.query(AgentJob).filter_by(source_id=source_id).all()
     source = db_session.get(Source, source_id)
     assert len(jobs) == 1 and jobs[0].active_key == source_id
+    assert jobs[0].reason == "catch_up"
     assert source.last_scan_at is None and source.next_scan_at is not None
+
+
+@pytest.mark.asyncio
+async def test_scheduled_dispatch_uses_agent_freshness_without_relabeling_active_work(
+    db_session, approved_agent
+):
+    from datetime import timedelta
+
+    from app.services.agent_auth import AGENT_ONLINE_MAX_AGE
+
+    source = Source(
+        id="reasoned-remote",
+        name="Reasoned remote",
+        root_path="/srv/docs",
+        location_type="agent",
+        agent_id=approved_agent.id,
+    )
+    db_session.add(source)
+    approved_agent.status = "online"
+    approved_agent.last_seen_at = _now()
+    db_session.commit()
+
+    online_job = await ScanDispatcher(db_session, object()).dispatch(source.id, "schedule")
+    assert online_job.reason == "schedule"
+
+    approved_agent.last_seen_at = _now() - AGENT_ONLINE_MAX_AGE - timedelta(seconds=1)
+    db_session.commit()
+    same_job = await ScanDispatcher(db_session, object()).dispatch(source.id, "schedule")
+    db_session.commit()
+
+    assert same_job.id == online_job.id
+    assert same_job.reason == "schedule"
+    assert db_session.get(Agent, approved_agent.id).status == "offline"
+
+
+@pytest.mark.asyncio
+async def test_stale_online_dispatch_persists_offline_with_new_catch_up(db_session, approved_agent):
+    from datetime import timedelta
+
+    from app.services.agent_auth import AGENT_ONLINE_MAX_AGE
+
+    source = Source(
+        id="stale-catch-up",
+        name="Stale catch-up",
+        root_path="/srv/docs",
+        location_type="agent",
+        agent_id=approved_agent.id,
+    )
+    approved_agent.status = "online"
+    approved_agent.last_seen_at = _now() - AGENT_ONLINE_MAX_AGE - timedelta(seconds=1)
+    db_session.add(source)
+    db_session.commit()
+
+    job = await ScanDispatcher(db_session, object()).dispatch(source.id, "schedule")
+    db_session.commit()
+    db_session.expire_all()
+
+    assert db_session.get(AgentJob, job.id).reason == "catch_up"
+    assert db_session.get(Agent, approved_agent.id).status == "offline"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["manual", "reindex"])
+async def test_offline_non_schedule_dispatch_keeps_its_reason(db_session, approved_agent, reason):
+    source = Source(
+        id=f"{reason}-remote",
+        name="Remote",
+        root_path="/srv/docs",
+        location_type="agent",
+        agent_id=approved_agent.id,
+    )
+    db_session.add(source)
+    db_session.commit()
+
+    job = await ScanDispatcher(db_session, object()).dispatch(source.id, reason)
+
+    assert job.reason == reason
 
 
 def test_remote_scheduler_ignores_stale_held_local_lock(db_session, approved_agent):

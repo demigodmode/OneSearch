@@ -102,11 +102,12 @@ class Scenario:
             "recent_jobs": list(reversed(self.jobs[-10:])),
         }
 
-    def _job(self, kind="scan", source_id=None):
+    def _job(self, kind="scan", source_id=None, reason=None):
         job = {
             "id": f"job-{len(self.jobs) + 1}",
             "kind": kind,
             "source_id": source_id,
+            "reason": reason,
             "status": "completed",
         }
         self.jobs.append(job)
@@ -341,7 +342,7 @@ class Scenario:
     def sleep(self, seconds):
         self.clock += seconds
         if self.status == "offline" and len(self.source_ids) == 2 and not self.catch_up_created:
-            self._job("scan", "source-server")["status"] = "pending"
+            self._job("scan", "source-server", "catch_up")["status"] = "pending"
             self.catch_up_created = True
 
     def monotonic(self):
@@ -400,6 +401,10 @@ def test_complete_smoke_is_stateful_fail_closed_and_covers_every_release_phase()
         "revoked_protocol",
     }
     assert scenario.catch_up_created
+    offline_phase = next(
+        phase for phase in evidence["phases"] if phase["name"] == "offline_cache_and_catch_up"
+    )
+    assert offline_phase["observations"]["catch_up_reason"] == "catch_up"
     assert scenario.commands.index("update_check") < scenario.commands.index("heartbeat_probe")
     assert scenario.commands.index("current_install") < scenario.commands.index("heartbeat_probe")
     assert scenario.enrollment_code not in json.dumps(evidence)

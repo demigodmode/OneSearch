@@ -266,6 +266,7 @@ def test_agent_detail_includes_safe_retained_documents_sources_and_job_summary(c
                 agent_id=agent.id,
                 source_id=source.id,
                 kind="scan",
+                reason="catch_up",
                 status="failed",
                 payload="{}",
                 error="/private/path token=secret " + "x" * 3000,
@@ -290,9 +291,249 @@ def test_agent_detail_includes_safe_retained_documents_sources_and_job_summary(c
         {"id": "detail-source", "name": "Detail source", "root_path": "/docs", "next_scan_at": None}
     ]
     assert body["recent_jobs"][0]["error"] == "Scan job failed"
+    assert body["recent_jobs"][0]["reason"] == "catch_up"
     assert "/private/path" not in response.text and "secret" not in response.text
     assert len(response.content) < 10000
     assert "payload" not in response.text and "lease_token_hash" not in response.text
+
+
+def _health_agent(db_session, *, agent_id="health-agent"):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    agent = Agent(
+        id=agent_id,
+        name="Health agent",
+        platform="linux",
+        version="1",
+        protocol_version=1,
+        token_hash=hashlib.sha256(agent_id.encode()).hexdigest(),
+        allowed_roots="[]",
+        status="online",
+        approved_at=now,
+        last_seen_at=now,
+    )
+    source = Source(
+        id=f"{agent_id}-source",
+        name="Health source",
+        root_path="/docs",
+        location_type="agent",
+        agent_id=agent.id,
+    )
+    db_session.add_all([agent, source])
+    db_session.flush()
+    return agent, source, now
+
+
+def test_admin_reports_fresh_agent_degraded_for_recent_failed_scan(client, db_session):
+    agent, source, now = _health_agent(db_session)
+    db_session.add(
+        AgentJob(
+            id="health-failed-scan",
+            agent_id=agent.id,
+            source_id=source.id,
+            kind="scan",
+            reason="schedule",
+            status="failed",
+            payload="{}",
+            created_at=now - timedelta(minutes=2),
+            completed_at=now - timedelta(minutes=1),
+        )
+    )
+    db_session.commit()
+
+    body = client.get(f"/api/agents/{agent.id}").json()
+
+    assert body["status"] == "degraded"
+    assert body["health"]["code"] == "recent_indexing_failures"
+    assert body["health"]["affected_sources"] == 1
+    assert body["health"]["truncated"] is False
+    assert db_session.get(Agent, agent.id).status == "online"
+
+
+def test_newer_success_clears_failed_scan_but_current_file_failure_remains(client, db_session):
+    agent, source, now = _health_agent(db_session, agent_id="health-recovery")
+    db_session.add_all(
+        [
+            AgentJob(
+                id="older-failed-scan",
+                agent_id=agent.id,
+                source_id=source.id,
+                kind="scan",
+                status="failed",
+                payload="{}",
+                created_at=now - timedelta(minutes=4),
+                completed_at=now - timedelta(minutes=3),
+            ),
+            AgentJob(
+                id="newer-completed-scan",
+                agent_id=agent.id,
+                source_id=source.id,
+                kind="scan",
+                status="completed",
+                payload="{}",
+                created_at=now - timedelta(minutes=2),
+                completed_at=now - timedelta(minutes=1),
+            ),
+        ]
+    )
+    db_session.commit()
+    assert client.get(f"/api/agents/{agent.id}").json()["status"] == "online"
+
+    db_session.add(IndexedFile(source_id=source.id, path="broken.pdf", status="failed"))
+    db_session.commit()
+    body = client.get(f"/api/agents/{agent.id}").json()
+    assert body["status"] == "degraded"
+    assert body["health"]["affected_sources"] == 1
+
+
+def test_degraded_health_expires_and_offline_takes_precedence(client, db_session):
+    agent, source, now = _health_agent(db_session, agent_id="health-expiry")
+    db_session.add(
+        AgentJob(
+            id="old-failed-scan",
+            agent_id=agent.id,
+            source_id=source.id,
+            kind="scan",
+            status="failed",
+            payload="{}",
+            created_at=now - timedelta(hours=25, minutes=1),
+            completed_at=now - timedelta(hours=25),
+        )
+    )
+    db_session.commit()
+    body = client.get(f"/api/agents/{agent.id}").json()
+    assert body["status"] == "online" and body["health"] is None
+
+    recent = db_session.get(AgentJob, "old-failed-scan")
+    recent.completed_at = now - timedelta(minutes=1)
+    agent.last_seen_at = now - timedelta(minutes=3)
+    db_session.commit()
+    body = client.get(f"/api/agents/{agent.id}").json()
+    assert body["status"] == "offline" and body["health"] is None
+
+
+@pytest.mark.parametrize("state", ["offline", "disabled", "revoked"])
+def test_inactive_admin_state_takes_precedence_over_recent_failure(client, db_session, state):
+    agent, source, now = _health_agent(db_session, agent_id=f"health-{state}")
+    agent.status = state
+    db_session.add(
+        AgentJob(
+            id=f"health-{state}-scan",
+            agent_id=agent.id,
+            source_id=source.id,
+            kind="scan",
+            status="failed",
+            payload="{}",
+            created_at=now - timedelta(minutes=2),
+            completed_at=now - timedelta(minutes=1),
+        )
+    )
+    db_session.commit()
+
+    body = client.get(f"/api/agents/{agent.id}").json()
+
+    assert body["status"] == state and body["health"] is None
+
+
+def test_non_scan_failure_does_not_degrade_agent(client, db_session):
+    agent, source, now = _health_agent(db_session, agent_id="health-stream")
+    db_session.add(
+        AgentJob(
+            id="failed-stream",
+            agent_id=agent.id,
+            source_id=source.id,
+            kind="stream_file",
+            status="failed",
+            payload="{}",
+            created_at=now - timedelta(minutes=2),
+            completed_at=now - timedelta(minutes=1),
+        )
+    )
+    db_session.commit()
+
+    body = client.get(f"/api/agents/{agent.id}").json()
+
+    assert body["status"] == "online" and body["health"] is None
+
+
+def test_degraded_source_count_is_bounded(client, db_session):
+    agent, first_source, now = _health_agent(db_session, agent_id="health-cap")
+    sources = [first_source]
+    for index in range(1, 100):
+        source = Source(
+            id=f"health-cap-source-{index}",
+            name=f"Health source {index}",
+            root_path=f"/docs/{index}",
+            location_type="agent",
+            agent_id=agent.id,
+        )
+        sources.append(source)
+        db_session.add(source)
+    db_session.flush()
+    db_session.add_all(
+        [
+            AgentJob(
+                id=f"health-cap-job-{index}",
+                agent_id=agent.id,
+                source_id=source.id,
+                kind="scan",
+                status="failed",
+                payload="{}",
+                created_at=now - timedelta(minutes=2),
+                completed_at=now - timedelta(minutes=1),
+            )
+            for index, source in enumerate(sources)
+        ]
+    )
+    db_session.commit()
+
+    body = client.get(f"/api/agents/{agent.id}").json()
+
+    assert body["health"]["affected_sources"] == 99
+    assert body["health"]["truncated"] is True
+
+
+def test_health_observed_at_uses_most_recent_affected_scan(client, db_session):
+    agent, first, now = _health_agent(db_session, agent_id="health-observed")
+    second = Source(
+        id="health-observed-second",
+        name="Second source",
+        root_path="/docs/second",
+        location_type="agent",
+        agent_id=agent.id,
+    )
+    older = now - timedelta(minutes=10)
+    newer = now - timedelta(minutes=1)
+    db_session.add(second)
+    db_session.flush()
+    db_session.add_all(
+        [
+            AgentJob(
+                id="health-observed-old",
+                agent_id=agent.id,
+                source_id=first.id,
+                kind="scan",
+                status="failed",
+                payload="{}",
+                created_at=older - timedelta(minutes=1),
+                completed_at=older,
+            ),
+            AgentJob(
+                id="health-observed-new",
+                agent_id=agent.id,
+                source_id=second.id,
+                kind="scan",
+                status="failed",
+                payload="{}",
+                created_at=newer - timedelta(minutes=1),
+                completed_at=newer,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    body = client.get(f"/api/agents/{agent.id}").json()
+
+    assert datetime.fromisoformat(body["health"]["observed_at"]) == newer
 
 
 def test_agent_list_uses_constant_query_summary_aggregates(client, db_session):
@@ -337,7 +578,7 @@ def test_agent_list_uses_constant_query_summary_aggregates(client, db_session):
     finally:
         event.remove(db_session.get_bind(), "before_cursor_execute", listener)
     assert response.status_code == 200
-    assert len(statements) <= 6  # auth, list, and three grouped aggregate queries
+    assert len(statements) <= 7  # auth, list, three summaries, and two health queries
     first = next(item for item in response.json() if item["id"] == agents[0].id)
     assert first["summary"]["attached_sources"] == 1
     assert first["summary"]["indexed_documents"] == 1

@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { agentHealthText } from './health'
 import type {
   AgentDetails as AgentDetailsModel,
   ProcessingMode,
@@ -45,6 +46,11 @@ export function AgentDetails({
           Close
         </Button>
       </div>
+      {agent.status === 'degraded' && agent.health && (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          {agentHealthText(agent.health)}
+        </p>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <h3 className="text-sm font-medium">Allowed roots</h3>
@@ -92,7 +98,8 @@ export function AgentDetails({
           <ul className="mt-1 space-y-1 text-sm text-muted-foreground">
             {agent.recent_jobs.map((job) => (
               <li key={job.id}>
-                {job.kind} · {job.status}
+                {job.kind}
+                {job.reason ? ` · ${job.reason.split('_').join('-')}` : ''} · {job.status}
                 {job.error ? ` — ${job.error}` : ''}
               </li>
             ))}

@@ -3,6 +3,7 @@ import { AlertCircle, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AgentApproval } from '@/components/agents/AgentApproval'
 import { AgentDetails } from '@/components/agents/AgentDetails'
+import { agentHealthText } from '@/components/agents/health'
 import {
   useAgent,
   useAgents,
@@ -296,9 +297,16 @@ function Status({ agent }: { agent: Agent }) {
         ? 'bg-amber-500'
         : 'bg-muted-foreground'
   return (
-    <span className="inline-flex items-center gap-1">
-      <span className={`h-2 w-2 rounded-full ${color}`} />
-      {statusText[agent.status]}
+    <span className="inline-flex flex-col items-start gap-0.5">
+      <span className="inline-flex items-center gap-1">
+        <span aria-hidden="true" className={`h-2 w-2 rounded-full ${color}`} />
+        {statusText[agent.status]}
+      </span>
+      {agent.status === 'degraded' && agent.health && (
+        <span className="max-w-56 text-xs text-muted-foreground">
+          {agentHealthText(agent.health)}
+        </span>
+      )}
     </span>
   )
 }

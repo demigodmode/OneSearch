@@ -566,6 +566,8 @@ class SmokeRunner:
         ]
         if len(pending) != 1:
             raise RuntimeError("missed schedules did not coalesce to exactly one catch-up scan")
+        if pending[0].get("reason") != "catch_up":
+            raise RuntimeError("coalesced offline scan was not labeled catch_up")
         self.command("start")
         self.poll_agent("online")
         self.poll_job(pending[0]["id"])
@@ -575,6 +577,7 @@ class SmokeRunner:
             "download_rejected": True,
             "missed_intervals": self.config.due_intervals,
             "catch_up_job": pending[0]["id"],
+            "catch_up_reason": pending[0]["reason"],
         }
 
     def _reconcile(self):

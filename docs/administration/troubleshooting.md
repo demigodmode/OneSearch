@@ -5,11 +5,12 @@
 Start with the state shown under **Admin > Agents**:
 
 - `pending`: enrollment saved a credential, but an administrator has not approved the agent. Approve it before expecting jobs to run.
+- `degraded`: the agent is connected, but a source had a recent indexing failure. Open the agent details, find the affected source in recent scan jobs, and run another scan after correcting the path, permissions, storage, or extraction problem.
 - `offline`: the approved agent has not contacted the server recently. Check the service or container, DNS, TLS, firewall rules, and the configured server URL.
 - `disabled`: enable the agent from its details before restarting it.
 - `revoked`: the credential cannot be restored. Remove the local credential or state volume and enroll again with a new code.
 
-An agent marked `online` has made a recent heartbeat, but an individual job can still fail. Open its details to inspect recent job states and attached sources.
+An agent marked `online` has made a recent heartbeat and has no recent source-level indexing warning. Open its details to inspect recent job states and attached sources. Failed path tests and original-file requests do not mark the whole agent as degraded.
 
 ### Check the configuration
 

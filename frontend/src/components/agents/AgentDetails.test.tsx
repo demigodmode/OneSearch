@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { AgentDetails } from './AgentDetails'
 
-const agent = { id: 'agent-1', name: 'Studio Mac', platform: 'macOS', version: '1.0', protocol_version: 2, allowed_roots: [{ root_id: 'media', path: '/Volumes/Media' }], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'offline' as const, approved_at: null, last_seen_at: null, disabled_at: null, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', summary: { attached_sources: 0, indexed_documents: 0, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null }, sources: [], recent_jobs: [] }
+const agent = { id: 'agent-1', name: 'Studio Mac', platform: 'macOS', version: '1.0', protocol_version: 2, allowed_roots: [{ root_id: 'media', path: '/Volumes/Media' }], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'offline' as const, approved_at: null, last_seen_at: null, disabled_at: null, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', health: null, summary: { attached_sources: 0, indexed_documents: 0, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null }, sources: [], recent_jobs: [] }
 
 describe('AgentDetails', () => {
   it('lets an admin choose a persisted default processing mode', () => {
@@ -29,5 +29,12 @@ describe('AgentDetails', () => {
     expect(screen.getByLabelText('Default processing mode')).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: 'Enabling…' }))
     expect(onApprove).not.toHaveBeenCalled()
+  })
+
+  it('shows bounded degraded detail and the catch-up reason for recent jobs', () => {
+    render(<AgentDetails agent={{ ...agent, status: 'degraded', health: { code: 'recent_indexing_failures', affected_sources: 99, truncated: true, observed_at: '2026-01-01T00:00:00Z' }, recent_jobs: [{ id: 'job-1', kind: 'scan', reason: 'catch_up', status: 'pending', source_id: 'source-1', created_at: '', completed_at: null, error: null }] }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+
+    expect(screen.getByText('99+ sources had indexing failures in the last 24 hours.')).toBeInTheDocument()
+    expect(screen.getByText('scan · catch-up · pending')).toBeInTheDocument()
   })
 })

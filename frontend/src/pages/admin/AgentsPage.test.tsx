@@ -5,10 +5,11 @@ import type { Agent } from '@/types/api'
 
 const hooks = vi.hoisted(() => ({ updateSettings: vi.fn(), approve: vi.fn(), enrollment: vi.fn(), mode: vi.fn() }))
 const detailRefetch = vi.fn()
-const online = { id: 'online', name: 'Online agent', platform: 'linux', version: '1', protocol_version: 2, allowed_roots: [], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'online' as const, approved_at: null, last_seen_at: null, disabled_at: null, created_at: '', updated_at: '', summary: { attached_sources: 1, indexed_documents: 3, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null } }
+const online = { id: 'online', name: 'Online agent', platform: 'linux', version: '1', protocol_version: 2, allowed_roots: [], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'online' as const, approved_at: null, last_seen_at: null, disabled_at: null, created_at: '', updated_at: '', health: null, summary: { attached_sources: 1, indexed_documents: 3, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null } }
 const offline = { ...online, id: 'offline', name: 'Offline agent', status: 'offline' as const, summary: { ...online.summary, indexed_documents: 7 } }
 const pending = { ...online, id: 'pending', name: 'Pending agent', status: 'pending' as const }
 const disabled = { ...online, id: 'disabled', name: 'Disabled agent', status: 'disabled' as const }
+const degraded = { ...online, id: 'degraded', name: 'Degraded agent', status: 'degraded' as const, health: { code: 'recent_indexing_failures' as const, affected_sources: 2, truncated: false, observed_at: '2026-01-01T00:00:00Z' } }
 let enabled = true
 let agentsState: { data: Agent[]; isLoading: boolean; error: Error | null } = { data: [online, offline, pending], isLoading: false, error: null }
 let enrollmentState: { data: { code: string; expires_at: string } | null; error: Error | null } = { data: null, error: null }
@@ -24,14 +25,15 @@ vi.mock('@/hooks/useApi', () => ({
 }))
 
 describe('AgentsPage user flows', () => {
-  beforeEach(() => { enabled = true; agentsState = { data: [online, offline, pending, disabled], isLoading: false, error: null }; enrollmentState = { data: null, error: null }; detailState = { data: null, isLoading: false, error: null }; vi.clearAllMocks(); detailRefetch.mockClear() })
+  beforeEach(() => { enabled = true; agentsState = { data: [online, offline, pending, disabled, degraded], isLoading: false, error: null }; enrollmentState = { data: null, error: null }; detailState = { data: null, isLoading: false, error: null }; vi.clearAllMocks(); detailRefetch.mockClear() })
   it('filters attention to pending and offline agents while showing retained documents', () => {
     render(<AgentsPage />)
     expect(screen.getByText('Remote documents')).toBeInTheDocument()
-    expect(screen.getByText('16')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Attention (2)' }))
+    expect(screen.getByText('19')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Attention (3)' }))
     expect(screen.getAllByText('Offline agent')).toHaveLength(3)
     expect(screen.getAllByText('Pending agent')).toHaveLength(2)
+    expect(screen.getAllByText('2 sources had indexing failures in the last 24 hours.').length).toBeGreaterThan(0)
     expect(screen.queryByText('Online agent')).not.toBeInTheDocument()
     fireEvent.click(screen.getAllByRole('button', { name: 'Approve agent' })[0])
     expect(hooks.approve).toHaveBeenCalledWith('pending')

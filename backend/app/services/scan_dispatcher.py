@@ -1,6 +1,7 @@
 """Single boundary for local indexing and durable remote scan dispatch."""
 
 from ..models import Agent, Source
+from .agent_auth import agent_is_fresh, mark_stale_agent_offline
 from .agent_jobs import AgentJobService, JobConflict
 from .app_settings import AppSettingsService
 from .indexer import IndexingService
@@ -43,5 +44,10 @@ class ScanDispatcher:
             or agent.status not in {"offline", "online"}
         ):
             raise AgentUnavailableError()
-        job = AgentJobService(self.db).enqueue_scan(source, full=full, reason=reason)
+        job_reason = reason
+        if reason == "schedule" and (agent.status == "offline" or not agent_is_fresh(agent)):
+            if agent.status == "online":
+                mark_stale_agent_offline(self.db, agent)
+            job_reason = "catch_up"
+        job = AgentJobService(self.db).enqueue_scan(source, full=full, reason=job_reason)
         return job

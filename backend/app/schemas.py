@@ -165,7 +165,12 @@ class SearchQuery(BaseModel):
     type: str | None = None
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
-    sort: Literal["relevance", "modified_at:desc", "modified_at:asc", "size_bytes:desc", "basename:asc"] | None = None
+    sort: (
+        Literal[
+            "relevance", "modified_at:desc", "modified_at:asc", "size_bytes:desc", "basename:asc"
+        ]
+        | None
+    ) = None
     snippet_length: int = Field(default=300, ge=50, le=1000)
 
 
@@ -302,6 +307,15 @@ class AgentEnrollmentCodeResponse(BaseModel):
     expires_at: datetime
 
 
+class AgentAdminHealth(BaseModel):
+    """Bounded fault detail derived for the administrator UI."""
+
+    code: Literal["recent_indexing_failures"]
+    affected_sources: int = Field(ge=1, le=99)
+    truncated: bool
+    observed_at: datetime
+
+
 class AgentAdminResponse(BaseModel):
     """Agent details safe for administrative APIs."""
 
@@ -314,6 +328,7 @@ class AgentAdminResponse(BaseModel):
     default_processing_mode: str
     auto_update: bool
     status: str
+    health: AgentAdminHealth | None
     approved_at: datetime | None
     last_seen_at: datetime | None
     disabled_at: datetime | None
@@ -341,6 +356,7 @@ class AgentSourceSummary(BaseModel):
 class AgentJobSummary(BaseModel):
     id: str
     kind: str
+    reason: str | None
     status: str
     source_id: str | None
     created_at: datetime
