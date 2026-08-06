@@ -5,6 +5,14 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- Added optional remote indexing agents for machines whose directories are not mounted on the OneSearch server. Agents use one-time enrollment and administrator approval, stay within configured roots, and support extraction on the agent or in temporary server storage.
+- Added agent health and job details to the admin console, along with disable and revoke controls. Remote sources use the existing global or per-source schedules, and local read-only mounts remain the default.
+- Added native Linux amd64, Linux arm64, and Windows x64 packaging plus a Docker agent image workflow. Update checks are off by default, native artifacts use signed release manifests, and Docker agents never replace their own image.
+
 ## [1.3.0] - 2026-07-06
 
 ### Added

@@ -1,4 +1,4 @@
-# Adding Sources
+# Adding sources
 
 A source is a directory OneSearch is allowed to scan. Most installs have a few: documents, notes, photos, maybe a NAS mount.
 
@@ -34,6 +34,27 @@ Go to **Admin → Sources**, click **Add Source**, then fill in:
 Use **Test** next to Root Path before saving. It checks whether the path is inside allowed roots, exists, is a directory, and is readable by OneSearch from inside the container. If you accidentally enter a host path, the test can point you back toward the mounted container path.
 
 After saving, run a reindex from the same page unless you set a schedule and are happy to wait for the next run.
+
+## Add a remote source
+
+Remote agents are optional. Local remains the default and uses a path mounted read-only on the server. To use a remote machine instead, enable **Remote agents** in Settings, enroll and approve its agent, and wait for it to show `online` under **Admin > Agents**.
+
+In the source form:
+
+1. Choose **Remote agent** as the location.
+2. Select the approved agent.
+3. Select an advertised allowed root or enter a path beneath one. The path uses the agent machine's syntax.
+4. Choose **Browse / test path** and wait for the completed result. The test checks that the path is inside an allowed root, exists, is a directory, and is readable by the agent process.
+5. Choose a processing mode. **Inherit agent default** follows the default shown on the Agents page. **On agent** extracts files on the remote machine. **On server** transfers changed files to temporary server storage for extraction.
+6. Choose the schedule in the same way as a local source.
+
+The source belongs to the OneSearch server, not the agent. An agent is a connection to a machine and does not automatically create sources for everything below its allowed roots.
+
+Remote sources use the central scheduler. **Use global default** follows the schedule configured in Settings. Otherwise, the source can use its own interval, cron schedule, or manual-only setting. Agents have no schedule of their own. If the agent is offline when a scan is due, OneSearch keeps one pending catch-up scan for that source instead of queueing every missed occurrence.
+
+Search and indexed document details remain available from the server while the agent is offline. Previewing or downloading an original remote file requires the agent to reconnect.
+
+See [Remote agents](../administration/remote-agents.md) for enrollment, service, privacy, updates, and removal.
 
 ## Add a source with the CLI
 

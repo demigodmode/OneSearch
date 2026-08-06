@@ -61,6 +61,10 @@ Full setup guide: [onesearch.readthedocs.io](https://onesearch.readthedocs.io/en
 
 Incremental indexing so only changed files get reindexed. Per-source cron schedules so your NAS gets scanned daily without thinking about it.
 
+### Remote sources
+
+Optional remote agents can index files on another machine without mounting its directories on the OneSearch server. Local read-only NFS, SMB, bind, and ZFS mounts remain the default and need no agent. See the [remote-agent guide](docs/administration/remote-agents.md).
+
 ---
 
 ## Screenshots
