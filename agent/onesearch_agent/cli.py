@@ -30,9 +30,9 @@ from .worker import dispatch_job
 
 def _update_platform() -> str:
     machine = platform.machine().lower()
-    if sys.platform == "linux" and machine == "x86_64":
+    if sys.platform == "linux" and machine in {"x86_64", "amd64"}:
         machine = "amd64"
-    elif machine == "amd64":
+    elif sys.platform == "win32" and machine in {"x86_64", "amd64"}:
         machine = "x64"
     elif machine == "aarch64":
         machine = "arm64"

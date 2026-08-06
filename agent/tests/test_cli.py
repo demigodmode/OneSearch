@@ -48,8 +48,11 @@ def test_top_level_help_exposes_planned_commands():
     ("runtime_platform", "machine", "release_platform"),
     [
         ("linux", "x86_64", "linux-amd64"),
+        ("linux", "amd64", "linux-amd64"),
         ("linux", "aarch64", "linux-arm64"),
+        ("linux", "arm64", "linux-arm64"),
         ("win32", "AMD64", "win32-x64"),
+        ("win32", "x86_64", "win32-x64"),
     ],
 )
 def test_update_platform_matches_release_manifest_names(
