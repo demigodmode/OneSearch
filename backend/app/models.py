@@ -236,6 +236,9 @@ class AgentJob(Base):
     batches = relationship(
         "AgentBatch", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
     )
+    scan_pages = relationship(
+        "AgentScanPage", back_populates="job", cascade="all, delete-orphan", passive_deletes=True
+    )
 
 
 class AgentBatch(Base):
@@ -255,6 +258,107 @@ class AgentBatch(Base):
     accepted_at = Column(DateTime, default=_utcnow, nullable=False)
 
     job = relationship("AgentJob", back_populates="batches")
+
+
+class AgentScanPage(Base):
+    """Durable receipt for one bounded remote scan inventory page."""
+
+    __tablename__ = "agent_scan_pages"
+    __table_args__ = (
+        CheckConstraint("sequence >= 0", name="ck_agent_scan_pages_sequence"),
+        CheckConstraint("scanned_count >= 0", name="ck_agent_scan_pages_scanned_count"),
+        CheckConstraint(
+            "entry_count >= 0 AND entry_count <= 1000",
+            name="ck_agent_scan_pages_entry_count",
+        ),
+        CheckConstraint("is_final IN (0, 1)", name="ck_agent_scan_pages_is_final"),
+        CheckConstraint(
+            "length(checksum) = 64 AND checksum = lower(checksum) "
+            "AND checksum NOT GLOB '*[^0-9a-f]*'",
+            name="ck_agent_scan_pages_checksum",
+        ),
+        CheckConstraint(
+            "outcome_checksum IS NULL OR (length(outcome_checksum) = 64 "
+            "AND outcome_checksum = lower(outcome_checksum) "
+            "AND outcome_checksum NOT GLOB '*[^0-9a-f]*')",
+            name="ck_agent_scan_pages_outcome_checksum",
+        ),
+        UniqueConstraint("job_id", "sequence", name="uq_agent_scan_pages_job_sequence"),
+        Index("ix_agent_scan_pages_job_final", "job_id", "is_final"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(
+        String, ForeignKey("agent_jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sequence = Column(Integer, nullable=False)
+    checksum = Column(String(64), nullable=False)
+    cursor = Column(Text, nullable=False)
+    scanned_count = Column(Integer, nullable=False)
+    is_final = Column(Boolean, nullable=False, default=False, server_default="0")
+    entry_count = Column(Integer, nullable=False)
+    outcome_checksum = Column(String(64), nullable=True)
+    accepted_at = Column(DateTime, default=_utcnow, nullable=False)
+    settled_at = Column(DateTime, nullable=True)
+
+    job = relationship("AgentJob", back_populates="scan_pages")
+    entries = relationship(
+        "AgentScanEntry", back_populates="page", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class AgentScanEntry(Base):
+    """One source-relative file staged for terminal scan reconciliation."""
+
+    __tablename__ = "agent_scan_entries"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id", "page_sequence"],
+            ["agent_scan_pages.job_id", "agent_scan_pages.sequence"],
+            name="fk_agent_scan_entries_page",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("page_sequence >= 0", name="ck_agent_scan_entries_page_sequence"),
+        CheckConstraint("size_bytes >= 0", name="ck_agent_scan_entries_size_bytes"),
+        CheckConstraint("modified_at_ns >= 0", name="ck_agent_scan_entries_modified_at_ns"),
+        CheckConstraint("needs_processing IN (0, 1)", name="ck_agent_scan_entries_processing"),
+        CheckConstraint(
+            "length(path_hash) = 64 AND path_hash = lower(path_hash) "
+            "AND path_hash NOT GLOB '*[^0-9a-f]*'",
+            name="ck_agent_scan_entries_path_hash",
+        ),
+        CheckConstraint(
+            "CASE "
+            "WHEN outcome_status IS NULL THEN failure_error IS NULL "
+            "WHEN outcome_status IN ('indexed', 'skipped') THEN failure_error IS NULL "
+            "WHEN outcome_status = 'failed' THEN failure_error IS NOT NULL "
+            "AND length(trim(failure_error)) BETWEEN 1 AND 500 "
+            "ELSE 0 END",
+            name="ck_agent_scan_entries_outcome_failure",
+        ),
+        UniqueConstraint("job_id", "path", name="uq_agent_scan_entries_job_path"),
+        Index("ix_agent_scan_entries_job_page", "job_id", "page_sequence"),
+        Index(
+            "ix_agent_scan_entries_job_processing",
+            "job_id",
+            "needs_processing",
+            "outcome_status",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String, nullable=False)
+    page_sequence = Column(Integer, nullable=False)
+    path = Column(String, nullable=False)
+    path_hash = Column(String(64), nullable=False)
+    size_bytes = Column(BigInteger, nullable=False)
+    modified_at_ns = Column(BigInteger, nullable=False)
+    content_hash = Column(String, nullable=True)
+    needs_processing = Column(Boolean, nullable=False, default=False, server_default="0")
+    outcome_status = Column(String(16), nullable=True)
+    failure_error = Column(Text, nullable=True)
+
+    page = relationship("AgentScanPage", back_populates="entries")
 
 
 class AppSetting(Base):

@@ -14,12 +14,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 MINIMUM_SUPPORTED_PROTOCOL_VERSION = 1
 REMOTE_MAX_SNAPSHOT_BYTES = 100 * 1024 * 1024
 REMOTE_MAX_BATCH_DOCUMENTS = 100
 REMOTE_MAX_BATCH_BYTES = 1_000_000
 REMOTE_MAX_MANIFEST_BYTES = 50 * 1024 * 1024
+REMOTE_MAX_MANIFEST_PAGE_ENTRIES = 1_000
+REMOTE_MAX_MANIFEST_PAGE_BYTES = 2 * 1024 * 1024
 REMOTE_MAX_SCAN_FILES = 100_000
 REMOTE_MAX_ENTRIES_PER_DIRECTORY = 100_000
 REMOTE_JOB_HEARTBEAT_SECONDS = 20
@@ -219,6 +221,122 @@ class ScanManifest(WireModel):
         if len(set(self.deleted_paths)) != len(self.deleted_paths):
             raise ValueError("manifest deleted paths must be unique")
         return self
+
+
+class ScanManifestPagePayload(WireModel):
+    job_id: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    sequence: int = Field(ge=0)
+    files: list[ScanFile] = Field(default_factory=list, max_length=REMOTE_MAX_MANIFEST_PAGE_ENTRIES)
+    checkpoint: ScanCheckpoint
+    final: bool = False
+
+    @model_validator(mode="after")
+    def validate_files(self) -> ScanManifestPagePayload:
+        paths = [item.path for item in self.files]
+        if len(paths) != len(set(paths)):
+            raise ValueError("manifest page file paths must be unique")
+        if not self.final and not self.files:
+            raise ValueError("non-final manifest pages must contain files")
+        return self
+
+
+class ScanManifestPage(WireModel):
+    checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
+    page: ScanManifestPagePayload
+
+    @model_validator(mode="after")
+    def validate_checksum(self) -> ScanManifestPage:
+        expected = hashlib.sha256(canonical_wire_bytes(self.page)).hexdigest()
+        if self.checksum != expected:
+            raise ValueError("manifest page checksum mismatch")
+        return self
+
+
+class ScanManifestPageAck(WireModel):
+    job_id: str = Field(min_length=1)
+    sequence: int = Field(ge=0)
+    checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
+    accepted_count: int = Field(ge=0, le=REMOTE_MAX_MANIFEST_PAGE_ENTRIES)
+    changed_paths: list[str] = Field(
+        default_factory=list, max_length=REMOTE_MAX_MANIFEST_PAGE_ENTRIES
+    )
+    duplicate: bool = False
+    checkpoint: ScanCheckpoint
+
+    @model_validator(mode="after")
+    def validate_changed_paths(self) -> ScanManifestPageAck:
+        if len(self.changed_paths) != len(set(self.changed_paths)):
+            raise ValueError("manifest page changed paths must be unique")
+        return self
+
+
+class ScanPathOutcomeStatus(str, Enum):
+    INDEXED = "indexed"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+class ScanPathOutcome(WireModel):
+    path: str = Field(min_length=1)
+    status: ScanPathOutcomeStatus
+    error: str | None = Field(default=None, max_length=500)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def parse_status(cls, value: object) -> object:
+        return ScanPathOutcomeStatus(value) if isinstance(value, str) else value
+
+    @field_validator("error", mode="before")
+    @classmethod
+    def normalize_error(cls, value: object) -> object:
+        return _strip_nonempty(value)
+
+    @model_validator(mode="after")
+    def validate_error(self) -> ScanPathOutcome:
+        if self.status is ScanPathOutcomeStatus.FAILED and self.error is None:
+            raise ValueError("failed scan path outcomes require an error")
+        if self.status is not ScanPathOutcomeStatus.FAILED and self.error is not None:
+            raise ValueError("only failed scan path outcomes may include an error")
+        return self
+
+
+class ScanPageOutcomePayload(WireModel):
+    job_id: str = Field(min_length=1)
+    source_id: str = Field(min_length=1)
+    sequence: int = Field(ge=0)
+    page_checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
+    results: list[ScanPathOutcome] = Field(
+        default_factory=list, max_length=REMOTE_MAX_MANIFEST_PAGE_ENTRIES
+    )
+
+    @model_validator(mode="after")
+    def validate_results(self) -> ScanPageOutcomePayload:
+        paths = [item.path for item in self.results]
+        if len(paths) != len(set(paths)):
+            raise ValueError("scan page outcome paths must be unique")
+        return self
+
+
+class ScanPageOutcome(WireModel):
+    checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
+    outcome: ScanPageOutcomePayload
+
+    @model_validator(mode="after")
+    def validate_checksum(self) -> ScanPageOutcome:
+        expected = hashlib.sha256(canonical_wire_bytes(self.outcome)).hexdigest()
+        if self.checksum != expected:
+            raise ValueError("scan page outcome checksum mismatch")
+        return self
+
+
+class ScanPageOutcomeAck(WireModel):
+    job_id: str = Field(min_length=1)
+    sequence: int = Field(ge=0)
+    checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
+    settled_count: int = Field(ge=0, le=REMOTE_MAX_MANIFEST_PAGE_ENTRIES)
+    duplicate: bool = False
+    checkpoint: ScanCheckpoint
 
 
 class NormalizedRemoteDocument(WireModel):

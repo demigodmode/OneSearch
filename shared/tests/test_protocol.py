@@ -1,3 +1,6 @@
+import hashlib
+
+import onesearch_shared.protocol as protocol
 import pytest
 from onesearch_shared.protocol import (
     PROTOCOL_VERSION,
@@ -37,8 +40,14 @@ def assert_json_round_trip(model):
 def test_heartbeat_defaults_to_current_protocol_and_round_trips_strictly():
     heartbeat = AgentHeartbeat(agent_version="1.4.0", platform="windows-amd64")
 
-    assert heartbeat.protocol_version == PROTOCOL_VERSION == 2
+    assert heartbeat.protocol_version == PROTOCOL_VERSION == 3
     assert_json_round_trip(heartbeat)
+
+
+def test_protocol_three_adds_bounded_manifest_pages_without_changing_legacy_limits():
+    assert protocol.REMOTE_MAX_MANIFEST_PAGE_ENTRIES == 1_000
+    assert protocol.REMOTE_MAX_MANIFEST_PAGE_BYTES == 2 * 1024 * 1024
+    assert protocol.REMOTE_MAX_SCAN_FILES == 100_000
 
 
 def test_remote_job_heartbeat_interval_is_shorter_than_the_server_lease():
@@ -296,6 +305,163 @@ def test_scan_manifest_round_trip_preserves_checkpoint():
     )
 
     assert_json_round_trip(manifest)
+
+
+def _manifest_page(*, final=False, files=None, sequence=0):
+    payload = protocol.ScanManifestPagePayload(
+        job_id="job-1",
+        source_id="remote-1",
+        sequence=sequence,
+        files=(
+            [
+                ScanFile(
+                    path="reports/annual.pdf",
+                    path_hash=remote_path_hash("reports/annual.pdf"),
+                    size_bytes=4096,
+                    modified_at=1_721_234_567,
+                )
+            ]
+            if files is None
+            else files
+        ),
+        checkpoint=ScanCheckpoint(cursor=f"page:{sequence + 1}", scanned_count=sequence + 1),
+        final=final,
+    )
+    return protocol.ScanManifestPage(
+        checksum=hashlib.sha256(protocol.canonical_wire_bytes(payload)).hexdigest(),
+        page=payload,
+    )
+
+
+def _page_outcome(*results):
+    payload = protocol.ScanPageOutcomePayload(
+        job_id="job-1",
+        source_id="remote-1",
+        sequence=0,
+        page_checksum=_manifest_page().checksum,
+        results=list(results),
+    )
+    return protocol.ScanPageOutcome(
+        checksum=hashlib.sha256(protocol.canonical_wire_bytes(payload)).hexdigest(),
+        outcome=payload,
+    )
+
+
+def test_protocol_three_manifest_page_and_outcome_contracts_round_trip():
+    page = _manifest_page(final=True)
+    acknowledgement = protocol.ScanManifestPageAck(
+        job_id="job-1",
+        sequence=0,
+        checksum=page.checksum,
+        accepted_count=1,
+        changed_paths=["reports/annual.pdf"],
+        duplicate=False,
+        checkpoint=page.page.checkpoint,
+    )
+    outcome = _page_outcome(protocol.ScanPathOutcome(path="reports/annual.pdf", status="indexed"))
+    outcome_acknowledgement = protocol.ScanPageOutcomeAck(
+        job_id="job-1",
+        sequence=0,
+        checksum=outcome.checksum,
+        settled_count=1,
+        duplicate=False,
+        checkpoint=page.page.checkpoint,
+    )
+
+    for model in (page, acknowledgement, outcome, outcome_acknowledgement):
+        assert_json_round_trip(model)
+
+
+def test_nonfinal_manifest_pages_require_files_but_empty_final_page_is_valid():
+    with pytest.raises(ValidationError, match="non-final"):
+        _manifest_page(files=[])
+
+    assert _manifest_page(files=[], final=True).page.files == []
+
+
+def test_manifest_page_requires_its_canonical_lowercase_checksum():
+    page = _manifest_page()
+
+    with pytest.raises(ValidationError, match="checksum"):
+        protocol.ScanManifestPage(checksum="0" * 64, page=page.page)
+    with pytest.raises(ValidationError, match="checksum"):
+        protocol.ScanManifestPage(checksum=page.checksum.upper(), page=page.page)
+
+
+def test_manifest_page_rejects_duplicate_paths_and_more_than_its_entry_bound():
+    duplicate = ScanFile(
+        path="a.txt", path_hash=remote_path_hash("a.txt"), size_bytes=1, modified_at=1
+    )
+    with pytest.raises(ValidationError, match="unique"):
+        _manifest_page(files=[duplicate, duplicate])
+
+    files = [
+        ScanFile(
+            path=f"{number}.txt",
+            path_hash=remote_path_hash(f"{number}.txt"),
+            size_bytes=number,
+            modified_at=number,
+        )
+        for number in range(protocol.REMOTE_MAX_MANIFEST_PAGE_ENTRIES + 1)
+    ]
+    with pytest.raises(ValidationError):
+        _manifest_page(files=files)
+
+
+@pytest.mark.parametrize(
+    ("status", "error", "valid"),
+    [
+        ("indexed", None, True),
+        ("skipped", None, True),
+        ("failed", "extract failed", True),
+        ("failed", None, False),
+        ("indexed", "unexpected", False),
+        ("skipped", "unexpected", False),
+    ],
+)
+def test_scan_path_outcome_ties_bounded_errors_to_failed_status(status, error, valid):
+    data = {"path": "a.txt", "status": status, "error": error}
+
+    if valid:
+        assert protocol.ScanPathOutcome(**data).status.value == status
+    else:
+        with pytest.raises(ValidationError):
+            protocol.ScanPathOutcome(**data)
+
+    with pytest.raises(ValidationError):
+        protocol.ScanPathOutcome(path="a.txt", status="failed", error="x" * 501)
+
+
+def test_page_outcome_requires_unique_paths_and_canonical_lowercase_checksum():
+    result = protocol.ScanPathOutcome(path="a.txt", status="failed", error="extract failed")
+    with pytest.raises(ValidationError, match="unique"):
+        _page_outcome(result, result)
+
+    outcome = _page_outcome(result)
+    with pytest.raises(ValidationError, match="checksum"):
+        protocol.ScanPageOutcome(checksum="0" * 64, outcome=outcome.outcome)
+    with pytest.raises(ValidationError, match="checksum"):
+        protocol.ScanPageOutcome(checksum=outcome.checksum.upper(), outcome=outcome.outcome)
+
+
+def test_page_acknowledgements_reject_duplicate_paths_and_non_sha256_checksums():
+    page = _manifest_page()
+    data = {
+        "job_id": "job-1",
+        "sequence": 0,
+        "checksum": page.checksum,
+        "accepted_count": 1,
+        "changed_paths": ["a.txt", "a.txt"],
+        "duplicate": False,
+        "checkpoint": page.page.checkpoint,
+    }
+    with pytest.raises(ValidationError, match="unique"):
+        protocol.ScanManifestPageAck(**data)
+
+    data["changed_paths"] = []
+    data["checksum"] = "A" * 64
+    with pytest.raises(ValidationError, match="checksum"):
+        protocol.ScanManifestPageAck(**data)
 
 
 def test_complete_manifest_carries_bounded_file_failures_and_rejects_duplicate_paths():

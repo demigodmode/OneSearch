@@ -72,7 +72,7 @@ def test_enrollment_validates_before_atomically_consuming_code(client, db_sessio
     _enable(client)
     rejected = _create_code(client)["code"]
     assert _enroll(client, rejected, protocol_version=0).status_code in {409, 422}
-    assert _enroll(client, rejected, protocol_version=3).status_code == 409
+    assert _enroll(client, rejected, protocol_version=4).status_code == 409
     assert all(item.used_at is None for item in db_session.query(AgentEnrollment).all())
 
     code = _create_code(client)["code"]
@@ -96,6 +96,10 @@ def test_enrollment_validates_before_atomically_consuming_code(client, db_sessio
     assert enrolled_v2.status_code == 201
     assert enrolled_v2.json()["protocol_version"] == 2
     assert db_session.get(Agent, enrolled_v2.json()["agent_id"]).protocol_version == 2
+    enrolled_v3 = _enroll(client, _create_code(client)["code"], protocol_version=3, name="v3")
+    assert enrolled_v3.status_code == 201
+    assert enrolled_v3.json()["protocol_version"] == 3
+    assert db_session.get(Agent, enrolled_v3.json()["agent_id"]).protocol_version == 3
 
     reused = _enroll(client, code, name="second")
     assert reused.status_code == 409
@@ -364,6 +368,9 @@ def test_heartbeat_authenticates_pending_then_marks_approved_agent_online(
     assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 200
     assert db_session.get(Agent, enrolled["agent_id"]).protocol_version == 2
     payload["protocol_version"] = 3
+    assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 200
+    assert db_session.get(Agent, enrolled["agent_id"]).protocol_version == 3
+    payload["protocol_version"] = 4
     assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 409
 
 
