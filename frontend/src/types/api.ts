@@ -104,6 +104,8 @@ export interface SourcePathTestRequest {
   agent_id?: string | null
 }
 
+export type SourcePathTestStatus = 'pending' | 'claimed' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
+
 export interface SourcePathTestResponse {
   path: string
   ok: boolean
@@ -116,7 +118,7 @@ export interface SourcePathTestResponse {
   message: string
   hint?: string | null
   job_id?: string | null
-  status?: string | null
+  status?: SourcePathTestStatus | null
 }
 
 export type AgentStatus = 'pending' | 'online' | 'offline' | 'degraded' | 'disabled' | 'revoked'

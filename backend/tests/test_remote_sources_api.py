@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from app.api.sources import _remote_path_authorized
+from app.api.sources import _remote_path_authorized, _remote_path_result
 from app.models import Agent, AgentJob, AppSetting, Source
 from app.services.agent_auth import hash_token
 from app.services.scan_dispatcher import ScanDispatcher, SourceNotFoundError
@@ -160,6 +160,210 @@ def test_remote_path_test_requires_online_then_queues_and_coalesces(
     assert first.status_code == second.status_code == 200
     assert first.json()["job_id"] == second.json()["job_id"]
     assert first.json()["ok"] is False and first.json()["status"] == "pending"
+
+
+@pytest.mark.parametrize("job_status", ["pending", "claimed", "running"])
+def test_remote_path_test_poll_reports_active_jobs_as_pending(
+    client, db_session, approved_agent, job_status
+):
+    approved_agent.status = "online"
+    db_session.commit()
+    queued = client.post(
+        "/api/sources/test-path",
+        json={"location_type": "agent", "agent_id": approved_agent.id, "root_path": "/srv/docs"},
+    ).json()
+    job = db_session.get(AgentJob, queued["job_id"])
+    job.status = job_status
+    db_session.commit()
+
+    response = client.get(f"/api/sources/test-path/{job.id}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "path": "/srv/docs",
+        "ok": False,
+        "exists": False,
+        "is_directory": False,
+        "readable": False,
+        "inside_allowed_roots": True,
+        "allowed_roots": ["/srv/docs"],
+        "looks_like_host_path": False,
+        "message": "Remote path validation is still running.",
+        "hint": None,
+        "job_id": job.id,
+        "status": job_status,
+    }
+
+
+@pytest.mark.parametrize(
+    "job_status,expected_ok,expected_message",
+    [
+        ("completed", True, "Remote path is ready to use."),
+        ("failed", False, "The agent could not validate this path."),
+        ("cancelled", False, "Remote path validation was cancelled."),
+    ],
+)
+def test_remote_path_test_poll_reports_terminal_result_without_internal_errors(
+    client, db_session, approved_agent, job_status, expected_ok, expected_message
+):
+    approved_agent.status = "online"
+    db_session.commit()
+    queued = client.post(
+        "/api/sources/test-path",
+        json={
+            "location_type": "agent",
+            "agent_id": approved_agent.id,
+            "root_path": "/srv/docs/team",
+        },
+    ).json()
+    job = db_session.get(AgentJob, queued["job_id"])
+    job.status = job_status
+    job.error = "PermissionError: /srv/private/secret"
+    job.active_key = None
+    db_session.commit()
+
+    response = client.get(f"/api/sources/test-path/{job.id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["path"] == "/srv/docs/team"
+    assert body["job_id"] == job.id and body["status"] == job_status
+    assert body["ok"] is expected_ok and body["message"] == expected_message
+    assert "/srv/private" not in response.text and "PermissionError" not in response.text
+    expected_flag = expected_ok
+    assert body["exists"] is expected_flag
+    assert body["is_directory"] is expected_flag
+    assert body["readable"] is expected_flag
+    assert body["inside_allowed_roots"] is True
+
+
+def test_remote_path_test_poll_rejects_unknown_and_non_validation_jobs(
+    client, db_session, approved_agent
+):
+    wrong_kind = AgentJob(
+        id="scan-job",
+        agent_id=approved_agent.id,
+        kind="scan",
+        reason="manual",
+        payload=json.dumps({"root_path": "/srv/docs"}),
+    )
+    wrong_browse = AgentJob(
+        id="wrong-browse",
+        agent_id=approved_agent.id,
+        kind="browse",
+        reason="list",
+        payload=json.dumps({"operation": "list", "root_path": "/srv/docs"}),
+    )
+    db_session.add_all([wrong_kind, wrong_browse])
+    db_session.commit()
+
+    assert client.get("/api/sources/test-path/missing").status_code == 404
+    assert client.get(f"/api/sources/test-path/{wrong_kind.id}").status_code == 404
+    assert client.get(f"/api/sources/test-path/{wrong_browse.id}").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "payload,allowed_roots",
+    [
+        ("not-json", json.dumps([{"root_id": "docs", "path": "/srv/docs"}])),
+        (
+            json.dumps({"operation": "validate", "root_path": 7}),
+            json.dumps([{"root_id": "docs", "path": "/srv/docs"}]),
+        ),
+        (json.dumps({"operation": "validate", "root_path": "/srv/docs"}), "not-json"),
+        (
+            json.dumps({"operation": "validate", "root_path": "/other"}),
+            json.dumps([{"root_id": "docs", "path": "/srv/docs"}]),
+        ),
+    ],
+)
+def test_remote_path_test_poll_fails_closed_for_malformed_job_or_agent_data(
+    client, db_session, approved_agent, payload, allowed_roots
+):
+    approved_agent.allowed_roots = allowed_roots
+    job = AgentJob(
+        id="malformed-browse",
+        agent_id=approved_agent.id,
+        kind="browse",
+        reason="validate",
+        status="completed",
+        payload=payload,
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    response = client.get(f"/api/sources/test-path/{job.id}")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is False
+    assert response.json()["inside_allowed_roots"] is False
+    assert response.json()["message"] == "Remote path validation result is unavailable."
+
+
+def test_remote_path_test_poll_requires_admin_auth(client, db_session, approved_agent):
+    job = AgentJob(
+        id="private-browse",
+        agent_id=approved_agent.id,
+        kind="browse",
+        reason="validate",
+        payload=json.dumps({"operation": "validate", "root_path": "/srv/docs"}),
+    )
+    db_session.add(job)
+    db_session.commit()
+    client.headers.pop("Authorization")
+
+    response = client.get(f"/api/sources/test-path/{job.id}")
+
+    assert response.status_code == 401
+
+
+def test_remote_path_test_poll_uses_the_job_agent_and_immutable_payload(
+    client, db_session, approved_agent
+):
+    other = Agent(
+        id="other-agent",
+        name="Other",
+        platform="linux",
+        version="1",
+        protocol_version=1,
+        token_hash=hash_token("other-credential"),
+        allowed_roots=json.dumps([{"root_id": "other", "path": "/srv/other"}]),
+        status="online",
+        approved_at=_now(),
+    )
+    job = AgentJob(
+        id="bound-browse",
+        agent_id=approved_agent.id,
+        kind="browse",
+        reason="validate",
+        status="completed",
+        payload=json.dumps({"operation": "validate", "root_path": "/srv/docs/team"}),
+    )
+    db_session.add_all([other, job])
+    db_session.commit()
+
+    response = client.get(
+        f"/api/sources/test-path/{job.id}",
+        params={"agent_id": other.id, "root_path": "/srv/other/private"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["path"] == "/srv/docs/team"
+    assert response.json()["allowed_roots"] == ["/srv/docs"]
+    assert "/srv/other/private" not in response.text
+
+
+def test_remote_path_test_result_fails_closed_for_an_unexpected_status(approved_agent):
+    job = Mock(id="odd-browse", status="unexpected")
+
+    response = _remote_path_result(
+        job,
+        approved_agent,
+        payload={"operation": "validate", "root_path": "/srv/docs"},
+    )
+
+    assert response.ok is False
+    assert response.message == "Remote path validation result is unavailable."
 
 
 def test_remote_update_validates_prospective_binding_and_disabled_maintenance(

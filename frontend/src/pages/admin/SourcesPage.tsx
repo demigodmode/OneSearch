@@ -1,7 +1,7 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock, CheckCircle, Link2 } from 'lucide-react'
 import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath, useAppSettings, useAgents } from '@/hooks/useApi'
 import type { Agent, ProcessingMode, Source, SourceCreate, SourceUpdate, SourcePathTestResponse } from '@/types/api'
@@ -70,6 +70,8 @@ export function SourceForm({
   const [pathTestResult, setPathTestResult] = useState<SourcePathTestResponse | null>(null)
   const [pathTestError, setPathTestError] = useState<string | null>(null)
   const testPathMutation = useTestSourcePath()
+  const pathTestRequestId = useRef(0)
+  const currentPathContext = useRef({ locationType, agentId, rootPath: rootPath.trim() })
 
   // Schedule state
   const [useDefaultSchedule, setUseDefaultSchedule] = useState(source?.use_default_schedule ?? false)
@@ -86,10 +88,31 @@ export function SourceForm({
   const handleTestPath = () => {
     const candidate = rootPath.trim()
     if (!candidate) return
+    const requestContext = { locationType, agentId, rootPath: candidate }
+    const requestId = ++pathTestRequestId.current
+    setPathTestResult(null)
     setPathTestError(null)
     testPathMutation.mutate({ root_path: candidate, location_type: locationType, agent_id: agentId || null }, {
-      onSuccess: setPathTestResult,
+      onSuccess: (result) => {
+        const current = currentPathContext.current
+        if (
+          pathTestRequestId.current === requestId
+          && current.locationType === requestContext.locationType
+          && current.agentId === requestContext.agentId
+          && current.rootPath === requestContext.rootPath
+          && result.path === requestContext.rootPath
+        ) {
+          setPathTestResult(result)
+        }
+      },
       onError: (requestError) => {
+        const current = currentPathContext.current
+        if (
+          pathTestRequestId.current !== requestId
+          || current.locationType !== requestContext.locationType
+          || current.agentId !== requestContext.agentId
+          || current.rootPath !== requestContext.rootPath
+        ) return
         setPathTestResult(null)
         setPathTestError(requestError instanceof Error ? requestError.message : 'Unable to validate this path.')
       },
@@ -127,8 +150,8 @@ export function SourceForm({
   const isEdit = !!source
   const selectedAgent = agents.find((agent) => agent.id === agentId)
   const unchangedExistingRemote = source?.location_type === 'agent' && source.agent_id === agentId && source.root_path === rootPath
-  const queuedRemoteValidation = locationType === 'agent' && pathTestResult?.status === 'pending'
-  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (locationType === 'agent' && (!agentId || (!pathTestResult?.ok && !queuedRemoteValidation && !unchangedExistingRemote))) || (
+  const completedRemoteValidation = pathTestResult?.status === 'completed' && pathTestResult.ok && pathTestResult.path === rootPath.trim()
+  const isSubmitDisabled = isLoading || !name.trim() || !rootPath.trim() || (locationType === 'agent' && (!agentId || (!completedRemoteValidation && !unchangedExistingRemote))) || (
     !useDefaultSchedule && scheduleConfig.schedule_type === 'interval' && !scheduleConfig.interval_value
   )
 
@@ -156,8 +179,8 @@ export function SourceForm({
       </div>
 
       <div className="space-y-2">
-        {remoteAgentsEnabled && <div className="space-y-2"><Label>Location</Label><div className="flex gap-3 text-sm"><label><input type="radio" checked={locationType === 'local'} onChange={() => setLocationType('local')} /> Local</label><label><input type="radio" checked={locationType === 'agent'} onChange={() => setLocationType('agent')} /> Remote agent</label></div></div>}
-        {locationType === 'agent' && !remoteAgentsEnabled ? <p className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-muted-foreground">Remote source binding is unavailable while remote agents are disabled. This source remains attached to {selectedAgent?.name ?? agentId} at {rootPath}.</p> : locationType === 'agent' ? <><Label htmlFor="agent">Approved agent</Label><select id="agent" value={agentId} onChange={(event) => { setAgentId(event.target.value); setRootPath(''); setProcessingMode(''); setPathTestError(null) }} className="w-full rounded-lg border border-border bg-background px-3 py-2"><option value="">Choose an approved agent</option>{agents.filter((agent) => agent.status === 'online' && agent.approved_at || (source?.agent_id === agent.id && agent.status === 'offline')).map((agent) => <option key={agent.id} value={agent.id}>{agent.name} ({agent.status})</option>)}</select><RemotePathPicker agent={selectedAgent} value={rootPath} onChange={(value) => { setRootPath(value); setPathTestResult(null); setPathTestError(null) }} onTest={handleTestPath} result={pathTestResult} testing={testPathMutation.isPending} />{pathTestError && <p className="text-xs text-destructive">{pathTestError}</p>}<label className="block text-sm">Processing mode <select value={processingMode} onChange={(event) => setProcessingMode(event.target.value as ProcessingMode | '')} className="ml-2 rounded-lg border border-border bg-background px-2 py-1"><option value="">Inherit agent default ({selectedAgent?.default_processing_mode ?? '—'})</option><option value="on_agent">On agent</option><option value="on_server">On server</option></select></label></> : <>
+        {remoteAgentsEnabled && <div className="space-y-2"><Label>Location</Label><div className="flex gap-3 text-sm"><label><input type="radio" checked={locationType === 'local'} onChange={() => { pathTestRequestId.current += 1; currentPathContext.current = { locationType: 'local', agentId, rootPath: rootPath.trim() }; setLocationType('local'); setPathTestResult(null); setPathTestError(null) }} /> Local</label><label><input type="radio" checked={locationType === 'agent'} onChange={() => { pathTestRequestId.current += 1; currentPathContext.current = { locationType: 'agent', agentId, rootPath: rootPath.trim() }; setLocationType('agent'); setPathTestResult(null); setPathTestError(null) }} /> Remote agent</label></div></div>}
+        {locationType === 'agent' && !remoteAgentsEnabled ? <p className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-muted-foreground">Remote source binding is unavailable while remote agents are disabled. This source remains attached to {selectedAgent?.name ?? agentId} at {rootPath}.</p> : locationType === 'agent' ? <><Label htmlFor="agent">Approved agent</Label><select id="agent" value={agentId} onChange={(event) => { pathTestRequestId.current += 1; currentPathContext.current = { locationType, agentId: event.target.value, rootPath: '' }; setAgentId(event.target.value); setRootPath(''); setProcessingMode(''); setPathTestResult(null); setPathTestError(null) }} className="w-full rounded-lg border border-border bg-background px-3 py-2"><option value="">Choose an approved agent</option>{agents.filter((agent) => agent.status === 'online' && agent.approved_at || (source?.agent_id === agent.id && agent.status === 'offline')).map((agent) => <option key={agent.id} value={agent.id}>{agent.name} ({agent.status})</option>)}</select><RemotePathPicker agent={selectedAgent} value={rootPath} onChange={(value) => { pathTestRequestId.current += 1; currentPathContext.current = { locationType, agentId, rootPath: value.trim() }; setRootPath(value); setPathTestResult(null); setPathTestError(null) }} onTest={handleTestPath} result={pathTestResult} testing={testPathMutation.isPending} />{pathTestError && <p className="text-xs text-destructive">{pathTestError}</p>}<label className="block text-sm">Processing mode <select value={processingMode} onChange={(event) => setProcessingMode(event.target.value as ProcessingMode | '')} className="ml-2 rounded-lg border border-border bg-background px-2 py-1"><option value="">Inherit agent default ({selectedAgent?.default_processing_mode ?? '—'})</option><option value="on_agent">On agent</option><option value="on_server">On server</option></select></label></> : <>
         <Label htmlFor="root_path">Root Path</Label>
         <Input
           id="root_path"

@@ -12,17 +12,19 @@ vi.mock('@/hooks/useApi', async () => {
 const agent = { id: 'agent-1', name: 'Online agent', platform: 'linux', version: '1', protocol_version: 1, allowed_roots: [{ root_id: 'docs', path: '/srv/docs' }], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'online' as const, approved_at: '2026-01-01T00:00:00Z', last_seen_at: null, disabled_at: null, created_at: '', updated_at: '', summary: { attached_sources: 0, indexed_documents: 0, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null } }
 
 describe('SourceForm remote source flow', () => {
-  it('allows an advertised root plus manual subpath after queued remote validation', () => {
+  it('requires completed remote validation before saving a new path', () => {
     const submit = vi.fn()
     render(<SourceForm remoteAgentsEnabled agents={[agent]} defaultSchedule={null} onSubmit={submit} onCancel={vi.fn()} isLoading={false} />)
     fireEvent.click(screen.getByLabelText('Remote agent'))
     fireEvent.change(screen.getByLabelText('Approved agent'), { target: { value: 'agent-1' } })
     fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: '/srv/docs' } })
     fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/srv/docs/team' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Browse / test path' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Test path' }))
     const callbacks = testPath.mock.calls[0][1]
-    callbacks.onSuccess({ ok: false, status: 'pending', message: 'Queued', path: '/srv/docs/team', exists: false, is_directory: false, readable: false, inside_allowed_roots: true, allowed_roots: ['/srv/docs'], looks_like_host_path: false })
+    act(() => callbacks.onSuccess({ ok: false, status: 'pending', message: 'Queued', path: '/srv/docs/team', exists: false, is_directory: false, readable: false, inside_allowed_roots: true, allowed_roots: ['/srv/docs'], looks_like_host_path: false }))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Team docs' } })
+    expect(screen.getByRole('button', { name: 'Add Source' })).toBeDisabled()
+    act(() => callbacks.onSuccess({ ok: true, status: 'completed', message: 'Ready', path: '/srv/docs/team', exists: true, is_directory: true, readable: true, inside_allowed_roots: true, allowed_roots: ['/srv/docs'], looks_like_host_path: false }))
     expect(screen.getByRole('button', { name: 'Add Source' })).not.toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: 'Add Source' }))
     expect(submit).toHaveBeenCalledWith(expect.objectContaining({ location_type: 'agent', agent_id: 'agent-1', root_path: '/srv/docs/team', processing_mode: null }))
@@ -39,7 +41,7 @@ describe('SourceForm remote source flow', () => {
     fireEvent.click(screen.getByLabelText('Remote agent'))
     fireEvent.change(screen.getByLabelText('Approved agent'), { target: { value: 'agent-1' } })
     fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/srv/docs' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Browse / test path' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Test path' }))
     act(() => testPath.mock.calls[testPath.mock.calls.length - 1][1].onError(new ApiError('agent_offline', 409, 'agent_offline')))
     expect(screen.getByText('agent_offline')).toBeInTheDocument()
   })
@@ -49,7 +51,7 @@ describe('SourceForm remote source flow', () => {
     fireEvent.click(screen.getByLabelText('Remote agent'))
     fireEvent.change(screen.getByLabelText('Approved agent'), { target: { value: 'agent-1' } })
     fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/outside' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Browse / test path' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Test path' }))
     act(() => testPath.mock.calls[testPath.mock.calls.length - 1][1].onError(new ApiError('path is outside allowed roots', 422, 'path is outside allowed roots')))
     expect(screen.getByText('path is outside allowed roots')).toBeInTheDocument()
   })
@@ -60,8 +62,8 @@ describe('SourceForm remote source flow', () => {
     fireEvent.click(screen.getByLabelText('Remote agent'))
     fireEvent.change(screen.getByLabelText('Approved agent'), { target: { value: 'agent-1' } })
     fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/srv/docs' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Browse / test path' }))
-    testPath.mock.calls[testPath.mock.calls.length - 1][1].onSuccess({ ok: false, status: 'pending', message: 'Queued', path: '/srv/docs', exists: false, is_directory: false, readable: false, inside_allowed_roots: true, allowed_roots: ['/srv/docs'], looks_like_host_path: false })
+    fireEvent.click(screen.getByRole('button', { name: 'Test path' }))
+    testPath.mock.calls[testPath.mock.calls.length - 1][1].onSuccess({ ok: true, status: 'completed', message: 'Ready', path: '/srv/docs', exists: true, is_directory: true, readable: true, inside_allowed_roots: true, allowed_roots: ['/srv/docs'], looks_like_host_path: false })
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Remote docs' } })
     expect(screen.getByLabelText('Use global default')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Use global default'))
@@ -81,6 +83,33 @@ describe('SourceForm remote source flow', () => {
     fireEvent.change(screen.getByLabelText('Processing mode'), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     expect(submit).toHaveBeenLastCalledWith(expect.objectContaining({ processing_mode: null, agent_id: 'agent-1', root_path: '/srv/docs' }))
+  })
+
+  it('ignores a late validation result after the remote path changes', () => {
+    render(<SourceForm remoteAgentsEnabled agents={[agent]} defaultSchedule={null} onSubmit={vi.fn()} onCancel={vi.fn()} isLoading={false} />)
+    fireEvent.click(screen.getByLabelText('Remote agent'))
+    fireEvent.change(screen.getByLabelText('Approved agent'), { target: { value: 'agent-1' } })
+    fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/srv/docs/old' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Test path' }))
+    const oldRequest = testPath.mock.calls[testPath.mock.calls.length - 1][1]
+    fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/srv/docs/new' } })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Remote docs' } })
+
+    oldRequest.onSuccess({ ok: true, status: 'completed', message: 'Ready', path: '/srv/docs/old', exists: true, is_directory: true, readable: true, inside_allowed_roots: true, allowed_roots: ['/srv/docs'], looks_like_host_path: false })
+
+    expect(screen.getByRole('button', { name: 'Add Source' })).toBeDisabled()
+  })
+
+  it('keeps an unchanged existing remote source editable while its agent is offline', () => {
+    const submit = vi.fn()
+    const offlineAgent = { ...agent, status: 'offline' as const }
+    const source = { id: 'remote-source', name: 'Remote docs', root_path: '/srv/docs', location_type: 'agent' as const, agent_id: 'agent-1', processing_mode: null, created_at: '', updated_at: '' }
+    render(<SourceForm source={source} remoteAgentsEnabled agents={[offlineAgent]} defaultSchedule={null} onSubmit={submit} onCancel={vi.fn()} isLoading={false} />)
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Renamed docs' } })
+
+    expect(screen.getByRole('button', { name: 'Save Changes' })).not.toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Renamed docs', root_path: '/srv/docs' }))
   })
 
   it('preserves a disabled remote binding while submitting a maintenance-only edit', () => {

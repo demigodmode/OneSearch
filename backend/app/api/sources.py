@@ -270,6 +270,93 @@ def _remote_path_authorized(agent: Agent, root_path: str) -> bool:
     return False
 
 
+def _agent_allowed_root_paths(agent: Agent) -> list[str] | None:
+    try:
+        roots = json.loads(agent.allowed_roots)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(roots, list):
+        return None
+    paths: list[str] = []
+    for root in roots:
+        if not isinstance(root, dict) or not isinstance(root.get("path"), str):
+            return None
+        paths.append(root["path"])
+    return paths
+
+
+def _remote_path_result(
+    job: AgentJob, agent: Agent | None, *, payload: object
+) -> SourcePathTestResponse:
+    root_path = payload.get("root_path") if isinstance(payload, dict) else None
+    operation = payload.get("operation") if isinstance(payload, dict) else None
+    allowed_roots = _agent_allowed_root_paths(agent) if agent is not None else None
+    valid = (
+        operation == "validate"
+        and isinstance(root_path, str)
+        and allowed_roots is not None
+        and _remote_path_authorized(agent, root_path)
+    )
+    if not valid:
+        return SourcePathTestResponse(
+            path=root_path if isinstance(root_path, str) else "",
+            ok=False,
+            exists=False,
+            is_directory=False,
+            readable=False,
+            inside_allowed_roots=False,
+            allowed_roots=allowed_roots or [],
+            message="Remote path validation result is unavailable.",
+            job_id=job.id,
+            status=job.status,
+        )
+
+    known_statuses = {
+        "pending",
+        "claimed",
+        "running",
+        "cancelling",
+        "completed",
+        "failed",
+        "cancelled",
+    }
+    if job.status not in known_statuses:
+        return SourcePathTestResponse(
+            path=root_path,
+            ok=False,
+            exists=False,
+            is_directory=False,
+            readable=False,
+            inside_allowed_roots=True,
+            allowed_roots=allowed_roots,
+            message="Remote path validation result is unavailable.",
+            job_id=job.id,
+            status=job.status,
+        )
+
+    completed = job.status == "completed"
+    if completed:
+        message = "Remote path is ready to use."
+    elif job.status == "failed":
+        message = "The agent could not validate this path."
+    elif job.status == "cancelled":
+        message = "Remote path validation was cancelled."
+    else:
+        message = "Remote path validation is still running."
+    return SourcePathTestResponse(
+        path=root_path,
+        ok=completed,
+        exists=completed,
+        is_directory=completed,
+        readable=completed,
+        inside_allowed_roots=True,
+        allowed_roots=allowed_roots,
+        message=message,
+        job_id=job.id,
+        status=job.status,
+    )
+
+
 def _validate_source_location(
     db: Session,
     *,
@@ -359,6 +446,23 @@ async def test_source_path(
         job_id=job.id,
         status=job.status,
     )
+
+
+@router.get("/test-path/{job_id}", response_model=SourcePathTestResponse)
+async def get_source_path_test(
+    job_id: str,
+    db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Return the sanitized result of a queued remote path validation."""
+    job = db.get(AgentJob, job_id)
+    if job is None or job.kind != "browse" or job.reason != "validate":
+        raise HTTPException(status_code=404, detail="Path validation not found")
+    try:
+        payload: object = json.loads(job.payload)
+    except (TypeError, json.JSONDecodeError):
+        payload = None
+    return _remote_path_result(job, db.get(Agent, job.agent_id), payload=payload)
 
 
 @router.get("/{source_id}", response_model=SourceResponse)

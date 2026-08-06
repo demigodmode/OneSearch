@@ -48,24 +48,28 @@ export function RemotePathPicker({
         onClick={onTest}
         disabled={!agent || agent.status !== 'online' || testing}
       >
-        Browse / test path
+        {testing ? 'Testing path...' : 'Test path'}
       </Button>
       {agent?.status !== 'online' && (
         <p className="text-xs text-destructive">
-          The agent must be online before OneSearch can browse or test its path.
+          The agent must be online before OneSearch can test its path.
         </p>
       )}
+      {testing && <p className="text-xs text-muted-foreground">Waiting for the agent to test this path.</p>}
       {result && (
-        <p
-          className={
-            result.ok ? 'text-xs text-success' : 'text-xs text-destructive'
-          }
-        >
-          {result.message}
-          {result.status === 'pending'
-            ? ' Directory browsing is still pending; allowed roots and manual entry remain available.'
-            : ''}
-        </p>
+        <div className={result.ok ? 'text-xs text-success' : 'text-xs text-destructive'}>
+          <p>
+            {result.message}
+            {result.status && ['pending', 'claimed', 'running', 'cancelling'].includes(result.status)
+              ? ' Validation is still pending.'
+              : ''}
+          </p>
+          {result.status === 'completed' && (
+            <p className="mt-1">
+              Exists: {result.exists ? 'yes' : 'no'} · Directory: {result.is_directory ? 'yes' : 'no'} · Readable: {result.readable ? 'yes' : 'no'}
+            </p>
+          )}
+        </div>
       )}
     </div>
   )
