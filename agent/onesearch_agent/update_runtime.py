@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from .update import UpdateError, UpdateManager
@@ -44,15 +45,26 @@ def write_healthy_marker(state_dir: Path, version: str, timestamp: float) -> Non
     )
 
 
-def stage_and_launch(*, config, platform: str, version: str, current_binary: Path, managed: bool):
+def stage_and_launch(
+    *,
+    config,
+    platform: str,
+    version: str,
+    current_binary: Path,
+    managed: bool,
+    notify: Callable[[str], None] | None = None,
+):
     """Prepare a signed replacement only from an OS-managed native process."""
     if not config.auto_update:
         return None
     container = bool(os.environ.get("DOCKER_CONTAINER"))
     if container:
-        return UpdateManager(platform=platform, current_version=version, container=True).stage(
-            auto_update=True, current_binary=current_binary, state_dir=config.state_dir
-        )
+        return UpdateManager(
+            platform=platform,
+            current_version=version,
+            container=True,
+            notify=notify,
+        ).stage(auto_update=True, current_binary=current_binary, state_dir=config.state_dir)
     if not managed:
         raise UpdateError(
             "automatic updates require the installed OneSearch Agent service; "
@@ -66,6 +78,7 @@ def stage_and_launch(*, config, platform: str, version: str, current_binary: Pat
         platform=platform,
         current_version=version,
         container=False,
+        notify=notify,
     ).stage(auto_update=True, current_binary=current_binary, state_dir=config.state_dir)
     if getattr(prepared, "path", None):
         launch(prepared.path)

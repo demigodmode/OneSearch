@@ -334,13 +334,106 @@ def test_docker_agent_notifies_but_never_replaces_container(signing_key, tmp_pat
     current = tmp_path / "onesearch-agent"
     current.write_bytes(b"old-agent")
     payload = signed_manifest(signing_key)
+    downloads = []
+    notices = []
     result = manager(
         signing_key,
         container=True,
-        fetch=lambda url: payload if url.endswith(".json") else b"new-agent",
+        fetch=lambda url: downloads.append(url)
+        or (payload if url.endswith(".json") else b"new-agent"),
+        notify=notices.append,
     ).stage(auto_update=True, current_binary=current, state_dir=tmp_path / "state")
     assert result.action == "notify"
+    assert any("newer agent image is available" in notice.lower() for notice in notices)
+    assert len(downloads) == 1
+    assert all("manifest" in url for url in downloads)
     assert current.read_bytes() == b"old-agent"
+
+
+def test_stage_and_launch_forwards_docker_notice_without_launching(monkeypatch, tmp_path):
+    current = tmp_path / "onesearch-agent"
+    current.write_bytes(b"old-agent")
+    notices = []
+    manager_options = []
+
+    class Updates:
+        def __init__(self, **kwargs):
+            manager_options.append(kwargs)
+
+        def stage(self, *, auto_update, current_binary, state_dir):
+            assert auto_update is True
+            assert current_binary == current
+            assert state_dir == tmp_path / "state"
+            manager_options[-1]["notify"](
+                "A newer agent image is available; Docker containers are never self-updated."
+            )
+            return UpdateResult("notify", "1.4.0")
+
+    monkeypatch.setenv("DOCKER_CONTAINER", "1")
+    monkeypatch.setattr("onesearch_agent.update_runtime.UpdateManager", Updates)
+    monkeypatch.setattr(
+        "onesearch_agent.update_runtime.launch",
+        lambda path: pytest.fail(f"container update attempted to launch {path}"),
+    )
+
+    result = stage_and_launch(
+        config=type("Config", (), {"auto_update": True, "state_dir": tmp_path / "state"})(),
+        platform="linux-x64",
+        version="1.3.0",
+        current_binary=current,
+        managed=False,
+        notify=notices.append,
+    )
+
+    assert result == UpdateResult("notify", "1.4.0")
+    assert manager_options[0]["container"] is True
+    assert notices == [
+        "A newer agent image is available; Docker containers are never self-updated."
+    ]
+    assert current.read_bytes() == b"old-agent"
+
+
+def test_stage_and_launch_keeps_native_launch_behavior_with_notices(monkeypatch, tmp_path):
+    suffix = ".exe" if sys.platform == "win32" else ""
+    current = tmp_path / ("onesearch-agent" + suffix)
+    helper = tmp_path / ("onesearch-agent-updater" + suffix)
+    prepared = tmp_path / "prepared-update.json"
+    current.write_bytes(b"old-agent")
+    helper.write_bytes(b"updater")
+    notices = []
+    launched = []
+
+    class Prepared:
+        path = prepared
+
+    class Updates:
+        def __init__(self, **kwargs):
+            assert kwargs["container"] is False
+            self.notify = kwargs["notify"]
+
+        def stage(self, *, auto_update, current_binary, state_dir):
+            assert auto_update is True
+            assert current_binary == current
+            self.notify("Signed agent update 1.4.0 is ready.")
+            return Prepared()
+
+    monkeypatch.delenv("DOCKER_CONTAINER", raising=False)
+    monkeypatch.setattr("onesearch_agent.update_runtime.sys.frozen", True, raising=False)
+    monkeypatch.setattr("onesearch_agent.update_runtime.UpdateManager", Updates)
+    monkeypatch.setattr("onesearch_agent.update_runtime.launch", launched.append)
+
+    result = stage_and_launch(
+        config=type("Config", (), {"auto_update": True, "state_dir": tmp_path / "state"})(),
+        platform="win32-x64",
+        version="1.3.0",
+        current_binary=current,
+        managed=True,
+        notify=notices.append,
+    )
+
+    assert isinstance(result, Prepared)
+    assert notices == ["Signed agent update 1.4.0 is ready."]
+    assert launched == [prepared]
 
 
 def test_source_python_cannot_begin_automatic_update_contact(monkeypatch, tmp_path):

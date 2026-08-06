@@ -10,6 +10,7 @@ from onesearch_agent.client import (
     AgentIncompatible,
     AgentRevoked,
 )
+from onesearch_agent.credentials import CredentialError
 
 
 def _config(path: Path, root: Path):
@@ -256,6 +257,33 @@ def test_run_preserves_terminal_agent_error(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("onesearch_agent.cli.run_runtime", fail)
     result = CliRunner().invoke(main, ["--config", str(config), "run"])
     assert "agent revoked" in result.output and "configuration unavailable" not in result.output
+
+
+def test_run_prints_docker_auto_update_notice(monkeypatch, tmp_path):
+    value = SimpleNamespace(auto_update=True, state_dir=tmp_path / "state")
+
+    def stage(*, notify, **kwargs):
+        assert kwargs["managed"] is False
+        notify("A newer agent image is available; Docker containers are never self-updated.")
+
+    def missing_token():
+        raise CredentialError("credential is unavailable")
+
+    monkeypatch.setenv("DOCKER_CONTAINER", "1")
+    monkeypatch.setattr("onesearch_agent.cli._config", lambda ctx: value)
+    monkeypatch.setattr("onesearch_agent.cli._linux_systemd_managed", lambda: False)
+    monkeypatch.setattr("onesearch_agent.cli.stage_and_launch", stage)
+    monkeypatch.setattr(
+        "onesearch_agent.cli.credential_store",
+        lambda config: SimpleNamespace(load=missing_token),
+    )
+
+    result = CliRunner().invoke(main, ["run"])
+
+    assert result.exit_code != 0
+    assert "A newer agent image is available" in result.output
+    assert "never self-updated" in result.output
+    assert "credential is unavailable" in result.output
 
 
 @pytest.mark.parametrize("error", [AgentDisabled("disabled"), AgentIncompatible("incompatible")])

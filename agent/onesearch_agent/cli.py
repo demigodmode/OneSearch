@@ -147,6 +147,7 @@ def run(ctx):
                 version=__version__,
                 current_binary=Path(sys.executable),
                 managed=_linux_systemd_managed(),
+                notify=click.echo,
             )
         token = credential_store(value).load()
 
