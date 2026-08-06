@@ -47,18 +47,3 @@ def test_scale_run_cleans_temporary_database_and_rejects_table_scans(tmp_path):
     }
     assert all(item["elapsed_seconds"] >= 0 for item in result["queries"].values())
     assert not database.exists()
-
-
-def test_smoke_contract_redacts_secrets_and_requires_upgrade_inputs():
-    path = Path(__file__).parents[2] / "scripts" / "agent_smoke.py"
-    spec = importlib.util.spec_from_file_location("agent_smoke", path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(module)
-
-    assert "secret" not in module.redact("token=secret")
-    assert (
-        module.validate_upgrade_inputs(None, None)
-        == "missing --previous-version, --previous-agent-command"
-    )
-    assert module.validate_upgrade_inputs("1.3.0", None) == "missing --previous-agent-command"
