@@ -147,6 +147,7 @@ REQUIRED_COMMANDS = {
     "delete_fixture",
     "restore_fixture",
     "update_check",
+    "state_probe",
     "previous_install",
     "previous_start",
     "previous_stop",
@@ -167,9 +168,13 @@ class SmokeConfig:
     previous_version: str
     current_version: str
     notification_regex: str
+    original_marker: str
+    renamed_marker: str
     poll_attempts: int = 30
     poll_seconds: float = 1.0
     due_intervals: int = 2
+    schedule_interval_seconds: float = 60.0
+    offline_grace_seconds: float = 125.0
     cleanup_evidence_on_failure: bool = False
 
     def validate(self) -> None:
@@ -186,6 +191,8 @@ class SmokeConfig:
                 "previous_version",
                 "current_version",
                 "notification_regex",
+                "original_marker",
+                "renamed_marker",
             }
             and not value
         ]
@@ -195,13 +202,43 @@ class SmokeConfig:
             for name, command in self.commands.items()
             if name in REQUIRED_COMMANDS and not _is_json_argv(command)
         ]
-        if missing or invalid or self.due_intervals < 2:
+        secret_placeholders = [
+            name
+            for name, command in self.commands.items()
+            if "{enrollment_code}" in command.lower()
+        ]
+        invalid_markers = self.original_marker == self.renamed_marker
+        try:
+            re.compile(self.notification_regex)
+        except re.error:
+            invalid_regex = True
+        else:
+            invalid_regex = False
+        if (
+            missing
+            or invalid
+            or secret_placeholders
+            or invalid_markers
+            or invalid_regex
+            or self.due_intervals < 2
+            or self.schedule_interval_seconds <= 0
+            or self.offline_grace_seconds <= 0
+        ):
             raise ValueError(
                 "required release-smoke input missing or invalid: "
                 + ", ".join(
                     missing
                     + [f"{name} command" for name in invalid]
+                    + [f"{name} enrollment secret in argv" for name in secret_placeholders]
+                    + (["distinct fixture markers"] if invalid_markers else [])
+                    + (["notification regex"] if invalid_regex else [])
                     + ([] if self.due_intervals >= 2 else ["due_intervals >= 2"])
+                    + (
+                        []
+                        if self.schedule_interval_seconds > 0
+                        else ["schedule_interval_seconds > 0"]
+                    )
+                    + ([] if self.offline_grace_seconds > 0 else ["offline_grace_seconds > 0"])
                 )
             )
 
@@ -214,6 +251,40 @@ def _is_json_argv(value: str) -> bool:
     return (
         isinstance(parsed, list) and bool(parsed) and all(isinstance(part, str) for part in parsed)
     )
+
+
+class SmokeRunError(RuntimeError):
+    """Release gate failure with the primary and cleanup errors preserved."""
+
+    def __init__(self, primary: str, cleanup: list[str] | None = None):
+        self.primary = primary
+        self.cleanup = cleanup or []
+        message = primary
+        if self.cleanup:
+            message += "; cleanup failures: " + "; ".join(self.cleanup)
+        super().__init__(message)
+
+
+SOURCE_CONFIG_FIELDS = (
+    "id",
+    "name",
+    "root_path",
+    "location_type",
+    "agent_id",
+    "processing_mode",
+    "include_patterns",
+    "exclude_patterns",
+    "scan_schedule",
+    "schedule_type",
+    "interval_value",
+    "interval_unit",
+    "use_default_schedule",
+)
+
+
+def source_config(source: dict[str, Any]) -> dict[str, Any]:
+    """Keep only source settings; scheduler timestamps are expected to move."""
+    return {field: source.get(field) for field in SOURCE_CONFIG_FIELDS}
 
 
 class SmokeRunner:
@@ -243,6 +314,8 @@ class SmokeRunner:
         }
         self.agent_id: str | None = None
         self.source_ids: list[str] = []
+        self.revoked = False
+        self.known_secrets = {config.admin_token}
         self.values = {
             "server_url": config.url,
             "agent_name": config.agent_name,
@@ -252,27 +325,46 @@ class SmokeRunner:
             "current_version": config.current_version,
         }
 
+    def safe(self, value: Any) -> Any:
+        cleaned = redact(value)
+        serialized = json.dumps(cleaned) if not isinstance(cleaned, str) else cleaned
+        for secret in self.known_secrets:
+            if secret:
+                serialized = serialized.replace(secret, "[REDACTED]")
+        if isinstance(cleaned, str):
+            return serialized
+        return json.loads(serialized)
+
     def http(
         self, method: str, path: str, body: Any = None, expected: set[int] | None = None
     ) -> Reply:
         expected = {200} if expected is None else expected
         reply = self.transport.request(method, path, body)
         self.evidence["http"].append(
-            {"method": method, "path": redact(path), "body": redact(body), "status": reply.status}
+            {
+                "method": method,
+                "path": self.safe(path),
+                "body": self.safe(body),
+                "status": reply.status,
+            }
         )
         if reply.status not in expected:
-            raise RuntimeError(f"{method} {path} returned {reply.status}: {redact(reply.body)}")
+            raise RuntimeError(
+                self.safe(f"{method} {path} returned {reply.status}: {redact(reply.body)}")
+            )
         return reply
 
     def command(self, name: str, *, enrollment_code: str | None = None) -> Reply:
         argv = expand_command(self.config.commands[name], self.values)
         env = {"ONESEARCH_ENROLLMENT_CODE": enrollment_code} if enrollment_code else None
         reply = self.commands.run(argv, stdin=enrollment_code, env=env)
+        if enrollment_code:
+            self.known_secrets.add(enrollment_code)
         self.evidence["commands"].append(
             {"name": name, "argv": redact(argv), "status": reply.status}
         )
         if reply.status != 0:
-            raise RuntimeError(f"{name} failed: {redact(reply.body)}")
+            raise RuntimeError(self.safe(f"{name} failed: {redact(reply.body)}"))
         return reply
 
     def phase(self, name: str, action) -> None:
@@ -280,7 +372,10 @@ class SmokeRunner:
         self.evidence["phases"].append(record)
         try:
             observations = action()
-            record.update(status="passed", observations=redact(observations or {}))
+            record.update(status="passed", observations=self.safe(observations or {}))
+        except Exception as error:
+            record["error"] = self.safe(str(error))
+            raise
         finally:
             record["ended_at"] = time.time()
 
@@ -319,7 +414,7 @@ class SmokeRunner:
     def run(self) -> dict[str, Any]:
         self.config.validate()  # must happen before first remote mutation
         started = self.clock()
-        failed = False
+        primary_error: Exception | None = None
         try:
             self.phase("enrollment", self._enrollment)
             self.phase("remote_path_and_sources", self._sources)
@@ -329,21 +424,22 @@ class SmokeRunner:
             self.phase("signed_update_notification", self._update)
             self.phase("clean_upgrade", self._upgrade)
             self.phase("revocation", self._revoke)
-        except Exception:
-            failed = True
-            raise
+        except Exception as error:
+            primary_error = error
         finally:
-            cleanup_error = self._cleanup()
+            cleanup_errors = self._cleanup()
             self.evidence["duration_seconds"] = self.clock() - started
-            self.evidence["result"] = "failed" if failed or cleanup_error else "passed"
-            if cleanup_error:
-                raise RuntimeError(cleanup_error)
+            self.evidence["result"] = "failed" if primary_error or cleanup_errors else "passed"
+            if primary_error or cleanup_errors:
+                primary = self.safe(str(primary_error)) if primary_error else "cleanup failed"
+                raise SmokeRunError(primary, cleanup_errors) from primary_error
         return self.evidence
 
     def _enrollment(self):
         code = self.http("POST", "/api/agents/enrollments", expected={201}).body.get("code")
         if not code:
             raise RuntimeError("enrollment response has no code")
+        self.known_secrets.add(code)
         self.command("enroll", enrollment_code=code)
         agents = self.http("GET", "/api/agents").body
         matches = [
@@ -412,7 +508,9 @@ class SmokeRunner:
         results = []
         for source_id in self.source_ids:
             found = self.http(
-                "POST", "/api/search", {"q": "onesearch smoke fixture", "source_id": source_id}
+                "POST",
+                "/api/search",
+                {"q": self.config.original_marker, "source_id": source_id},
             ).body
             if not found.get("results"):
                 raise RuntimeError(f"search did not find fixture content for {source_id}")
@@ -426,30 +524,58 @@ class SmokeRunner:
         link = self.http("POST", f"/api/documents/{results[0]['id']}/download-link").body
         if preview.status != 200 or not link.get("url"):
             raise RuntimeError("online preview/download proof failed")
+        download = self.http("GET", link["url"], expected={200})
+        if download.status != 200:
+            raise RuntimeError("online original download did not complete")
         self.values["document_id"] = results[0]["id"]
         self.values["download_path"] = link["url"]
-        return {"scans": scans, "documents": [item["id"] for item in results]}
+        return {
+            "scans": scans,
+            "search_documents": [item["id"] for item in results],
+            "detail_document": document["id"],
+            "preview_status": preview.status,
+            "download_status": download.status,
+        }
 
     def _offline(self):
+        before = self.http("GET", f"/api/agents/{self.agent_id}").body
+        before_job_ids = {job["id"] for job in before.get("recent_jobs", [])}
         self.command("stop")
-        self.poll_agent("offline")
-        self.http("POST", "/api/search", {"q": "onesearch smoke fixture"})
+        self.sleep(
+            max(
+                self.config.due_intervals * self.config.schedule_interval_seconds,
+                self.config.offline_grace_seconds,
+            )
+        )
+        cached = self.http("POST", "/api/search", {"q": self.config.original_marker}).body
+        if not cached.get("results"):
+            raise RuntimeError("cached search was unavailable while the agent was offline")
         self.http("GET", f"/api/documents/{self.values['document_id']}")
-        self.http("GET", self.values["download_path"], expected={409})
-        self.command("stop")  # hook must demonstrate that it remains stopped, not merely report it
-        for _ in range(self.config.due_intervals):
-            self.sleep(60)
-        self.command("start")
-        agent = self.poll_agent("online")
+        self.http(
+            "POST",
+            f"/api/documents/{self.values['document_id']}/download-link",
+            expected={409},
+        )
+        offline = self.poll_agent("offline")
         pending = [
             job
-            for job in agent.get("recent_jobs", [])
-            if job.get("kind") == "scan" and job.get("status") in {"pending", "claimed", "running"}
+            for job in offline.get("recent_jobs", [])
+            if job.get("id") not in before_job_ids
+            and job.get("kind") == "scan"
+            and job.get("status") in {"pending", "claimed", "running"}
         ]
         if len(pending) != 1:
             raise RuntimeError("missed schedules did not coalesce to exactly one catch-up scan")
+        self.command("start")
+        self.poll_agent("online")
         self.poll_job(pending[0]["id"])
-        return {"catch_up_job": pending[0]["id"]}
+        return {
+            "cached_search": True,
+            "cached_detail": True,
+            "download_rejected": True,
+            "missed_intervals": self.config.due_intervals,
+            "catch_up_job": pending[0]["id"],
+        }
 
     def _reconcile(self):
         self.command("rename_fixture")
@@ -457,17 +583,24 @@ class SmokeRunner:
         renamed = self.http(
             "POST",
             "/api/search",
-            {"q": "renamed onesearch smoke fixture", "source_id": self.source_ids[0]},
+            {
+                "q": self.config.renamed_marker,
+                "source_id": self.source_ids[0],
+            },
         ).body
         old = self.http(
-            "POST", "/api/search", {"q": "onesearch smoke fixture", "source_id": self.source_ids[0]}
+            "POST",
+            "/api/search",
+            {"q": self.config.original_marker, "source_id": self.source_ids[0]},
         ).body
         if not renamed.get("results") or old.get("results"):
             raise RuntimeError("rename reconciliation was not observed")
         self.command("delete_fixture")
         self.scan(self.source_ids[1], "on_server")
         deleted = self.http(
-            "POST", "/api/search", {"q": "onesearch smoke fixture", "source_id": self.source_ids[1]}
+            "POST",
+            "/api/search",
+            {"q": self.config.original_marker, "source_id": self.source_ids[1]},
         ).body
         if deleted.get("results"):
             raise RuntimeError("deleted fixture remained searchable")
@@ -479,46 +612,100 @@ class SmokeRunner:
 
     def _revoke(self):
         self.http("POST", f"/api/agents/{self.agent_id}/revoke")
+        self.revoked = True
         probe = self.command("heartbeat_probe")
-        if not isinstance(probe.body, dict) or probe.body.get("status") not in {401, 403}:
+        if not isinstance(probe.body, dict) or {
+            probe.body.get("heartbeat_status"),
+            probe.body.get("claim_status"),
+        } - {401, 403}:
             raise RuntimeError("revoked agent heartbeat/claim was not rejected")
-        return {"probe_status": probe.body["status"]}
+        return {
+            "heartbeat_status": probe.body["heartbeat_status"],
+            "claim_status": probe.body["claim_status"],
+        }
 
     def _update(self):
         update = self.command("update_check")
         text = json.dumps(update.body)
-        if not re.search(self.config.notification_regex, text) or (
-            isinstance(update.body, dict) and update.body.get("self_replaced")
+        if (
+            not isinstance(update.body, dict)
+            or not re.search(self.config.notification_regex, text)
+            or update.body.get("signature_verified") is not True
+            or update.body.get("update_available") is not True
+            or update.body.get("install_type") != "docker"
+            or update.body.get("self_replaced") is not False
         ):
             raise RuntimeError("signed update notification or Docker no-self-replace proof failed")
-        return {"notification": True}
+        return {
+            "notification": True,
+            "signature_verified": True,
+            "install_type": "docker",
+            "self_replaced": False,
+        }
 
     def _upgrade(self):
-        for name in (
-            "previous_install",
-            "previous_start",
-            "previous_stop",
-            "current_install",
-            "start",
-        ):
-            self.command(name)
+        before_agent = self.http("GET", f"/api/agents/{self.agent_id}").body
+        before_sources = {
+            source_id: source_config(self.http("GET", f"/api/sources/{source_id}").body)
+            for source_id in self.source_ids
+        }
+        before_results = self.http(
+            "POST", "/api/search", {"q": self.config.renamed_marker}
+        ).body.get("results", [])
+        before_state = self.command("state_probe").body
+        if not isinstance(before_state, dict) or not before_state.get("config_fingerprint"):
+            raise RuntimeError("pre-upgrade agent state proof is incomplete")
+        self.command("stop")
+        self.command("previous_install")
+        self.command("previous_start")
+        previous_agent = self.poll_agent("online")
+        if previous_agent.get("version") != self.config.previous_version:
+            raise RuntimeError("previous agent version was not observed before upgrade")
+        previous_state = self.command("state_probe").body
+        self.command("previous_stop")
+        self.command("current_install")
+        self.command("start")
         agent = self.poll_agent("online")
         if agent.get("version") != self.config.current_version:
             raise RuntimeError("current agent version was not observed online after upgrade")
-        if not self.http("POST", "/api/search", {"q": "renamed onesearch smoke fixture"}).body.get(
-            "results"
+        after_state = self.command("state_probe").body
+        after_sources = {
+            source_id: source_config(self.http("GET", f"/api/sources/{source_id}").body)
+            for source_id in self.source_ids
+        }
+        after_results = self.http(
+            "POST", "/api/search", {"q": self.config.renamed_marker}
+        ).body.get("results", [])
+        state_values = (before_state, previous_state, after_state)
+        if any(
+            not isinstance(state, dict)
+            or state.get("agent_id") != self.agent_id
+            or state.get("config_fingerprint") != before_state["config_fingerprint"]
+            for state in state_values
         ):
+            raise RuntimeError("upgrade did not preserve agent identity and local configuration")
+        if before_agent.get("id") != agent.get("id") or before_sources != after_sources:
+            raise RuntimeError("upgrade changed the server-side agent or source configuration")
+        if not before_results or {item["id"] for item in before_results} != {
+            item["id"] for item in after_results
+        }:
             raise RuntimeError("upgrade lost indexed data")
-        return {"version": agent["version"]}
+        return {
+            "previous_version": previous_agent["version"],
+            "current_version": agent["version"],
+            "agent_id_preserved": True,
+            "config_preserved": True,
+            "indexed_data_preserved": True,
+        }
 
-    def _cleanup(self) -> str | None:
+    def _cleanup(self) -> list[str]:
         errors = []
         for source_id in self.source_ids:
             try:
                 self.http("DELETE", f"/api/sources/{source_id}", expected={204})
             except Exception as error:
                 errors.append(f"source {source_id}: {redact(error)}")
-        if self.agent_id:
+        if self.agent_id and not self.revoked:
             try:
                 self.http("POST", f"/api/agents/{self.agent_id}/revoke", expected={200, 409})
             except Exception as error:
@@ -528,11 +715,12 @@ class SmokeRunner:
                 self.command(name)
             except Exception as error:
                 errors.append(f"{name}: {redact(error)}")
-        self.evidence["cleanup"] = errors or ["completed"]
-        return "; ".join(errors) if errors else None
+        safe_errors = [self.safe(error) for error in errors]
+        self.evidence["cleanup"] = safe_errors or ["completed"]
+        return safe_errors
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", required=True)
     parser.add_argument("--admin-token")
@@ -544,16 +732,22 @@ def main() -> int:
     parser.add_argument("--previous-version", required=True)
     parser.add_argument("--current-version", required=True)
     parser.add_argument("--notification-regex", required=True)
+    parser.add_argument("--original-marker", required=True)
+    parser.add_argument("--renamed-marker", required=True)
     parser.add_argument("--evidence", type=Path, default=Path("agent-smoke-evidence.json"))
     parser.add_argument("--poll-attempts", type=int, default=30)
     parser.add_argument("--poll-seconds", type=float, default=1)
     parser.add_argument("--due-intervals", type=int, default=2)
-    args = parser.parse_args()
+    parser.add_argument("--schedule-interval-seconds", type=float, default=60)
+    parser.add_argument("--offline-grace-seconds", type=float, default=125)
+    args = parser.parse_args(argv)
     token = (
         args.admin_token
         or os.getenv("ONESEARCH_ADMIN_TOKEN")
         or (args.admin_token_file.read_text().strip() if args.admin_token_file else "")
     )
+    runner: SmokeRunner | None = None
+    evidence: dict[str, Any] = {"result": "failed", "phases": [], "cleanup": []}
     try:
         config = SmokeConfig(
             args.url,
@@ -565,18 +759,34 @@ def main() -> int:
             args.previous_version,
             args.current_version,
             args.notification_regex,
+            args.original_marker,
+            args.renamed_marker,
             args.poll_attempts,
             args.poll_seconds,
             args.due_intervals,
+            args.schedule_interval_seconds,
+            args.offline_grace_seconds,
         )
-        evidence = SmokeRunner(
+        runner = SmokeRunner(
             config, UrlTransport(config.url, config.admin_token), SubprocessRunner()
-        ).run()
-        args.evidence.write_text(json.dumps(redact(evidence), indent=2) + "\n", encoding="utf-8")
+        )
+        evidence = runner.run()
+        args.evidence.write_text(
+            json.dumps(runner.safe(evidence), indent=2) + "\n", encoding="utf-8"
+        )
         print(json.dumps(redact(evidence), indent=2))
         return 0
     except Exception as error:
-        print(redact(error), file=sys.stderr)
+        if runner is not None:
+            evidence = runner.evidence
+            safe_error = runner.safe(str(error))
+            evidence["error"] = safe_error
+            output = runner.safe(evidence)
+        else:
+            safe_error = redact(str(error))
+            output = redact({**evidence, "error": safe_error})
+        args.evidence.write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
+        print(safe_error, file=sys.stderr)
         return 1
 
 
