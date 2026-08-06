@@ -16,14 +16,14 @@ def remote(db_session):
         platform="windows",
         version="1",
         protocol_version=1,
-        allowed_roots='[{"root_id":"r","path":"C:/files"}]',
+        allowed_roots='[{"root_id":"r","path":"C:\\\\files"}]',
         status="online",
         approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     source = Source(
         id="source-files",
         name="Remote",
-        root_path="C:/files",
+        root_path="C:\\files",
         location_type="agent",
         agent_id=agent.id,
         processing_mode="on_server",

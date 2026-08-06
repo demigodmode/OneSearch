@@ -8,7 +8,12 @@ from onesearch_shared import ScanFailure, ScanFile, ScanManifest, remote_path_ha
 
 from app.services.scanner import get_default_exclude_patterns, path_is_included
 
-from .paths import PathOutsideAllowedRoots, SafeDirectoryEntry, list_confined_entries_page
+from .paths import (
+    PathOutsideAllowedRoots,
+    SafeDirectoryEntry,
+    confined_relative,
+    list_confined_entries_page,
+)
 
 
 def canonical_path(path: str) -> str:
@@ -32,6 +37,7 @@ class RemoteScanner:
         include_patterns=None,
         exclude_patterns=None,
         known=None,
+        source_prefix="",
         max_files=100000,
         max_entries_per_directory=100000,
     ):
@@ -41,6 +47,7 @@ class RemoteScanner:
             get_default_exclude_patterns() if exclude_patterns is None else exclude_patterns
         )
         self.known = known or {}
+        self.source_prefix = confined_relative("", source_prefix)
         self.changed_paths: list[str] = []
         self.max_files, self.max_entries_per_directory = max_files, max_entries_per_directory
 
@@ -52,8 +59,12 @@ class RemoteScanner:
 
     def _walk(self) -> Iterator[SafeDirectoryEntry]:
         def entries_for(directory: str) -> Iterator[SafeDirectoryEntry]:
+            allowed_directory = confined_relative(self.source_prefix, directory)
             page = list_confined_entries_page(
-                self.root_id, directory, self.roots, max_entries=self.max_entries_per_directory
+                self.root_id,
+                allowed_directory,
+                self.roots,
+                max_entries=self.max_entries_per_directory,
             )
             if page.truncated:
                 raise PathOutsideAllowedRoots(
@@ -62,7 +73,22 @@ class RemoteScanner:
             if page.failures:
                 failure = page.failures[0]
                 raise PathOutsideAllowedRoots(f"{failure.relative_path}: {failure.error}"[:500])
-            return iter(sorted(page.entries, key=lambda entry: entry.relative_path))
+            prefix = f"{self.source_prefix}/" if self.source_prefix else ""
+            entries = []
+            for entry in page.entries:
+                if prefix and not entry.relative_path.startswith(prefix):
+                    raise PathOutsideAllowedRoots("listed path escaped selected source")
+                source_path = entry.relative_path[len(prefix) :]
+                entries.append(
+                    SafeDirectoryEntry(
+                        source_path,
+                        entry.name,
+                        entry.is_dir,
+                        entry.size_bytes,
+                        entry.modified_at_ns,
+                    )
+                )
+            return iter(sorted(entries, key=lambda entry: entry.relative_path))
 
         stack = [entries_for("")]
         while stack:

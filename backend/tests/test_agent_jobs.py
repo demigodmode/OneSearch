@@ -31,7 +31,7 @@ def remote(db_session):
         platform="linux",
         version="1",
         protocol_version=1,
-        allowed_roots="[]",
+        allowed_roots='[{"root_id":"data","path":"/data"}]',
         status="online",
         approved_at=now(),
     )
@@ -74,6 +74,93 @@ def test_enqueue_coalesces_one_active_scan_per_source(db_session, remote):
         "max_text_file_size_mb",
         "media_probe_max_size_mb",
     } <= set(payload["extraction"])
+
+
+@pytest.mark.parametrize(
+    ("platform", "allowed_roots", "source_path", "root_id"),
+    [
+        ("linux", [{"root_id": "docs", "path": "/srv/docs"}], "/srv/docs/team", "docs"),
+        (
+            "linux",
+            [
+                {"root_id": "docs", "path": "/srv/docs"},
+                {"root_id": "team", "path": "/srv/docs/team"},
+            ],
+            "/srv/docs/team/private",
+            "team",
+        ),
+        (
+            "windows-x64",
+            [{"root_id": "docs", "path": r"C:\Data\Docs"}],
+            r"c:\data\docs\Team",
+            "docs",
+        ),
+    ],
+)
+def test_enqueue_scan_maps_nested_source_to_most_specific_agent_root(
+    db_session, remote, platform, allowed_roots, source_path, root_id
+):
+    agent, source = remote
+    agent.platform = platform
+    agent.allowed_roots = json.dumps(allowed_roots)
+    source.root_path = source_path
+    db_session.commit()
+
+    payload = json.loads(AgentJobService(db_session).enqueue_scan(source, full=True).payload)
+
+    assert payload["root_id"] == root_id
+    assert payload["root_path"] == source_path
+
+
+@pytest.mark.parametrize(
+    ("platform", "roots", "source_path"),
+    [
+        ("linux", [{"root_id": "docs", "path": "/srv/docs"}], "/srv/docs2"),
+        ("linux", [{"root_id": "docs", "path": "/srv/docs"}], "/srv/docs/../secret"),
+        ("linux", [{"root_id": "docs", "path": "/srv/docs"}], r"\srv\docs"),
+        ("windows", [{"root_id": "docs", "path": r"C:\Data\Docs"}], "C:/Data/Docs"),
+        (
+            "linux",
+            [
+                {"root_id": "one", "path": "/srv/docs"},
+                {"root_id": "two", "path": "/srv/docs"},
+            ],
+            "/srv/docs",
+        ),
+    ],
+)
+def test_enqueue_scan_rejects_unsafe_remote_source_mapping(
+    db_session, remote, platform, roots, source_path
+):
+    agent, source = remote
+    agent.platform = platform
+    agent.allowed_roots = json.dumps(roots)
+    source.root_path = source_path
+    db_session.commit()
+
+    with pytest.raises(JobConflict, match="remote root is unavailable"):
+        AgentJobService(db_session).enqueue_scan(source, full=True)
+
+
+def test_nested_source_file_jobs_keep_source_identity_and_root_context(db_session, remote):
+    agent, source = remote
+    agent.allowed_roots = '[{"root_id":"docs","path":"/srv/docs"}]'
+    source.root_path = "/srv/docs/team"
+    source.processing_mode = "on_server"
+    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
+
+    child = AgentJobService(db_session).enqueue_extract_files(
+        parent, [{"path": "report.txt", "size_bytes": 1, "modified_at": 2}]
+    )[0]
+    stream = AgentJobService(db_session).enqueue_stream_file(
+        source, path="report.txt", size_bytes=1, modified_at=2
+    )
+
+    for job in (child, stream):
+        payload = json.loads(job.payload)
+        assert payload["root_id"] == "docs"
+        assert payload["root_path"] == "/srv/docs/team"
+        assert payload["path"] == "report.txt"
 
 
 def test_claim_next_leases_extract_file_job_for_remote_transfer(db_session, remote):

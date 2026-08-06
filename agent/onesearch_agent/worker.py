@@ -37,9 +37,12 @@ from app.services.remote_files import RemoteExtractionError, extract_in_process,
 from .client import AgentAmbiguousResultError, JobConflict, JobLeaseError
 from .paths import (
     ConfinedFileMissing,
+    PathOutsideAllowedRoots,
+    confined_relative,
     list_confined_entries_page,
     open_confined_file,
     resolve_allowed_path,
+    resolve_source_prefix,
 )
 from .scanner import RemoteScanner
 
@@ -345,6 +348,7 @@ async def extract_confined(
     path,
     roots,
     *,
+    source_prefix="",
     expected: ScanFile,
     source_id,
     extraction,
@@ -357,7 +361,11 @@ async def extract_confined(
         raise ExtractionError("file exceeds snapshot limit")
     with tempfile.TemporaryDirectory(prefix="onesearch-agent-") as directory:
         snapshot = Path(directory) / Path(path).name
-        with open_confined_file(root_id, path, roots) as handle, snapshot.open("wb") as output:
+        confined_path = confined_relative(source_prefix, path)
+        with (
+            open_confined_file(root_id, confined_path, roots) as handle,
+            snapshot.open("wb") as output,
+        ):
             before = os.fstat(handle.fileno())
             if not stat.S_ISREG(before.st_mode):
                 raise ExtractionError("source is not a regular file")
@@ -417,6 +425,10 @@ async def run_scan_job(
         payload = ScanPayload.model_validate(getattr(lease, "payload", None))
     except ValidationError:
         payload = None
+    source_prefix = None
+    if payload is not None:
+        with suppress(PathOutsideAllowedRoots):
+            source_prefix = resolve_source_prefix(payload.root_id, payload.root_path, roots)
     invalid = (
         getattr(getattr(lease, "kind", None), "value", None) != "scan"
         or getattr(getattr(lease, "processing_mode", None), "value", None)
@@ -424,7 +436,7 @@ async def run_scan_job(
         or not isinstance(getattr(lease, "source_id", None), str)
         or not lease.source_id
         or payload is None
-        or (payload is not None and payload.root_id not in {root.root_id for root in roots})
+        or source_prefix is None
     )
     if invalid:
         await _complete_with_recovery(
@@ -446,6 +458,7 @@ async def run_scan_job(
         include_patterns=payload.include_patterns,
         exclude_patterns=payload.exclude_patterns,
         known={} if payload.full else payload.known_files,
+        source_prefix=source_prefix,
         max_files=limits.max_scan_files,
         max_entries_per_directory=limits.max_entries_per_directory,
     )
@@ -486,6 +499,7 @@ async def run_scan_job(
                     root_id,
                     path,
                     roots,
+                    source_prefix=source_prefix,
                     expected=expected[path],
                     source_id=lease.source_id,
                     extraction=extraction,
@@ -593,12 +607,15 @@ async def _run_file_transfer_job(
             lease.kind.value != expected_kind
             or lease.processing_mode.value != "on_server"
             or not payload.get("root_id")
+            or not payload.get("root_path")
             or not payload.get("path")
         ):
             raise ExtractionError("invalid extraction payload")
+        source_prefix = resolve_source_prefix(payload["root_id"], payload["root_path"], roots)
+        confined_path = confined_relative(source_prefix, payload["path"])
         await keeper.start()
         await keeper.check()
-        with open_confined_file(payload["root_id"], payload["path"], roots) as handle:
+        with open_confined_file(payload["root_id"], confined_path, roots) as handle:
             before = os.fstat(handle.fileno())
             if (
                 not stat.S_ISREG(before.st_mode)
@@ -654,6 +671,7 @@ async def _run_file_transfer_job(
     except Exception as error:
         missing = isinstance(error, (FileNotFoundError, ConfinedFileMissing))
         changed = isinstance(error, ExtractionError) and "changed" in str(error)
+        invalid = isinstance(error, PathOutsideAllowedRoots)
         await _complete_with_recovery(
             client,
             lease,
@@ -664,7 +682,7 @@ async def _run_file_transfer_job(
                     JobFailureReason.NOT_FOUND
                     if missing
                     else JobFailureReason.INVALID_REQUEST
-                    if changed
+                    if changed or invalid
                     else JobFailureReason.EXTRACTION_FAILED
                 ),
                 detail=(
@@ -672,6 +690,8 @@ async def _run_file_transfer_job(
                     if missing
                     else "remote_file_changed"
                     if changed
+                    else "invalid extraction payload"
+                    if invalid
                     else _safe_failure(error)
                 ),
             ),

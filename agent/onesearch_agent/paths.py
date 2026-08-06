@@ -12,7 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
-from onesearch_shared import AllowedRoot
+from onesearch_shared import (
+    AllowedRoot,
+    RemotePathError,
+    resolve_remote_source_root,
+)
 
 
 class PathOutsideAllowedRoots(ValueError):  # noqa: N818
@@ -43,6 +47,25 @@ class SafeDirectoryPage:
     entries: tuple[SafeDirectoryEntry, ...]
     truncated: bool
     failures: tuple[SafeDirectoryFailure, ...] = ()
+
+
+def confined_relative(prefix: str, relative: str) -> str:
+    """Join two protocol-relative paths after validating both components."""
+    prefix_parts = _relative_parts(prefix)
+    relative_parts = _relative_parts(relative)
+    return "/".join((*prefix_parts, *relative_parts))
+
+
+def resolve_source_prefix(root_id: str, root_path: str, roots: list[AllowedRoot]) -> str:
+    """Verify a server-selected root against local configuration and return its prefix."""
+    platform = "windows" if os.name == "nt" else "linux"
+    try:
+        selected_id, prefix = resolve_remote_source_root(platform, root_path, roots)
+    except RemotePathError as error:
+        raise PathOutsideAllowedRoots("source root is not allowed") from error
+    if selected_id != root_id:
+        raise PathOutsideAllowedRoots("source root id is not the most specific allowed root")
+    return prefix
 
 
 def list_confined_entries_page(

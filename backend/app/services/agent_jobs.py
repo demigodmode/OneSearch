@@ -15,6 +15,8 @@ from onesearch_shared import (
     BatchAck,
     JobKind,
     ProcessingMode,
+    RemotePathError,
+    resolve_remote_source_root,
 )
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -36,6 +38,16 @@ def _cleanup_extract_uploads(job_ids) -> None:
 
     for job_id in job_ids:
         extract_uploads.cleanup(job_id)
+
+
+def _source_root(agent: Agent | None, source: Source) -> tuple[str, str]:
+    if agent is None:
+        raise JobConflict("remote root is unavailable")
+    try:
+        roots = json.loads(agent.allowed_roots)
+        return resolve_remote_source_root(agent.platform, source.root_path, roots)
+    except (TypeError, json.JSONDecodeError, RemotePathError) as error:
+        raise JobConflict("remote root is unavailable") from error
 
 
 class JobNotFound(Exception):  # noqa: N818 - kept concise for HTTP error mapping
@@ -94,10 +106,7 @@ class AgentJobService:
         }
         # This is deliberately a small, explicit contract: an agent never has to
         # infer server-side defaults while it is extracting a file offline.
-        agent_roots = json.loads(agent.allowed_roots) if processing_mode and agent else []
-        root_id = next(
-            (root["root_id"] for root in agent_roots if root.get("path") == source.root_path), None
-        )
+        root_id, _source_prefix = _source_root(agent, source)
         settings = AppSettingsService(self.db).get_settings()
         extraction = {
             name: getattr(settings, name)
@@ -214,6 +223,7 @@ class AgentJobService:
             payload = {
                 "parent_job_id": scan_job.id,
                 "root_id": scan_payload["root_id"],
+                "root_path": scan_payload["root_path"],
                 "path": path,
                 "size_bytes": size,
                 "modified_at": item["modified_at"],
@@ -259,12 +269,7 @@ class AgentJobService:
         if source.location_type != "agent" or not source.agent_id:
             raise JobConflict("source is not remote")
         agent = self.db.get(Agent, source.agent_id)
-        roots = json.loads(agent.allowed_roots) if agent else []
-        root_id = next(
-            (root["root_id"] for root in roots if root.get("path") == source.root_path), None
-        )
-        if not root_id:
-            raise JobConflict("remote root is unavailable")
+        root_id, _source_prefix = _source_root(agent, source)
         job = AgentJob(
             id=secrets.token_urlsafe(18),
             agent_id=source.agent_id,
@@ -276,6 +281,7 @@ class AgentJobService:
             payload=json.dumps(
                 {
                     "root_id": root_id,
+                    "root_path": source.root_path,
                     "path": path,
                     "size_bytes": size_bytes,
                     "modified_at": modified_at,

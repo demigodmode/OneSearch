@@ -71,6 +71,36 @@ async def test_extract_confined_normalizes_logical_metadata(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_extract_confined_opens_nested_source_file_but_keeps_source_relative_identity(
+    tmp_path: Path,
+):
+    source = tmp_path / "team"
+    source.mkdir()
+    file = source / "note.txt"
+    file.write_text("hello")
+    info = file.stat()
+
+    document = await extract_confined(
+        "r",
+        "note.txt",
+        [AllowedRoot(root_id="r", path=str(tmp_path))],
+        source_prefix="team",
+        expected=ScanFile(
+            path="note.txt",
+            path_hash=remote_path_hash("note.txt"),
+            size_bytes=info.st_size,
+            modified_at=info.st_mtime_ns,
+        ),
+        source_id="s",
+        extraction=extraction(),
+        max_snapshot_bytes=1024,
+    )
+
+    assert document is not None
+    assert document.path == "note.txt" and document.content == "hello"
+
+
+@pytest.mark.asyncio
 async def test_extract_confined_skips_and_rejects_changed_or_oversize(tmp_path: Path):
     file = tmp_path / "note.unknown"
     file.write_text("hello")
@@ -439,7 +469,7 @@ async def test_run_scan_job_unchanged_submits_manifest_before_success(tmp_path):
         payload={
             "full": False,
             "root_id": "r",
-            "root_path": "/remote/root",
+            "root_path": str(tmp_path),
             "include_patterns": None,
             "exclude_patterns": None,
             "known_files": {"a.txt": {"size_bytes": 1, "modified_at": info.st_mtime_ns}},
@@ -565,7 +595,7 @@ async def test_run_changed_orders_batch_manifest_success(tmp_path):
         payload={
             "full": True,
             "root_id": "r",
-            "root_path": "/remote/root",
+            "root_path": str(tmp_path),
             "include_patterns": None,
             "exclude_patterns": None,
             "known_files": {},
@@ -623,7 +653,7 @@ async def test_run_invalid_payload_only_fails():
     assert len(c.calls) == 1 and c.calls[0].reason is JobFailureReason.INVALID_REQUEST
 
 
-def _scan_lease(*, limits=None):
+def _scan_lease(*, limits=None, root_path="/remote/root"):
     from types import SimpleNamespace
 
     from onesearch_shared import JobKind, ProcessingMode
@@ -637,7 +667,7 @@ def _scan_lease(*, limits=None):
         payload={
             "full": True,
             "root_id": "r",
-            "root_path": "/remote/root",
+            "root_path": root_path,
             "include_patterns": None,
             "exclude_patterns": None,
             "known_files": {},
@@ -652,6 +682,71 @@ def _scan_lease(*, limits=None):
             },
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_run_scan_job_limits_nested_source_and_submits_source_relative_manifest(tmp_path):
+    from onesearch_shared import ProcessingMode
+
+    (tmp_path / "sibling.txt").write_text("outside")
+    source = tmp_path / "team"
+    source.mkdir()
+    (source / "report.txt").write_text("inside")
+    lease = _scan_lease(root_path=str(source))
+    lease.processing_mode = ProcessingMode.ON_SERVER
+
+    class Client:
+        def __init__(self):
+            self.manifest = None
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_manifest(self, _job_id, manifest, _token):
+            self.manifest = manifest
+
+        async def complete(self, *args):
+            pass
+
+    client = Client()
+    await worker_module.run_scan_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+
+    assert [item.path for item in client.manifest.files] == ["report.txt"]
+
+
+@pytest.mark.asyncio
+async def test_run_scan_job_rejects_non_most_specific_root_id(tmp_path, monkeypatch):
+    from onesearch_shared import JobFailureReason
+
+    source = tmp_path / "team"
+    source.mkdir()
+    lease = _scan_lease(root_path=str(source))
+
+    class Client:
+        def __init__(self):
+            self.completions = []
+
+        async def complete(self, _job_id, completion, _token):
+            self.completions.append(completion)
+
+    monkeypatch.setattr(
+        worker_module,
+        "RemoteScanner",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not scan")),
+    )
+    client = Client()
+    await worker_module.run_scan_job(
+        lease,
+        client,
+        roots=[
+            AllowedRoot(root_id="r", path=str(tmp_path)),
+            AllowedRoot(root_id="team", path=str(source)),
+        ],
+    )
+
+    assert client.completions[0].reason is JobFailureReason.INVALID_REQUEST
 
 
 def _browse_lease(path: Path, *, operation="validate"):
@@ -809,7 +904,9 @@ async def test_incomplete_manifest_is_submitted_then_failed_with_checkpoint(monk
     monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
     client = Client()
     await worker_module.run_scan_job(
-        _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+        _scan_lease(root_path=str(tmp_path)),
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
     )
     assert [kind for kind, _ in client.calls] == ["progress", "manifest", "complete"]
     completion = client.calls[-1][1]
@@ -865,7 +962,9 @@ async def test_extraction_failure_is_manifested_but_scan_succeeds(monkeypatch, t
     monkeypatch.setattr(worker_module, "extract_confined", fail)
     client = Client()
     await worker_module.run_scan_job(
-        _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+        _scan_lease(root_path=str(tmp_path)),
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
     )
     assert client.manifest.failures[0].path == "a.txt"
     assert client.manifest.failures[0].error == "stable extraction failure"
@@ -913,7 +1012,9 @@ async def test_unknown_extraction_error_does_not_leak_path_or_controls(monkeypat
     monkeypatch.setattr(worker_module, "extract_confined", fail)
     client = Client()
     await worker_module.run_scan_job(
-        _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+        _scan_lease(root_path=str(tmp_path)),
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
     )
     error = client.manifest.failures[0].error
     assert error == "extraction failed: RuntimeError"
@@ -982,7 +1083,7 @@ async def test_oversized_document_keeps_buffered_batch_and_reports_failure(monke
     monkeypatch.setattr(worker_module, "extract_confined", documents)
     client = Client()
     await worker_module.run_scan_job(
-        _scan_lease(limits={"max_batch_bytes": cap}),
+        _scan_lease(limits={"max_batch_bytes": cap}, root_path=str(tmp_path)),
         client,
         roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
     )
@@ -1037,7 +1138,7 @@ async def test_run_scan_job_rejects_malformed_payload_without_starting(
             raise AssertionError("invalid payload must not heartbeat")
 
     monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
-    lease = _scan_lease()
+    lease = _scan_lease(root_path=str(tmp_path))
     mutate(lease.payload)
     client = Client()
     await worker_module.run_scan_job(
@@ -1068,7 +1169,7 @@ async def test_run_scan_job_rejects_unsupported_kind_or_mode_without_starting(
         async def job_heartbeat(self, *args):
             raise AssertionError("unsupported kind or mode must not heartbeat")
 
-    lease = _scan_lease()
+    lease = _scan_lease(root_path=str(tmp_path))
     lease.kind = SimpleNamespace(value=kind) if kind is not None else None
     lease.processing_mode = SimpleNamespace(value=mode) if mode is not None else None
     monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
@@ -1122,7 +1223,8 @@ async def test_run_scan_job_accepts_exact_server_hard_cap_defaults(monkeypatch, 
                 "max_batch_bytes": REMOTE_MAX_BATCH_BYTES,
                 "max_scan_files": REMOTE_MAX_SCAN_FILES,
                 "max_entries_per_directory": REMOTE_MAX_ENTRIES_PER_DIRECTORY,
-            }
+            },
+            root_path=str(tmp_path),
         ),
         client,
         roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
@@ -1179,7 +1281,7 @@ async def test_streaming_submits_early_batches_before_final_extraction(monkeypat
     monkeypatch.setattr(worker_module, "extract_confined", extract)
     client = Client()
     await worker_module.run_scan_job(
-        _scan_lease(limits={"max_batch_documents": 1}),
+        _scan_lease(limits={"max_batch_documents": 1}, root_path=str(tmp_path)),
         client,
         roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
     )
@@ -1247,7 +1349,7 @@ async def test_batch_ambiguity_retries_identical_body_without_reordering(monkeyp
     monkeypatch.setattr(worker_module, "extract_confined", extract)
     client = Client()
     await worker_module.run_scan_job(
-        _scan_lease(limits={"max_batch_documents": 1}),
+        _scan_lease(limits={"max_batch_documents": 1}, root_path=str(tmp_path)),
         client,
         roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
         _sleep=lambda _: asyncio.sleep(0),
@@ -1286,7 +1388,7 @@ async def test_batch_ambiguity_exhaustion_aborts_before_manifest_or_success(monk
     client = Client()
     with pytest.raises(AgentAmbiguousResultError):
         await worker_module.run_scan_job(
-            _scan_lease(),
+            _scan_lease(root_path=str(tmp_path)),
             client,
             roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
             _sleep=lambda _: asyncio.sleep(0),
@@ -1316,7 +1418,7 @@ async def test_manifest_ambiguity_retries_identical_manifest_before_success(monk
     monkeypatch.setattr(worker_module, "RemoteScanner", _changed_scanner([]))
     client = Client()
     await worker_module.run_scan_job(
-        _scan_lease(),
+        _scan_lease(root_path=str(tmp_path)),
         client,
         roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
         _sleep=lambda _: asyncio.sleep(0),
@@ -1347,7 +1449,7 @@ async def test_manifest_ambiguity_exhaustion_never_completes_success(monkeypatch
     client = Client()
     with pytest.raises(AgentAmbiguousResultError):
         await worker_module.run_scan_job(
-            _scan_lease(),
+            _scan_lease(root_path=str(tmp_path)),
             client,
             roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
             _sleep=lambda _: asyncio.sleep(0),
@@ -1383,7 +1485,9 @@ async def test_job_conflict_is_not_retried(monkeypatch, tmp_path):
     monkeypatch.setattr(worker_module, "extract_confined", extract)
     client = Client()
     await worker_module.run_scan_job(
-        _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+        _scan_lease(root_path=str(tmp_path)),
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
     )
     assert (client.batches, client.manifests, client.cancelled) == (1, 0, 1)
 
@@ -1413,7 +1517,9 @@ async def test_terminal_completion_ambiguity_is_not_retried_or_reversed(
     client = Client()
     with pytest.raises(AgentAmbiguousResultError):
         await worker_module.run_scan_job(
-            _scan_lease(), client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+            _scan_lease(root_path=str(tmp_path)),
+            client,
+            roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
         )
     assert client.manifests == 1
     assert [completion.status.value for completion in client.completions] == [expected]
@@ -1459,7 +1565,7 @@ async def test_lease_keeper_heartbeats_while_threaded_scan_is_blocked(monkeypatc
     monkeypatch.setattr(worker_module, "RemoteScanner", Scanner)
     client = Client()
     await worker_module.run_scan_job(
-        _scan_lease(),
+        _scan_lease(root_path=str(tmp_path)),
         client,
         roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
         _lease_interval=1,
@@ -1510,7 +1616,7 @@ async def test_lease_loss_during_threaded_scan_surfaces_before_submission(monkey
     client = Client()
     with pytest.raises(JobLeaseError):
         await worker_module.run_scan_job(
-            _scan_lease(),
+            _scan_lease(root_path=str(tmp_path)),
             client,
             roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
             _lease_interval=1,
@@ -1546,7 +1652,7 @@ async def test_worker_cancellation_closes_lease_keeper(monkeypatch, tmp_path):
     before = set(asyncio.all_tasks())
     task = asyncio.create_task(
         worker_module.run_scan_job(
-            _scan_lease(),
+            _scan_lease(root_path=str(tmp_path)),
             Client(),
             roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
             _lease_interval=60,
@@ -1645,7 +1751,7 @@ async def test_on_server_scan_submits_manifest_without_local_extraction(monkeypa
         "extract_confined",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not extract")),
     )
-    lease = _scan_lease()
+    lease = _scan_lease(root_path=str(tmp_path))
     lease.processing_mode = ProcessingMode.ON_SERVER
     client = Client()
     await worker_module.run_scan_job(
@@ -1671,6 +1777,7 @@ async def test_extract_file_conflict_acks_once_without_failed_completion(tmp_pat
         lease_token="token",
         payload={
             "root_id": "r",
+            "root_path": str(tmp_path),
             "path": "a.txt",
             "size_bytes": 1,
             "modified_at": file_path.stat().st_mtime_ns,
@@ -1718,6 +1825,7 @@ async def test_stream_file_uploads_bounded_chunks_and_final_checksum(tmp_path):
         lease_token="token",
         payload={
             "root_id": "r",
+            "root_path": str(tmp_path),
             "path": "a.txt",
             "size_bytes": 5,
             "modified_at": file_path.stat().st_mtime_ns,
@@ -1746,6 +1854,94 @@ async def test_stream_file_uploads_bounded_chunks_and_final_checksum(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "runner", [worker_module.run_extract_file_job, worker_module.run_stream_file_job]
+)
+async def test_nested_file_transfer_opens_source_subtree(runner, tmp_path):
+    from types import SimpleNamespace
+
+    from onesearch_shared import ProcessingMode
+
+    source = tmp_path / "team"
+    source.mkdir()
+    file = source / "report.txt"
+    file.write_bytes(b"inside")
+    info = file.stat()
+    kind = "extract_file" if runner is worker_module.run_extract_file_job else "stream_file"
+    lease = SimpleNamespace(
+        id=f"{kind}-nested",
+        kind=SimpleNamespace(value=kind),
+        processing_mode=ProcessingMode.ON_SERVER,
+        source_id="s",
+        lease_token="token",
+        payload={
+            "root_id": "r",
+            "root_path": str(source),
+            "path": "report.txt",
+            "size_bytes": info.st_size,
+            "modified_at": info.st_mtime_ns,
+            "maximum_size": info.st_size,
+        },
+    )
+
+    class Client:
+        def __init__(self):
+            self.uploads = []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def upload_file_chunk(self, *args, **kwargs):
+            self.uploads.append(kwargs)
+
+        async def complete(self, *args):
+            raise AssertionError("nested file should transfer")
+
+    client = Client()
+    await runner(lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))])
+
+    assert b"".join(item.get("data", b"") for item in client.uploads) == b"inside"
+
+
+@pytest.mark.asyncio
+async def test_file_transfer_classifies_root_contract_mismatch_as_invalid_request(tmp_path):
+    from types import SimpleNamespace
+
+    from onesearch_shared import ProcessingMode
+
+    outside = tmp_path.parent / "outside"
+    lease = SimpleNamespace(
+        id="stream-invalid-root",
+        kind=SimpleNamespace(value="stream_file"),
+        processing_mode=ProcessingMode.ON_SERVER,
+        source_id="s",
+        lease_token="token",
+        payload={
+            "root_id": "r",
+            "root_path": str(outside),
+            "path": "report.txt",
+            "size_bytes": 1,
+            "modified_at": 1,
+            "maximum_size": 1,
+        },
+    )
+
+    class Client:
+        def __init__(self):
+            self.completions = []
+
+        async def complete(self, _job_id, completion, _token):
+            self.completions.append(completion)
+
+    client = Client()
+    await worker_module.run_stream_file_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
+    )
+
+    assert client.completions[0].reason.value == "invalid_request"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("terminal_status", "expected_failed"),
     [(None, True), ("completed", False), ("claimed", True)],
 )
@@ -1765,6 +1961,7 @@ async def test_ambiguous_file_upload_is_never_retried(tmp_path, terminal_status,
         lease_token="token",
         payload={
             "root_id": "r",
+            "root_path": str(tmp_path),
             "path": "a.txt",
             "size_bytes": 1,
             "modified_at": path.stat().st_mtime_ns,
@@ -1827,6 +2024,7 @@ async def test_stream_file_maps_missing_and_changed_without_path_leak(
         lease_token="token",
         payload={
             "root_id": "r",
+            "root_path": str(tmp_path),
             "path": path,
             "size_bytes": size,
             "modified_at": modified,
@@ -1858,12 +2056,12 @@ async def test_stream_file_maps_missing_and_changed_without_path_leak(
     ("root_id", "path", "expected_reason", "expected_detail"),
     [
         ("r", "missing.txt", "not_found", "remote_file_missing"),
-        ("r", "../outside.txt", "extraction_failed", "extraction failed: PathOutsideAllowedRoots"),
+        ("r", "../outside.txt", "invalid_request", "invalid extraction payload"),
         (
             "unknown-root",
             "a.txt",
-            "extraction_failed",
-            "extraction failed: PathOutsideAllowedRoots",
+            "invalid_request",
+            "invalid extraction payload",
         ),
     ],
 )
@@ -1882,6 +2080,7 @@ async def test_stream_file_only_classifies_confined_missing_as_not_found(
         lease_token="token",
         payload={
             "root_id": root_id,
+            "root_path": str(tmp_path),
             "path": path,
             "size_bytes": 1,
             "modified_at": 1,

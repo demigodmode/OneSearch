@@ -31,6 +31,32 @@ def test_scanner_emits_canonical_paths_and_skips_unchanged(tmp_path: Path):
     assert manifest.complete is True
 
 
+def test_scanner_limits_nested_source_and_emits_source_relative_paths(tmp_path: Path):
+    (tmp_path / "sibling.txt").write_text("outside")
+    source = tmp_path / "team"
+    source.mkdir()
+    (source / "report.txt").write_text("inside")
+    (source / "nested").mkdir()
+    (source / "nested" / "notes.txt").write_text("inside")
+    report = (source / "report.txt").stat()
+
+    manifest = RemoteScanner(
+        "root",
+        [AllowedRoot(root_id="root", path=str(tmp_path))],
+        source_prefix="team",
+        known={
+            "report.txt": {
+                "size_bytes": report.st_size,
+                "modified_at": report.st_mtime_ns,
+            }
+        },
+    ).scan(job_id="job", source_id="source")
+
+    assert [item.path for item in manifest.files] == ["nested/notes.txt", "report.txt"]
+    assert manifest.changed_paths == ["nested/notes.txt"]
+    assert all(not item.path.startswith("team/") for item in manifest.files)
+
+
 def test_scanner_marks_file_bound_incomplete(tmp_path: Path):
     (tmp_path / "a.txt").write_text("a")
     (tmp_path / "b.txt").write_text("b")

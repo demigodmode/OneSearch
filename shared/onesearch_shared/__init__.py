@@ -38,6 +38,7 @@ from .protocol import (
     canonical_wire_bytes,
     remote_path_hash,
 )
+from .remote_paths import RemotePathError, resolve_remote_source_root
 
 __all__ = [
     "PROTOCOL_VERSION",
@@ -76,4 +77,6 @@ __all__ = [
     "remote_path_hash",
     "WireModel",
     "canonical_wire_bytes",
+    "RemotePathError",
+    "resolve_remote_source_root",
 ]
