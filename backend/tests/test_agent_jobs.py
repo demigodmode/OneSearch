@@ -8,10 +8,13 @@ from onesearch_shared import (
     REMOTE_MAX_BATCH_BYTES,
     REMOTE_MAX_BATCH_DOCUMENTS,
     REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+    REMOTE_MAX_MANIFEST_PAGE_BYTES,
+    REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
     REMOTE_MAX_SCAN_FILES,
     REMOTE_MAX_SNAPSHOT_BYTES,
     remote_path_hash,
 )
+from sqlalchemy.orm import raiseload
 
 from app.api import agent_protocol
 from app.models import Agent, AgentJob, AppSetting, Source
@@ -74,6 +77,28 @@ def test_enqueue_coalesces_one_active_scan_per_source(db_session, remote):
         "max_text_file_size_mb",
         "media_probe_max_size_mb",
     } <= set(payload["extraction"])
+
+
+def test_protocol_three_enqueue_uses_pages_without_loading_known_files(db_session, remote):
+    agent, source = remote
+    agent.protocol_version = 3
+    db_session.commit()
+    db_session.expire_all()
+    source = (
+        db_session.query(Source)
+        .options(raiseload(Source.indexed_files))
+        .populate_existing()
+        .filter_by(id=source.id)
+        .one()
+    )
+
+    payload = json.loads(AgentJobService(db_session).enqueue_scan(source, full=False).payload)
+
+    assert payload["protocol_version"] == 3
+    assert "known_files" not in payload
+    assert "max_scan_files" not in payload["limits"]
+    assert payload["limits"]["max_manifest_page_entries"] == REMOTE_MAX_MANIFEST_PAGE_ENTRIES
+    assert payload["limits"]["max_manifest_page_bytes"] == REMOTE_MAX_MANIFEST_PAGE_BYTES
 
 
 @pytest.mark.parametrize(

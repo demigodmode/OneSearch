@@ -9,6 +9,8 @@ from onesearch_shared import (
     REMOTE_MAX_BATCH_BYTES,
     REMOTE_MAX_BATCH_DOCUMENTS,
     REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+    REMOTE_MAX_MANIFEST_PAGE_BYTES,
+    REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
     REMOTE_MAX_SCAN_FILES,
     REMOTE_MAX_SNAPSHOT_BYTES,
     AgentJobLease,
@@ -82,28 +84,6 @@ class AgentJobService:
             if agent is None:
                 raise JobConflict("source agent is not available")
             processing_mode = agent.default_processing_mode
-        known = {
-            item.path: {
-                "size_bytes": item.size_bytes,
-                "modified_at": item.modified_at_ns
-                if item.modified_at_ns is not None
-                else (
-                    int(
-                        (
-                            item.modified_at.replace(tzinfo=timezone.utc)
-                            if item.modified_at.tzinfo is None
-                            else item.modified_at
-                        ).timestamp()
-                        * 1_000_000_000
-                    )
-                    if item.modified_at is not None
-                    else None
-                ),
-                "hash": item.hash,
-                "status": item.status,
-            }
-            for item in source.indexed_files
-        }
         # This is deliberately a small, explicit contract: an agent never has to
         # infer server-side defaults while it is extracting a file offline.
         root_id, _source_prefix = _source_root(agent, source)
@@ -143,16 +123,46 @@ class AgentJobService:
             "exclude_patterns": json.loads(source.exclude_patterns)
             if source.exclude_patterns
             else None,
-            "known_files": known,
             "extraction": extraction,
             "limits": {
                 "max_snapshot_bytes": REMOTE_MAX_SNAPSHOT_BYTES,
                 "max_batch_documents": REMOTE_MAX_BATCH_DOCUMENTS,
                 "max_batch_bytes": REMOTE_MAX_BATCH_BYTES,
-                "max_scan_files": REMOTE_MAX_SCAN_FILES,
                 "max_entries_per_directory": REMOTE_MAX_ENTRIES_PER_DIRECTORY,
             },
         }
+        if agent is not None and agent.protocol_version >= 3:
+            payload["protocol_version"] = 3
+            payload["limits"].update(
+                {
+                    "max_manifest_page_entries": REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
+                    "max_manifest_page_bytes": REMOTE_MAX_MANIFEST_PAGE_BYTES,
+                }
+            )
+        else:
+            payload["known_files"] = {
+                item.path: {
+                    "size_bytes": item.size_bytes,
+                    "modified_at": item.modified_at_ns
+                    if item.modified_at_ns is not None
+                    else (
+                        int(
+                            (
+                                item.modified_at.replace(tzinfo=timezone.utc)
+                                if item.modified_at.tzinfo is None
+                                else item.modified_at
+                            ).timestamp()
+                            * 1_000_000_000
+                        )
+                        if item.modified_at is not None
+                        else None
+                    ),
+                    "hash": item.hash,
+                    "status": item.status,
+                }
+                for item in source.indexed_files
+            }
+            payload["limits"]["max_scan_files"] = REMOTE_MAX_SCAN_FILES
         job = AgentJob(
             id=secrets.token_urlsafe(18),
             agent_id=source.agent_id,

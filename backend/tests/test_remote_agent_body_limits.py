@@ -1,6 +1,6 @@
 import asyncio
 
-from onesearch_shared import REMOTE_MAX_BATCH_BYTES
+from onesearch_shared import REMOTE_MAX_BATCH_BYTES, REMOTE_MAX_MANIFEST_PAGE_BYTES
 
 from app.request_body_limits import RemoteAgentBodyLimitMiddleware
 
@@ -57,6 +57,36 @@ def test_chunked_repeated_key_manifest_is_bounded_before_endpoint():
     assert sent[0]["status"] == 413 and called == []
 
 
+def test_manifest_page_and_outcome_bodies_share_the_bounded_page_limit():
+    app = RemoteAgentBodyLimitMiddleware(lambda *_args: None)
+
+    for suffix in ("manifest-pages", "page-outcomes"):
+        assert (
+            app._limit_for(_scope(f"/api/agent/v1/jobs/j/{suffix}"))
+            == REMOTE_MAX_MANIFEST_PAGE_BYTES
+        )
+
+
+def test_chunked_manifest_page_is_rejected_before_endpoint_allocation():
+    called = []
+
+    async def endpoint(*_args):
+        called.append(True)
+
+    body = b'{"checksum":"' + b"a" * 64 + b'","page":{}}'
+    app = RemoteAgentBodyLimitMiddleware(endpoint, limits={"manifest-pages": len(body) - 1})
+    sent = _run(
+        app,
+        _scope("/api/agent/v1/jobs/j/manifest-pages"),
+        [
+            {"type": "http.request", "body": body[:8], "more_body": True},
+            {"type": "http.request", "body": body[8:], "more_body": False},
+        ],
+    )
+
+    assert sent[0]["status"] == 413 and called == []
+
+
 def test_accepted_body_is_replayed_and_unrelated_route_is_not_capped():
     received = []
 
@@ -90,3 +120,12 @@ def test_app_rejects_declared_oversize_batch_but_not_accepted_or_unrelated_reque
     accepted = client.post("/api/agent/v1/jobs/j/batches", content=near_limit)
     unrelated = client.post("/api/agent/v1/heartbeat", content=oversize)
     assert accepted.status_code != 413 and unrelated.status_code != 413
+
+
+def test_app_rejects_oversize_manifest_pages_and_outcomes_before_validation(client):
+    oversized = b" " * (REMOTE_MAX_MANIFEST_PAGE_BYTES + 1)
+
+    for suffix in ("manifest-pages", "page-outcomes"):
+        response = client.post(f"/api/agent/v1/jobs/j/{suffix}", content=oversized)
+        assert response.status_code == 413
+        assert response.json() == {"detail": "Request body too large"}

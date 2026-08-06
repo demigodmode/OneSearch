@@ -23,6 +23,10 @@ from onesearch_shared import (
     JobProgress,
     NormalizedRemoteDocument,
     ScanManifest,
+    ScanManifestPage,
+    ScanManifestPageAck,
+    ScanPageOutcome,
+    ScanPageOutcomeAck,
 )
 from onesearch_shared import (
     AgentHeartbeat as AgentHeartbeatRequest,
@@ -266,6 +270,56 @@ async def submit_batch(
         raise HTTPException(status_code=401, detail="Invalid or expired job lease")
     try:
         result = await get_remote_ingest_service(db).accept_batch(
+            agent.id, job_id, lease_token, request
+        )
+        db.commit()
+        return result
+    except (JobNotFound, JobLeaseError, JobConflict) as error:
+        db.rollback()
+        raise _job_error(error) from error
+
+
+@router.post(
+    "/jobs/{job_id}/manifest-pages",
+    response_model=ScanManifestPageAck,
+    dependencies=[Depends(require_remote_agents_enabled)],
+)
+async def submit_manifest_page(
+    job_id: str,
+    request: ScanManifestPage,
+    agent: ApprovedAgent,
+    db: Database,
+    lease_token: Annotated[str | None, Header(alias=LEASE_TOKEN_HEADER)] = None,
+):
+    if request.page.job_id != job_id or lease_token is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired job lease")
+    try:
+        result = get_remote_ingest_service(db).accept_manifest_page(
+            agent.id, job_id, lease_token, request
+        )
+        db.commit()
+        return result
+    except (JobNotFound, JobLeaseError, JobConflict) as error:
+        db.rollback()
+        raise _job_error(error) from error
+
+
+@router.post(
+    "/jobs/{job_id}/page-outcomes",
+    response_model=ScanPageOutcomeAck,
+    dependencies=[Depends(require_remote_agents_enabled)],
+)
+async def submit_page_outcome(
+    job_id: str,
+    request: ScanPageOutcome,
+    agent: ApprovedAgent,
+    db: Database,
+    lease_token: Annotated[str | None, Header(alias=LEASE_TOKEN_HEADER)] = None,
+):
+    if request.outcome.job_id != job_id or lease_token is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired job lease")
+    try:
+        result = get_remote_ingest_service(db).accept_page_outcome(
             agent.id, job_id, lease_token, request
         )
         db.commit()
