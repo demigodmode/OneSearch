@@ -29,7 +29,13 @@ from .worker import dispatch_job
 
 
 def _update_platform() -> str:
-    machine = platform.machine().lower().replace("amd64", "x64").replace("aarch64", "arm64")
+    machine = platform.machine().lower()
+    if sys.platform == "linux" and machine == "x86_64":
+        machine = "amd64"
+    elif machine == "amd64":
+        machine = "x64"
+    elif machine == "aarch64":
+        machine = "arm64"
     return f"{sys.platform}-{machine}"
 
 

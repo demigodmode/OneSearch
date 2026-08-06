@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
-from onesearch_agent.cli import main
+from onesearch_agent.cli import _update_platform, main
 from onesearch_agent.client import (
     AgentAmbiguousResultError,
     AgentDisabled,
@@ -42,6 +42,23 @@ def test_top_level_help_exposes_planned_commands():
     assert all(
         command in result.output for command in ["enroll", "run", "config", "service", "update"]
     )
+
+
+@pytest.mark.parametrize(
+    ("runtime_platform", "machine", "release_platform"),
+    [
+        ("linux", "x86_64", "linux-amd64"),
+        ("linux", "aarch64", "linux-arm64"),
+        ("win32", "AMD64", "win32-x64"),
+    ],
+)
+def test_update_platform_matches_release_manifest_names(
+    monkeypatch, runtime_platform, machine, release_platform
+):
+    monkeypatch.setattr("onesearch_agent.cli.sys.platform", runtime_platform)
+    monkeypatch.setattr("onesearch_agent.cli.platform.machine", lambda: machine)
+
+    assert _update_platform() == release_platform
 
 
 def test_manual_update_check_discloses_and_checks_even_when_auto_update_is_off(
