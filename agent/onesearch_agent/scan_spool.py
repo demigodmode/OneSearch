@@ -505,37 +505,43 @@ class ScanSpool:
             raise
 
     def finish(self) -> None:
-        if self.incomplete_reason:
-            raise ScanSpoolError(f"{self.incomplete_reason}; scan incomplete")
-        if self._connection.execute(
-            "SELECT 1 FROM directories WHERE state != 'complete' LIMIT 1"
-        ).fetchone():
-            raise ScanSpoolError("scan spool has claimed or pending directories")
-        if self._connection.execute("SELECT 1 FROM pages LIMIT 1").fetchone():
-            raise ScanSpoolError("scan spool page state is invalid before finish")
-        count, digest = self._inventory_signature(self._connection)
-        sequence = 0
-        start = 0
-        while True:
-            page, next_position = self._build_page(sequence, start)
-            self._connection.execute(
-                "INSERT INTO pages VALUES (?, ?, ?, ?)",
-                (sequence, start, next_position, page.checksum),
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            if self.incomplete_reason:
+                raise ScanSpoolError(f"{self.incomplete_reason}; scan incomplete")
+            if self._connection.execute(
+                "SELECT 1 FROM directories WHERE state != 'complete' LIMIT 1"
+            ).fetchone():
+                raise ScanSpoolError("scan spool has claimed or pending directories")
+            if self._connection.execute("SELECT 1 FROM pages LIMIT 1").fetchone():
+                raise ScanSpoolError("scan spool page state is invalid before finish")
+            count, digest = self._inventory_signature(self._connection)
+            sequence = 0
+            start = 0
+            while True:
+                page, next_position = self._build_page(sequence, start)
+                self._connection.execute(
+                    "INSERT INTO pages VALUES (?, ?, ?, ?)",
+                    (sequence, start, next_position, page.checksum),
+                )
+                if page.page.final:
+                    break
+                sequence += 1
+                start = next_position
+            self._connection.executemany(
+                "UPDATE metadata SET value = ? WHERE key = ?",
+                (
+                    ("1", "finished"),
+                    (str(count), "inventory_count"),
+                    (digest, "inventory_digest"),
+                    (str(sequence + 1), "page_count"),
+                    (str(next_position), "final_cursor"),
+                ),
             )
-            if page.page.final:
-                break
-            sequence += 1
-            start = next_position
-        self._connection.executemany(
-            "UPDATE metadata SET value = ? WHERE key = ?",
-            (
-                ("1", "finished"),
-                (str(count), "inventory_count"),
-                (digest, "inventory_digest"),
-                (str(sequence + 1), "page_count"),
-                (str(next_position), "final_cursor"),
-            ),
-        )
+            self._connection.execute("COMMIT")
+        except Exception:
+            self._connection.execute("ROLLBACK")
+            raise
 
     @property
     def finished(self) -> bool:

@@ -197,6 +197,35 @@ def test_finish_rejects_claimed_or_pending_directory(tmp_path: Path):
         spool.finish()
 
 
+def test_finish_rolls_back_pages_when_interrupted_before_terminal_metadata(tmp_path: Path):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.append_file("one.txt", 1, 1)
+    connection = spool._connection
+
+    class InterruptAfterPageInsert:
+        def execute(self, statement, *args):
+            result = connection.execute(statement, *args)
+            if statement.startswith("INSERT INTO pages"):
+                raise RuntimeError("interrupted after page insert")
+            return result
+
+        def __getattr__(self, name):
+            return getattr(connection, name)
+
+    spool._connection = InterruptAfterPageInsert()
+    with pytest.raises(RuntimeError, match="interrupted after page insert"):
+        spool.finish()
+    spool._connection = connection
+    spool.close()
+
+    resumed = ScanSpool.resume(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
+    )
+    assert not resumed.finished
+    resumed.finish()
+    assert resumed.finished
+
+
 def test_lifecycle_marker_fences_deleted_spool_and_payload_mismatch(tmp_path: Path):
     spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     spool.close()
