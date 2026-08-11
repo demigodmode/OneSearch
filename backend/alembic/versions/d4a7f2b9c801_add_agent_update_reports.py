@@ -18,6 +18,11 @@ def _clear_legacy_auto_update_statement():
     return sa.update(agents).where(agents.c.auto_update.is_(False)).values(auto_update=None)
 
 
+def _restore_legacy_auto_update_statement():
+    agents = sa.table("agents", sa.column("auto_update", sa.Boolean()))
+    return sa.update(agents).where(agents.c.auto_update.is_(None)).values(auto_update=False)
+
+
 def upgrade() -> None:
     with op.batch_alter_table("agents") as batch:
         batch.alter_column("auto_update", existing_type=sa.Boolean(), nullable=True, server_default=None)
@@ -31,7 +36,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute("UPDATE agents SET auto_update = 0 WHERE auto_update IS NULL")
+    op.execute(_restore_legacy_auto_update_statement())
     with op.batch_alter_table("agents") as batch:
         batch.drop_column("update_error_code")
         batch.drop_column("update_checked_at")

@@ -38,3 +38,15 @@ def test_update_report_migration_uses_postgresql_boolean_predicate():
     sql = str(module._clear_legacy_auto_update_statement().compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
 
     assert "auto_update IS false" in sql and "= 0" not in sql
+
+
+def test_update_report_downgrade_uses_postgresql_boolean_assignment():
+    migration = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "d4a7f2b9c801_add_agent_update_reports.py"
+    spec = importlib.util.spec_from_file_location("agent_update_migration", migration)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    sql = str(module._restore_legacy_auto_update_statement().compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))
+
+    assert "auto_update=false" in sql.replace(" ", "") and "=0" not in sql.replace(" ", "")

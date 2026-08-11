@@ -165,17 +165,15 @@ Degraded health is based on each source's most recent completed or failed scan. 
 
 ## Updates
 
-Update checks are off by default. Run a manual signed-manifest check with:
+`auto_update` controls installation, not availability checks. At startup and about every 24 hours, agents check the signed OneSearch GitHub release manifest for a compatible update. A failed availability check retries about hourly and is reported to the administrator; it never stops indexing. Run a manual signed-manifest check with:
 
 ```bash
 onesearch-agent --config /etc/onesearch-agent/config.toml update check
 ```
 
-This contacts the OneSearch GitHub release host. It does not install anything.
+This contacts the OneSearch GitHub release host for signed release metadata and does not install anything. It does not include indexed content, source paths, search queries, or the agent credential. Set `auto_update = true` only to allow a native agent to install an available signed update. Native installation also requires the packaged agent and updater to remain side by side and the agent to run through its installed operating-system service. The updater verifies the signed manifest, artifact size, and SHA-256 digest before replacing the stopped agent. It restores the last working binary if the new service does not become healthy.
 
-Set `auto_update = true` only if the agent may make that outbound request at startup. A native auto-update also requires the packaged agent and updater to remain side by side and the agent to run through its installed operating-system service. The updater verifies the signed manifest, artifact size, and SHA-256 digest before replacing the stopped agent. It restores the last working binary if the new service does not become healthy.
-
-Docker agents check for a compatible release when `auto_update = true`, but never replace their own image. Pin the image tag and update it through your normal container deployment process.
+Docker agents are always notify-only: they check for availability but never download an artifact or replace their own image. Pin the image tag and update it through your normal container deployment process.
 
 For a manual native update, download the matching agent and updater pair from the same release. Follow the release checksum instructions, uninstall the service, replace both files, and install the service again with the same absolute configuration path. Agent and server protocol ranges must overlap. An incompatible agent stops instead of continuing to claim work.
 
