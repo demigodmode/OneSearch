@@ -198,59 +198,87 @@ class ScanSpool:
         connection.close()
 
     @classmethod
+    def _remove_lifecycle_lock_artifacts(cls, state_dir: Path, job_id: str) -> None:
+        lock = cls._lifecycle_lock_path(state_dir, job_id)
+        removed = False
+        try:
+            for artifact in (
+                lock,
+                *(Path(f"{lock}{suffix}") for suffix in ("-journal", "-shm", "-wal")),
+            ):
+                try:
+                    cls._remove_file(artifact)
+                    removed = True
+                except FileNotFoundError:
+                    pass
+            if removed:
+                cls._fsync_directory(lock.parent)
+        except OSError as error:
+            raise ScanSpoolError("scan lifecycle lock cleanup failed") from error
+
+    @classmethod
     def cleanup(
         cls, state_dir: Path, *, job_id: str, payload_identity: str, source_id: str
     ) -> bool:
         """Terminal-job owners may remove both durable lifecycle artifacts explicitly."""
         lock = cls._acquire_lifecycle_lock(state_dir, job_id, exclusive=True)
+        cleaned = False
+        remove_lock_artifacts = False
         try:
             marker = cls._marker_path(state_dir, job_id)
             spool = cls._spool_path(state_dir, job_id)
             if not marker.exists() and not spool.exists():
-                return False
-            if not marker.is_file():
-                raise ScanSpoolError("scan lifecycle cleanup found a missing component")
-            stored = cls._read_marker(marker)
-            normal = cls._marker_payload(job_id, payload_identity, source_id)
-            intent = cls._marker_payload(job_id, payload_identity, source_id, cleanup_intent=True)
-            if stored not in (normal, intent):
-                raise ScanSpoolError("scan lifecycle cleanup payload mismatch")
-            if not spool.exists():
-                if stored != intent:
+                remove_lock_artifacts = True
+            else:
+                if not marker.is_file():
                     raise ScanSpoolError("scan lifecycle cleanup found a missing component")
-                cls._remove_file(marker)
-                cls._fsync_directory(marker.parent)
-                return True
-            if not spool.is_file():
-                raise ScanSpoolError("scan lifecycle cleanup found a missing component")
-            terminal = cls._open(
-                state_dir,
-                job_id=job_id,
-                payload_identity=payload_identity,
-                source_id=source_id,
-                resume=True,
-            )
-            try:
-                if (
-                    not terminal.finished
-                    or terminal._connection.execute(
-                        "SELECT 1 FROM directories WHERE state != 'complete' LIMIT 1"
-                    ).fetchone()
-                ):
-                    raise ScanSpoolError("scan lifecycle cleanup requires a terminal spool")
-            finally:
-                terminal.close()
-            cls._write_marker(marker, intent)
-            try:
-                cls._remove_file(spool)
-                cls._fsync_directory(marker.parent)
-                cls._remove_file(marker)
-                cls._fsync_directory(marker.parent)
-            except OSError as error:
-                raise ScanSpoolError("scan lifecycle cleanup failed") from error
-            return True
+                stored = cls._read_marker(marker)
+                normal = cls._marker_payload(job_id, payload_identity, source_id)
+                intent = cls._marker_payload(
+                    job_id, payload_identity, source_id, cleanup_intent=True
+                )
+                if stored not in (normal, intent):
+                    raise ScanSpoolError("scan lifecycle cleanup payload mismatch")
+                if not spool.exists():
+                    if stored != intent:
+                        raise ScanSpoolError("scan lifecycle cleanup found a missing component")
+                    cls._remove_file(marker)
+                    cls._fsync_directory(marker.parent)
+                else:
+                    if not spool.is_file():
+                        raise ScanSpoolError("scan lifecycle cleanup found a missing component")
+                    terminal = cls._open(
+                        state_dir,
+                        job_id=job_id,
+                        payload_identity=payload_identity,
+                        source_id=source_id,
+                        resume=True,
+                    )
+                    try:
+                        if (
+                            not terminal.finished
+                            or terminal._connection.execute(
+                                "SELECT 1 FROM directories WHERE state != 'complete' LIMIT 1"
+                            ).fetchone()
+                        ):
+                            raise ScanSpoolError("scan lifecycle cleanup requires a terminal spool")
+                    finally:
+                        terminal.close()
+                    cls._write_marker(marker, intent)
+                    try:
+                        cls._remove_file(spool)
+                        cls._fsync_directory(marker.parent)
+                        cls._remove_file(marker)
+                        cls._fsync_directory(marker.parent)
+                    except OSError as error:
+                        raise ScanSpoolError("scan lifecycle cleanup failed") from error
+                cleaned = True
+                remove_lock_artifacts = True
         finally:
             cls._release_lifecycle_lock(lock)
+        if remove_lock_artifacts:
+            cls._remove_lifecycle_lock_artifacts(state_dir, job_id)
+        return cleaned
 
     @classmethod
     def open(cls, *args, **kwargs) -> ScanSpool:

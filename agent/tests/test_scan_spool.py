@@ -118,9 +118,7 @@ def test_directory_membership_is_fenced_across_interrupted_claim(tmp_path: Path)
     spool.seal_directory_membership(claim)
     spool.close()
 
-    resumed = ScanSpool.resume(
-        tmp_path, job_id="job", payload_identity="payload", source_id="source"
-    )
+    resumed = ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     claim = resumed.next_directory()
     resumed.observe_directory_member(claim, "one.txt", False, 1, 1)
     with pytest.raises(RuntimeError, match="membership"):
@@ -245,6 +243,78 @@ def test_terminal_cleanup_removes_exact_lifecycle_pair_idempotently(tmp_path: Pa
         ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
 
 
+def test_terminal_cleanup_removes_released_lifecycle_lock_database_and_sidecars(tmp_path: Path):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.finish()
+    spool.close()
+    lock = ScanSpool._lifecycle_lock_path(tmp_path, "job")
+    sidecars = [Path(f"{lock}{suffix}") for suffix in ("-journal", "-shm", "-wal")]
+    for sidecar in sidecars:
+        sidecar.write_bytes(b"stale")
+
+    assert (
+        ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+        is True
+    )
+
+    assert not lock.exists()
+    assert not any(sidecar.exists() for sidecar in sidecars)
+
+
+def test_terminal_cleanup_releases_coordination_lock_before_removing_its_database(
+    tmp_path: Path, monkeypatch
+):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.finish()
+    spool.close()
+    lock = ScanSpool._lifecycle_lock_path(tmp_path, "job")
+    events = []
+    original_release = ScanSpool._release_lifecycle_lock
+    original_remove = ScanSpool._remove_file
+
+    def release(connection) -> None:
+        events.append("release")
+        original_release(connection)
+
+    def remove(path: Path) -> None:
+        if path == lock:
+            events.append("remove lock")
+        original_remove(path)
+
+    monkeypatch.setattr(ScanSpool, "_release_lifecycle_lock", staticmethod(release))
+    monkeypatch.setattr(ScanSpool, "_remove_file", staticmethod(remove))
+    ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+    assert events.index("release") < events.index("remove lock")
+
+
+def test_terminal_cleanup_retries_lifecycle_lock_cleanup_after_removal_failure(
+    tmp_path: Path, monkeypatch
+):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.finish()
+    spool.close()
+    lock = ScanSpool._lifecycle_lock_path(tmp_path, "job")
+    original = ScanSpool._remove_file
+
+    def fail_lock(path: Path) -> None:
+        if path == lock:
+            raise OSError("locked")
+        original(path)
+
+    monkeypatch.setattr(ScanSpool, "_remove_file", staticmethod(fail_lock))
+    with pytest.raises(RuntimeError, match="lock cleanup failed"):
+        ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+    assert lock.exists()
+    monkeypatch.setattr(ScanSpool, "_remove_file", staticmethod(original))
+    assert (
+        ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+        is False
+    )
+    assert not lock.exists()
+
+
 def test_terminal_cleanup_fails_closed_for_partial_lifecycle(tmp_path: Path):
     spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     spool.close()
@@ -292,7 +362,9 @@ def test_cleanup_waits_for_another_process_to_finish_resuming(tmp_path: Path):
     spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     spool.finish()
     spool.close()
-    resumed = ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    resumed = ScanSpool.resume(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
+    )
     context = multiprocessing.get_context("spawn")
     result = context.Queue()
     child = context.Process(target=_cleanup_in_child, args=(str(tmp_path), result))
