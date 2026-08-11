@@ -41,6 +41,42 @@ def test_update_reporter_checks_disabled_auto_update_without_staging(tmp_path):
         "checked_at": 1_700_000_000,
         "error_code": None,
     }
+
+
+def test_update_reporter_converts_manifest_transport_failure_to_hourly_network_retry(tmp_path):
+    from onesearch_agent.update_report import UpdateReporter
+
+    class Updates:
+        def check(self, *, auto_update):
+            raise OSError("connection reset")
+
+    reporter = UpdateReporter(
+        auto_update=False, platform="linux-amd64", version="1.4.0", state_dir=tmp_path,
+        update_manager=Updates(), clock=lambda: 1_700_000_000,
+    )
+
+    assert reporter.check_if_due() is True
+    assert reporter.report().status == "error"
+    assert reporter.report().error_code == "network"
+    assert reporter.check_if_due() is False
+
+
+def test_update_reporter_reconciles_changed_local_auto_update_and_checks_again(tmp_path):
+    from onesearch_agent.update_report import UpdateReporter
+
+    class Updates:
+        def __init__(self): self.calls = 0
+        def check(self, *, auto_update):
+            self.calls += 1
+            return UpdateResult("current", "1.4.0")
+
+    old_updates = Updates()
+    UpdateReporter(auto_update=False, platform="linux-amd64", version="1.4.0", state_dir=tmp_path, update_manager=old_updates, clock=lambda: 1_700_000_000).check_if_due()
+    updates = Updates()
+    reporter = UpdateReporter(auto_update=True, platform="linux-amd64", version="1.4.0", state_dir=tmp_path, update_manager=updates, clock=lambda: 1_700_000_001)
+
+    assert reporter.report().auto_update is True
+    assert reporter.check_if_due() is True and updates.calls == 1
 from onesearch_shared import MINIMUM_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION
 
 

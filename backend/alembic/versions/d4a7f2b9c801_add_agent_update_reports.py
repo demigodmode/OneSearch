@@ -21,6 +21,8 @@ def upgrade() -> None:
         batch.add_column(sa.Column("update_available_version", sa.String(length=40), nullable=True))
         batch.add_column(sa.Column("update_checked_at", sa.DateTime(), nullable=True))
         batch.add_column(sa.Column("update_error_code", sa.String(length=32), nullable=True))
+    # Pre-reporting rows inherited the old server default and did not state a local preference.
+    op.execute("UPDATE agents SET auto_update = NULL WHERE auto_update = 0")
 
 
 def downgrade() -> None:

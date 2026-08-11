@@ -6,6 +6,11 @@ import asyncio
 import os
 import sys
 
+from . import __version__
+from .update import UpdateError
+from .update_report import UpdateReporter
+from .update_runtime import stage_and_launch, write_healthy_marker
+
 try:  # pragma: no cover - availability is platform-specific
     import winreg
 
@@ -339,17 +344,22 @@ class OneSearchAgentService(_ServiceBase):
 def _run_service(stop_event) -> None:
     agent_client, config_path, load_config, credential_store, run_runtime = _service_dependencies()
     config = load_config(config_path(service_config() or os.environ.get("ONESEARCH_AGENT_CONFIG")))
-    if getattr(config, "auto_update", False):
-        from . import __version__
-        from .update_runtime import stage_and_launch
-
-        stage_and_launch(
-            config=config,
-            platform="win32-x64",
-            version=__version__,
-            current_binary=__import__("pathlib").Path(sys.executable),
-            managed=True,
-        )
+    auto_update = getattr(config, "auto_update", False)
+    reporter = UpdateReporter(
+        auto_update=auto_update,
+        platform="win32-x64",
+        version=__version__,
+        state_dir=getattr(config, "state_dir", __import__("pathlib").Path(".")),
+        clock=__import__("time").time,
+    )
+    if auto_update:
+        try:
+            stage_and_launch(
+                config=config, platform="win32-x64", version=__version__,
+                current_binary=__import__("pathlib").Path(sys.executable), managed=True,
+            )
+        except UpdateError as error:
+            reporter.record_install_error(error)
     token = machine_credential()
 
     async def run():
@@ -359,8 +369,6 @@ def _run_service(stop_event) -> None:
                 while win32event.WaitForSingleObject(stop_event, 0) != 0:
                     await asyncio.sleep(0.1)
 
-            from .update_runtime import write_healthy_marker
-
             await run_runtime(
                 client,
                 stopped=lambda: win32event.WaitForSingleObject(stop_event, 0) == 0,
@@ -368,6 +376,7 @@ def _run_service(stop_event) -> None:
                 on_healthy_heartbeat=lambda version, timestamp: write_healthy_marker(
                     config.state_dir, version, timestamp
                 ),
+                update_reporter=reporter,
             )
 
     asyncio.run(run())

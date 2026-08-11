@@ -140,7 +140,8 @@ function UpdateStatus({ agent }: { agent: AgentDetailsModel }) {
   if (!report) {
     return <p className="text-sm text-muted-foreground">Update status has not been reported by this agent.</p>
   }
-  const disclosure = <p className="text-xs text-muted-foreground">Startup and daily GitHub release-host metadata checks occur; only native automatic updates download signed artifacts.</p>
+  const historical = agent.status === 'offline'
+  const disclosure = <><p className="text-xs text-muted-foreground">{historical ? 'Historical update status — ' : ''}Last checked: {new Date(report.checked_at).toLocaleString()}</p><p className="text-xs text-muted-foreground">Startup and daily GitHub release-host metadata checks occur; only native automatic updates download signed artifacts.</p></>
   if (report.runtime_kind === 'docker') {
     const status = report.status === 'available' ? `Image update ${report.available_version} is available.` : `Docker update status: ${report.status}.`
     return <div className="space-y-1 text-sm text-muted-foreground"><p>{status} Run: docker compose pull onesearch-agent && docker compose up -d onesearch-agent</p>{disclosure}</div>

@@ -549,5 +549,34 @@ def test_run_service_wires_config_token_client_and_stop_predicate(monkeypatch):
     assert seen["runtime"] is client and seen["stopped"]() and seen["entered"] and seen["exited"]
 
 
+@pytest.mark.parametrize("auto_update", [False, True])
+def test_run_service_reports_updates_for_local_preference_without_windows_host(monkeypatch, tmp_path, auto_update):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    config = SimpleNamespace(server_url="http://server", auto_update=auto_update, state_dir=tmp_path)
+    seen = {}
+
+    class Reporter:
+        def __init__(self, **kwargs): seen["reporter_args"] = kwargs
+
+    class Client:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+
+    async def runtime(client, **kwargs): seen.update(client=client, **kwargs)
+
+    monkeypatch.setattr(module, "service_config", lambda: "C:/agent.toml")
+    monkeypatch.setattr(module, "machine_credential", lambda: "secret")
+    monkeypatch.setattr(module, "win32event", SimpleNamespace(WaitForSingleObject=lambda *_: 0))
+    monkeypatch.setattr(module, "UpdateReporter", Reporter, raising=False)
+    monkeypatch.setattr(module, "stage_and_launch", lambda **kwargs: seen.update(stage=kwargs))
+    monkeypatch.setattr(module, "_service_dependencies", lambda: (lambda *_: Client(), lambda value: value, lambda value: config, lambda value: None, runtime))
+
+    module._run_service("event")
+
+    assert seen["reporter_args"]["auto_update"] is auto_update
+    assert isinstance(seen["update_reporter"], Reporter)
+    assert ("stage" in seen) is auto_update
+
+
 async def _runtime(seen, value, stopped, **kwargs):
     seen.update(runtime=value, stopped=stopped, **kwargs)

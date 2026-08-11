@@ -25,6 +25,11 @@ class UpdateReporter:
             auto_update=auto_update, runtime_kind="docker" if os.environ.get("DOCKER_CONTAINER") else "native",
             status="not_checked", checked_at=0,
         )
+        if self._report.auto_update != auto_update:
+            self._report = AgentUpdateReport(
+                auto_update=auto_update, runtime_kind=self._report.runtime_kind,
+                status="not_checked", checked_at=0,
+            )
 
     def _path(self):
         return self.state_dir / "update-report.json"
@@ -69,7 +74,7 @@ class UpdateReporter:
                 status=result.action, available_version=result.version if result.action == "available" else None,
                 checked_at=now,
             )
-        except UpdateError as error:
+        except (UpdateError, OSError) as error:
             message = str(error).lower()
             code = "network"
             if any(value in message for value in ("manifest", "signature", "checksum", "version", "platform")):

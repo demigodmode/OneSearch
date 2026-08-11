@@ -10,6 +10,12 @@ describe('AgentDetails', () => {
     expect(screen.getByText('Automatic install is off. Run: onesearch-agent --config <config.toml> update check')).toBeInTheDocument()
     expect(screen.getByText(/Startup and daily GitHub release-host metadata checks/)).toBeInTheDocument()
   })
+
+  it('labels the last update report as historical while the agent is offline', () => {
+    render(<AgentDetails agent={{ ...agent, status: 'offline', update_report: { auto_update: false, runtime_kind: 'native', status: 'current', available_version: null, checked_at: '2026-08-11T12:00:00Z', error_code: null } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    expect(screen.getByText(/Historical update status/)).toBeInTheDocument()
+    expect(screen.getByText(/Last checked: 8\/11\/2026/)).toBeInTheDocument()
+  })
   it('lets an admin choose a persisted default processing mode', () => {
     const onMode = vi.fn()
     render(<AgentDetails agent={agent} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={onMode} />)
