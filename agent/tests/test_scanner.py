@@ -387,6 +387,30 @@ def test_v3_default_retry_cannot_finalize_an_unfinished_spool(tmp_path, monkeypa
     assert spool.finished is False
 
 
+def test_v3_file_limit_records_incomplete_spool_and_closes_failed_traversal(tmp_path, monkeypatch):
+    entries = [
+        scanner_module.SafeDirectoryEntry("one.txt", "one.txt", False, 1, 1),
+        scanner_module.SafeDirectoryEntry("two.txt", "two.txt", False, 1, 1),
+    ]
+    monkeypatch.setattr(scanner_module, "iter_confined_entries", lambda *_args: iter(entries))
+    scanner = RemoteScanner("root", [AllowedRoot(root_id="root", path=str(tmp_path))], max_files=1)
+
+    with pytest.raises(RuntimeError, match="scan file limit exceeded; scan incomplete"):
+        scanner.scan_v3(
+            state_dir=tmp_path / "state",
+            job_id="job",
+            source_id="source",
+            payload_identity="payload",
+        )
+
+    resumed = scanner_module.ScanSpool.resume(
+        tmp_path / "state", job_id="job", source_id="source", payload_identity="payload"
+    )
+    assert resumed.finished is False
+    assert resumed.incomplete_reason == "scan file limit exceeded"
+    resumed.close()
+
+
 def test_v3_keeps_lifecycle_artifacts_for_terminal_owner(tmp_path):
     (tmp_path / "one.txt").write_text("one")
     scanner = RemoteScanner("root", [AllowedRoot(root_id="root", path=str(tmp_path))])

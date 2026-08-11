@@ -6,6 +6,8 @@ import hashlib
 import json
 import os
 import sqlite3
+import tempfile
+from contextlib import suppress
 from pathlib import Path
 
 from onesearch_shared import (
@@ -29,8 +31,16 @@ class ScanSpoolError(RuntimeError):
 class ScanSpool:
     """Append an inventory to SQLite and reproduce bounded, checksummed pages."""
 
-    def __init__(self, connection: sqlite3.Connection, *, job_id: str, source_id: str):
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        job_id: str,
+        source_id: str,
+        lifecycle_lock: sqlite3.Connection | None = None,
+    ):
         self._connection = connection
+        self._lifecycle_lock = lifecycle_lock
         self.job_id = job_id
         self.source_id = source_id
 
@@ -48,44 +58,49 @@ class ScanSpool:
     ) -> ScanSpool:
         """Atomically begin a new lifecycle; terminal-job cleanup owns marker removal later."""
         marker = cls._marker_path(state_dir, job_id)
-        if cls._spool_path(state_dir, job_id).exists():
-            raise ScanSpoolError("scan spool exists without a new lifecycle")
-        marker.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        payload = cls._marker_payload(job_id, payload_identity, source_id)
+        lock = cls._acquire_lifecycle_lock(state_dir, job_id, exclusive=True)
         try:
-            descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        except FileExistsError as error:
-            raise ScanSpoolError("scan lifecycle already exists; resume is required") from error
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                handle.write(json.dumps(payload, sort_keys=True, separators=(",", ":")))
-                handle.flush()
-                os.fsync(handle.fileno())
-            cls._fsync_directory(marker.parent)
-        except OSError as error:
-            raise ScanSpoolError("scan lifecycle marker cannot be created") from error
+            if cls._spool_path(state_dir, job_id).exists():
+                raise ScanSpoolError("scan spool exists without a new lifecycle")
+            if marker.exists():
+                raise ScanSpoolError("scan lifecycle already exists; resume is required")
+            try:
+                cls._write_marker(marker, cls._marker_payload(job_id, payload_identity, source_id))
+            except ScanSpoolError as error:
+                raise ScanSpoolError("scan lifecycle marker cannot be created") from error
+        finally:
+            cls._release_lifecycle_lock(lock)
         return cls._open(
             state_dir,
             job_id=job_id,
             payload_identity=payload_identity,
             source_id=source_id,
+            lifecycle_lock=cls._acquire_lifecycle_lock(state_dir, job_id, exclusive=False),
         )
 
     @classmethod
     def resume(
         cls, state_dir: Path, *, job_id: str, payload_identity: str, source_id: str
     ) -> ScanSpool:
-        marker = cls._marker_path(state_dir, job_id)
-        stored = cls._read_marker(marker)
-        if stored != cls._marker_payload(job_id, payload_identity, source_id):
-            raise ScanSpoolError("scan lifecycle payload mismatch")
-        return cls._open(
-            state_dir,
-            job_id=job_id,
-            payload_identity=payload_identity,
-            source_id=source_id,
-            resume=True,
-        )
+        if not cls._spool_path(state_dir, job_id).is_file():
+            raise ScanSpoolError("scan spool is missing for resume")
+        lock = cls._acquire_lifecycle_lock(state_dir, job_id, exclusive=False)
+        try:
+            marker = cls._marker_path(state_dir, job_id)
+            stored = cls._read_marker(marker)
+            if stored != cls._marker_payload(job_id, payload_identity, source_id):
+                raise ScanSpoolError("scan lifecycle payload mismatch")
+            return cls._open(
+                state_dir,
+                job_id=job_id,
+                payload_identity=payload_identity,
+                source_id=source_id,
+                resume=True,
+                lifecycle_lock=lock,
+            )
+        except Exception:
+            cls._release_lifecycle_lock(lock)
+            raise
 
     @staticmethod
     def _marker_payload(
@@ -108,14 +123,25 @@ class ScanSpool:
 
     @classmethod
     def _write_marker(cls, marker: Path, payload: dict[str, str | bool]) -> None:
+        temporary = None
         try:
-            with marker.open("w", encoding="utf-8") as handle:
+            marker.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=f".{marker.name}.", suffix=".tmp", dir=marker.parent
+            )
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, sort_keys=True, separators=(",", ":")))
                 handle.flush()
                 os.fsync(handle.fileno())
+            os.replace(temporary, marker)
+            temporary = None
             cls._fsync_directory(marker.parent)
         except OSError as error:
             raise ScanSpoolError("scan lifecycle marker cannot be updated") from error
+        finally:
+            if temporary is not None:
+                with suppress(OSError):
+                    os.unlink(temporary)
 
     @staticmethod
     def _fsync_directory(directory: Path) -> None:
@@ -143,56 +169,88 @@ class ScanSpool:
         return cls._spool_path(state_dir, job_id).with_suffix(".lifecycle")
 
     @classmethod
+    def _lifecycle_lock_path(cls, state_dir: Path, job_id: str) -> Path:
+        return cls._spool_path(state_dir, job_id).with_suffix(".lifecycle-lock")
+
+    @classmethod
+    def _acquire_lifecycle_lock(
+        cls, state_dir: Path, job_id: str, *, exclusive: bool
+    ) -> sqlite3.Connection:
+        path = cls._lifecycle_lock_path(state_dir, job_id)
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        connection = sqlite3.connect(path, isolation_level=None, timeout=30)
+        try:
+            connection.execute("PRAGMA busy_timeout=30000")
+            if exclusive:
+                connection.execute("BEGIN EXCLUSIVE")
+            else:
+                connection.execute("BEGIN")
+                connection.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
+            return connection
+        except sqlite3.DatabaseError as error:
+            connection.close()
+            raise ScanSpoolError("scan lifecycle lock cannot be acquired") from error
+
+    @staticmethod
+    def _release_lifecycle_lock(connection: sqlite3.Connection) -> None:
+        with suppress(sqlite3.DatabaseError):
+            connection.rollback()
+        connection.close()
+
+    @classmethod
     def cleanup(
         cls, state_dir: Path, *, job_id: str, payload_identity: str, source_id: str
     ) -> bool:
         """Terminal-job owners may remove both durable lifecycle artifacts explicitly."""
-        marker = cls._marker_path(state_dir, job_id)
-        spool = cls._spool_path(state_dir, job_id)
-        if not marker.exists() and not spool.exists():
-            return False
-        if not marker.is_file():
-            raise ScanSpoolError("scan lifecycle cleanup found a missing component")
-        stored = cls._read_marker(marker)
-        normal = cls._marker_payload(job_id, payload_identity, source_id)
-        intent = cls._marker_payload(job_id, payload_identity, source_id, cleanup_intent=True)
-        if stored not in (normal, intent):
-            raise ScanSpoolError("scan lifecycle cleanup payload mismatch")
-        if not spool.exists():
-            if stored != intent:
+        lock = cls._acquire_lifecycle_lock(state_dir, job_id, exclusive=True)
+        try:
+            marker = cls._marker_path(state_dir, job_id)
+            spool = cls._spool_path(state_dir, job_id)
+            if not marker.exists() and not spool.exists():
+                return False
+            if not marker.is_file():
                 raise ScanSpoolError("scan lifecycle cleanup found a missing component")
-            cls._remove_file(marker)
-            cls._fsync_directory(marker.parent)
+            stored = cls._read_marker(marker)
+            normal = cls._marker_payload(job_id, payload_identity, source_id)
+            intent = cls._marker_payload(job_id, payload_identity, source_id, cleanup_intent=True)
+            if stored not in (normal, intent):
+                raise ScanSpoolError("scan lifecycle cleanup payload mismatch")
+            if not spool.exists():
+                if stored != intent:
+                    raise ScanSpoolError("scan lifecycle cleanup found a missing component")
+                cls._remove_file(marker)
+                cls._fsync_directory(marker.parent)
+                return True
+            if not spool.is_file():
+                raise ScanSpoolError("scan lifecycle cleanup found a missing component")
+            terminal = cls._open(
+                state_dir,
+                job_id=job_id,
+                payload_identity=payload_identity,
+                source_id=source_id,
+                resume=True,
+            )
+            try:
+                if (
+                    not terminal.finished
+                    or terminal._connection.execute(
+                        "SELECT 1 FROM directories WHERE state != 'complete' LIMIT 1"
+                    ).fetchone()
+                ):
+                    raise ScanSpoolError("scan lifecycle cleanup requires a terminal spool")
+            finally:
+                terminal.close()
+            cls._write_marker(marker, intent)
+            try:
+                cls._remove_file(spool)
+                cls._fsync_directory(marker.parent)
+                cls._remove_file(marker)
+                cls._fsync_directory(marker.parent)
+            except OSError as error:
+                raise ScanSpoolError("scan lifecycle cleanup failed") from error
             return True
-        if not spool.is_file():
-            raise ScanSpoolError("scan lifecycle cleanup found a missing component")
-        terminal = cls._open(
-            state_dir,
-            job_id=job_id,
-            payload_identity=payload_identity,
-            source_id=source_id,
-            resume=True,
-        )
-        try:
-            if (
-                not terminal.finished
-                or terminal._connection.execute(
-                    "SELECT 1 FROM directories WHERE state != 'complete' LIMIT 1"
-                ).fetchone()
-            ):
-                raise ScanSpoolError("scan lifecycle cleanup requires a terminal spool")
         finally:
-            terminal.close()
-        cls._write_marker(marker, intent)
-        # The future terminal-job owner calls this only after all spool handles are closed.
-        try:
-            cls._remove_file(spool)
-            cls._fsync_directory(marker.parent)
-            cls._remove_file(marker)
-            cls._fsync_directory(marker.parent)
-        except OSError as error:
-            raise ScanSpoolError("scan lifecycle cleanup failed") from error
-        return True
+            cls._release_lifecycle_lock(lock)
 
     @classmethod
     def open(cls, *args, **kwargs) -> ScanSpool:
@@ -208,6 +266,7 @@ class ScanSpool:
         payload_identity: str,
         source_id: str,
         resume: bool = False,
+        lifecycle_lock: sqlite3.Connection | None = None,
     ) -> ScanSpool:
         if not job_id or not payload_identity or not source_id:
             raise ScanSpoolError("scan spool identity is incomplete")
@@ -247,6 +306,7 @@ class ScanSpool:
                     "INSERT INTO metadata(key, value) VALUES (?, ?)",
                     (
                         ("finished", "0"),
+                        ("incomplete_reason", ""),
                         ("inventory_count", "0"),
                         ("inventory_digest", ""),
                         ("page_count", "0"),
@@ -255,7 +315,12 @@ class ScanSpool:
                 )
             else:
                 cls._validate(connection)
-                spool = cls(connection, job_id=job_id, source_id=source_id)
+                spool = cls(
+                    connection,
+                    job_id=job_id,
+                    source_id=source_id,
+                    lifecycle_lock=lifecycle_lock,
+                )
                 for (sequence,) in connection.execute(
                     "SELECT sequence FROM pages ORDER BY sequence"
                 ):
@@ -266,14 +331,23 @@ class ScanSpool:
                     connection.execute(
                         "UPDATE directories SET state = 'pending' WHERE state = 'claimed'"
                     )
-            return cls(connection, job_id=job_id, source_id=source_id)
+            return cls(
+                connection,
+                job_id=job_id,
+                source_id=source_id,
+                lifecycle_lock=lifecycle_lock,
+            )
         except (sqlite3.DatabaseError, OSError) as error:
             if connection is not None:
                 connection.close()
+            if lifecycle_lock is not None:
+                cls._release_lifecycle_lock(lifecycle_lock)
             raise ScanSpoolError("scan spool is unavailable or corrupt") from error
         except ScanSpoolError:
             if connection is not None:
                 connection.close()
+            if lifecycle_lock is not None:
+                cls._release_lifecycle_lock(lifecycle_lock)
             raise
 
     @staticmethod
@@ -356,22 +430,32 @@ class ScanSpool:
             count += 1
         return count, digest.hexdigest()
 
-    def append_file(self, path: str, size_bytes: int, modified_at: int) -> None:
-        if self._value("finished") != "0":
-            raise ScanSpoolError("scan spool is already finished")
+    def append_file(
+        self, path: str, size_bytes: int, modified_at: int, *, max_files: int | None = None
+    ) -> None:
         try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            if self._value("finished") != "0":
+                raise ScanSpoolError("scan spool is already finished")
             existing = self._connection.execute(
                 "SELECT size_bytes, modified_at FROM files WHERE path = ?", (path,)
             ).fetchone()
             if existing is not None:
                 if tuple(existing) != (size_bytes, modified_at):
                     raise ScanSpoolError("scan inventory changed while resuming")
+                self._connection.execute("COMMIT")
                 return
             position = self._connection.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+            if max_files is not None and position >= max_files:
+                raise ScanSpoolError("scan file limit exceeded")
             self._connection.execute(
                 "INSERT INTO files VALUES (?, ?, ?, ?)", (position, path, size_bytes, modified_at)
             )
-        except sqlite3.DatabaseError as error:
+            self._connection.execute("COMMIT")
+        except Exception as error:
+            self._connection.execute("ROLLBACK")
+            if isinstance(error, ScanSpoolError):
+                raise
             raise ScanSpoolError("scan spool write failed") from error
 
     def append_files(self, files) -> None:
@@ -393,6 +477,8 @@ class ScanSpool:
             raise
 
     def finish(self) -> None:
+        if self.incomplete_reason:
+            raise ScanSpoolError(f"{self.incomplete_reason}; scan incomplete")
         if self._connection.execute(
             "SELECT 1 FROM directories WHERE state != 'complete' LIMIT 1"
         ).fetchone():
@@ -426,6 +512,30 @@ class ScanSpool:
     @property
     def finished(self) -> bool:
         return self._value("finished") == "1"
+
+    @property
+    def incomplete_reason(self) -> str:
+        row = self._connection.execute(
+            "SELECT value FROM metadata WHERE key = 'incomplete_reason'"
+        ).fetchone()
+        return "" if row is None else str(row[0])
+
+    @property
+    def file_count(self) -> int:
+        return int(self._connection.execute("SELECT COUNT(*) FROM files").fetchone()[0])
+
+    def record_incomplete(self, reason: str) -> None:
+        if self.finished:
+            raise ScanSpoolError("finished scan spool cannot become incomplete")
+        self._connection.execute(
+            "INSERT INTO metadata(key, value) VALUES ('incomplete_reason', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (reason,),
+        )
+
+    def clear_incomplete(self) -> None:
+        if self.incomplete_reason:
+            self._connection.execute("UPDATE metadata SET value = '' WHERE key = 'incomplete_reason'")
 
     def enqueue_directory(self, path: str) -> None:
         self._connection.execute(
@@ -607,4 +717,9 @@ class ScanSpool:
         return str(row[0])
 
     def close(self) -> None:
-        self._connection.close()
+        try:
+            self._connection.close()
+        finally:
+            if self._lifecycle_lock is not None:
+                self._release_lifecycle_lock(self._lifecycle_lock)
+                self._lifecycle_lock = None

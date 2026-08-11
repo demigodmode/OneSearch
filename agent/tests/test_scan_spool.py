@@ -1,4 +1,7 @@
+import multiprocessing
+import os
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -8,6 +11,14 @@ from onesearch_shared import (
     REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
     canonical_wire_bytes,
 )
+
+
+def _cleanup_in_child(state_dir: str, result) -> None:
+    result.put(
+        ScanSpool.cleanup(
+            Path(state_dir), job_id="job", payload_identity="payload", source_id="source"
+        )
+    )
 
 
 def test_spool_persists_inventory_and_replays_same_page_after_restart(tmp_path: Path):
@@ -49,6 +60,16 @@ def test_spool_enforces_page_entry_and_wire_bounds_without_collecting_inventory(
         .page(0)
         .checksum
     )
+
+
+def test_spool_rejects_file_append_at_configured_inventory_limit(tmp_path: Path):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.append_file("one.txt", 1, 1, max_files=1)
+
+    with pytest.raises(RuntimeError, match="scan file limit exceeded"):
+        spool.append_file("two.txt", 1, 1, max_files=1)
+
+    assert spool.file_count == 1
 
 
 def test_spool_fails_closed_for_payload_mismatch_and_corruption(tmp_path: Path):
@@ -244,6 +265,45 @@ def test_lifecycle_mutations_request_parent_directory_fsync(tmp_path: Path, monk
     ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
 
     assert len(synced) >= 4
+
+
+def test_lifecycle_marker_create_and_mutation_replace_same_directory_tempfiles(
+    tmp_path: Path, monkeypatch
+):
+    replacements = []
+    original_replace = os.replace
+
+    def replace(source, destination):
+        replacements.append((Path(source), Path(destination)))
+        original_replace(source, destination)
+
+    monkeypatch.setattr("onesearch_agent.scan_spool.os.replace", replace)
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.finish()
+    spool.close()
+    ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+    assert len(replacements) >= 2
+    assert all(source.parent == destination.parent for source, destination in replacements)
+    assert all(source != destination for source, destination in replacements)
+
+
+def test_cleanup_waits_for_another_process_to_finish_resuming(tmp_path: Path):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.finish()
+    spool.close()
+    resumed = ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    context = multiprocessing.get_context("spawn")
+    result = context.Queue()
+    child = context.Process(target=_cleanup_in_child, args=(str(tmp_path), result))
+    child.start()
+    time.sleep(0.2)
+    assert child.is_alive()
+
+    resumed.close()
+    child.join(timeout=10)
+    assert child.exitcode == 0
+    assert result.get(timeout=1) is True
 
 
 def test_cleanup_rejects_unfinished_or_unclaimed_terminal_state(tmp_path: Path):

@@ -15,7 +15,7 @@ from .paths import (
     iter_confined_entries,
     list_confined_entries_page,
 )
-from .scan_spool import ScanSpool
+from .scan_spool import ScanSpool, ScanSpoolError
 
 
 def canonical_path(path: str) -> str:
@@ -171,24 +171,39 @@ class RemoteScanner:
             )
         if spool.finished:
             return spool
-        spool.enqueue_directory("")
-        while (directory := spool.next_directory()) is not None:
-            root_directory = confined_relative(self.source_prefix, directory)
-            for entry in iter_confined_entries(self.root_id, root_directory, self.roots):
-                prefix = f"{self.source_prefix}/" if self.source_prefix else ""
-                if prefix and not entry.relative_path.startswith(prefix):
-                    raise PathOutsideAllowedRoots("listed path escaped selected source")
-                path = entry.relative_path[len(prefix) :]
-                spool.observe_directory_member(
-                    directory, path, entry.is_dir, entry.size_bytes, entry.modified_at_ns
-                )
-            spool.seal_directory_membership(directory)
-            for path, is_dir, size_bytes, modified_at_ns in spool.directory_members(directory):
-                if is_dir:
-                    if not self._excluded(path):
-                        spool.enqueue_directory(path)
-                elif self._included(path) and not self._excluded(path):
-                    spool.append_file(path, size_bytes, modified_at_ns)
-            spool.complete_directory(directory)
-        spool.finish()
-        return spool
+        spool.clear_incomplete()
+        try:
+            spool.enqueue_directory("")
+            while (directory := spool.next_directory()) is not None:
+                root_directory = confined_relative(self.source_prefix, directory)
+                for entry in iter_confined_entries(self.root_id, root_directory, self.roots):
+                    prefix = f"{self.source_prefix}/" if self.source_prefix else ""
+                    if prefix and not entry.relative_path.startswith(prefix):
+                        raise PathOutsideAllowedRoots("listed path escaped selected source")
+                    path = entry.relative_path[len(prefix) :]
+                    spool.observe_directory_member(
+                        directory, path, entry.is_dir, entry.size_bytes, entry.modified_at_ns
+                    )
+                spool.seal_directory_membership(directory)
+                for path, is_dir, size_bytes, modified_at_ns in spool.directory_members(directory):
+                    if is_dir:
+                        if not self._excluded(path):
+                            spool.enqueue_directory(path)
+                    elif self._included(path) and not self._excluded(path):
+                        try:
+                            spool.append_file(
+                                path, size_bytes, modified_at_ns, max_files=self.max_files
+                            )
+                        except ScanSpoolError as error:
+                            if str(error) != "scan file limit exceeded":
+                                raise
+                            spool.record_incomplete("scan file limit exceeded")
+                            raise ScanSpoolError(
+                                "scan file limit exceeded; scan incomplete"
+                            ) from error
+                spool.complete_directory(directory)
+            spool.finish()
+            return spool
+        except Exception:
+            spool.close()
+            raise
