@@ -603,14 +603,38 @@ class AgentJobService:
         return self.db.get(AgentJob, job_id)
 
     def release_on_server_parent(self, job_id: str) -> AgentJob:
-        """The scan lease is done, but its active key remains until child extraction settles."""
+        """Mark an on-server scan handoff after durable child fanout has succeeded."""
         job = self.db.get(AgentJob, job_id)
         if job is None or job.kind != "scan" or job.processing_mode != "on_server":
             raise JobConflict("on-server scan required")
         if job.status not in {"claimed", "running"}:
             raise JobConflict("scan is not active")
+        try:
+            checkpoint = json.loads(job.checkpoint)
+        except (TypeError, json.JSONDecodeError) as error:
+            raise JobConflict("invalid scan checkpoint") from error
+        if not isinstance(checkpoint, dict):
+            raise JobConflict("invalid scan checkpoint")
+        checkpoint["server_handoff"] = {"released": True}
+        job.checkpoint = json.dumps(checkpoint, sort_keys=True, separators=(",", ":"))
         job.status, job.lease_token_hash, job.lease_expires_at = "running", None, None
         return job
+
+    @staticmethod
+    def on_server_handoff_released(job: AgentJob) -> bool:
+        """Return the durable completion marker an agent may trust after a lost reply."""
+        if (
+            job.kind != "scan"
+            or job.processing_mode != "on_server"
+            or job.status != "running"
+            or job.lease_token_hash is not None
+        ):
+            return False
+        try:
+            checkpoint = json.loads(job.checkpoint)
+        except (TypeError, json.JSONDecodeError):
+            return False
+        return checkpoint.get("server_handoff") == {"released": True}
 
     def settle_on_server_parent(self, job_id: str) -> str:
         """Return readiness only; ingestion owns terminal reconciliation/deletion."""

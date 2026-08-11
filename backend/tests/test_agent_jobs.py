@@ -466,6 +466,52 @@ def test_completion_and_cancellation_clear_active_key(db_session, remote):
     assert pending.status == "cancelled" and pending.active_key is None
 
 
+def test_job_status_exposes_on_server_handoff_only_after_parent_lease_release(
+    client, db_session, remote
+):
+    agent, source = remote
+    agent.protocol_version = 3
+    source.processing_mode = "on_server"
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    service = AgentJobService(db_session)
+    job = service.enqueue_scan(source, full=True)
+    db_session.commit()
+    assert service.claim_next(agent.id) is not None
+    db_session.commit()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    assert client.get(f"/api/agent/v1/jobs/{job.id}/status", headers=headers).json() == {
+        "job_id": job.id,
+        "status": "claimed",
+        "handoff_released": False,
+    }
+
+    service.release_on_server_parent(job.id)
+    db_session.commit()
+    assert client.get(f"/api/agent/v1/jobs/{job.id}/status", headers=headers).json() == {
+        "job_id": job.id,
+        "status": "running",
+        "handoff_released": True,
+    }
+    assert json.loads(db_session.get(AgentJob, job.id).checkpoint)["server_handoff"]["released"] is True
+
+
+def test_job_status_does_not_send_handoff_marker_to_legacy_agent(client, db_session, remote):
+    agent, source = remote
+    agent.protocol_version = 2
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    db_session.commit()
+
+    assert client.get(
+        f"/api/agent/v1/jobs/{job.id}/status", headers={"Authorization": f"Bearer {token}"}
+    ).json() == {"job_id": job.id, "status": "pending"}
+
+
 def test_cancelling_job_rejects_batches_until_agent_acknowledges(db_session, remote):
     agent, source = remote
     service = AgentJobService(db_session)

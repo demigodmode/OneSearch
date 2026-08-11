@@ -37,13 +37,16 @@ async def test_job_status_uses_authenticated_get_and_strict_response_model():
             request.url.path,
             request.headers.get("authorization"),
         )
-        return httpx.Response(200, json={"job_id": "job", "status": "completed"})
+        return httpx.Response(
+            200, json={"job_id": "job", "status": "running", "handoff_released": True}
+        )
 
     async with AgentClient(
         "http://server.test", "token", transport=httpx.MockTransport(handler)
     ) as client:
         response = await client.job_status("job")
-    assert response.job_id == "job" and response.status == "completed"
+    assert response.job_id == "job" and response.status == "running"
+    assert response.handoff_released is True
     assert seen == {
         "method": "GET",
         "path": "/api/agent/v1/jobs/job/status",

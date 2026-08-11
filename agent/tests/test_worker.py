@@ -1772,7 +1772,7 @@ async def test_on_server_scan_completion_recovery_accepts_released_parent():
             raise AgentAmbiguousResultError("lost completion receipt")
 
         async def job_status(self, _job_id):
-            return SimpleNamespace(status="running")
+            return SimpleNamespace(status="running", handoff_released=True)
 
     lease = SimpleNamespace(
         id="j",
@@ -1780,9 +1780,44 @@ async def test_on_server_scan_completion_recovery_accepts_released_parent():
         kind=JobKind.SCAN,
         processing_mode=ProcessingMode.ON_SERVER,
     )
+    client = Client()
     await _complete_with_recovery(
-        Client(), lease, JobCompletion(job_id="j", status=JobStatus.SUCCEEDED)
+        client, lease, JobCompletion(job_id="j", status=JobStatus.SUCCEEDED)
     )
+    assert client.completions == 1
+
+
+@pytest.mark.asyncio
+async def test_on_server_scan_completion_retries_when_running_parent_has_not_handed_off():
+    from types import SimpleNamespace
+
+    from onesearch_agent.client import AgentAmbiguousResultError
+    from onesearch_agent.worker import _complete_with_recovery
+    from onesearch_shared import JobCompletion, JobKind, JobStatus, ProcessingMode
+
+    class Client:
+        def __init__(self):
+            self.completions = 0
+
+        async def complete(self, *_args):
+            self.completions += 1
+            if self.completions == 1:
+                raise AgentAmbiguousResultError("request failed before server mutation")
+
+        async def job_status(self, _job_id):
+            return SimpleNamespace(status="running", handoff_released=False)
+
+    lease = SimpleNamespace(
+        id="j",
+        lease_token="t",
+        kind=JobKind.SCAN,
+        processing_mode=ProcessingMode.ON_SERVER,
+    )
+    client = Client()
+    await _complete_with_recovery(
+        client, lease, JobCompletion(job_id="j", status=JobStatus.SUCCEEDED)
+    )
+    assert client.completions == 2
 
 
 @pytest.mark.asyncio

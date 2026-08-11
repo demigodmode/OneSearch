@@ -273,6 +273,7 @@ async def _complete_with_recovery(client, lease, completion):
             completion.status is JobStatus.SUCCEEDED
             and getattr(getattr(lease, "kind", None), "value", None) == "scan"
             and getattr(getattr(lease, "processing_mode", None), "value", None) == "on_server"
+            and status.handoff_released
         )
         return status.status, status.status == expected or (released_parent and status.status == "running")
 

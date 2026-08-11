@@ -225,7 +225,14 @@ async def job_status(job_id: str, agent: ApprovedAgent, db: Database):
         job = AgentJobService(db).status_for_agent(job_id, agent.id)
     except JobNotFound as error:
         raise HTTPException(status_code=404, detail="job not found") from error
-    return AgentJobStatusResponse(job_id=job.id, status=job.status)
+    response = AgentJobStatusResponse(
+        job_id=job.id,
+        status=job.status,
+        handoff_released=AgentJobService.on_server_handoff_released(job),
+    )
+    if agent.protocol_version < 3:
+        return response.model_dump(exclude={"handoff_released"})
+    return response
 
 
 @router.post("/jobs/{job_id}/heartbeat", dependencies=[Depends(require_remote_agents_enabled)])

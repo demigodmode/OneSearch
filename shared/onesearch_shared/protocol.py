@@ -140,6 +140,7 @@ class AgentJobStatusResponse(WireModel):
     status: Literal[
         "pending", "claimed", "running", "cancelling", "completed", "failed", "cancelled"
     ]
+    handoff_released: bool = False
 
 
 class AllowedRoot(WireModel):

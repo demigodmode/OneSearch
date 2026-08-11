@@ -80,7 +80,11 @@ def test_remote_path_hash_is_stable_lowercase_utf8_sha256():
 def test_agent_job_status_response_is_strict_and_has_only_protocol_statuses():
     from onesearch_shared import AgentJobStatusResponse
 
-    assert AgentJobStatusResponse(job_id="j", status="completed").status == "completed"
+    completed = AgentJobStatusResponse(job_id="j", status="completed")
+    assert completed.status == "completed" and completed.handoff_released is False
+    assert AgentJobStatusResponse(
+        job_id="j", status="running", handoff_released=True
+    ).handoff_released is True
     with pytest.raises(ValidationError):
         AgentJobStatusResponse(job_id="j", status="succeeded")
     with pytest.raises(ValidationError):
