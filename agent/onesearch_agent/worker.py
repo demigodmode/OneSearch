@@ -18,6 +18,8 @@ from onesearch_shared import (
     REMOTE_MAX_BATCH_BYTES,
     REMOTE_MAX_BATCH_DOCUMENTS,
     REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+    REMOTE_MAX_MANIFEST_PAGE_BYTES,
+    REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
     REMOTE_MAX_SCAN_FILES,
     REMOTE_MAX_SNAPSHOT_BYTES,
     DocumentBatch,
@@ -34,7 +36,16 @@ from onesearch_shared import (
     ScanPathOutcomeStatus,
     canonical_wire_bytes,
 )
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    model_validator,
+)
 
 from app.services.extractor_config import choose_extractor
 from app.services.remote_files import RemoteExtractionError, extract_in_process, extraction_process
@@ -88,20 +99,46 @@ class ScanLimits(BaseModel):
     max_entries_per_directory: StrictInt = Field(gt=0, le=REMOTE_MAX_ENTRIES_PER_DIRECTORY)
 
 
+class V3ScanLimits(BaseModel):
+    """Paged scans bound each manifest page, not the complete inventory."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    max_snapshot_bytes: StrictInt = Field(gt=0, le=REMOTE_MAX_SNAPSHOT_BYTES)
+    max_batch_documents: StrictInt = Field(gt=0, le=REMOTE_MAX_BATCH_DOCUMENTS)
+    max_batch_bytes: StrictInt = Field(gt=0, le=REMOTE_MAX_BATCH_BYTES)
+    max_entries_per_directory: StrictInt = Field(gt=0, le=REMOTE_MAX_ENTRIES_PER_DIRECTORY)
+    max_manifest_page_entries: StrictInt = Field(
+        ge=REMOTE_MAX_MANIFEST_PAGE_ENTRIES, le=REMOTE_MAX_MANIFEST_PAGE_ENTRIES
+    )
+    max_manifest_page_bytes: StrictInt = Field(
+        ge=REMOTE_MAX_MANIFEST_PAGE_BYTES, le=REMOTE_MAX_MANIFEST_PAGE_BYTES
+    )
+
+
 class ScanPayload(BaseModel):
     """Strict server-issued scan contract; agents never infer missing defaults."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
     full: StrictBool
-    protocol_version: StrictInt | None = Field(default=None, ge=1)
+    protocol_version: StrictInt | None = Field(default=None, ge=1, le=3)
     root_id: StrictStr = Field(min_length=1)
     root_path: StrictStr = Field(min_length=1)
     include_patterns: list[StrictStr] | None
     exclude_patterns: list[StrictStr] | None
-    known_files: dict[StrictStr, dict[StrictStr, object]]
+    known_files: dict[StrictStr, dict[StrictStr, object]] | None = None
     extraction: ExtractionPayload
-    limits: ScanLimits
+    limits: ScanLimits | V3ScanLimits
+
+    @model_validator(mode="after")
+    def validate_protocol_contract(self):
+        if self.protocol_version == 3:
+            if self.known_files is not None or not isinstance(self.limits, V3ScanLimits):
+                raise ValueError("protocol v3 uses paged manifest limits without legacy inventory fields")
+        elif self.known_files is None or not isinstance(self.limits, ScanLimits):
+            raise ValueError("legacy scan payload requires inventory and scan limits")
+        return self
 
 
 def _batch_wire_bytes(batch) -> bytes:
@@ -471,6 +508,7 @@ async def run_scan_job(
         )
         return
     root_id, limits = payload.root_id, payload.limits
+    max_files = None if payload.protocol_version == 3 else limits.max_scan_files
     extraction = payload.extraction.model_dump()
     scanner = RemoteScanner(
         root_id,
@@ -479,7 +517,7 @@ async def run_scan_job(
         exclude_patterns=payload.exclude_patterns,
         known={} if payload.full else payload.known_files,
         source_prefix=source_prefix,
-        max_files=limits.max_scan_files,
+        max_files=max_files,
         max_entries_per_directory=limits.max_entries_per_directory,
     )
     keeper = LeaseKeeper(

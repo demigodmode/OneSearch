@@ -40,7 +40,7 @@ class RemoteScanner:
         exclude_patterns=None,
         known=None,
         source_prefix="",
-        max_files=100000,
+        max_files: int | None = 100000,
         max_entries_per_directory=100000,
     ):
         self.root_id, self.roots = root_id, roots
@@ -121,7 +121,7 @@ class RemoteScanner:
                     content_hash=None,
                 )
                 files.append(item)
-                if len(files) > self.max_files:
+                if self.max_files is not None and len(files) > self.max_files:
                     failures.append(ScanFailure(path=path, error="scan file limit exceeded"))
                     return ScanManifest(
                         job_id=job_id,

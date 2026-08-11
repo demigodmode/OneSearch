@@ -101,6 +101,72 @@ def test_protocol_three_enqueue_uses_pages_without_loading_known_files(db_sessio
     assert payload["limits"]["max_manifest_page_bytes"] == REMOTE_MAX_MANIFEST_PAGE_BYTES
 
 
+@pytest.mark.asyncio
+async def test_protocol_three_enqueued_payload_runs_in_agent_worker(db_session, remote, tmp_path):
+    """The v3 payload issued by the server is accepted by the v3 agent worker."""
+    from onesearch_agent.worker import run_scan_job
+    from onesearch_shared import (
+        AllowedRoot,
+        ScanCheckpoint,
+        ScanManifestPageAck,
+        ScanPageOutcomeAck,
+    )
+
+    agent, source = remote
+    agent.protocol_version = 3
+    agent.platform = "windows-x64"
+    agent.allowed_roots = json.dumps([{"root_id": "data", "path": str(tmp_path)}])
+    source.root_path = str(tmp_path)
+    (tmp_path / "report.txt").write_text("report")
+    db_session.commit()
+
+    AgentJobService(db_session).enqueue_scan(source, full=True)
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    assert lease is not None
+
+    class Client:
+        def __init__(self):
+            self.pages = []
+            self.completions = []
+
+        async def job_heartbeat(self, *_args):
+            pass
+
+        async def submit_manifest_page(self, _job_id, page, _token):
+            self.pages.append(page)
+            return ScanManifestPageAck(
+                job_id=lease.id,
+                sequence=page.page.sequence,
+                checksum=page.checksum,
+                accepted_count=len(page.page.files),
+                changed_paths=[],
+                checkpoint=page.page.checkpoint,
+            )
+
+        async def submit_page_outcome(self, _job_id, outcome, _token):
+            return ScanPageOutcomeAck(
+                job_id=lease.id,
+                sequence=outcome.outcome.sequence,
+                checksum=outcome.checksum,
+                settled_count=0,
+                checkpoint=ScanCheckpoint(cursor="page:0", scanned_count=1),
+            )
+
+        async def complete(self, _job_id, completion, _token):
+            self.completions.append(completion)
+
+    client = Client()
+    await run_scan_job(
+        lease,
+        client,
+        roots=[AllowedRoot(root_id="data", path=str(tmp_path))],
+        state_dir=tmp_path.parent / f"{tmp_path.name}-state",
+    )
+
+    assert [[file.path for file in page.page.files] for page in client.pages] == [["report.txt"]]
+    assert [completion.status.value for completion in client.completions] == ["succeeded"]
+
+
 @pytest.mark.parametrize(
     ("platform", "allowed_roots", "source_path", "root_id"),
     [

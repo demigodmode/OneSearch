@@ -685,6 +685,41 @@ def _scan_lease(*, limits=None, root_path="/remote/root"):
     )
 
 
+def _v3_scan_lease(*, root_path="/remote/root"):
+    from onesearch_shared import REMOTE_MAX_MANIFEST_PAGE_BYTES, REMOTE_MAX_MANIFEST_PAGE_ENTRIES
+
+    lease = _scan_lease(root_path=root_path)
+    lease.payload["protocol_version"] = 3
+    lease.payload.pop("known_files")
+    lease.payload["limits"].pop("max_scan_files")
+    lease.payload["limits"].update(
+        {
+            "max_manifest_page_entries": REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
+            "max_manifest_page_bytes": REMOTE_MAX_MANIFEST_PAGE_BYTES,
+        }
+    )
+    return lease
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload.update(known_files={}),
+        lambda payload: payload["limits"].update(max_scan_files=1),
+        lambda payload: payload["limits"].update(max_manifest_page_entries=999),
+    ],
+)
+def test_v3_scan_payload_rejects_legacy_and_noncanonical_limits(mutate):
+    from onesearch_agent.worker import ScanPayload
+    from pydantic import ValidationError
+
+    lease = _v3_scan_lease()
+    mutate(lease.payload)
+
+    with pytest.raises(ValidationError):
+        ScanPayload.model_validate(lease.payload)
+
+
 @pytest.mark.asyncio
 async def test_run_scan_job_limits_nested_source_and_submits_source_relative_manifest(tmp_path):
     from onesearch_shared import ProcessingMode
@@ -1810,8 +1845,7 @@ async def test_v3_scan_pages_only_changed_files_and_submits_outcomes(monkeypatch
         async def complete(self, _job, completion, _token):
             self.completions.append(completion)
 
-    lease = _scan_lease(root_path=str(tmp_path))
-    lease.payload["protocol_version"] = 3
+    lease = _v3_scan_lease(root_path=str(tmp_path))
     client = Client()
     await worker_module.run_scan_job(
         lease,
@@ -1840,8 +1874,7 @@ async def test_v3_restart_replays_persisted_page_after_interrupted_outcome(tmp_p
 
     (tmp_path / "changed.txt").write_text("changed")
     state_dir = tmp_path.parent / f"{tmp_path.name}-state"
-    lease = _scan_lease(root_path=str(tmp_path))
-    lease.payload["protocol_version"] = 3
+    lease = _v3_scan_lease(root_path=str(tmp_path))
 
     class Client:
         def __init__(self):
@@ -1909,8 +1942,7 @@ async def test_v3_restart_replays_persisted_page_after_interrupted_outcome(tmp_p
 async def test_v3_on_server_scan_fails_closed_without_creating_spool(tmp_path):
     from onesearch_shared import ProcessingMode
 
-    lease = _scan_lease(root_path=str(tmp_path))
-    lease.payload["protocol_version"] = 3
+    lease = _v3_scan_lease(root_path=str(tmp_path))
     lease.processing_mode = ProcessingMode.ON_SERVER
 
     class Client:
