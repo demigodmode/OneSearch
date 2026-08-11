@@ -304,6 +304,7 @@ def test_v3_scan_spools_only_nested_source_inventory_and_resumes_without_rewalki
         payload_identity="v3-payload",
     )
     page = spool.page(0)
+    spool.close()
     monkeypatch.setattr(
         scanner_module, "iter_confined_entries", lambda *args: pytest.fail("rewalked")
     )

@@ -21,6 +21,15 @@ def _cleanup_in_child(state_dir: str, result) -> None:
     )
 
 
+def _hold_spool_owner(state_dir: str, started, release) -> None:
+    _spool = ScanSpool.resume(
+        Path(state_dir), job_id="job", payload_identity="payload", source_id="source"
+    )
+    started.set()
+    release.wait(timeout=30)
+    # Intentionally do not close: process exit is the crash-recovery path under test.
+
+
 def test_spool_persists_inventory_and_replays_same_page_after_restart(tmp_path: Path):
     spool = ScanSpool.create(
         tmp_path,
@@ -33,6 +42,7 @@ def test_spool_persists_inventory_and_replays_same_page_after_restart(tmp_path: 
     spool.finish()
 
     first = spool.page(0)
+    spool.close()
     reopened = ScanSpool.resume(
         tmp_path,
         job_id="job-1",
@@ -54,6 +64,7 @@ def test_spool_enforces_page_entry_and_wire_bounds_without_collecting_inventory(
     assert len(first.page.files) == REMOTE_MAX_MANIFEST_PAGE_ENTRIES
     assert len(middle.page.files) == REMOTE_MAX_MANIFEST_PAGE_ENTRIES
     assert len(canonical_wire_bytes(first)) <= REMOTE_MAX_MANIFEST_PAGE_BYTES
+    spool.close()
     assert (
         first.checksum
         == ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
@@ -118,7 +129,9 @@ def test_directory_membership_is_fenced_across_interrupted_claim(tmp_path: Path)
     spool.seal_directory_membership(claim)
     spool.close()
 
-    resumed = ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    resumed = ScanSpool.resume(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
+    )
     claim = resumed.next_directory()
     resumed.observe_directory_member(claim, "one.txt", False, 1, 1)
     with pytest.raises(RuntimeError, match="membership"):
@@ -128,12 +141,40 @@ def test_directory_membership_is_fenced_across_interrupted_claim(tmp_path: Path)
 def test_directory_claim_is_atomic_across_two_open_connections(tmp_path: Path):
     first = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     first.enqueue_directory("")
+
+    assert first.next_directory() == ""
+    with pytest.raises(RuntimeError, match="owner"):
+        ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    first.close()
+
     second = ScanSpool.resume(
         tmp_path, job_id="job", payload_identity="payload", source_id="source"
     )
+    assert second.next_directory() == ""
+    second.close()
 
-    assert first.next_directory() == ""
-    assert second.next_directory() is None
+
+def test_spool_owner_claim_releases_when_another_worker_crashes(tmp_path: Path):
+    initial = ScanSpool.create(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
+    )
+    initial.close()
+    context = multiprocessing.get_context("spawn")
+    started, release = context.Event(), context.Event()
+    child = context.Process(target=_hold_spool_owner, args=(str(tmp_path), started, release))
+    child.start()
+    assert started.wait(timeout=10)
+
+    with pytest.raises(RuntimeError, match="owner"):
+        ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+    child.terminate()
+    child.join(timeout=10)
+    assert child.exitcode is not None
+    recovered = ScanSpool.resume(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
+    )
+    recovered.close()
 
 
 def test_page_rejects_gaps_and_semantic_tampering(tmp_path: Path):
@@ -226,16 +267,42 @@ def test_finish_rolls_back_pages_when_interrupted_before_terminal_metadata(tmp_p
     assert resumed.finished
 
 
-def test_lifecycle_marker_fences_deleted_spool_and_payload_mismatch(tmp_path: Path):
+def test_lifecycle_marker_only_state_is_cleaned_for_a_matching_job(tmp_path: Path):
     spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     spool.close()
     database = next((tmp_path / "scan-spool").glob("*.sqlite3"))
     database.unlink()
 
-    with pytest.raises(RuntimeError, match="missing"):
-        ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
-    with pytest.raises(RuntimeError, match="lifecycle"):
+    assert ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    assert not ScanSpool.lifecycle_exists(tmp_path, "job")
+
+
+def test_create_recovers_after_marker_publish_fault_without_stranding_job(
+    tmp_path: Path, monkeypatch
+):
+    original = ScanSpool._write_marker
+    calls = 0
+
+    def publish_then_crash(marker, payload):
+        nonlocal calls
+        calls += 1
+        original(marker, payload)
+        if calls == 1:
+            raise ScanSpoolError("injected marker publish crash")
+
+    from onesearch_agent.scan_spool import ScanSpoolError
+
+    monkeypatch.setattr(ScanSpool, "_write_marker", staticmethod(publish_then_crash))
+    with pytest.raises(RuntimeError, match="marker"):
         ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+    assert ScanSpool.exists(tmp_path, "job")
+    monkeypatch.setattr(ScanSpool, "_write_marker", staticmethod(original))
+    recovered = ScanSpool.resume(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
+    )
+    assert recovered.file_count == 0
+    recovered.close()
 
 
 def test_lifecycle_marker_requires_matching_payload_and_explicit_resume(tmp_path: Path):
@@ -344,13 +411,12 @@ def test_terminal_cleanup_retries_lifecycle_lock_cleanup_after_removal_failure(
     assert not lock.exists()
 
 
-def test_terminal_cleanup_fails_closed_for_partial_lifecycle(tmp_path: Path):
+def test_terminal_cleanup_recovers_matching_marker_only_lifecycle(tmp_path: Path):
     spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     spool.close()
     next((tmp_path / "scan-spool").glob("*.sqlite3")).unlink()
 
-    with pytest.raises(RuntimeError, match="missing"):
-        ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    assert ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
 
 
 def test_lifecycle_mutations_request_parent_directory_fsync(tmp_path: Path, monkeypatch):

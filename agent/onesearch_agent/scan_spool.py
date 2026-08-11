@@ -38,9 +38,11 @@ class ScanSpool:
         job_id: str,
         source_id: str,
         lifecycle_lock: sqlite3.Connection | None = None,
+        owner_lock: sqlite3.Connection | None = None,
     ):
         self._connection = connection
         self._lifecycle_lock = lifecycle_lock
+        self._owner_lock = owner_lock
         self.job_id = job_id
         self.source_id = source_id
 
@@ -59,37 +61,88 @@ class ScanSpool:
         """Atomically begin a new lifecycle; terminal-job cleanup owns marker removal later."""
         marker = cls._marker_path(state_dir, job_id)
         lock = cls._acquire_lifecycle_lock(state_dir, job_id, exclusive=True)
+        owner = None
         try:
-            if cls._spool_path(state_dir, job_id).exists():
-                raise ScanSpoolError("scan spool exists without a new lifecycle")
+            spool_path = cls._spool_path(state_dir, job_id)
+            if marker.exists() and not spool_path.exists():
+                stored = cls._read_marker(marker)
+                if stored == cls._marker_payload(job_id, payload_identity, source_id):
+                    cls._remove_file(marker)
+                    cls._fsync_directory(marker.parent)
+                else:
+                    raise ScanSpoolError("scan lifecycle already exists; resume is required")
+            owner = cls._acquire_owner_lock(state_dir, job_id)
+            if spool_path.exists():
+                if marker.exists():
+                    raise ScanSpoolError("scan spool exists without a new lifecycle")
+                recovered = cls._open(
+                    state_dir,
+                    job_id=job_id,
+                    payload_identity=payload_identity,
+                    source_id=source_id,
+                    resume=True,
+                    lifecycle_lock=lock,
+                    owner_lock=owner,
+                )
+                try:
+                    cls._write_marker(
+                        marker, cls._marker_payload(job_id, payload_identity, source_id)
+                    )
+                except Exception:
+                    recovered.close()
+                    raise
+                cls._release_lifecycle_lock(lock)
+                lock = None
+                recovered._lifecycle_lock = cls._acquire_lifecycle_lock(
+                    state_dir, job_id, exclusive=False
+                )
+                return recovered
             if marker.exists():
                 raise ScanSpoolError("scan lifecycle already exists; resume is required")
+            created = cls._open(
+                state_dir,
+                job_id=job_id,
+                payload_identity=payload_identity,
+                source_id=source_id,
+                lifecycle_lock=lock,
+                owner_lock=owner,
+            )
             try:
                 cls._write_marker(marker, cls._marker_payload(job_id, payload_identity, source_id))
-            except ScanSpoolError as error:
-                raise ScanSpoolError("scan lifecycle marker cannot be created") from error
-        finally:
+            except Exception:
+                created.close()
+                raise
             cls._release_lifecycle_lock(lock)
-        return cls._open(
-            state_dir,
-            job_id=job_id,
-            payload_identity=payload_identity,
-            source_id=source_id,
-            lifecycle_lock=cls._acquire_lifecycle_lock(state_dir, job_id, exclusive=False),
-        )
+            lock = None
+            created._lifecycle_lock = cls._acquire_lifecycle_lock(
+                state_dir, job_id, exclusive=False
+            )
+            return created
+        except ScanSpoolError:
+            if owner is not None:
+                cls._release_owner_lock(owner)
+            if lock is not None:
+                cls._release_lifecycle_lock(lock)
+            raise
 
     @classmethod
     def resume(
         cls, state_dir: Path, *, job_id: str, payload_identity: str, source_id: str
     ) -> ScanSpool:
         if not cls._spool_path(state_dir, job_id).is_file():
-            raise ScanSpoolError("scan spool is missing for resume")
+            if not cls._marker_path(state_dir, job_id).is_file():
+                raise ScanSpoolError("scan spool is missing for resume")
+            return cls._recover_missing_spool(
+                state_dir, job_id=job_id, payload_identity=payload_identity, source_id=source_id
+            )
         lock = cls._acquire_lifecycle_lock(state_dir, job_id, exclusive=False)
+        owner = None
         try:
             marker = cls._marker_path(state_dir, job_id)
             stored = cls._read_marker(marker)
             if stored != cls._marker_payload(job_id, payload_identity, source_id):
                 raise ScanSpoolError("scan lifecycle payload mismatch")
+            owner = cls._acquire_owner_lock(state_dir, job_id)
             return cls._open(
                 state_dir,
                 job_id=job_id,
@@ -97,10 +150,32 @@ class ScanSpool:
                 source_id=source_id,
                 resume=True,
                 lifecycle_lock=lock,
+                owner_lock=owner,
             )
         except Exception:
+            if owner is not None:
+                cls._release_owner_lock(owner)
             cls._release_lifecycle_lock(lock)
             raise
+
+    @classmethod
+    def _recover_missing_spool(
+        cls, state_dir: Path, *, job_id: str, payload_identity: str, source_id: str
+    ) -> ScanSpool:
+        lock = cls._acquire_lifecycle_lock(state_dir, job_id, exclusive=True)
+        try:
+            marker = cls._marker_path(state_dir, job_id)
+            if not marker.is_file():
+                raise ScanSpoolError("scan spool is missing for resume")
+            if cls._read_marker(marker) != cls._marker_payload(job_id, payload_identity, source_id):
+                raise ScanSpoolError("scan lifecycle payload mismatch")
+            cls._remove_file(marker)
+            cls._fsync_directory(marker.parent)
+        finally:
+            cls._release_lifecycle_lock(lock)
+        return cls.create(
+            state_dir, job_id=job_id, payload_identity=payload_identity, source_id=source_id
+        )
 
     @staticmethod
     def _marker_payload(
@@ -173,6 +248,10 @@ class ScanSpool:
         return cls._spool_path(state_dir, job_id).with_suffix(".lifecycle-lock")
 
     @classmethod
+    def _owner_lock_path(cls, state_dir: Path, job_id: str) -> Path:
+        return cls._spool_path(state_dir, job_id).with_suffix(".owner-lock")
+
+    @classmethod
     def _acquire_lifecycle_lock(
         cls, state_dir: Path, job_id: str, *, exclusive: bool
     ) -> sqlite3.Connection:
@@ -198,8 +277,26 @@ class ScanSpool:
         connection.close()
 
     @classmethod
-    def _remove_lifecycle_lock_artifacts(cls, state_dir: Path, job_id: str) -> None:
-        lock = cls._lifecycle_lock_path(state_dir, job_id)
+    def _acquire_owner_lock(cls, state_dir: Path, job_id: str) -> sqlite3.Connection:
+        path = cls._owner_lock_path(state_dir, job_id)
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        connection = sqlite3.connect(path, isolation_level=None, timeout=0)
+        try:
+            connection.execute("PRAGMA busy_timeout=0")
+            connection.execute("BEGIN EXCLUSIVE")
+            return connection
+        except sqlite3.DatabaseError as error:
+            connection.close()
+            raise ScanSpoolError("scan spool owner is active") from error
+
+    @staticmethod
+    def _release_owner_lock(connection: sqlite3.Connection) -> None:
+        with suppress(sqlite3.DatabaseError):
+            connection.rollback()
+        connection.close()
+
+    @classmethod
+    def _remove_lock_artifacts(cls, lock: Path) -> None:
         removed = False
         try:
             for artifact in (
@@ -222,9 +319,13 @@ class ScanSpool:
     ) -> bool:
         """Terminal-job owners may remove both durable lifecycle artifacts explicitly."""
         lock = cls._acquire_lifecycle_lock(state_dir, job_id, exclusive=True)
+        owner = None
         cleaned = False
         remove_lock_artifacts = False
         try:
+            # A creator briefly downgrades its lifecycle lock after claiming ownership.
+            # Recheck ownership while exclusive before deleting any spool artifacts.
+            owner = cls._acquire_owner_lock(state_dir, job_id)
             marker = cls._marker_path(state_dir, job_id)
             spool = cls._spool_path(state_dir, job_id)
             if not marker.exists() and not spool.exists():
@@ -240,7 +341,7 @@ class ScanSpool:
                 if stored not in (normal, intent):
                     raise ScanSpoolError("scan lifecycle cleanup payload mismatch")
                 if not spool.exists():
-                    if stored != intent:
+                    if stored not in (normal, intent):
                         raise ScanSpoolError("scan lifecycle cleanup found a missing component")
                     cls._remove_file(marker)
                     cls._fsync_directory(marker.parent)
@@ -275,9 +376,12 @@ class ScanSpool:
                 cleaned = True
                 remove_lock_artifacts = True
         finally:
+            if owner is not None:
+                cls._release_owner_lock(owner)
             cls._release_lifecycle_lock(lock)
         if remove_lock_artifacts:
-            cls._remove_lifecycle_lock_artifacts(state_dir, job_id)
+            cls._remove_lock_artifacts(cls._owner_lock_path(state_dir, job_id))
+            cls._remove_lock_artifacts(cls._lifecycle_lock_path(state_dir, job_id))
         return cleaned
 
     @classmethod
@@ -295,6 +399,7 @@ class ScanSpool:
         source_id: str,
         resume: bool = False,
         lifecycle_lock: sqlite3.Connection | None = None,
+        owner_lock: sqlite3.Connection | None = None,
     ) -> ScanSpool:
         if not job_id or not payload_identity or not source_id:
             raise ScanSpoolError("scan spool identity is incomplete")
@@ -348,6 +453,7 @@ class ScanSpool:
                     job_id=job_id,
                     source_id=source_id,
                     lifecycle_lock=lifecycle_lock,
+                    owner_lock=owner_lock,
                 )
                 for (sequence,) in connection.execute(
                     "SELECT sequence FROM pages ORDER BY sequence"
@@ -364,18 +470,23 @@ class ScanSpool:
                 job_id=job_id,
                 source_id=source_id,
                 lifecycle_lock=lifecycle_lock,
+                owner_lock=owner_lock,
             )
         except (sqlite3.DatabaseError, OSError) as error:
             if connection is not None:
                 connection.close()
             if lifecycle_lock is not None:
                 cls._release_lifecycle_lock(lifecycle_lock)
+            if owner_lock is not None:
+                cls._release_owner_lock(owner_lock)
             raise ScanSpoolError("scan spool is unavailable or corrupt") from error
         except ScanSpoolError:
             if connection is not None:
                 connection.close()
             if lifecycle_lock is not None:
                 cls._release_lifecycle_lock(lifecycle_lock)
+            if owner_lock is not None:
+                cls._release_owner_lock(owner_lock)
             raise
 
     @staticmethod
@@ -569,7 +680,9 @@ class ScanSpool:
 
     def clear_incomplete(self) -> None:
         if self.incomplete_reason:
-            self._connection.execute("UPDATE metadata SET value = '' WHERE key = 'incomplete_reason'")
+            self._connection.execute(
+                "UPDATE metadata SET value = '' WHERE key = 'incomplete_reason'"
+            )
 
     def enqueue_directory(self, path: str) -> None:
         self._connection.execute(
@@ -754,6 +867,9 @@ class ScanSpool:
         try:
             self._connection.close()
         finally:
+            if self._owner_lock is not None:
+                self._release_owner_lock(self._owner_lock)
+                self._owner_lock = None
             if self._lifecycle_lock is not None:
                 self._release_lifecycle_lock(self._lifecycle_lock)
                 self._lifecycle_lock = None
