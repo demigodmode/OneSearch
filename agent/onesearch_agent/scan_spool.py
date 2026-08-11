@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -34,8 +36,70 @@ class ScanSpool:
 
     @classmethod
     def exists(cls, state_dir: Path, job_id: str) -> bool:
+        return cls._spool_path(state_dir, job_id).is_file()
+
+    @classmethod
+    def lifecycle_exists(cls, state_dir: Path, job_id: str) -> bool:
+        return cls._marker_path(state_dir, job_id).is_file()
+
+    @classmethod
+    def create(
+        cls, state_dir: Path, *, job_id: str, payload_identity: str, source_id: str
+    ) -> ScanSpool:
+        """Atomically begin a new lifecycle; terminal-job cleanup owns marker removal later."""
+        marker = cls._marker_path(state_dir, job_id)
+        marker.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        payload = cls._marker_payload(job_id, payload_identity, source_id)
+        try:
+            descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError as error:
+            raise ScanSpoolError("scan lifecycle already exists; resume is required") from error
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+                handle.flush()
+                os.fsync(handle.fileno())
+        except OSError as error:
+            raise ScanSpoolError("scan lifecycle marker cannot be created") from error
+        return cls.open(
+            state_dir,
+            job_id=job_id,
+            payload_identity=payload_identity,
+            source_id=source_id,
+        )
+
+    @classmethod
+    def resume(
+        cls, state_dir: Path, *, job_id: str, payload_identity: str, source_id: str
+    ) -> ScanSpool:
+        marker = cls._marker_path(state_dir, job_id)
+        try:
+            with marker.open(encoding="utf-8") as handle:
+                stored = json.load(handle)
+        except (OSError, json.JSONDecodeError) as error:
+            raise ScanSpoolError("scan lifecycle marker is missing or corrupt") from error
+        if stored != cls._marker_payload(job_id, payload_identity, source_id):
+            raise ScanSpoolError("scan lifecycle payload mismatch")
+        return cls.open(
+            state_dir,
+            job_id=job_id,
+            payload_identity=payload_identity,
+            source_id=source_id,
+            resume=True,
+        )
+
+    @staticmethod
+    def _marker_payload(job_id: str, payload_identity: str, source_id: str) -> dict[str, str]:
+        return {"job_id": job_id, "payload_identity": payload_identity, "source_id": source_id}
+
+    @staticmethod
+    def _spool_path(state_dir: Path, job_id: str) -> Path:
         key = hashlib.sha256(job_id.encode()).hexdigest()
-        return (state_dir / "scan-spool" / f"{key}.sqlite3").is_file()
+        return state_dir / "scan-spool" / f"{key}.sqlite3"
+
+    @classmethod
+    def _marker_path(cls, state_dir: Path, job_id: str) -> Path:
+        return cls._spool_path(state_dir, job_id).with_suffix(".lifecycle")
 
     @classmethod
     def open(
@@ -50,8 +114,7 @@ class ScanSpool:
         if not job_id or not payload_identity or not source_id:
             raise ScanSpoolError("scan spool identity is incomplete")
         directory = state_dir / "scan-spool"
-        key = hashlib.sha256(job_id.encode()).hexdigest()
-        path = directory / f"{key}.sqlite3"
+        path = cls._spool_path(state_dir, job_id)
         if resume and not path.is_file():
             raise ScanSpoolError("scan spool is missing for resume")
         if not path.exists():
@@ -76,6 +139,8 @@ class ScanSpool:
             }
             if existing and any(existing.get(key) != value for key, value in required.items()):
                 raise ScanSpoolError("scan spool payload mismatch or semantic corruption")
+            if existing and existing.get("finished") == "0" and not resume:
+                raise ScanSpoolError("scan spool resume is required")
             if not existing:
                 connection.executemany(
                     "INSERT INTO metadata(key, value) VALUES (?, ?)", required.items()

@@ -161,14 +161,14 @@ class RemoteScanner:
         self, *, state_dir, job_id: str, source_id: str, payload_identity: str, resume: bool = False
     ) -> ScanSpool:
         """Durably traverse the selected source and return its resumable v3 inventory."""
-        resume = resume or ScanSpool.exists(state_dir, job_id)
-        spool = ScanSpool.open(
-            state_dir,
-            job_id=job_id,
-            payload_identity=payload_identity,
-            source_id=source_id,
-            resume=resume,
-        )
+        if resume or ScanSpool.lifecycle_exists(state_dir, job_id):
+            spool = ScanSpool.resume(
+                state_dir, job_id=job_id, payload_identity=payload_identity, source_id=source_id
+            )
+        else:
+            spool = ScanSpool.create(
+                state_dir, job_id=job_id, payload_identity=payload_identity, source_id=source_id
+            )
         if spool.finished:
             return spool
         spool.enqueue_directory("")

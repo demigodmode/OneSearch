@@ -109,7 +109,9 @@ def test_directory_membership_is_fenced_across_interrupted_claim(tmp_path: Path)
 def test_directory_claim_is_atomic_across_two_open_connections(tmp_path: Path):
     first = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     first.enqueue_directory("")
-    second = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    second = ScanSpool.open(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source", resume=True
+    )
 
     assert first.next_directory() == ""
     assert second.next_directory() is None
@@ -174,3 +176,26 @@ def test_finish_rejects_claimed_or_pending_directory(tmp_path: Path):
     spool.enqueue_directory("")
     with pytest.raises(RuntimeError, match="claimed|pending"):
         spool.finish()
+
+
+def test_lifecycle_marker_fences_deleted_spool_and_payload_mismatch(tmp_path: Path):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.close()
+    database = next((tmp_path / "scan-spool").glob("*.sqlite3"))
+    database.unlink()
+
+    with pytest.raises(RuntimeError, match="missing"):
+        ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    with pytest.raises(RuntimeError, match="lifecycle"):
+        ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+
+def test_lifecycle_marker_requires_matching_payload_and_explicit_resume(tmp_path: Path):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    with pytest.raises(RuntimeError, match="resume"):
+        ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.close()
+
+    with pytest.raises(RuntimeError, match="payload"):
+        ScanSpool.resume(tmp_path, job_id="job", payload_identity="different", source_id="source")
+    assert ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
