@@ -306,6 +306,27 @@ def test_run_prints_docker_auto_update_notice(monkeypatch, tmp_path):
     assert "credential is unavailable" in result.output
 
 
+def test_run_continues_after_native_update_transport_failure(monkeypatch, tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    _config(config, root)
+    config.write_text(config.read_text() + "auto_update = true\n")
+    seen = []
+
+    monkeypatch.setattr("onesearch_agent.cli.stage_and_launch", lambda **kwargs: (_ for _ in ()).throw(OSError("timeout")))
+    monkeypatch.setattr("onesearch_agent.cli.credential_store", lambda value: SimpleNamespace(load=lambda: "token"))
+
+    async def runtime(client, **kwargs):
+        seen.append(kwargs["update_reporter"].report().error_code)
+        raise AgentRevoked("agent revoked")
+
+    monkeypatch.setattr("onesearch_agent.cli.run_runtime", runtime)
+    result = CliRunner().invoke(main, ["--config", str(config), "run"])
+
+    assert seen == ["network"] and "agent revoked" in result.output
+
+
 @pytest.mark.parametrize("error", [AgentDisabled("disabled"), AgentIncompatible("incompatible")])
 def test_run_preserves_other_terminal_agent_errors(tmp_path: Path, monkeypatch, error):
     root = tmp_path / "root"

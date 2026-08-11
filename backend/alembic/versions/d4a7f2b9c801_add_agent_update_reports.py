@@ -13,6 +13,11 @@ branch_labels = None
 depends_on = None
 
 
+def _clear_legacy_auto_update_statement():
+    agents = sa.table("agents", sa.column("auto_update", sa.Boolean()))
+    return sa.update(agents).where(agents.c.auto_update.is_(False)).values(auto_update=None)
+
+
 def upgrade() -> None:
     with op.batch_alter_table("agents") as batch:
         batch.alter_column("auto_update", existing_type=sa.Boolean(), nullable=True, server_default=None)
@@ -22,7 +27,7 @@ def upgrade() -> None:
         batch.add_column(sa.Column("update_checked_at", sa.DateTime(), nullable=True))
         batch.add_column(sa.Column("update_error_code", sa.String(length=32), nullable=True))
     # Pre-reporting rows inherited the old server default and did not state a local preference.
-    op.execute("UPDATE agents SET auto_update = NULL WHERE auto_update = 0")
+    op.execute(_clear_legacy_auto_update_statement())
 
 
 def downgrade() -> None:

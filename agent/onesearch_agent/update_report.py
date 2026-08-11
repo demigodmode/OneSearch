@@ -54,7 +54,10 @@ class UpdateReporter:
 
     def record_install_error(self, error):
         message = str(error).lower()
-        code = "install_unavailable" if "require" in message or "unavailable" in message else "install_failed"
+        if isinstance(error, OSError):
+            code = "network"
+        else:
+            code = "install_unavailable" if "require" in message or "unavailable" in message else "install_failed"
         self._report = AgentUpdateReport(
             auto_update=self.auto_update, runtime_kind=self._report.runtime_kind,
             status="error", checked_at=int(self.clock()), error_code=code,
