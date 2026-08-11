@@ -157,7 +157,7 @@ def run(ctx):
                     config=value, platform=_update_platform(), version=__version__,
                     current_binary=Path(sys.executable), managed=_linux_systemd_managed(), notify=click.echo,
                 )
-            except (UpdateError, OSError) as error:
+            except (UpdateError, OSError, RuntimeError) as error:
                 reporter.record_install_error(error)
                 click.echo(f"Automatic update deferred: {error}", err=True)
         token = credential_store(value).load()

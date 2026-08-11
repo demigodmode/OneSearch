@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.error import URLError
 
 import pytest
 from click.testing import CliRunner
@@ -314,7 +315,7 @@ def test_run_continues_after_native_update_transport_failure(monkeypatch, tmp_pa
     config.write_text(config.read_text() + "auto_update = true\n")
     seen = []
 
-    monkeypatch.setattr("onesearch_agent.cli.stage_and_launch", lambda **kwargs: (_ for _ in ()).throw(OSError("timeout")))
+    monkeypatch.setattr("onesearch_agent.cli.stage_and_launch", lambda **kwargs: (_ for _ in ()).throw(URLError("timeout")))
     monkeypatch.setattr("onesearch_agent.cli.credential_store", lambda value: SimpleNamespace(load=lambda: "token"))
 
     async def runtime(client, **kwargs):
@@ -325,6 +326,26 @@ def test_run_continues_after_native_update_transport_failure(monkeypatch, tmp_pa
     result = CliRunner().invoke(main, ["--config", str(config), "run"])
 
     assert seen == ["network"] and "agent revoked" in result.output
+
+
+def test_run_continues_after_native_update_launcher_failure(monkeypatch, tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    _config(config, root)
+    config.write_text(config.read_text() + "auto_update = true\n")
+    seen = []
+    monkeypatch.setattr("onesearch_agent.cli.stage_and_launch", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("updater helper missing")))
+    monkeypatch.setattr("onesearch_agent.cli.credential_store", lambda value: SimpleNamespace(load=lambda: "token"))
+
+    async def runtime(client, **kwargs):
+        seen.append(kwargs["update_reporter"].report().error_code)
+        raise AgentRevoked("agent revoked")
+
+    monkeypatch.setattr("onesearch_agent.cli.run_runtime", runtime)
+    result = CliRunner().invoke(main, ["--config", str(config), "run"])
+
+    assert seen == ["install_unavailable"] and "agent revoked" in result.output
 
 
 @pytest.mark.parametrize("error", [AgentDisabled("disabled"), AgentIncompatible("incompatible")])

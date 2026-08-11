@@ -358,7 +358,7 @@ def _run_service(stop_event) -> None:
                 config=config, platform="win32-x64", version=__version__,
                 current_binary=__import__("pathlib").Path(sys.executable), managed=True,
             )
-        except (UpdateError, OSError) as error:
+        except (UpdateError, OSError, RuntimeError) as error:
             reporter.record_install_error(error)
     token = machine_credential()
 

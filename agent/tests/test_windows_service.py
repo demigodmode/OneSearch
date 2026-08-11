@@ -3,6 +3,7 @@ import importlib
 import os
 from types import SimpleNamespace
 from unittest.mock import Mock
+from urllib.error import URLError
 
 import pytest
 
@@ -592,12 +593,31 @@ def test_run_service_continues_after_native_update_transport_failure(monkeypatch
     monkeypatch.setattr(module, "service_config", lambda: "C:/agent.toml")
     monkeypatch.setattr(module, "machine_credential", lambda: "secret")
     monkeypatch.setattr(module, "win32event", SimpleNamespace(WaitForSingleObject=lambda *_: 0))
-    monkeypatch.setattr(module, "stage_and_launch", lambda **kwargs: (_ for _ in ()).throw(OSError("timeout")))
+    monkeypatch.setattr(module, "stage_and_launch", lambda **kwargs: (_ for _ in ()).throw(URLError("timeout")))
     monkeypatch.setattr(module, "_service_dependencies", lambda: (lambda *_: Client(), lambda value: value, lambda value: config, lambda value: None, runtime))
 
     module._run_service("event")
 
     assert seen["update_reporter"].report().error_code == "network"
+
+
+def test_run_service_continues_after_native_update_launcher_failure(monkeypatch, tmp_path):
+    module = importlib.import_module("onesearch_agent.windows_service")
+    config = SimpleNamespace(server_url="http://server", auto_update=True, state_dir=tmp_path)
+    seen = {}
+    class Client:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+    async def runtime(client, **kwargs): seen.update(client=client, **kwargs)
+    monkeypatch.setattr(module, "service_config", lambda: "C:/agent.toml")
+    monkeypatch.setattr(module, "machine_credential", lambda: "secret")
+    monkeypatch.setattr(module, "win32event", SimpleNamespace(WaitForSingleObject=lambda *_: 0))
+    monkeypatch.setattr(module, "stage_and_launch", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("updater helper missing")))
+    monkeypatch.setattr(module, "_service_dependencies", lambda: (lambda *_: Client(), lambda value: value, lambda value: config, lambda value: None, runtime))
+
+    module._run_service("event")
+
+    assert seen["update_reporter"].report().error_code == "install_unavailable"
 
 
 async def _runtime(seen, value, stopped, **kwargs):

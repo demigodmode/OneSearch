@@ -4,6 +4,7 @@ import io
 import json
 import sys
 from pathlib import Path
+from urllib.error import URLError
 
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -13,6 +14,7 @@ from onesearch_agent.update import MAX_ARTIFACT_BYTES, UpdateError, UpdateManage
 from onesearch_agent.update_runtime import native_update_layout, stage_and_launch
 from onesearch_agent.updater import UpdateHelper, UpdateTransaction
 from onesearch_agent.updater_cli import ServiceManager, launch
+from onesearch_shared import MINIMUM_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION
 
 
 def test_update_reporter_checks_disabled_auto_update_without_staging(tmp_path):
@@ -48,7 +50,7 @@ def test_update_reporter_converts_manifest_transport_failure_to_hourly_network_r
 
     class Updates:
         def check(self, *, auto_update):
-            raise OSError("connection reset")
+            raise URLError("connection reset")
 
     reporter = UpdateReporter(
         auto_update=False, platform="linux-amd64", version="1.4.0", state_dir=tmp_path,
@@ -77,7 +79,16 @@ def test_update_reporter_reconciles_changed_local_auto_update_and_checks_again(t
 
     assert reporter.report().auto_update is True
     assert reporter.check_if_due() is True and updates.calls == 1
-from onesearch_shared import MINIMUM_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION
+
+
+def test_update_reporter_marks_local_permission_failure_as_install_unavailable(tmp_path):
+    from onesearch_agent.update_report import UpdateReporter
+
+    reporter = UpdateReporter(auto_update=True, platform="linux-amd64", version="1.4.0", state_dir=tmp_path, clock=lambda: 1_700_000_000)
+
+    reporter.record_install_error(PermissionError("state volume denied"))
+
+    assert reporter.report().error_code == "install_unavailable"
 
 
 def test_update_manager_is_available():
