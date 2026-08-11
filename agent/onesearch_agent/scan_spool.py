@@ -17,7 +17,7 @@ from onesearch_shared import (
     remote_path_hash,
 )
 
-_SCHEMA_VERSION = "2"
+_SCHEMA_VERSION = "3"
 
 
 class ScanSpoolError(RuntimeError):
@@ -31,6 +31,11 @@ class ScanSpool:
         self._connection = connection
         self.job_id = job_id
         self.source_id = source_id
+
+    @classmethod
+    def exists(cls, state_dir: Path, job_id: str) -> bool:
+        key = hashlib.sha256(job_id.encode()).hexdigest()
+        return (state_dir / "scan-spool" / f"{key}.sqlite3").is_file()
 
     @classmethod
     def open(
@@ -77,7 +82,13 @@ class ScanSpool:
                 )
                 connection.executemany(
                     "INSERT INTO metadata(key, value) VALUES (?, ?)",
-                    (("finished", "0"), ("inventory_count", "0"), ("inventory_digest", "")),
+                    (
+                        ("finished", "0"),
+                        ("inventory_count", "0"),
+                        ("inventory_digest", ""),
+                        ("page_count", "0"),
+                        ("final_cursor", "0"),
+                    ),
                 )
             else:
                 cls._validate(connection)
@@ -86,6 +97,8 @@ class ScanSpool:
                     "SELECT sequence FROM pages ORDER BY sequence"
                 ):
                     spool.page(sequence)
+                if spool.finished:
+                    spool._validate_finished_page_chain()
                 if resume:
                     connection.execute(
                         "UPDATE directories SET state = 'pending' WHERE state = 'claimed'"
@@ -130,28 +143,43 @@ class ScanSpool:
             "finished",
             "inventory_count",
             "inventory_digest",
+            "page_count",
+            "final_cursor",
         }
         metadata = dict(connection.execute("SELECT key, value FROM metadata"))
         if not required.issubset(metadata) or metadata["schema_version"] != _SCHEMA_VERSION:
             raise ScanSpoolError("scan spool semantic corruption")
+        rows = list(
+            connection.execute(
+                "SELECT sequence, start_position, next_position, checksum FROM pages ORDER BY sequence"
+            )
+        )
         if metadata["finished"] == "1":
             count, digest = ScanSpool._inventory_signature(connection)
             if metadata["inventory_count"] != str(count) or metadata["inventory_digest"] != digest:
                 raise ScanSpoolError("scan spool semantic corruption")
-        rows = connection.execute(
-            "SELECT sequence, start_position, next_position, checksum FROM pages ORDER BY sequence"
-        )
+            try:
+                page_count = int(metadata["page_count"])
+                final_cursor = int(metadata["final_cursor"])
+            except ValueError as error:
+                raise ScanSpoolError("scan spool semantic corruption") from error
+            if page_count != len(rows) or final_cursor != count:
+                raise ScanSpoolError("scan spool semantic corruption")
+        elif rows or metadata["page_count"] != "0" or metadata["final_cursor"] != "0":
+            raise ScanSpoolError("scan spool semantic corruption")
         expected_start = 0
-        for sequence, start, next_position, checksum in rows:
+        for expected_sequence, (sequence, start, next_position, checksum) in enumerate(rows):
             empty_initial = sequence == 0 and start == 0 and next_position == 0
             if (
-                sequence < 0
+                sequence != expected_sequence
                 or start != expected_start
                 or (next_position <= start and not empty_initial)
                 or len(checksum) != 64
             ):
                 raise ScanSpoolError("scan spool semantic corruption")
             expected_start = next_position
+        if metadata["finished"] == "1" and expected_start != int(metadata["final_cursor"]):
+            raise ScanSpoolError("scan spool semantic corruption")
 
     @staticmethod
     def _inventory_signature(connection: sqlite3.Connection) -> tuple[int, str]:
@@ -202,10 +230,34 @@ class ScanSpool:
             raise
 
     def finish(self) -> None:
+        if self._connection.execute(
+            "SELECT 1 FROM directories WHERE state != 'complete' LIMIT 1"
+        ).fetchone():
+            raise ScanSpoolError("scan spool has claimed or pending directories")
+        if self._connection.execute("SELECT 1 FROM pages LIMIT 1").fetchone():
+            raise ScanSpoolError("scan spool page state is invalid before finish")
         count, digest = self._inventory_signature(self._connection)
+        sequence = 0
+        start = 0
+        while True:
+            page, next_position = self._build_page(sequence, start)
+            self._connection.execute(
+                "INSERT INTO pages VALUES (?, ?, ?, ?)",
+                (sequence, start, next_position, page.checksum),
+            )
+            if page.page.final:
+                break
+            sequence += 1
+            start = next_position
         self._connection.executemany(
             "UPDATE metadata SET value = ? WHERE key = ?",
-            (("1", "finished"), (str(count), "inventory_count"), (digest, "inventory_digest")),
+            (
+                ("1", "finished"),
+                (str(count), "inventory_count"),
+                (digest, "inventory_digest"),
+                (str(sequence + 1), "page_count"),
+                (str(next_position), "final_cursor"),
+            ),
         )
 
     @property
@@ -303,31 +355,23 @@ class ScanSpool:
             (sequence,),
         ).fetchone()
         if record is None:
-            if (
-                sequence
-                and self._connection.execute(
-                    "SELECT 1 FROM pages WHERE sequence = ?", (sequence - 1,)
-                ).fetchone()
-                is None
-            ):
-                raise ScanSpoolError("scan page sequence gap")
-            start = (
-                0
-                if not sequence
-                else self._connection.execute(
-                    "SELECT next_position FROM pages WHERE sequence = ?", (sequence - 1,)
-                ).fetchone()[0]
-            )
-            result, next_position = self._build_page(sequence, start)
-            self._connection.execute(
-                "INSERT INTO pages VALUES (?, ?, ?, ?)",
-                (sequence, start, next_position, result.checksum),
-            )
-            return result
+            raise ScanSpoolError("scan page sequence gap or semantic corruption")
         result, next_position = self._build_page(sequence, int(record[0]))
         if next_position != record[1] or result.checksum != record[2]:
             raise ScanSpoolError("scan spool semantic corruption")
         return result
+
+    def _validate_finished_page_chain(self) -> None:
+        expected_pages = int(self._value("page_count"))
+        final_pages = 0
+        for sequence in range(expected_pages):
+            page = self.page(sequence)
+            if page.page.final:
+                final_pages += 1
+                if sequence != expected_pages - 1:
+                    raise ScanSpoolError("scan spool semantic corruption")
+        if final_pages != 1:
+            raise ScanSpoolError("scan spool semantic corruption")
 
     def _build_page(self, sequence: int, start: int) -> tuple[ScanManifestPage, int]:
         total = self._connection.execute("SELECT COUNT(*) FROM files").fetchone()[0]
@@ -336,27 +380,33 @@ class ScanSpool:
         rows = self._connection.execute(
             "SELECT path, size_bytes, modified_at FROM files WHERE position >= ? ORDER BY position LIMIT ?",
             (start, REMOTE_MAX_MANIFEST_PAGE_ENTRIES),
-        )
-        files: list[ScanFile] = []
-        for path, size_bytes, modified_at in rows:
-            candidate = ScanFile(
+        ).fetchall()
+        candidates = [
+            ScanFile(
                 path=path,
                 path_hash=remote_path_hash(path),
                 size_bytes=size_bytes,
                 modified_at=modified_at,
                 content_hash=None,
             )
+            for path, size_bytes, modified_at in rows
+        ]
+        low, high = 0, len(candidates)
+        while low < high:
+            middle = (low + high + 1) // 2
             candidate_page = self._make_page(
                 sequence,
-                [*files, candidate],
-                start + len(files) + 1 >= total,
-                start + len(files) + 1,
+                candidates[:middle],
+                start + middle >= total,
+                start + middle,
             )
-            if len(canonical_wire_bytes(candidate_page)) > REMOTE_MAX_MANIFEST_PAGE_BYTES:
-                if not files:
-                    raise ScanSpoolError("single scan entry exceeds page byte limit")
-                break
-            files.append(candidate)
+            if len(canonical_wire_bytes(candidate_page)) <= REMOTE_MAX_MANIFEST_PAGE_BYTES:
+                low = middle
+            else:
+                high = middle - 1
+        if candidates and not low:
+            raise ScanSpoolError("single scan entry exceeds page byte limit")
+        files = candidates[:low]
         next_position = start + len(files)
         return self._make_page(
             sequence, files, next_position >= total, next_position

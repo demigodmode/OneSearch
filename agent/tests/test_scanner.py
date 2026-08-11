@@ -352,3 +352,37 @@ def test_v3_scan_resumes_interrupted_directory_without_mixing_metadata(tmp_path,
         resume=True,
     )
     assert [item.path for item in resumed.page(0).page.files] == ["one.txt", "two.txt"]
+
+
+def test_v3_default_retry_cannot_finalize_an_unfinished_spool(tmp_path, monkeypatch):
+    entry = scanner_module.SafeDirectoryEntry("one.txt", "one.txt", False, 1, 1)
+
+    def interrupted(*_args):
+        yield entry
+        raise scanner_module.PathOutsideAllowedRoots("interrupted")
+
+    monkeypatch.setattr(scanner_module, "iter_confined_entries", interrupted)
+    scanner = RemoteScanner("root", [AllowedRoot(root_id="root", path=str(tmp_path))])
+    with pytest.raises(scanner_module.PathOutsideAllowedRoots):
+        scanner.scan_v3(
+            state_dir=tmp_path / "state",
+            job_id="job",
+            source_id="source",
+            payload_identity="payload",
+        )
+
+    with pytest.raises(scanner_module.PathOutsideAllowedRoots):
+        scanner.scan_v3(
+            state_dir=tmp_path / "state",
+            job_id="job",
+            source_id="source",
+            payload_identity="payload",
+        )
+    spool = scanner_module.ScanSpool.open(
+        tmp_path / "state",
+        job_id="job",
+        payload_identity="payload",
+        source_id="source",
+        resume=True,
+    )
+    assert spool.finished is False

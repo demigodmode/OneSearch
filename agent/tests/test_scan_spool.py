@@ -152,3 +152,25 @@ def test_open_rejects_persisted_page_checksum_rewrite(tmp_path: Path):
 
     with pytest.raises(RuntimeError, match="semantic"):
         ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+
+def test_open_rejects_missing_or_truncated_finished_page_chain(tmp_path: Path):
+    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.append_files((f"{number}.txt", number, number) for number in range(1_001))
+    spool.finish()
+    spool.close()
+    database = next((tmp_path / "scan-spool").glob("*.sqlite3"))
+    connection = sqlite3.connect(database)
+    connection.execute("DELETE FROM pages WHERE sequence = 1")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(RuntimeError, match="semantic"):
+        ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+
+def test_finish_rejects_claimed_or_pending_directory(tmp_path: Path):
+    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.enqueue_directory("")
+    with pytest.raises(RuntimeError, match="claimed|pending"):
+        spool.finish()
