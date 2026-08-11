@@ -284,3 +284,67 @@ def test_page_entry_failure_makes_manifest_incomplete_without_filesystem_reconci
     assert manifest.complete is False
     assert manifest.files == []
     assert manifest.failures[0].error.startswith("raced.txt:")
+
+
+def test_v3_scan_spools_only_nested_source_inventory_and_resumes_without_rewalking(
+    tmp_path, monkeypatch
+):
+    (tmp_path / "outside.txt").write_text("outside")
+    nested = tmp_path / "team"
+    nested.mkdir()
+    (nested / "inside.txt").write_text("inside")
+    scanner = RemoteScanner(
+        "root", [AllowedRoot(root_id="root", path=str(tmp_path))], source_prefix="team"
+    )
+
+    spool = scanner.scan_v3(
+        state_dir=tmp_path / "state",
+        job_id="job",
+        source_id="source",
+        payload_identity="v3-payload",
+    )
+    page = spool.page(0)
+    monkeypatch.setattr(
+        scanner_module, "iter_confined_entries", lambda *args: pytest.fail("rewalked")
+    )
+
+    resumed = scanner.scan_v3(
+        state_dir=tmp_path / "state",
+        job_id="job",
+        source_id="source",
+        payload_identity="v3-payload",
+    )
+
+    assert [item.path for item in page.page.files] == ["inside.txt"]
+    assert resumed.page(0).checksum == page.checksum
+
+
+def test_v3_scan_resumes_interrupted_directory_without_mixing_metadata(tmp_path, monkeypatch):
+    entries = [
+        scanner_module.SafeDirectoryEntry("one.txt", "one.txt", False, 1, 1),
+        scanner_module.SafeDirectoryEntry("two.txt", "two.txt", False, 2, 2),
+    ]
+    calls = 0
+
+    def interrupted(*_args):
+        nonlocal calls
+        calls += 1
+        yield entries[0]
+        if calls == 1:
+            raise scanner_module.PathOutsideAllowedRoots("interrupted")
+        yield entries[1]
+
+    monkeypatch.setattr(scanner_module, "iter_confined_entries", interrupted)
+    scanner = RemoteScanner("root", [AllowedRoot(root_id="root", path=str(tmp_path))])
+    with pytest.raises(scanner_module.PathOutsideAllowedRoots):
+        scanner.scan_v3(
+            state_dir=tmp_path / "state",
+            job_id="job",
+            source_id="source",
+            payload_identity="payload",
+        )
+
+    resumed = scanner.scan_v3(
+        state_dir=tmp_path / "state", job_id="job", source_id="source", payload_identity="payload"
+    )
+    assert [item.path for item in resumed.page(0).page.files] == ["one.txt", "two.txt"]

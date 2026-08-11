@@ -86,6 +86,86 @@ def list_confined_entries(
     return _list_confined_entries_with_failures(root_id, relative, roots, max_entries)[0]
 
 
+def iter_confined_entries(
+    root_id: str, relative: str, roots: list[AllowedRoot]
+) -> Iterator[SafeDirectoryEntry]:
+    """Yield a directory one no-follow entry at a time for durable scan spooling."""
+    if os.name == "nt":
+        root_handle = directory_handle = None
+        try:
+            root_handle, root_path, directory_handle, directory_path = _windows_verified_directory(
+                root_id, relative, roots
+            )
+            for name in _windows_directory_names(directory_handle):
+                child = None
+                try:
+                    child = _windows_open_relative(directory_handle, name)
+                    if _windows_is_reparse_point(child):
+                        continue
+                    final = _windows_final_path(child)
+                    if not (
+                        _windows_is_within(final, root_path)
+                        and _windows_is_within(final, directory_path)
+                    ):
+                        raise OSError("entry escaped verified directory")
+                    is_dir, size, mtime = _windows_handle_metadata(child)
+                    yield SafeDirectoryEntry(
+                        f"{relative}/{name}".strip("/"), name, is_dir, size, mtime
+                    )
+                finally:
+                    _windows_close(child)
+            return
+        except OSError as error:
+            raise PathOutsideAllowedRoots("path cannot be listed safely") from error
+        finally:
+            _windows_close(directory_handle)
+            _windows_close(root_handle)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    directory_fd = -1
+    try:
+        directory_fd = os.open(_root(root_id, roots), flags)
+        for part in _relative_parts(relative):
+            child = os.open(part, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child
+        with os.scandir(directory_fd) as entries:
+            for entry in entries:
+                fd = -1
+                try:
+                    fd = os.open(
+                        entry.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd
+                    )
+                    info = os.fstat(fd)
+                    if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+                        continue
+                    yield SafeDirectoryEntry(
+                        f"{relative}/{entry.name}".strip("/"),
+                        entry.name,
+                        stat.S_ISDIR(info.st_mode),
+                        info.st_size,
+                        info.st_mtime_ns,
+                    )
+                except OSError as error:
+                    try:
+                        mode = os.stat(
+                            entry.name, dir_fd=directory_fd, follow_symlinks=False
+                        ).st_mode
+                    except OSError:
+                        mode = 0
+                    if not stat.S_ISLNK(mode):
+                        raise PathOutsideAllowedRoots(
+                            "directory entry cannot be listed safely"
+                        ) from error
+                finally:
+                    if fd != -1:
+                        os.close(fd)
+    except OSError as error:
+        raise PathOutsideAllowedRoots("path cannot be listed safely") from error
+    finally:
+        if directory_fd != -1:
+            os.close(directory_fd)
+
+
 def _list_confined_entries_with_failures(
     root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int
 ) -> tuple[list[SafeDirectoryEntry], list[SafeDirectoryFailure]]:
@@ -350,11 +430,10 @@ def _windows_nt_error(ntdll, status: int) -> OSError:
     return OSError(ntdll.RtlNtStatusToDosError(status), "native directory operation failed")
 
 
-def _windows_directory_names(handle) -> list[str]:
+def _windows_directory_names(handle) -> Iterator[str]:
     ctypes, ntdll, io_status_block, _unicode, _attributes = _windows_ntdll()
     buffer = ctypes.create_string_buffer(65536)
     iosb = io_status_block()
-    names: list[str] = []
     restart = 1
     while True:
         status = ntdll.NtQueryDirectoryFile(
@@ -372,7 +451,7 @@ def _windows_directory_names(handle) -> list[str]:
         )
         restart = 0
         if (status & 0xFFFFFFFF) == 0x80000006:  # STATUS_NO_MORE_FILES
-            return names
+            return
         if status < 0:
             raise _windows_nt_error(ntdll, status)
         offset = 0
@@ -381,7 +460,7 @@ def _windows_directory_names(handle) -> list[str]:
             name_length = int.from_bytes(buffer[offset + 8 : offset + 12], "little")
             name = bytes(buffer[offset + 12 : offset + 12 + name_length]).decode("utf-16-le")
             if name not in {".", ".."}:
-                names.append(name)
+                yield name
             if not next_offset:
                 break
             offset += next_offset

@@ -12,8 +12,10 @@ from .paths import (
     PathOutsideAllowedRoots,
     SafeDirectoryEntry,
     confined_relative,
+    iter_confined_entries,
     list_confined_entries_page,
 )
+from .scan_spool import ScanSpool
 
 
 def canonical_path(path: str) -> str:
@@ -154,3 +156,32 @@ class RemoteScanner:
             failures=failures,
             complete=True,
         )
+
+    def scan_v3(
+        self, *, state_dir, job_id: str, source_id: str, payload_identity: str
+    ) -> ScanSpool:
+        """Durably traverse the selected source and return its resumable v3 inventory."""
+        spool = ScanSpool.open(
+            state_dir,
+            job_id=job_id,
+            payload_identity=payload_identity,
+            source_id=source_id,
+        )
+        if spool.finished:
+            return spool
+        spool.enqueue_directory("")
+        while (directory := spool.next_directory()) is not None:
+            root_directory = confined_relative(self.source_prefix, directory)
+            for entry in iter_confined_entries(self.root_id, root_directory, self.roots):
+                prefix = f"{self.source_prefix}/" if self.source_prefix else ""
+                if prefix and not entry.relative_path.startswith(prefix):
+                    raise PathOutsideAllowedRoots("listed path escaped selected source")
+                path = entry.relative_path[len(prefix) :]
+                if entry.is_dir:
+                    if not self._excluded(path):
+                        spool.enqueue_directory(path)
+                elif self._included(path) and not self._excluded(path):
+                    spool.append_file(path, entry.size_bytes, entry.modified_at_ns)
+            spool.complete_directory(directory)
+        spool.finish()
+        return spool
