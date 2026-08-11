@@ -209,6 +209,7 @@ def test_public_open_cannot_create_untracked_spool(tmp_path: Path):
 
 def test_terminal_cleanup_removes_exact_lifecycle_pair_idempotently(tmp_path: Path):
     spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.finish()
     spool.close()
 
     assert (
@@ -230,3 +231,44 @@ def test_terminal_cleanup_fails_closed_for_partial_lifecycle(tmp_path: Path):
 
     with pytest.raises(RuntimeError, match="missing"):
         ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+
+def test_lifecycle_mutations_request_parent_directory_fsync(tmp_path: Path, monkeypatch):
+    synced = []
+    monkeypatch.setattr(
+        ScanSpool, "_fsync_directory", staticmethod(lambda path: synced.append(path))
+    )
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.finish()
+    spool.close()
+    ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+    assert len(synced) >= 4
+
+
+def test_cleanup_rejects_unfinished_or_unclaimed_terminal_state(tmp_path: Path):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.enqueue_directory("")
+    spool.close()
+
+    with pytest.raises(RuntimeError, match="terminal"):
+        ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+
+def test_cleanup_keeps_recoverable_intent_if_spool_delete_fails(tmp_path: Path, monkeypatch):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.finish()
+    spool.close()
+    original = ScanSpool._remove_file
+
+    def fail_spool(path):
+        if path.suffix == ".sqlite3":
+            raise OSError("locked")
+        original(path)
+
+    monkeypatch.setattr(ScanSpool, "_remove_file", staticmethod(fail_spool))
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+    assert ScanSpool.lifecycle_exists(tmp_path, "job")
+    assert ScanSpool.exists(tmp_path, "job")

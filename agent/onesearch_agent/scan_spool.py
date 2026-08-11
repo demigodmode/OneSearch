@@ -61,6 +61,7 @@ class ScanSpool:
                 handle.write(json.dumps(payload, sort_keys=True, separators=(",", ":")))
                 handle.flush()
                 os.fsync(handle.fileno())
+            cls._fsync_directory(marker.parent)
         except OSError as error:
             raise ScanSpoolError("scan lifecycle marker cannot be created") from error
         return cls._open(
@@ -75,11 +76,7 @@ class ScanSpool:
         cls, state_dir: Path, *, job_id: str, payload_identity: str, source_id: str
     ) -> ScanSpool:
         marker = cls._marker_path(state_dir, job_id)
-        try:
-            with marker.open(encoding="utf-8") as handle:
-                stored = json.load(handle)
-        except (OSError, json.JSONDecodeError) as error:
-            raise ScanSpoolError("scan lifecycle marker is missing or corrupt") from error
+        stored = cls._read_marker(marker)
         if stored != cls._marker_payload(job_id, payload_identity, source_id):
             raise ScanSpoolError("scan lifecycle payload mismatch")
         return cls._open(
@@ -91,8 +88,50 @@ class ScanSpool:
         )
 
     @staticmethod
-    def _marker_payload(job_id: str, payload_identity: str, source_id: str) -> dict[str, str]:
-        return {"job_id": job_id, "payload_identity": payload_identity, "source_id": source_id}
+    def _marker_payload(
+        job_id: str, payload_identity: str, source_id: str, *, cleanup_intent: bool = False
+    ) -> dict[str, str | bool]:
+        return {
+            "job_id": job_id,
+            "payload_identity": payload_identity,
+            "source_id": source_id,
+            "cleanup_intent": cleanup_intent,
+        }
+
+    @staticmethod
+    def _read_marker(marker: Path) -> dict[str, str | bool]:
+        try:
+            with marker.open(encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, json.JSONDecodeError) as error:
+            raise ScanSpoolError("scan lifecycle marker is missing or corrupt") from error
+
+    @classmethod
+    def _write_marker(cls, marker: Path, payload: dict[str, str | bool]) -> None:
+        try:
+            with marker.open("w", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+                handle.flush()
+                os.fsync(handle.fileno())
+            cls._fsync_directory(marker.parent)
+        except OSError as error:
+            raise ScanSpoolError("scan lifecycle marker cannot be updated") from error
+
+    @staticmethod
+    def _fsync_directory(directory: Path) -> None:
+        """Best-effort directory durability; Windows does not support opening all directories."""
+        try:
+            descriptor = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        except OSError:
+            pass
+
+    @staticmethod
+    def _remove_file(path: Path) -> None:
+        path.unlink()
 
     @staticmethod
     def _spool_path(state_dir: Path, job_id: str) -> Path:
@@ -112,19 +151,45 @@ class ScanSpool:
         spool = cls._spool_path(state_dir, job_id)
         if not marker.exists() and not spool.exists():
             return False
-        if not marker.is_file() or not spool.is_file():
+        if not marker.is_file():
             raise ScanSpoolError("scan lifecycle cleanup found a missing component")
-        try:
-            with marker.open(encoding="utf-8") as handle:
-                stored = json.load(handle)
-        except (OSError, json.JSONDecodeError) as error:
-            raise ScanSpoolError("scan lifecycle cleanup marker is corrupt") from error
-        if stored != cls._marker_payload(job_id, payload_identity, source_id):
+        stored = cls._read_marker(marker)
+        normal = cls._marker_payload(job_id, payload_identity, source_id)
+        intent = cls._marker_payload(job_id, payload_identity, source_id, cleanup_intent=True)
+        if stored not in (normal, intent):
             raise ScanSpoolError("scan lifecycle cleanup payload mismatch")
+        if not spool.exists():
+            if stored != intent:
+                raise ScanSpoolError("scan lifecycle cleanup found a missing component")
+            cls._remove_file(marker)
+            cls._fsync_directory(marker.parent)
+            return True
+        if not spool.is_file():
+            raise ScanSpoolError("scan lifecycle cleanup found a missing component")
+        terminal = cls._open(
+            state_dir,
+            job_id=job_id,
+            payload_identity=payload_identity,
+            source_id=source_id,
+            resume=True,
+        )
+        try:
+            if (
+                not terminal.finished
+                or terminal._connection.execute(
+                    "SELECT 1 FROM directories WHERE state != 'complete' LIMIT 1"
+                ).fetchone()
+            ):
+                raise ScanSpoolError("scan lifecycle cleanup requires a terminal spool")
+        finally:
+            terminal.close()
+        cls._write_marker(marker, intent)
         # The future terminal-job owner calls this only after all spool handles are closed.
         try:
-            marker.unlink()
-            spool.unlink()
+            cls._remove_file(spool)
+            cls._fsync_directory(marker.parent)
+            cls._remove_file(marker)
+            cls._fsync_directory(marker.parent)
         except OSError as error:
             raise ScanSpoolError("scan lifecycle cleanup failed") from error
         return True
