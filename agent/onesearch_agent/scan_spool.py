@@ -48,6 +48,8 @@ class ScanSpool:
     ) -> ScanSpool:
         """Atomically begin a new lifecycle; terminal-job cleanup owns marker removal later."""
         marker = cls._marker_path(state_dir, job_id)
+        if cls._spool_path(state_dir, job_id).exists():
+            raise ScanSpoolError("scan spool exists without a new lifecycle")
         marker.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         payload = cls._marker_payload(job_id, payload_identity, source_id)
         try:
@@ -61,7 +63,7 @@ class ScanSpool:
                 os.fsync(handle.fileno())
         except OSError as error:
             raise ScanSpoolError("scan lifecycle marker cannot be created") from error
-        return cls.open(
+        return cls._open(
             state_dir,
             job_id=job_id,
             payload_identity=payload_identity,
@@ -80,7 +82,7 @@ class ScanSpool:
             raise ScanSpoolError("scan lifecycle marker is missing or corrupt") from error
         if stored != cls._marker_payload(job_id, payload_identity, source_id):
             raise ScanSpoolError("scan lifecycle payload mismatch")
-        return cls.open(
+        return cls._open(
             state_dir,
             job_id=job_id,
             payload_identity=payload_identity,
@@ -102,7 +104,38 @@ class ScanSpool:
         return cls._spool_path(state_dir, job_id).with_suffix(".lifecycle")
 
     @classmethod
-    def open(
+    def cleanup(
+        cls, state_dir: Path, *, job_id: str, payload_identity: str, source_id: str
+    ) -> bool:
+        """Terminal-job owners may remove both durable lifecycle artifacts explicitly."""
+        marker = cls._marker_path(state_dir, job_id)
+        spool = cls._spool_path(state_dir, job_id)
+        if not marker.exists() and not spool.exists():
+            return False
+        if not marker.is_file() or not spool.is_file():
+            raise ScanSpoolError("scan lifecycle cleanup found a missing component")
+        try:
+            with marker.open(encoding="utf-8") as handle:
+                stored = json.load(handle)
+        except (OSError, json.JSONDecodeError) as error:
+            raise ScanSpoolError("scan lifecycle cleanup marker is corrupt") from error
+        if stored != cls._marker_payload(job_id, payload_identity, source_id):
+            raise ScanSpoolError("scan lifecycle cleanup payload mismatch")
+        # The future terminal-job owner calls this only after all spool handles are closed.
+        try:
+            marker.unlink()
+            spool.unlink()
+        except OSError as error:
+            raise ScanSpoolError("scan lifecycle cleanup failed") from error
+        return True
+
+    @classmethod
+    def open(cls, *args, **kwargs) -> ScanSpool:
+        """Disallow untracked opens; callers must use create() or resume()."""
+        raise ScanSpoolError("use scan spool create() or resume()")
+
+    @classmethod
+    def _open(
         cls,
         state_dir: Path,
         *,

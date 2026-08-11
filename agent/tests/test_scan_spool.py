@@ -11,7 +11,7 @@ from onesearch_shared import (
 
 
 def test_spool_persists_inventory_and_replays_same_page_after_restart(tmp_path: Path):
-    spool = ScanSpool.open(
+    spool = ScanSpool.create(
         tmp_path,
         job_id="job-1",
         payload_identity="payload-a",
@@ -22,7 +22,7 @@ def test_spool_persists_inventory_and_replays_same_page_after_restart(tmp_path: 
     spool.finish()
 
     first = spool.page(0)
-    reopened = ScanSpool.open(
+    reopened = ScanSpool.resume(
         tmp_path,
         job_id="job-1",
         payload_identity="payload-a",
@@ -33,7 +33,7 @@ def test_spool_persists_inventory_and_replays_same_page_after_restart(tmp_path: 
 
 
 def test_spool_enforces_page_entry_and_wire_bounds_without_collecting_inventory(tmp_path: Path):
-    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     spool.append_files((f"flat/{number:06}.txt", number, number) for number in range(100_001))
     spool.finish()
 
@@ -45,26 +45,28 @@ def test_spool_enforces_page_entry_and_wire_bounds_without_collecting_inventory(
     assert len(canonical_wire_bytes(first)) <= REMOTE_MAX_MANIFEST_PAGE_BYTES
     assert (
         first.checksum
-        == ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+        == ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
         .page(0)
         .checksum
     )
 
 
 def test_spool_fails_closed_for_payload_mismatch_and_corruption(tmp_path: Path):
-    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="original", source_id="source")
+    spool = ScanSpool.create(
+        tmp_path, job_id="job", payload_identity="original", source_id="source"
+    )
     with pytest.raises(RuntimeError, match="payload mismatch"):
-        ScanSpool.open(tmp_path, job_id="job", payload_identity="different", source_id="source")
+        ScanSpool.resume(tmp_path, job_id="job", payload_identity="different", source_id="source")
 
     database = next((tmp_path / "scan-spool").glob("*.sqlite3"))
     spool.close()
     database.write_bytes(b"not sqlite")
     with pytest.raises(RuntimeError, match="corrupt"):
-        ScanSpool.open(tmp_path, job_id="job", payload_identity="original", source_id="source")
+        ScanSpool.resume(tmp_path, job_id="job", payload_identity="original", source_id="source")
 
 
 def test_spool_uses_durable_page_cursor_when_byte_bound_precedes_entry_bound(tmp_path: Path):
-    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     for number in range(10):
         spool.append_file(f"{'x' * 300_000}/{number}.txt", number, number)
     spool.finish()
@@ -82,14 +84,12 @@ def test_spool_uses_durable_page_cursor_when_byte_bound_precedes_entry_bound(tmp
 
 def test_resume_requires_existing_spool_before_connecting(tmp_path: Path):
     with pytest.raises(RuntimeError, match="missing"):
-        ScanSpool.open(
-            tmp_path, job_id="job", payload_identity="payload", source_id="source", resume=True
-        )
+        ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     assert not (tmp_path / "scan-spool").exists()
 
 
 def test_directory_membership_is_fenced_across_interrupted_claim(tmp_path: Path):
-    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     spool.enqueue_directory("")
     claim = spool.next_directory()
     spool.observe_directory_member(claim, "one.txt", False, 1, 1)
@@ -97,8 +97,8 @@ def test_directory_membership_is_fenced_across_interrupted_claim(tmp_path: Path)
     spool.seal_directory_membership(claim)
     spool.close()
 
-    resumed = ScanSpool.open(
-        tmp_path, job_id="job", payload_identity="payload", source_id="source", resume=True
+    resumed = ScanSpool.resume(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
     )
     claim = resumed.next_directory()
     resumed.observe_directory_member(claim, "one.txt", False, 1, 1)
@@ -107,10 +107,10 @@ def test_directory_membership_is_fenced_across_interrupted_claim(tmp_path: Path)
 
 
 def test_directory_claim_is_atomic_across_two_open_connections(tmp_path: Path):
-    first = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    first = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     first.enqueue_directory("")
-    second = ScanSpool.open(
-        tmp_path, job_id="job", payload_identity="payload", source_id="source", resume=True
+    second = ScanSpool.resume(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
     )
 
     assert first.next_directory() == ""
@@ -118,14 +118,14 @@ def test_directory_claim_is_atomic_across_two_open_connections(tmp_path: Path):
 
 
 def test_page_rejects_gaps_and_semantic_tampering(tmp_path: Path):
-    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     spool.finish()
     assert spool.page(0).page.final is True
     with pytest.raises(RuntimeError, match="sequence"):
         spool.page(1)
     spool.close()
 
-    reopened = ScanSpool.open(
+    reopened = ScanSpool.resume(
         tmp_path, job_id="job", payload_identity="payload", source_id="source"
     )
     assert reopened.page(0).page.final
@@ -137,11 +137,11 @@ def test_page_rejects_gaps_and_semantic_tampering(tmp_path: Path):
     connection.commit()
     connection.close()
     with pytest.raises(RuntimeError, match="semantic"):
-        ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+        ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
 
 
 def test_open_rejects_persisted_page_checksum_rewrite(tmp_path: Path):
-    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     spool.append_file("one.txt", 1, 1)
     spool.finish()
     spool.page(0)
@@ -153,11 +153,11 @@ def test_open_rejects_persisted_page_checksum_rewrite(tmp_path: Path):
     connection.close()
 
     with pytest.raises(RuntimeError, match="semantic"):
-        ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+        ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
 
 
 def test_open_rejects_missing_or_truncated_finished_page_chain(tmp_path: Path):
-    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     spool.append_files((f"{number}.txt", number, number) for number in range(1_001))
     spool.finish()
     spool.close()
@@ -168,11 +168,11 @@ def test_open_rejects_missing_or_truncated_finished_page_chain(tmp_path: Path):
     connection.close()
 
     with pytest.raises(RuntimeError, match="semantic"):
-        ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+        ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
 
 
 def test_finish_rejects_claimed_or_pending_directory(tmp_path: Path):
-    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     spool.enqueue_directory("")
     with pytest.raises(RuntimeError, match="claimed|pending"):
         spool.finish()
@@ -199,3 +199,34 @@ def test_lifecycle_marker_requires_matching_payload_and_explicit_resume(tmp_path
     with pytest.raises(RuntimeError, match="payload"):
         ScanSpool.resume(tmp_path, job_id="job", payload_identity="different", source_id="source")
     assert ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+
+def test_public_open_cannot_create_untracked_spool(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="create|resume"):
+        ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    assert not (tmp_path / "scan-spool").exists()
+
+
+def test_terminal_cleanup_removes_exact_lifecycle_pair_idempotently(tmp_path: Path):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.close()
+
+    assert (
+        ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+        is True
+    )
+    assert (
+        ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+        is False
+    )
+    with pytest.raises(RuntimeError, match="missing"):
+        ScanSpool.resume(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+
+def test_terminal_cleanup_fails_closed_for_partial_lifecycle(tmp_path: Path):
+    spool = ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.close()
+    next((tmp_path / "scan-spool").glob("*.sqlite3")).unlink()
+
+    with pytest.raises(RuntimeError, match="missing"):
+        ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")

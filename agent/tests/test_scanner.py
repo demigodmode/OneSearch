@@ -378,11 +378,21 @@ def test_v3_default_retry_cannot_finalize_an_unfinished_spool(tmp_path, monkeypa
             source_id="source",
             payload_identity="payload",
         )
-    spool = scanner_module.ScanSpool.open(
+    spool = scanner_module.ScanSpool.resume(
         tmp_path / "state",
         job_id="job",
         payload_identity="payload",
         source_id="source",
-        resume=True,
     )
     assert spool.finished is False
+
+
+def test_v3_keeps_lifecycle_artifacts_for_terminal_owner(tmp_path):
+    (tmp_path / "one.txt").write_text("one")
+    scanner = RemoteScanner("root", [AllowedRoot(root_id="root", path=str(tmp_path))])
+    scanner.scan_v3(
+        state_dir=tmp_path / "state", job_id="job", source_id="source", payload_identity="payload"
+    )
+
+    assert scanner_module.ScanSpool.lifecycle_exists(tmp_path / "state", "job")
+    assert scanner_module.ScanSpool.exists(tmp_path / "state", "job")
