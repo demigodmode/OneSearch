@@ -15,6 +15,8 @@ from onesearch_shared import (
     AgentJobLease,
     AgentJobStatusResponse,
     BatchAck,
+    ScanManifestPageAck,
+    ScanPageOutcomeAck,
 )
 
 from . import __version__
@@ -182,7 +184,9 @@ class AgentClient:
         return AgentEnrollmentResponse.model_validate(response.json())
 
     async def heartbeat(self, version, platform, update_report=None):
-        request = AgentHeartbeat(agent_version=version, platform=platform, update_report=update_report)
+        request = AgentHeartbeat(
+            agent_version=version, platform=platform, update_report=update_report
+        )
         return await self._request(
             "POST", "/api/agent/v1/heartbeat", json=request.model_dump(mode="json")
         )
@@ -230,6 +234,34 @@ class AgentClient:
             headers={"X-OneSearch-Lease-Token": lease_token},
             retry=False,
             mutation=True,
+        )
+
+    async def submit_manifest_page(self, job_id, request, lease_token):
+        return ScanManifestPageAck.model_validate(
+            (
+                await self._request(
+                    "POST",
+                    f"/api/agent/v1/jobs/{job_id}/manifest-pages",
+                    json=request.model_dump(mode="json"),
+                    headers={"X-OneSearch-Lease-Token": lease_token},
+                    retry=False,
+                    mutation=True,
+                )
+            ).json()
+        )
+
+    async def submit_page_outcome(self, job_id, request, lease_token):
+        return ScanPageOutcomeAck.model_validate(
+            (
+                await self._request(
+                    "POST",
+                    f"/api/agent/v1/jobs/{job_id}/page-outcomes",
+                    json=request.model_dump(mode="json"),
+                    headers={"X-OneSearch-Lease-Token": lease_token},
+                    retry=False,
+                    mutation=True,
+                )
+            ).json()
         )
 
     async def complete(self, job_id, request, lease_token):

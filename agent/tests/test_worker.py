@@ -5,6 +5,7 @@ from pathlib import Path
 
 import onesearch_agent.worker as worker_module
 import pytest
+from onesearch_agent.scan_spool import ScanSpool
 from onesearch_agent.worker import ExtractionError, batch_documents, extract_confined
 from onesearch_shared import (
     AllowedRoot,
@@ -1758,6 +1759,179 @@ async def test_on_server_scan_submits_manifest_without_local_extraction(monkeypa
         lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))]
     )
     assert client.calls == ["manifest", "succeeded"]
+
+
+@pytest.mark.asyncio
+async def test_v3_scan_pages_only_changed_files_and_submits_outcomes(monkeypatch, tmp_path):
+    from onesearch_shared import (
+        ScanManifestPageAck,
+        ScanPageOutcomeAck,
+    )
+
+    (tmp_path / "changed.txt").write_text("changed")
+    (tmp_path / "unchanged.txt").write_text("unchanged")
+
+    class Client:
+        def __init__(self):
+            self.pages, self.batches, self.outcomes, self.completions = [], [], [], []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_manifest_page(self, _job, page, _token):
+            self.pages.append(page)
+            return ScanManifestPageAck(
+                job_id="j",
+                sequence=page.page.sequence,
+                checksum=page.checksum,
+                accepted_count=len(page.page.files),
+                changed_paths=["changed.txt"],
+                checkpoint=page.page.checkpoint,
+            )
+
+        async def submit_batch(self, _job, batch, _token):
+            self.batches.append(batch)
+            return __import__("onesearch_shared").BatchAck(
+                batch_id=batch.batch_id, accepted_count=len(batch.documents)
+            )
+
+        async def submit_page_outcome(self, _job, outcome, _token):
+            self.outcomes.append(outcome)
+            return ScanPageOutcomeAck(
+                job_id="j",
+                sequence=outcome.outcome.sequence,
+                checksum=outcome.checksum,
+                settled_count=len(outcome.outcome.results),
+                checkpoint=__import__("onesearch_shared").ScanCheckpoint(
+                    cursor="page:0", scanned_count=2
+                ),
+            )
+
+        async def complete(self, _job, completion, _token):
+            self.completions.append(completion)
+
+    lease = _scan_lease(root_path=str(tmp_path))
+    lease.payload["protocol_version"] = 3
+    client = Client()
+    await worker_module.run_scan_job(
+        lease,
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+        state_dir=tmp_path.parent / f"{tmp_path.name}-state",
+    )
+    assert [[file.path for file in page.page.files] for page in client.pages] == [
+        ["changed.txt", "unchanged.txt"]
+    ]
+    assert [[doc.path for batch in client.batches for doc in batch.documents]] == [["changed.txt"]]
+    assert [
+        (result.path, result.status.value) for result in client.outcomes[0].outcome.results
+    ] == [("changed.txt", "indexed")]
+    assert [completion.status.value for completion in client.completions] == ["succeeded"]
+
+
+@pytest.mark.asyncio
+async def test_v3_restart_replays_persisted_page_after_interrupted_outcome(tmp_path):
+    from onesearch_agent.client import AgentAmbiguousResultError
+    from onesearch_shared import (
+        ScanCheckpoint,
+        ScanManifestPageAck,
+        ScanPageOutcomeAck,
+    )
+
+    (tmp_path / "changed.txt").write_text("changed")
+    state_dir = tmp_path.parent / f"{tmp_path.name}-state"
+    lease = _scan_lease(root_path=str(tmp_path))
+    lease.payload["protocol_version"] = 3
+
+    class Client:
+        def __init__(self):
+            self.pages, self.outcomes, self.batches, self.completions = [], [], [], []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_manifest_page(self, _job, page, _token):
+            self.pages.append(page)
+            return ScanManifestPageAck(
+                job_id="j",
+                sequence=page.page.sequence,
+                checksum=page.checksum,
+                accepted_count=1,
+                changed_paths=["changed.txt"],
+                duplicate=len(self.pages) > 1,
+                checkpoint=page.page.checkpoint,
+            )
+
+        async def submit_batch(self, _job, batch, _token):
+            self.batches.append(batch)
+            return __import__("onesearch_shared").BatchAck(
+                batch_id=batch.batch_id,
+                accepted_count=len(batch.documents),
+                duplicate=len(self.batches) > 1,
+            )
+
+        async def submit_page_outcome(self, _job, outcome, _token):
+            self.outcomes.append(outcome)
+            if len(self.outcomes) == 1:
+                raise AgentAmbiguousResultError("lost outcome receipt")
+            return ScanPageOutcomeAck(
+                job_id="j",
+                sequence=0,
+                checksum=outcome.checksum,
+                settled_count=1,
+                duplicate=True,
+                checkpoint=ScanCheckpoint(cursor="page:0", scanned_count=1),
+            )
+
+        async def complete(self, _job, completion, _token):
+            self.completions.append(completion)
+
+    client = Client()
+    with pytest.raises(AgentAmbiguousResultError):
+        await worker_module.run_scan_job(
+            lease,
+            client,
+            roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+            state_dir=state_dir,
+            _mutation_attempts=1,
+        )
+    await worker_module.run_scan_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))], state_dir=state_dir
+    )
+    assert len(client.pages) == len(client.outcomes) == 2
+    assert client.pages[0].checksum == client.pages[1].checksum
+    assert client.outcomes[0].checksum == client.outcomes[1].checksum
+    assert [item.status.value for item in client.completions] == ["succeeded"]
+    assert not ScanSpool.lifecycle_exists(state_dir, "j")
+
+
+@pytest.mark.asyncio
+async def test_v3_on_server_scan_fails_closed_without_creating_spool(tmp_path):
+    from onesearch_shared import ProcessingMode
+
+    lease = _scan_lease(root_path=str(tmp_path))
+    lease.payload["protocol_version"] = 3
+    lease.processing_mode = ProcessingMode.ON_SERVER
+
+    class Client:
+        def __init__(self):
+            self.completions = []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def complete(self, _job, completion, _token):
+            self.completions.append(completion)
+
+    client = Client()
+    state_dir = tmp_path.parent / f"{tmp_path.name}-state"
+    await worker_module.run_scan_job(
+        lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))], state_dir=state_dir
+    )
+    assert [(item.status.value, item.reason.value) for item in client.completions] == [
+        ("failed", "protocol_incompatible")
+    ]
+    assert not ScanSpool.lifecycle_exists(state_dir, "j")
 
 
 @pytest.mark.asyncio

@@ -299,6 +299,29 @@ async def test_all_job_endpoints_send_contract_headers_and_bodies():
         return (
             httpx.Response(200, json={"batch_id": "b", "accepted_count": 0})
             if request.url.path.endswith("batches")
+            else httpx.Response(
+                200,
+                json={
+                    "job_id": "job",
+                    "sequence": 0,
+                    "checksum": "0" * 64,
+                    "accepted_count": 0,
+                    "changed_paths": [],
+                    "checkpoint": {"cursor": "page:0", "scanned_count": 0},
+                },
+            )
+            if request.url.path.endswith("manifest-pages")
+            else httpx.Response(
+                200,
+                json={
+                    "job_id": "job",
+                    "sequence": 0,
+                    "checksum": "0" * 64,
+                    "settled_count": 0,
+                    "checkpoint": {"cursor": "page:0", "scanned_count": 0},
+                },
+            )
+            if request.url.path.endswith("page-outcomes")
             else httpx.Response(200)
         )
 
@@ -311,11 +334,15 @@ async def test_all_job_endpoints_send_contract_headers_and_bodies():
     ) as client:
         await client.job_heartbeat("job", Body(), "lease")
         await client.submit_batch("job", Body(), "lease")
+        await client.submit_manifest_page("job", Body(), "lease")
+        await client.submit_page_outcome("job", Body(), "lease")
         await client.complete("job", Body(), "lease")
         await client.cancel_ack("job", "lease")
     assert [item[0] for item in seen] == [
         "/api/agent/v1/jobs/job/heartbeat",
         "/api/agent/v1/jobs/job/batches",
+        "/api/agent/v1/jobs/job/manifest-pages",
+        "/api/agent/v1/jobs/job/page-outcomes",
         "/api/agent/v1/jobs/job/complete",
         "/api/agent/v1/jobs/job/cancel-ack",
     ]

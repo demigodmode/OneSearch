@@ -148,14 +148,21 @@ def run(ctx):
     try:
         value = _config(ctx)
         reporter = UpdateReporter(
-            auto_update=value.auto_update, platform=_update_platform(), version=__version__,
-            state_dir=value.state_dir, clock=__import__("time").time,
+            auto_update=value.auto_update,
+            platform=_update_platform(),
+            version=__version__,
+            state_dir=value.state_dir,
+            clock=__import__("time").time,
         )
         if value.auto_update:
             try:
                 stage_and_launch(
-                    config=value, platform=_update_platform(), version=__version__,
-                    current_binary=Path(sys.executable), managed=_linux_systemd_managed(), notify=click.echo,
+                    config=value,
+                    platform=_update_platform(),
+                    version=__version__,
+                    current_binary=Path(sys.executable),
+                    managed=_linux_systemd_managed(),
+                    notify=click.echo,
                 )
             except (UpdateError, OSError, RuntimeError) as error:
                 reporter.record_install_error(error)
@@ -166,7 +173,9 @@ def run(ctx):
             async with AgentClient(value.server_url, token) as client:
 
                 async def worker(lease, active_client):
-                    await dispatch_job(lease, active_client, roots=value.allowed_roots)
+                    await dispatch_job(
+                        lease, active_client, roots=value.allowed_roots, state_dir=value.state_dir
+                    )
 
                 def healthy(version, timestamp):
                     # An unavailable state volume must not kill the agent heartbeat.
@@ -174,7 +183,9 @@ def run(ctx):
                         write_healthy_marker(value.state_dir, version, timestamp)
 
                 await run_runtime(
-                    client, worker=worker, on_healthy_heartbeat=healthy,
+                    client,
+                    worker=worker,
+                    on_healthy_heartbeat=healthy,
                     update_reporter=reporter,
                 )
 

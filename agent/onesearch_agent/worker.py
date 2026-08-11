@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 import stat
 import tempfile
@@ -27,6 +28,10 @@ from onesearch_shared import (
     NormalizedRemoteDocument,
     ScanFailure,
     ScanFile,
+    ScanPageOutcome,
+    ScanPageOutcomePayload,
+    ScanPathOutcome,
+    ScanPathOutcomeStatus,
     canonical_wire_bytes,
 )
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, ValidationError
@@ -44,6 +49,7 @@ from .paths import (
     resolve_allowed_path,
     resolve_source_prefix,
 )
+from .scan_spool import ScanSpool
 from .scanner import RemoteScanner
 
 
@@ -88,6 +94,7 @@ class ScanPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     full: StrictBool
+    protocol_version: StrictInt | None = Field(default=None, ge=1)
     root_id: StrictStr = Field(min_length=1)
     root_path: StrictStr = Field(min_length=1)
     include_patterns: list[StrictStr] | None
@@ -107,13 +114,21 @@ class OversizedDocumentError(BatchBuildError):
 
 
 class StreamingBatchBuilder:
-    def __init__(self, job_id, *, max_documents=100, max_bytes=1_000_000):
+    def __init__(self, job_id, *, max_documents=100, max_bytes=1_000_000, batch_prefix=None):
         if max_documents < 1 or max_bytes < 1:
             raise BatchBuildError("batch limits must be positive")
-        self.job_id, self.max_documents, self.max_bytes, self.sequence, self.current = (
+        (
+            self.job_id,
+            self.max_documents,
+            self.max_bytes,
+            self.batch_prefix,
+            self.sequence,
+            self.current,
+        ) = (
             job_id,
             max_documents,
             max_bytes,
+            batch_prefix or job_id,
             0,
             [],
         )
@@ -121,11 +136,15 @@ class StreamingBatchBuilder:
     def _emit(self):
         docs = list(self.current)
         seed = DocumentBatch(
-            job_id=self.job_id, batch_id=f"{self.job_id}:{self.sequence}:{'0' * 64}", documents=docs
+            job_id=self.job_id,
+            batch_id=f"{self.batch_prefix}:{self.sequence}:{'0' * 64}",
+            documents=docs,
         )
         digest = hashlib.sha256(_batch_wire_bytes(seed)).hexdigest()
         batch = DocumentBatch(
-            job_id=self.job_id, batch_id=f"{self.job_id}:{self.sequence}:{digest}", documents=docs
+            job_id=self.job_id,
+            batch_id=f"{self.batch_prefix}:{self.sequence}:{digest}",
+            documents=docs,
         )
         self.sequence += 1
         self.current = []
@@ -135,7 +154,7 @@ class StreamingBatchBuilder:
         sequence = self.sequence if sequence is None else sequence
         seed = DocumentBatch(
             job_id=self.job_id,
-            batch_id=f"{self.job_id}:{sequence}:{'0' * 64}",
+            batch_id=f"{self.batch_prefix}:{sequence}:{'0' * 64}",
             documents=list(docs),
         )
         return len(docs) <= self.max_documents and len(_batch_wire_bytes(seed)) <= self.max_bytes
@@ -419,6 +438,7 @@ async def run_scan_job(
     _sleep=asyncio.sleep,
     _lease_interval=REMOTE_JOB_HEARTBEAT_SECONDS,
     _lease_sleep=asyncio.sleep,
+    state_dir: Path | None = None,
 ) -> None:
     """Execute a scan, preserving per-file failures in the terminal manifest."""
     try:
@@ -471,6 +491,34 @@ async def run_scan_job(
     )
     await keeper.start()
     try:
+        if getattr(lease.payload, "get", lambda _key, _default=None: None)("protocol_version") == 3:
+            if lease.processing_mode.value != "on_agent" or state_dir is None:
+                await _complete_with_recovery(
+                    client,
+                    lease,
+                    JobCompletion(
+                        job_id=lease.id,
+                        status=JobStatus.FAILED,
+                        reason=JobFailureReason.PROTOCOL_INCOMPATIBLE,
+                        detail="protocol v3 requires on-agent durable state",
+                    ),
+                )
+                return
+            await _run_v3_scan_job(
+                lease,
+                client,
+                keeper=keeper,
+                scanner=scanner,
+                root_id=root_id,
+                roots=roots,
+                source_prefix=source_prefix,
+                extraction=extraction,
+                limits=limits,
+                state_dir=state_dir,
+                mutation_attempts=_mutation_attempts,
+                sleep=_sleep,
+            )
+            return
         manifest = await asyncio.to_thread(scanner.scan, job_id=lease.id, source_id=lease.source_id)
         keeper.set_total(len(scanner.changed_paths))
         await keeper.check()
@@ -565,6 +613,181 @@ async def run_scan_job(
         return
     finally:
         await keeper.close()
+
+
+def _v3_payload_identity(lease, payload: ScanPayload) -> str:
+    """Bind durable work to the exact issued job/source/root/checkpoint contract."""
+    value = {
+        "job_id": lease.id,
+        "source_id": lease.source_id,
+        "root_id": payload.root_id,
+        "root_path": payload.root_path,
+        "payload": lease.payload,
+    }
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+
+
+async def _run_v3_scan_job(
+    lease,
+    client,
+    *,
+    keeper,
+    scanner,
+    root_id,
+    roots,
+    source_prefix,
+    extraction,
+    limits,
+    state_dir,
+    mutation_attempts,
+    sleep,
+):
+    """Replay sealed v3 pages until each receipt and outcome is durably accepted."""
+    payload = ScanPayload.model_validate(lease.payload)
+    identity = _v3_payload_identity(lease, payload)
+    spool = None
+    completed = False
+    try:
+        spool = scanner.scan_v3(
+            state_dir=Path(state_dir),
+            job_id=lease.id,
+            source_id=lease.source_id,
+            payload_identity=identity,
+            resume=ScanSpool.lifecycle_exists(Path(state_dir), lease.id),
+        )
+        keeper.set_total(spool.file_count)
+        sequence = 0
+        while True:
+            await keeper.check()
+            page = spool.page(sequence)
+            ack = await _submit_or_cancel(
+                keeper,
+                lambda page=page: client.submit_manifest_page(lease.id, page, lease.lease_token),
+                attempts=mutation_attempts,
+                sleep=sleep,
+            )
+            if (
+                ack.job_id != lease.id
+                or ack.sequence != page.page.sequence
+                or ack.checksum != page.checksum
+                or set(ack.changed_paths) - {item.path for item in page.page.files}
+            ):
+                raise JobConflict("invalid manifest page acknowledgement")
+            outcomes, documents = [], []
+            expected = {item.path: item for item in page.page.files}
+            for path in ack.changed_paths:
+                await keeper.check()
+                try:
+                    document = await extract_confined(
+                        root_id,
+                        path,
+                        roots,
+                        source_prefix=source_prefix,
+                        expected=expected[path],
+                        source_id=lease.source_id,
+                        extraction=extraction,
+                        max_snapshot_bytes=limits.max_snapshot_bytes,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:
+                    outcomes.append(
+                        ScanPathOutcome(
+                            path=path,
+                            status=ScanPathOutcomeStatus.FAILED,
+                            error=_safe_failure(error),
+                        )
+                    )
+                else:
+                    if document is None:
+                        outcomes.append(
+                            ScanPathOutcome(path=path, status=ScanPathOutcomeStatus.SKIPPED)
+                        )
+                    else:
+                        documents.append(document)
+            rejected = {}
+            builder = StreamingBatchBuilder(
+                lease.id,
+                max_documents=limits.max_batch_documents,
+                max_bytes=limits.max_batch_bytes,
+                batch_prefix=f"{lease.id}:v3:{page.page.sequence}",
+            )
+            for document in documents:
+                for batch in builder.add(document):
+                    response = await _submit_or_cancel(
+                        keeper,
+                        lambda batch=batch: client.submit_batch(lease.id, batch, lease.lease_token),
+                        attempts=mutation_attempts,
+                        sleep=sleep,
+                    )
+                    rejected.update(response.rejected_paths)
+            for batch in builder.finish():
+                response = await _submit_or_cancel(
+                    keeper,
+                    lambda batch=batch: client.submit_batch(lease.id, batch, lease.lease_token),
+                    attempts=mutation_attempts,
+                    sleep=sleep,
+                )
+                rejected.update(response.rejected_paths)
+            for document in documents:
+                if document.path in rejected:
+                    outcomes.append(
+                        ScanPathOutcome(
+                            path=document.path,
+                            status=ScanPathOutcomeStatus.FAILED,
+                            error=_safe_failure(ExtractionError(rejected[document.path])),
+                        )
+                    )
+                else:
+                    outcomes.append(
+                        ScanPathOutcome(path=document.path, status=ScanPathOutcomeStatus.INDEXED)
+                    )
+            outcome_payload = ScanPageOutcomePayload(
+                job_id=lease.id,
+                source_id=lease.source_id,
+                sequence=page.page.sequence,
+                page_checksum=page.checksum,
+                results=sorted(outcomes, key=lambda item: item.path),
+            )
+            outcome = ScanPageOutcome(
+                checksum=hashlib.sha256(canonical_wire_bytes(outcome_payload)).hexdigest(),
+                outcome=outcome_payload,
+            )
+            outcome_ack = await _submit_or_cancel(
+                keeper,
+                lambda outcome=outcome: client.submit_page_outcome(
+                    lease.id, outcome, lease.lease_token
+                ),
+                attempts=mutation_attempts,
+                sleep=sleep,
+            )
+            if (
+                outcome_ack.job_id != lease.id
+                or outcome_ack.sequence != page.page.sequence
+                or outcome_ack.checksum != outcome.checksum
+            ):
+                raise JobConflict("invalid scan page outcome acknowledgement")
+            await keeper.advance()
+            if page.page.final:
+                break
+            sequence += 1
+        await keeper.check()
+        await _complete_with_recovery(
+            client, lease, JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED)
+        )
+        completed = True
+    finally:
+        if spool is not None:
+            spool.close()
+        if completed:
+            ScanSpool.cleanup(
+                Path(state_dir),
+                job_id=lease.id,
+                payload_identity=identity,
+                source_id=lease.source_id,
+            )
 
 
 async def run_browse_job(lease, client, *, roots) -> None:
@@ -712,9 +935,12 @@ async def run_stream_file_job(lease, client, *, roots, chunk_bytes=512 * 1024) -
     )
 
 
-async def dispatch_job(lease, client, *, roots) -> None:
+async def dispatch_job(lease, client, *, roots, state_dir=None) -> None:
     if getattr(getattr(lease, "kind", None), "value", None) == "scan":
-        await run_scan_job(lease, client, roots=roots)
+        if state_dir is None:
+            await run_scan_job(lease, client, roots=roots)
+        else:
+            await run_scan_job(lease, client, roots=roots, state_dir=state_dir)
     elif getattr(getattr(lease, "kind", None), "value", None) == "browse":
         await run_browse_job(lease, client, roots=roots)
     elif getattr(getattr(lease, "kind", None), "value", None) == "extract_file":
