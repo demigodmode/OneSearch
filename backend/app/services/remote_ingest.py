@@ -538,25 +538,38 @@ class RemoteIngestService:
                 datetime.now(timezone.utc).replace(tzinfo=None),
             )
             return "failed"
-        checkpoint = json.loads(parent.checkpoint)
-        raw = checkpoint.get("remote_manifest") if checkpoint.get("version") == 1 else None
-        if raw is None:
-            raise JobConflict("complete manifest required")
-        manifest = ScanManifest.model_validate(raw)
-        if (
-            not manifest.complete
-            or manifest.job_id != parent.id
-            or manifest.source_id != parent.source_id
-        ):
-            parent.status, parent.error, parent.active_key, parent.completed_at = (
-                "failed",
-                "complete manifest required",
-                None,
-                datetime.now(timezone.utc).replace(tzinfo=None),
+        final_page = self.db.scalar(
+            select(AgentScanPage).where(
+                AgentScanPage.job_id == parent.id,
+                AgentScanPage.is_final.is_(True),
             )
-            return "failed"
-        current = {canonical_remote_path(item.path) for item in manifest.files}
-        current.update(canonical_remote_path(item.path) for item in manifest.failures)
+        )
+        if final_page is not None:
+            current = set(
+                self.db.scalars(
+                    select(AgentScanEntry.path).where(AgentScanEntry.job_id == parent.id)
+                )
+            )
+        else:
+            checkpoint = json.loads(parent.checkpoint)
+            raw = checkpoint.get("remote_manifest") if checkpoint.get("version") == 1 else None
+            if raw is None:
+                raise JobConflict("complete manifest required")
+            manifest = ScanManifest.model_validate(raw)
+            if (
+                not manifest.complete
+                or manifest.job_id != parent.id
+                or manifest.source_id != parent.source_id
+            ):
+                parent.status, parent.error, parent.active_key, parent.completed_at = (
+                    "failed",
+                    "complete manifest required",
+                    None,
+                    datetime.now(timezone.utc).replace(tzinfo=None),
+                )
+                return "failed"
+            current = {canonical_remote_path(item.path) for item in manifest.files}
+            current.update(canonical_remote_path(item.path) for item in manifest.failures)
         rows = list(
             self.db.scalars(select(IndexedFile).where(IndexedFile.source_id == parent.source_id))
         )
@@ -596,6 +609,39 @@ class RemoteIngestService:
             self.db.delete(row)
         self.db.flush()
         return "completed"
+
+    def enqueue_staged_server_extractions(
+        self, agent_id: str, job_id: str, lease_token: str
+    ) -> None:
+        """Fan out a complete v3 on-server scan only after its final page is durable."""
+        job = self._paged_scan_job(agent_id, job_id, lease_token)
+        if job.processing_mode != "on_server":
+            raise JobConflict("invalid server scan")
+        final_page = self.db.scalar(
+            select(AgentScanPage.id).where(
+                AgentScanPage.job_id == job_id,
+                AgentScanPage.is_final.is_(True),
+            )
+        )
+        if final_page is None:
+            raise JobConflict("complete manifest required")
+        files = [
+            {
+                "path": entry.path,
+                "size_bytes": entry.size_bytes,
+                "modified_at": entry.modified_at_ns,
+                "content_hash": entry.content_hash,
+            }
+            for entry in self.db.scalars(
+                select(AgentScanEntry)
+                .where(
+                    AgentScanEntry.job_id == job_id,
+                    AgentScanEntry.needs_processing.is_(True),
+                )
+                .order_by(AgentScanEntry.path)
+            )
+        ]
+        AgentJobService(self.db).enqueue_extract_files(job, files)
 
     def accept_manifest(
         self, agent_id: str, job_id: str, lease_token: str, manifest: ScanManifest

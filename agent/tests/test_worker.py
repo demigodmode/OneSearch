@@ -1756,6 +1756,36 @@ async def test_complete_recovery_is_bounded_and_never_reverses(outcomes, statuse
 
 
 @pytest.mark.asyncio
+async def test_on_server_scan_completion_recovery_accepts_released_parent():
+    from types import SimpleNamespace
+
+    from onesearch_agent.client import AgentAmbiguousResultError
+    from onesearch_agent.worker import _complete_with_recovery
+    from onesearch_shared import JobCompletion, JobKind, JobStatus, ProcessingMode
+
+    class Client:
+        def __init__(self):
+            self.completions = 0
+
+        async def complete(self, *_args):
+            self.completions += 1
+            raise AgentAmbiguousResultError("lost completion receipt")
+
+        async def job_status(self, _job_id):
+            return SimpleNamespace(status="running")
+
+    lease = SimpleNamespace(
+        id="j",
+        lease_token="t",
+        kind=JobKind.SCAN,
+        processing_mode=ProcessingMode.ON_SERVER,
+    )
+    await _complete_with_recovery(
+        Client(), lease, JobCompletion(job_id="j", status=JobStatus.SUCCEEDED)
+    )
+
+
+@pytest.mark.asyncio
 async def test_on_server_scan_submits_manifest_without_local_extraction(monkeypatch, tmp_path):
     from onesearch_shared import ProcessingMode, ScanManifest
 
@@ -1939,18 +1969,30 @@ async def test_v3_restart_replays_persisted_page_after_interrupted_outcome(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_v3_on_server_scan_fails_closed_without_creating_spool(tmp_path):
-    from onesearch_shared import ProcessingMode
+async def test_v3_on_server_scan_submits_durable_pages_without_local_extraction(tmp_path):
+    from onesearch_shared import ProcessingMode, ScanManifestPageAck
 
     lease = _v3_scan_lease(root_path=str(tmp_path))
     lease.processing_mode = ProcessingMode.ON_SERVER
+    (tmp_path / "report.txt").write_text("report")
 
     class Client:
         def __init__(self):
-            self.completions = []
+            self.pages, self.completions = [], []
 
         async def job_heartbeat(self, *args):
             pass
+
+        async def submit_manifest_page(self, _job, page, _token):
+            self.pages.append(page)
+            return ScanManifestPageAck(
+                job_id=lease.id,
+                sequence=page.page.sequence,
+                checksum=page.checksum,
+                accepted_count=len(page.page.files),
+                changed_paths=[file.path for file in page.page.files],
+                checkpoint=page.page.checkpoint,
+            )
 
         async def complete(self, _job, completion, _token):
             self.completions.append(completion)
@@ -1960,10 +2002,66 @@ async def test_v3_on_server_scan_fails_closed_without_creating_spool(tmp_path):
     await worker_module.run_scan_job(
         lease, client, roots=[AllowedRoot(root_id="r", path=str(tmp_path))], state_dir=state_dir
     )
-    assert [(item.status.value, item.reason.value) for item in client.completions] == [
-        ("failed", "protocol_incompatible")
-    ]
+    assert [[file.path for file in page.page.files] for page in client.pages] == [["report.txt"]]
+    assert [item.status.value for item in client.completions] == ["succeeded"]
     assert not ScanSpool.lifecycle_exists(state_dir, "j")
+
+
+@pytest.mark.asyncio
+async def test_v3_on_server_retry_replays_page_and_keeps_spool_until_completion(tmp_path):
+    from onesearch_agent.client import AgentAmbiguousResultError
+    from onesearch_shared import ProcessingMode, ScanManifestPageAck
+
+    (tmp_path / "report.txt").write_text("report")
+    state_dir = tmp_path.parent / f"{tmp_path.name}-state"
+    lease = _v3_scan_lease(root_path=str(tmp_path))
+    lease.processing_mode = ProcessingMode.ON_SERVER
+
+    class Client:
+        def __init__(self):
+            self.pages, self.completions = [], []
+
+        async def job_heartbeat(self, *args):
+            pass
+
+        async def submit_manifest_page(self, _job, page, _token):
+            self.pages.append(page)
+            if len(self.pages) == 1:
+                raise AgentAmbiguousResultError("lost page receipt")
+            return ScanManifestPageAck(
+                job_id=lease.id,
+                sequence=page.page.sequence,
+                checksum=page.checksum,
+                accepted_count=len(page.page.files),
+                changed_paths=[file.path for file in page.page.files],
+                duplicate=True,
+                checkpoint=page.page.checkpoint,
+            )
+
+        async def complete(self, _job, completion, _token):
+            self.completions.append(completion)
+
+    client = Client()
+    with pytest.raises(AgentAmbiguousResultError):
+        await worker_module.run_scan_job(
+            lease,
+            client,
+            roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+            state_dir=state_dir,
+            _mutation_attempts=1,
+        )
+    assert ScanSpool.lifecycle_exists(state_dir, lease.id)
+
+    await worker_module.run_scan_job(
+        lease,
+        client,
+        roots=[AllowedRoot(root_id="r", path=str(tmp_path))],
+        state_dir=state_dir,
+    )
+
+    assert client.pages[0].checksum == client.pages[1].checksum
+    assert [item.status.value for item in client.completions] == ["succeeded"]
+    assert not ScanSpool.lifecycle_exists(state_dir, lease.id)
 
 
 @pytest.mark.asyncio

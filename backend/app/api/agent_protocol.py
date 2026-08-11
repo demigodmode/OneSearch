@@ -406,6 +406,9 @@ async def complete_job(
             and job.kind == "scan"
             and job.processing_mode == "on_server"
         ):
+            get_remote_ingest_service(db).enqueue_staged_server_extractions(
+                agent.id, job_id, lease_token
+            )
             jobs.release_on_server_parent(job_id)
             await get_remote_ingest_service(db).settle_server_parent(job_id)
         else:

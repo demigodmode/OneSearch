@@ -17,9 +17,10 @@ from onesearch_shared import (
 from sqlalchemy.orm import raiseload
 
 from app.api import agent_protocol
-from app.models import Agent, AgentJob, AppSetting, Source
+from app.models import Agent, AgentJob, AgentScanEntry, AgentScanPage, AppSetting, Source
 from app.services.agent_auth import create_agent_token, hash_token
 from app.services.agent_jobs import AgentJobService, JobConflict, JobNotFound
+from app.services.remote_ingest import RemoteIngestService
 
 
 def now():
@@ -165,6 +166,60 @@ async def test_protocol_three_enqueued_payload_runs_in_agent_worker(db_session, 
 
     assert [[file.path for file in page.page.files] for page in client.pages] == [["report.txt"]]
     assert [completion.status.value for completion in client.completions] == ["succeeded"]
+
+
+@pytest.mark.asyncio
+async def test_protocol_three_on_server_enqueue_claim_runs_page_only_worker_and_fans_out(
+    db_session, remote, tmp_path
+):
+    """A v3 on-server scan stages pages, then lets the server own extraction."""
+    from onesearch_agent.worker import run_scan_job
+    from onesearch_shared import AllowedRoot
+
+    agent, source = remote
+    agent.protocol_version = 3
+    agent.platform = "windows-x64"
+    agent.allowed_roots = json.dumps([{"root_id": "data", "path": str(tmp_path)}])
+    agent.default_processing_mode = "on_server"
+    source.root_path = str(tmp_path)
+    source.processing_mode = "on_server"
+    (tmp_path / "report.txt").write_text("report")
+    db_session.commit()
+
+    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    assert lease is not None and lease.id == parent.id
+
+    service = RemoteIngestService(db_session, object())
+
+    class Client:
+        async def job_heartbeat(self, *_args):
+            pass
+
+        async def submit_manifest_page(self, _job_id, page, _token):
+            return service.accept_manifest_page(agent.id, lease.id, lease.lease_token, page)
+
+        async def complete(self, _job_id, completion, _token):
+            assert completion.status.value == "succeeded"
+            service.enqueue_staged_server_extractions(agent.id, lease.id, lease.lease_token)
+            AgentJobService(db_session).release_on_server_parent(lease.id)
+            assert await service.settle_server_parent(lease.id) == "running"
+
+    await run_scan_job(
+        lease,
+        Client(),
+        roots=[AllowedRoot(root_id="data", path=str(tmp_path))],
+        state_dir=tmp_path.parent / f"{tmp_path.name}-state",
+    )
+    db_session.flush()
+
+    assert db_session.query(AgentScanPage).filter_by(job_id=parent.id).count() == 1
+    entries = db_session.query(AgentScanEntry).filter_by(job_id=parent.id).all()
+    assert [entry.path for entry in entries] == ["report.txt"]
+    children = db_session.query(AgentJob).filter_by(kind="extract_file").all()
+    assert len(children) == 1 and children[0].status == "pending"
+    db_session.refresh(parent)
+    assert parent.status == "running" and parent.lease_token_hash is None
 
 
 @pytest.mark.parametrize(

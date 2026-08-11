@@ -267,7 +267,14 @@ async def _complete_with_recovery(client, lease, completion):
             JobStatus.FAILED: "failed",
             JobStatus.CANCELLED: "cancelled",
         }[completion.status]
-        return status.status, status.status == expected
+        # An on-server scan releases its own lease after durable manifest handoff;
+        # its parent remains running while server-owned child extraction settles.
+        released_parent = (
+            completion.status is JobStatus.SUCCEEDED
+            and getattr(getattr(lease, "kind", None), "value", None) == "scan"
+            and getattr(getattr(lease, "processing_mode", None), "value", None) == "on_server"
+        )
+        return status.status, status.status == expected or (released_parent and status.status == "running")
 
     try:
         await client.complete(lease.id, completion, lease.lease_token)
@@ -530,7 +537,7 @@ async def run_scan_job(
     await keeper.start()
     try:
         if getattr(lease.payload, "get", lambda _key, _default=None: None)("protocol_version") == 3:
-            if lease.processing_mode.value != "on_agent" or state_dir is None:
+            if state_dir is None:
                 await _complete_with_recovery(
                     client,
                     lease,
@@ -538,7 +545,7 @@ async def run_scan_job(
                         job_id=lease.id,
                         status=JobStatus.FAILED,
                         reason=JobFailureReason.PROTOCOL_INCOMPATIBLE,
-                        detail="protocol v3 requires on-agent durable state",
+                        detail="protocol v3 requires durable state",
                     ),
                 )
                 return
@@ -713,6 +720,15 @@ async def _run_v3_scan_job(
                 or set(ack.changed_paths) - {item.path for item in page.page.files}
             ):
                 raise JobConflict("invalid manifest page acknowledgement")
+            if lease.processing_mode.value == "on_server":
+                # The server owns extraction for this mode.  A persisted manifest page
+                # fans out its changed entries into child transfer jobs; the agent must
+                # neither extract nor settle per-path outcomes.
+                await keeper.advance()
+                if page.page.final:
+                    break
+                sequence += 1
+                continue
             outcomes, documents = [], []
             expected = {item.path: item for item in page.page.files}
             for path in ack.changed_paths:
