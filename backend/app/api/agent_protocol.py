@@ -178,13 +178,13 @@ async def heartbeat(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Unsupported protocol version"
         )
-    agent_status = record_agent_heartbeat(
-        db,
-        agent_id=agent.id,
-        version=request.agent_version,
-        platform=request.platform,
-        protocol_version=request.protocol_version,
-    )
+    try:
+        agent_status = record_agent_heartbeat(
+            db, agent_id=agent.id, version=request.agent_version, platform=request.platform,
+            protocol_version=request.protocol_version, update_report=request.update_report,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
     if agent_status is None:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent is not active")

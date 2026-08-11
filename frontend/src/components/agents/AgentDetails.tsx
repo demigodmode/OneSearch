@@ -89,9 +89,7 @@ export function AgentDetails({
           <option value="on_server">On server</option>
         </select>
       </label>
-      <p className="text-sm text-muted-foreground">
-        Auto-update: {agent.auto_update ? 'enabled' : 'not configured'}.
-      </p>
+      <UpdateStatus agent={agent} />
       <div>
         <h3 className="text-sm font-medium">Recent jobs</h3>
         {agent.recent_jobs.length ? (
@@ -135,4 +133,20 @@ export function AgentDetails({
       )}
     </section>
   )
+}
+
+function UpdateStatus({ agent }: { agent: AgentDetailsModel }) {
+  const report = agent.update_report
+  if (!report) {
+    return <p className="text-sm text-muted-foreground">Update status has not been reported by this agent.</p>
+  }
+  const disclosure = <p className="text-xs text-muted-foreground">Startup and daily GitHub release-host metadata checks occur; only native automatic updates download signed artifacts.</p>
+  if (report.runtime_kind === 'docker') {
+    const status = report.status === 'available' ? `Image update ${report.available_version} is available.` : `Docker update status: ${report.status}.`
+    return <div className="space-y-1 text-sm text-muted-foreground"><p>{status} Run: docker compose pull onesearch-agent && docker compose up -d onesearch-agent</p>{disclosure}</div>
+  }
+  if (report.status === 'available' && !report.auto_update) {
+    return <div className="space-y-1 text-sm text-muted-foreground"><p>Automatic install is off. Run: onesearch-agent --config {'<config.toml>'} update check</p>{disclosure}</div>
+  }
+  return <div className="space-y-1 text-sm text-muted-foreground"><p>Native update status: {report.status}{report.available_version ? ` (${report.available_version})` : ''}.</p>{disclosure}</div>
 }

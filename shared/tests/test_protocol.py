@@ -44,6 +44,23 @@ def test_heartbeat_defaults_to_current_protocol_and_round_trips_strictly():
     assert_json_round_trip(heartbeat)
 
 
+def test_heartbeat_carries_only_a_bounded_local_update_report():
+    heartbeat = AgentHeartbeat(
+        agent_version="1.4.0",
+        platform="windows-amd64",
+        update_report={
+            "auto_update": False,
+            "runtime_kind": "docker",
+            "status": "available",
+            "available_version": "1.5.0",
+            "checked_at": 1_700_000_000,
+        },
+    )
+
+    assert heartbeat.update_report.runtime_kind == "docker"
+    assert_json_round_trip(heartbeat)
+
+
 def test_protocol_three_adds_bounded_manifest_pages_without_changing_legacy_limits():
     assert protocol.REMOTE_MAX_MANIFEST_PAGE_ENTRIES == 1_000
     assert protocol.REMOTE_MAX_MANIFEST_PAGE_BYTES == 2 * 1024 * 1024

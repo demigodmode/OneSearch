@@ -20,6 +20,7 @@ async def run_runtime(
     stopped=lambda: False,
     wait_stopped=None,
     on_healthy_heartbeat=None,
+    update_reporter=None,
 ):
     async def pause(seconds):
         if wait_stopped is None:
@@ -34,12 +35,15 @@ async def run_runtime(
         return stopper in done
 
     async def heartbeat():
+        if update_reporter is not None:
+            update_reporter.check_if_due()
+        report = None if update_reporter is None else update_reporter.report()
         if wait_stopped is None:
-            await client.heartbeat(__version__, platform.platform())
+            await client.heartbeat(__version__, platform.platform(), report)
             if on_healthy_heartbeat is not None:
                 on_healthy_heartbeat(__version__, time.time())
             return False
-        request = asyncio.create_task(client.heartbeat(__version__, platform.platform()))
+        request = asyncio.create_task(client.heartbeat(__version__, platform.platform(), report))
         stopper = asyncio.create_task(wait_stopped())
         done, pending = await asyncio.wait({request, stopper}, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:

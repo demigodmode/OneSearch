@@ -92,6 +92,8 @@ An agent response contains administrative data, not its bearer token:
 
 The administrative `status` is an effective health state. `degraded` means the agent is connected but at least one source has recent indexing failures. The stored credential state and agent protocol remain active. When degraded, `health` contains `code`, a source count capped at 99, a `truncated` flag, and the most recent affected scan time. A stale heartbeat is reported as `offline` with `health: null`.
 
+`update_report`, when present, is a sanitized local snapshot: the local `auto_update` preference, `runtime_kind`, status, optional available semantic version, check time, and a bounded error code. Older agents omit it. Administrators cannot change this preference remotely.
+
 Agent details include the 10 most recent jobs. Each job has its stored `reason`, such as `manual`, `schedule`, `catch_up`, or `reindex`. Scheduled work first queued while an agent is offline uses `catch_up`. Coalescing never changes the reason of an existing active scan.
 
 ## Agent protocol endpoints

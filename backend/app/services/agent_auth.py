@@ -70,8 +70,30 @@ def record_agent_heartbeat(
     version: str,
     platform: str,
     protocol_version: int | None = None,
+    update_report=None,
 ) -> str | None:
     """Update heartbeat state only while the stored agent is still active."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    values = {
+        "version": version,
+        "platform": platform,
+        "last_seen_at": now,
+        "status": case((Agent.status == "offline", "online"), else_=Agent.status),
+    }
+    if protocol_version is not None:
+        values["protocol_version"] = protocol_version
+    if update_report is not None:
+        checked_at = datetime.fromtimestamp(update_report.checked_at, tz=timezone.utc).replace(tzinfo=None)
+        if checked_at > now + timedelta(minutes=5):
+            raise ValueError("update report timestamp is too far in the future")
+        values.update(
+            auto_update=update_report.auto_update,
+            update_runtime_kind=update_report.runtime_kind,
+            update_status=update_report.status,
+            update_available_version=update_report.available_version,
+            update_checked_at=checked_at,
+            update_error_code=update_report.error_code,
+        )
     result = db.execute(
         update(Agent)
         .where(
@@ -79,13 +101,7 @@ def record_agent_heartbeat(
             Agent.status.in_(("pending", "offline", "online")),
             Agent.token_hash.is_not(None),
         )
-        .values(
-            version=version,
-            platform=platform,
-            **({"protocol_version": protocol_version} if protocol_version is not None else {}),
-            last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
-            status=case((Agent.status == "offline", "online"), else_=Agent.status),
-        )
+        .values(**values)
         .execution_options(synchronize_session=False)
     )
     if result.rowcount != 1:

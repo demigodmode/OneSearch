@@ -615,6 +615,35 @@ def test_heartbeat_authenticates_pending_then_marks_approved_agent_online(
     assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 409
 
 
+def test_heartbeat_persists_sanitized_local_update_report_and_rejects_future_time(
+    client, db_session, auth_headers
+):
+    _enable(client)
+    enrolled = _enroll(client, _create_code(client)["code"]).json()
+    headers = {"Authorization": f"Bearer {enrolled['agent_token']}"}
+    client.post(f"/api/agents/{enrolled['agent_id']}/approve", headers=auth_headers)
+    payload = {
+        "protocol_version": 3,
+        "agent_version": "1.4.0",
+        "platform": "windows-amd64",
+        "update_report": {
+            "auto_update": False,
+            "runtime_kind": "native",
+            "status": "available",
+            "available_version": "1.5.0",
+            "checked_at": 1_700_000_000,
+        },
+    }
+    assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 200
+    agent = db_session.get(Agent, enrolled["agent_id"])
+    assert agent.auto_update is False
+    assert agent.update_runtime_kind == "native"
+    assert agent.update_status == "available"
+
+    payload["update_report"]["checked_at"] = 9_999_999_999
+    assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 422
+
+
 def test_heartbeat_rejects_user_jwt_disabled_revoked_and_global_disable(
     client, db_session, auth_headers
 ):

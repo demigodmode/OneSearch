@@ -13,6 +13,34 @@ from onesearch_agent.update import MAX_ARTIFACT_BYTES, UpdateError, UpdateManage
 from onesearch_agent.update_runtime import native_update_layout, stage_and_launch
 from onesearch_agent.updater import UpdateHelper, UpdateTransaction
 from onesearch_agent.updater_cli import ServiceManager, launch
+
+
+def test_update_reporter_checks_disabled_auto_update_without_staging(tmp_path):
+    from onesearch_agent.update_report import UpdateReporter
+
+    class Updates:
+        def check(self, *, auto_update):
+            assert auto_update is True
+            return UpdateResult("available", "1.5.0")
+
+    reporter = UpdateReporter(
+        auto_update=False,
+        platform="linux-amd64",
+        version="1.4.0",
+        state_dir=tmp_path,
+        update_manager=Updates(),
+        clock=lambda: 1_700_000_000,
+    )
+
+    assert reporter.check_if_due() is True
+    assert reporter.report().model_dump() == {
+        "auto_update": False,
+        "runtime_kind": "native",
+        "status": "available",
+        "available_version": "1.5.0",
+        "checked_at": 1_700_000_000,
+        "error_code": None,
+    }
 from onesearch_shared import MINIMUM_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION
 
 

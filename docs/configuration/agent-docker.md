@@ -73,13 +73,13 @@ The agent runs the image's default `run` command. Do not add an enrollment comma
 
 ## Updates
 
-With `auto_update = false`, the container makes no release-host update request. You can run a manual signed-manifest check:
+With `auto_update = false`, the container still checks signed GitHub release-host metadata at startup and about every 24 hours so the administrator can be notified. It never downloads an artifact, launches an updater, or replaces its image. You can run a manual signed-manifest check:
 
 ```bash
 docker compose run --rm onesearch-agent update check
 ```
 
-With `auto_update = true`, the container checks the OneSearch GitHub release host when it starts and reports a compatible update. It does not download a replacement binary or replace its image.
+With `auto_update = true`, the container uses the same notify-only checks. It does not download a replacement binary or replace its image.
 
 To update, change the pinned image tag, pull it, and recreate the service:
 

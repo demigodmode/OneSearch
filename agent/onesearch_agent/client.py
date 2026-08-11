@@ -181,8 +181,8 @@ class AgentClient:
         )
         return AgentEnrollmentResponse.model_validate(response.json())
 
-    async def heartbeat(self, version, platform):
-        request = AgentHeartbeat(agent_version=version, platform=platform)
+    async def heartbeat(self, version, platform, update_report=None):
+        request = AgentHeartbeat(agent_version=version, platform=platform, update_report=update_report)
         return await self._request(
             "POST", "/api/agent/v1/heartbeat", json=request.model_dump(mode="json")
         )

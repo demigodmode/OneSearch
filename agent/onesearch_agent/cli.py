@@ -24,6 +24,7 @@ from .credentials import (
 from .runtime import run_runtime
 from .service import ServiceError, install, uninstall
 from .update import UpdateError, UpdateManager
+from .update_report import UpdateReporter
 from .update_runtime import stage_and_launch, write_healthy_marker
 from .worker import dispatch_job
 
@@ -146,15 +147,19 @@ def run(ctx):
     """Run the heartbeat shell; no jobs are claimed before a worker is supplied."""
     try:
         value = _config(ctx)
+        reporter = UpdateReporter(
+            auto_update=value.auto_update, platform=_update_platform(), version=__version__,
+            state_dir=value.state_dir, clock=__import__("time").time,
+        )
         if value.auto_update:
-            stage_and_launch(
-                config=value,
-                platform=_update_platform(),
-                version=__version__,
-                current_binary=Path(sys.executable),
-                managed=_linux_systemd_managed(),
-                notify=click.echo,
-            )
+            try:
+                stage_and_launch(
+                    config=value, platform=_update_platform(), version=__version__,
+                    current_binary=Path(sys.executable), managed=_linux_systemd_managed(), notify=click.echo,
+                )
+            except UpdateError as error:
+                reporter.record_install_error(error)
+                click.echo(f"Automatic update deferred: {error}", err=True)
         token = credential_store(value).load()
 
         async def loop():
@@ -168,7 +173,10 @@ def run(ctx):
                     with suppress(OSError):
                         write_healthy_marker(value.state_dir, version, timestamp)
 
-                await run_runtime(client, worker=worker, on_healthy_heartbeat=healthy)
+                await run_runtime(
+                    client, worker=worker, on_healthy_heartbeat=healthy,
+                    update_reporter=reporter,
+                )
 
         asyncio.run(loop())
     except KeyboardInterrupt:

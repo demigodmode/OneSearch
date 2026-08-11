@@ -316,6 +316,15 @@ class AgentAdminHealth(BaseModel):
     observed_at: datetime
 
 
+class AgentAdminUpdateReport(BaseModel):
+    auto_update: bool
+    runtime_kind: Literal["native", "docker"]
+    status: Literal["not_checked", "current", "available", "error"]
+    available_version: str | None
+    checked_at: datetime
+    error_code: Literal["network", "invalid_manifest", "incompatible", "install_unavailable", "install_failed"] | None
+
+
 class AgentAdminResponse(BaseModel):
     """Agent details safe for administrative APIs."""
 
@@ -326,7 +335,8 @@ class AgentAdminResponse(BaseModel):
     protocol_version: int
     allowed_roots: list[dict]
     default_processing_mode: str
-    auto_update: bool
+    auto_update: bool | None
+    update_report: AgentAdminUpdateReport | None
     status: str
     health: AgentAdminHealth | None
     approved_at: datetime | None

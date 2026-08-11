@@ -53,7 +53,13 @@ class Agent(Base):
     default_processing_mode = Column(
         String, nullable=False, default="on_agent", server_default="on_agent"
     )
-    auto_update = Column(Boolean, nullable=False, default=False, server_default="0")
+    # Local agent preference; NULL means a pre-reporting agent has not stated it.
+    auto_update = Column(Boolean, nullable=True)
+    update_runtime_kind = Column(String(10), nullable=True)
+    update_status = Column(String(16), nullable=True)
+    update_available_version = Column(String(40), nullable=True)
+    update_checked_at = Column(DateTime, nullable=True)
+    update_error_code = Column(String(32), nullable=True)
     status = Column(String, nullable=False, default="pending", server_default="pending")
     approved_at = Column(DateTime, nullable=True)
     last_seen_at = Column(DateTime, nullable=True)

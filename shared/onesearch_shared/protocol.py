@@ -93,11 +93,37 @@ class AgentHeartbeat(WireModel):
     agent_version: str = Field(min_length=1, max_length=40)
     platform: str = Field(min_length=1, max_length=80)
     current_job_id: str | None = None
+    update_report: AgentUpdateReport | None = None
 
     @field_validator("agent_version", "platform", mode="before")
     @classmethod
     def normalize_identity(cls, value: object) -> object:
         return _strip_nonempty(value)
+
+
+class AgentUpdateReport(WireModel):
+    """Sanitized, locally-authoritative release-check state sent with a heartbeat."""
+
+    auto_update: bool
+    runtime_kind: Literal["native", "docker"]
+    status: Literal["not_checked", "current", "available", "error"]
+    available_version: str | None = Field(default=None, max_length=40, pattern=r"^\d+\.\d+\.\d+$")
+    checked_at: int = Field(ge=0)
+    error_code: Literal[
+        "network", "invalid_manifest", "incompatible", "install_unavailable", "install_failed"
+    ] | None = None
+
+    @model_validator(mode="after")
+    def validate_state(self) -> AgentUpdateReport:
+        if self.status == "available" and self.available_version is None:
+            raise ValueError("available update reports require a version")
+        if self.status != "available" and self.available_version is not None:
+            raise ValueError("only available update reports include a version")
+        if self.status == "error" and self.error_code is None:
+            raise ValueError("error update reports require an error code")
+        if self.status != "error" and self.error_code is not None:
+            raise ValueError("only error update reports include an error code")
+        return self
 
 
 class AgentJobLease(WireModel):

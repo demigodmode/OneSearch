@@ -5,6 +5,11 @@ import { AgentDetails } from './AgentDetails'
 const agent = { id: 'agent-1', name: 'Studio Mac', platform: 'macOS', version: '1.0', protocol_version: 2, allowed_roots: [{ root_id: 'media', path: '/Volumes/Media' }], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'offline' as const, approved_at: null, last_seen_at: null, disabled_at: null, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', health: null, summary: { attached_sources: 0, indexed_documents: 0, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null }, sources: [], recent_jobs: [] }
 
 describe('AgentDetails', () => {
+  it('shows local native update guidance without an editable toggle', () => {
+    render(<AgentDetails agent={{ ...agent, auto_update: false, update_report: { auto_update: false, runtime_kind: 'native', status: 'available', available_version: '1.5.0', checked_at: 1700000000, error_code: null } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    expect(screen.getByText('Automatic install is off. Run: onesearch-agent --config <config.toml> update check')).toBeInTheDocument()
+    expect(screen.getByText(/Startup and daily GitHub release-host metadata checks/)).toBeInTheDocument()
+  })
   it('lets an admin choose a persisted default processing mode', () => {
     const onMode = vi.fn()
     render(<AgentDetails agent={agent} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={onMode} />)
