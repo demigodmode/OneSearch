@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 import pytest
-from onesearch_agent.scan_spool import ScanSpool
+from onesearch_agent.scan_spool import ScanSpool, ScanSpoolError
 from onesearch_shared import (
     REMOTE_MAX_MANIFEST_PAGE_BYTES,
     REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
@@ -275,6 +275,56 @@ def test_lifecycle_marker_only_state_is_cleaned_for_a_matching_job(tmp_path: Pat
 
     assert ScanSpool.cleanup(tmp_path, job_id="job", payload_identity="payload", source_id="source")
     assert not ScanSpool.lifecycle_exists(tmp_path, "job")
+
+
+@pytest.mark.parametrize("failure", ("unlink", "fsync"))
+def test_marker_only_create_recovery_releases_coordination_after_io_failure(
+    tmp_path: Path, monkeypatch, failure: str
+):
+    initial = ScanSpool.create(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
+    )
+    initial.close()
+    next((tmp_path / "scan-spool").glob("*.sqlite3")).unlink()
+
+    marker = ScanSpool._marker_path(tmp_path, "job")
+    original_remove = ScanSpool._remove_file
+    original_fsync = ScanSpool._fsync_directory
+
+    if failure == "unlink":
+
+        def fail_marker_unlink(path: Path) -> None:
+            if path == marker:
+                raise OSError("injected marker unlink failure")
+            original_remove(path)
+
+        monkeypatch.setattr(ScanSpool, "_remove_file", staticmethod(fail_marker_unlink))
+    else:
+
+        def fail_marker_fsync(path: Path) -> None:
+            if path == marker.parent:
+                raise OSError("injected marker fsync failure")
+            original_fsync(path)
+
+        monkeypatch.setattr(ScanSpool, "_fsync_directory", staticmethod(fail_marker_fsync))
+
+    with pytest.raises(ScanSpoolError, match="marker.*recover"):
+        ScanSpool.create(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+    monkeypatch.setattr(ScanSpool, "_remove_file", staticmethod(original_remove))
+    monkeypatch.setattr(ScanSpool, "_fsync_directory", staticmethod(original_fsync))
+    created = ScanSpool.create(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
+    )
+    created.close()
+    resumed = ScanSpool.resume(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
+    )
+    resumed.finish()
+    resumed.close()
+    assert ScanSpool.cleanup(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
+    )
 
 
 def test_create_recovers_after_marker_publish_fault_without_stranding_job(

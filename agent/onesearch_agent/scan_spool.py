@@ -64,14 +64,17 @@ class ScanSpool:
         owner = None
         try:
             spool_path = cls._spool_path(state_dir, job_id)
+            owner = cls._acquire_owner_lock(state_dir, job_id)
             if marker.exists() and not spool_path.exists():
                 stored = cls._read_marker(marker)
                 if stored == cls._marker_payload(job_id, payload_identity, source_id):
-                    cls._remove_file(marker)
-                    cls._fsync_directory(marker.parent)
+                    try:
+                        cls._remove_file(marker)
+                        cls._fsync_directory(marker.parent)
+                    except OSError as error:
+                        raise ScanSpoolError("scan lifecycle marker recovery failed") from error
                 else:
                     raise ScanSpoolError("scan lifecycle already exists; resume is required")
-            owner = cls._acquire_owner_lock(state_dir, job_id)
             if spool_path.exists():
                 if marker.exists():
                     raise ScanSpoolError("scan spool exists without a new lifecycle")
@@ -96,6 +99,7 @@ class ScanSpool:
                 recovered._lifecycle_lock = cls._acquire_lifecycle_lock(
                     state_dir, job_id, exclusive=False
                 )
+                owner = None
                 return recovered
             if marker.exists():
                 raise ScanSpoolError("scan lifecycle already exists; resume is required")
@@ -117,13 +121,13 @@ class ScanSpool:
             created._lifecycle_lock = cls._acquire_lifecycle_lock(
                 state_dir, job_id, exclusive=False
             )
+            owner = None
             return created
-        except ScanSpoolError:
+        finally:
             if owner is not None:
                 cls._release_owner_lock(owner)
             if lock is not None:
                 cls._release_lifecycle_lock(lock)
-            raise
 
     @classmethod
     def resume(
