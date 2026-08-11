@@ -345,6 +345,10 @@ def test_v3_scan_resumes_interrupted_directory_without_mixing_metadata(tmp_path,
         )
 
     resumed = scanner.scan_v3(
-        state_dir=tmp_path / "state", job_id="job", source_id="source", payload_identity="payload"
+        state_dir=tmp_path / "state",
+        job_id="job",
+        source_id="source",
+        payload_identity="payload",
+        resume=True,
     )
     assert [item.path for item in resumed.page(0).page.files] == ["one.txt", "two.txt"]

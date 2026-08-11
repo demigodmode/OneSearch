@@ -158,7 +158,7 @@ class RemoteScanner:
         )
 
     def scan_v3(
-        self, *, state_dir, job_id: str, source_id: str, payload_identity: str
+        self, *, state_dir, job_id: str, source_id: str, payload_identity: str, resume: bool = False
     ) -> ScanSpool:
         """Durably traverse the selected source and return its resumable v3 inventory."""
         spool = ScanSpool.open(
@@ -166,6 +166,7 @@ class RemoteScanner:
             job_id=job_id,
             payload_identity=payload_identity,
             source_id=source_id,
+            resume=resume,
         )
         if spool.finished:
             return spool
@@ -177,11 +178,16 @@ class RemoteScanner:
                 if prefix and not entry.relative_path.startswith(prefix):
                     raise PathOutsideAllowedRoots("listed path escaped selected source")
                 path = entry.relative_path[len(prefix) :]
-                if entry.is_dir:
+                spool.observe_directory_member(
+                    directory, path, entry.is_dir, entry.size_bytes, entry.modified_at_ns
+                )
+            spool.seal_directory_membership(directory)
+            for path, is_dir, size_bytes, modified_at_ns in spool.directory_members(directory):
+                if is_dir:
                     if not self._excluded(path):
                         spool.enqueue_directory(path)
                 elif self._included(path) and not self._excluded(path):
-                    spool.append_file(path, entry.size_bytes, entry.modified_at_ns)
+                    spool.append_file(path, size_bytes, modified_at_ns)
             spool.complete_directory(directory)
         spool.finish()
         return spool

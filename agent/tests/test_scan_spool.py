@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -77,3 +78,77 @@ def test_spool_uses_durable_page_cursor_when_byte_bound_precedes_entry_bound(tmp
         f"{'x' * 300_000}/{number}.txt" for number in range(10)
     ]
     assert second.page.checkpoint.scanned_count == len(first.page.files) + len(second.page.files)
+
+
+def test_resume_requires_existing_spool_before_connecting(tmp_path: Path):
+    with pytest.raises(RuntimeError, match="missing"):
+        ScanSpool.open(
+            tmp_path, job_id="job", payload_identity="payload", source_id="source", resume=True
+        )
+    assert not (tmp_path / "scan-spool").exists()
+
+
+def test_directory_membership_is_fenced_across_interrupted_claim(tmp_path: Path):
+    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.enqueue_directory("")
+    claim = spool.next_directory()
+    spool.observe_directory_member(claim, "one.txt", False, 1, 1)
+    spool.observe_directory_member(claim, "two.txt", False, 2, 2)
+    spool.seal_directory_membership(claim)
+    spool.close()
+
+    resumed = ScanSpool.open(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source", resume=True
+    )
+    claim = resumed.next_directory()
+    resumed.observe_directory_member(claim, "one.txt", False, 1, 1)
+    with pytest.raises(RuntimeError, match="membership"):
+        resumed.complete_directory(claim)
+
+
+def test_directory_claim_is_atomic_across_two_open_connections(tmp_path: Path):
+    first = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    first.enqueue_directory("")
+    second = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+    assert first.next_directory() == ""
+    assert second.next_directory() is None
+
+
+def test_page_rejects_gaps_and_semantic_tampering(tmp_path: Path):
+    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.finish()
+    assert spool.page(0).page.final is True
+    with pytest.raises(RuntimeError, match="sequence"):
+        spool.page(1)
+    spool.close()
+
+    reopened = ScanSpool.open(
+        tmp_path, job_id="job", payload_identity="payload", source_id="source"
+    )
+    assert reopened.page(0).page.final
+    reopened.close()
+
+    database = next((tmp_path / "scan-spool").glob("*.sqlite3"))
+    connection = sqlite3.connect(database)
+    connection.execute("UPDATE metadata SET value = '1' WHERE key = 'inventory_count'")
+    connection.commit()
+    connection.close()
+    with pytest.raises(RuntimeError, match="semantic"):
+        ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+
+
+def test_open_rejects_persisted_page_checksum_rewrite(tmp_path: Path):
+    spool = ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
+    spool.append_file("one.txt", 1, 1)
+    spool.finish()
+    spool.page(0)
+    spool.close()
+    database = next((tmp_path / "scan-spool").glob("*.sqlite3"))
+    connection = sqlite3.connect(database)
+    connection.execute("UPDATE pages SET checksum = ?", ("0" * 64,))
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(RuntimeError, match="semantic"):
+        ScanSpool.open(tmp_path, job_id="job", payload_identity="payload", source_id="source")
