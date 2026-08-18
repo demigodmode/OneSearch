@@ -135,7 +135,7 @@ def remote_download(db_session, monkeypatch):
         platform="linux",
         version="1",
         protocol_version=1,
-        allowed_roots=json.dumps([{"root_id": "photos", "path": "remote/photos"}]),
+        allowed_roots=json.dumps([{"root_id": "photos", "path": "/remote/photos"}]),
         status="online",
         approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
         last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
@@ -143,7 +143,7 @@ def remote_download(db_session, monkeypatch):
     source = Source(
         id="remote-download-source",
         name="Remote photos",
-        root_path="remote/photos",
+        root_path="/remote/photos",
         location_type="agent",
         agent_id=agent.id,
         processing_mode="on_server",
