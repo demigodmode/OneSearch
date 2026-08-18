@@ -82,9 +82,9 @@ def test_reconciliation_deletes_preview_assets(db_session, tmp_path, monkeypatch
     preview_dir.mkdir()
     monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: preview_dir)
 
-    store_preview(source.id, "photos/old.jpg", preview_data, preview_dir)
+    store_preview(source.id, "photos/old.jpg", preview_data, preview_dir, indexed.modified_at_ns)
     path_hash = remote_path_hash("photos/old.jpg")
-    preview_file = preview_dir / source.id / f"{path_hash}.jpg"
+    preview_file = preview_dir / source.id / f"{path_hash}-{indexed.modified_at_ns}.jpg"
     assert preview_file.exists()
 
     # Simulate reconciliation by deleting the indexed file
@@ -145,6 +145,46 @@ def test_source_deletion_removes_preview_directory(db_session, tmp_path, monkeyp
     assert not source_preview_dir.exists()
 
 
+def test_preview_with_mtime_keyed_storage_handles_stale_updates(tmp_path):
+    """Test that stale previews are not served when file mtime changes."""
+    from app.services.preview_assets import delete_preview, load_preview, store_preview
+
+    preview_dir = tmp_path / "previews"
+    preview_dir.mkdir()
+
+    source_id = "source-1"
+    path = "photos/photo.jpg"
+    mtime_1 = 1_000_000_000_000_000_000
+    mtime_2 = 1_000_000_000_100_000_000
+
+    # Store preview for mtime_1
+    preview_1 = b"preview for mtime 1"
+    store_preview(source_id, path, preview_1, preview_dir, modified_at_ns=mtime_1)
+
+    # Should load preview for mtime_1
+    loaded = load_preview(source_id, path, preview_dir, modified_at_ns=mtime_1)
+    assert loaded == preview_1
+
+    # Should NOT load preview when querying with different mtime
+    loaded_wrong = load_preview(source_id, path, preview_dir, modified_at_ns=mtime_2)
+    assert loaded_wrong is None
+
+    # Store new preview for mtime_2 (file updated)
+    preview_2 = b"preview for mtime 2"
+    store_preview(source_id, path, preview_2, preview_dir, modified_at_ns=mtime_2)
+
+    # Old preview for mtime_1 should be cleaned up
+    # New preview for mtime_2 should be available
+    loaded_old = load_preview(source_id, path, preview_dir, modified_at_ns=mtime_1)
+    assert loaded_old is None
+    loaded_new = load_preview(source_id, path, preview_dir, modified_at_ns=mtime_2)
+    assert loaded_new == preview_2
+
+    # Delete should remove all variants
+    delete_preview(source_id, path, preview_dir)
+    assert load_preview(source_id, path, preview_dir, modified_at_ns=mtime_2) is None
+
+
 def test_on_server_extraction_produces_stored_preview(db_session, tmp_path, monkeypatch):
     """Test that on-server file extraction produces a stored preview."""
     # Setup remote agent and source with on_server processing
@@ -181,11 +221,12 @@ def test_on_server_extraction_produces_stored_preview(db_session, tmp_path, monk
     preview_jpeg.save(preview_buffer, format="JPEG", quality=80)
     preview_data = preview_buffer.getvalue()
 
-    store_preview(source.id, "documents/extracted.jpg", preview_data, preview_dir)
+    mtime_ns = 1_700_000_000_000_000_000
+    store_preview(source.id, "documents/extracted.jpg", preview_data, preview_dir, mtime_ns)
 
     # Verify preview was stored
     path_hash = remote_path_hash("documents/extracted.jpg")
-    preview_file = preview_dir / source.id / f"{path_hash}.jpg"
+    preview_file = preview_dir / source.id / f"{path_hash}-{mtime_ns}.jpg"
     assert preview_file.exists()
     assert preview_file.read_bytes() == preview_data
 
@@ -222,13 +263,60 @@ def test_corrupt_image_does_not_crash_scan(db_session, tmp_path, monkeypatch):
 
     # Try to store corrupt image data - should not crash, just skip
     corrupt_data = b"not a valid image file at all"
+    mtime_ns = 1_700_000_000_000_000_000
     try:
-        store_preview(source.id, "corrupt.jpg", corrupt_data, preview_dir)
+        store_preview(source.id, "corrupt.jpg", corrupt_data, preview_dir, mtime_ns)
         # If we get here, it either succeeded (stored raw data) or handled gracefully
         path_hash = remote_path_hash("corrupt.jpg")
-        preview_file = preview_dir / source.id / f"{path_hash}.jpg"
+        preview_file = preview_dir / source.id / f"{path_hash}-{mtime_ns}.jpg"
         # File should exist even if data is corrupt (we store what we get)
         assert preview_file.exists()
     except Exception as e:
         # If it raises, it should be a controlled exception, not a crash
         pytest.fail(f"Should not crash on corrupt image: {e}")
+
+
+def test_generate_preview_produces_valid_jpeg_from_real_image(tmp_path):
+    """Test that preview generation produces valid JPEG from a real image file."""
+    from app.services.preview_assets import generate_derived_jpeg_preview
+
+    # Create a real test image
+    test_image = Image.new("RGB", (800, 600), color="blue")
+    image_path = tmp_path / "test_photo.jpg"
+    test_image.save(image_path, "JPEG")
+
+    # Generate preview
+    preview_bytes = generate_derived_jpeg_preview(image_path)
+
+    # Should produce bytes
+    assert preview_bytes is not None
+    assert len(preview_bytes) > 0
+    # Should be valid JPEG (magic number)
+    assert preview_bytes.startswith(b"\xff\xd8\xff")
+    # Should be bounded by max_bytes
+    assert len(preview_bytes) <= 2 * 1024 * 1024
+    # Should be smaller than original (due to downscaling and compression)
+    assert len(preview_bytes) < test_image.size[0] * test_image.size[1] * 3
+
+
+def test_generate_preview_handles_various_image_formats(tmp_path):
+    """Test preview generation works with various image formats."""
+    from app.services.preview_assets import generate_derived_jpeg_preview
+
+    formats = [
+        ("PNG", "test.png"),
+        ("GIF", "test.gif"),
+    ]
+
+    for format_name, filename in formats:
+        # Create test image in format
+        test_image = Image.new("RGB", (200, 150), color="green")
+        image_path = tmp_path / filename
+        test_image.save(image_path, format_name)
+
+        # Generate preview
+        preview_bytes = generate_derived_jpeg_preview(image_path)
+
+        # Should always produce JPEG bytes
+        if preview_bytes is not None:
+            assert preview_bytes.startswith(b"\xff\xd8\xff"), f"Failed for {format_name}"

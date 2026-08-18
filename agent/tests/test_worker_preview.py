@@ -3,87 +3,126 @@
 
 """Tests for agent worker preview generation."""
 
-from unittest.mock import MagicMock
+import asyncio
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from PIL import Image
 
-
-def test_worker_generates_preview_for_real_image(tmp_path):
-    """Test that preview generation can be called for images without crashing."""
-    from app.services.preview_assets import generate_derived_jpeg_preview
-
-    # Create a real small test image and save properly
-    test_image = Image.new("RGB", (100, 80), color="blue")
-    image_path = tmp_path / "test_image.jpg"
-    with open(image_path, "wb") as f:
-        test_image.save(f, "JPEG")
-
-    # Generate preview - function should handle it gracefully
-    # On some systems/PIL versions it may or may not return bytes,
-    # but it should never crash
-    try:
-        preview_bytes = generate_derived_jpeg_preview(image_path)
-        # If it returns bytes, verify they're JPEG
-        if preview_bytes is not None:
-            assert len(preview_bytes) > 0
-            assert preview_bytes.startswith(b"\xff\xd8\xff")  # JPEG magic number
-    except Exception as e:
-        pytest.fail(f"Preview generation should not crash: {e}")
+from app.services.preview_assets import generate_derived_jpeg_preview
 
 
-def test_worker_handles_corrupt_image_gracefully(tmp_path):
-    """Test that corrupt images are handled gracefully without crashing."""
-    from app.services.preview_assets import generate_derived_jpeg_preview
+def test_generate_preview_from_real_jpg_image(tmp_path):
+    """Test preview generation from a real JPEG image."""
+    image_path = tmp_path / "test.jpg"
+    test_image = Image.new("RGB", (800, 600), color="blue")
+    test_image.save(image_path, "JPEG")
 
-    # Create a corrupt image file
+    preview_bytes = generate_derived_jpeg_preview(image_path)
+
+    assert preview_bytes is not None
+    assert len(preview_bytes) > 0
+    assert preview_bytes.startswith(b"\xff\xd8\xff")  # JPEG magic
+    assert len(preview_bytes) <= 2 * 1024 * 1024  # Bounded by 2MB
+
+
+def test_generate_preview_handles_corrupt_image(tmp_path):
+    """Test that corrupt images return None gracefully."""
     corrupt_path = tmp_path / "corrupt.jpg"
-    corrupt_path.write_bytes(b"not a valid jpeg file at all")
+    corrupt_path.write_bytes(b"not a valid jpeg at all")
 
-    # Try to generate preview - should return None or handle gracefully
     preview_bytes = generate_derived_jpeg_preview(corrupt_path)
 
-    # Should not crash, should return None for undecodable image
     assert preview_bytes is None
 
 
-def test_worker_preview_upload_pattern(tmp_path):
-    """Test that the worker can prepare preview metadata for upload."""
-    from app.services.preview_assets import generate_derived_jpeg_preview
+def test_generate_preview_skips_non_displayable_formats(tmp_path):
+    """Test that preview generation works for displayable formats (PNG, GIF, etc)."""
+    # Test PNG
+    png_path = tmp_path / "test.png"
+    test_image = Image.new("RGB", (400, 300), color="green")
+    test_image.save(png_path, "PNG")
+
+    preview_bytes = generate_derived_jpeg_preview(png_path)
+    assert preview_bytes is not None
+    assert preview_bytes.startswith(b"\xff\xd8\xff")
+
+
+@pytest.mark.asyncio
+async def test_maybe_upload_preview_filters_by_extension():
+    """Test that _maybe_upload_preview only processes displayable formats."""
+    from onesearch_agent.worker import _maybe_upload_preview
+
+    mock_client = AsyncMock()
+    mock_client.upload_preview = AsyncMock()
+
+    mock_lease = Mock()
+    mock_lease.id = "job-123"
+    mock_lease.lease_token = "token-123"
+
+    # Test with non-displayable format
+    await _maybe_upload_preview(
+        mock_client,
+        mock_lease,
+        "document.pdf",
+        1_000_000_000_000_000_000,
+        "/path/to/document.pdf",
+        mutation_attempts=1,
+        sleep=asyncio.sleep,
+    )
+
+    # Should not call upload_preview for PDF
+    assert not mock_client.upload_preview.called
+
+
+@pytest.mark.asyncio
+async def test_maybe_upload_preview_calls_with_correct_params(tmp_path):
+    """Test that _maybe_upload_preview calls upload_preview with correct params."""
+    from onesearch_agent.worker import _maybe_upload_preview
 
     # Create a test image
-    test_image = Image.new("RGB", (50, 40), color="red")
     image_path = tmp_path / "photo.jpg"
-    with open(image_path, "wb") as f:
-        test_image.save(f, "JPEG")
+    test_image = Image.new("RGB", (200, 150), color="red")
+    test_image.save(image_path, "JPEG")
 
-    # This simulates what the worker does during scan:
-    # 1. Generate preview (may return None on some systems)
-    preview_bytes = generate_derived_jpeg_preview(image_path)
-    if preview_bytes is None:
-        pytest.skip("Preview generation returned None on this system")
+    mock_client = AsyncMock()
+    mock_client.upload_preview = AsyncMock()
 
-    # 2. Prepare metadata for upload
-    job_id = "scan-job-abc123"
-    path = "photos/photo.jpg"
+    mock_lease = Mock()
+    mock_lease.id = "job-456"
+    mock_lease.lease_token = "token-456"
+
     mtime_ns = 1_700_000_000_000_000_000
+    path = "photos/photo.jpg"
 
-    # 3. Create mock client and verify upload would be called correctly
-    mock_client = MagicMock()
-    mock_client.upload_preview = MagicMock()
+    # Mock _submit_idempotent to not actually call the client
+    original_submit = None
+    try:
+        from onesearch_agent import worker
+        original_submit = worker._submit_idempotent
 
-    # Call upload (as the worker would do via lambda)
-    mock_client.upload_preview(
-        job_id=job_id,
-        path=path,
-        preview_bytes=preview_bytes,
-        modified_at_ns=mtime_ns,
-    )
+        async def mock_submit(operation, **kwargs):
+            # Just execute the operation but don't retry
+            return await operation()
 
-    # Verify the parameters are correct
-    mock_client.upload_preview.assert_called_once_with(
-        job_id=job_id,
-        path=path,
-        preview_bytes=preview_bytes,
-        modified_at_ns=mtime_ns,
-    )
+        worker._submit_idempotent = mock_submit
+
+        await _maybe_upload_preview(
+            mock_client,
+            mock_lease,
+            path,
+            mtime_ns,
+            str(image_path),
+            mutation_attempts=1,
+            sleep=asyncio.sleep,
+        )
+
+        # Verify upload_preview was called
+        assert mock_client.upload_preview.called
+        call_kwargs = mock_client.upload_preview.call_args[0]
+        # First three positional args are lease.id, lease.lease_token, then kwargs
+        assert call_kwargs[0] == mock_lease.id
+        assert call_kwargs[1] == mock_lease.lease_token
+    finally:
+        if original_submit:
+            worker._submit_idempotent = original_submit

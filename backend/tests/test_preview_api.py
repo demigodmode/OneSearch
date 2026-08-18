@@ -1046,7 +1046,7 @@ def test_stored_preview_is_served_for_remote_image_when_agent_offline(
 ):
     """Test that stored derived preview is served even when agent is offline."""
 
-    agent, source, _indexed, document = remote_download
+    agent, source, indexed, document = remote_download
     document.update({"type": "image", "extension": "jpg"})
 
     # Mock preview directory to use tmp_path
@@ -1067,7 +1067,7 @@ def test_stored_preview_is_served_for_remote_image_when_agent_offline(
 
     from onesearch_shared import remote_path_hash
     path_hash = remote_path_hash(document["path"])
-    preview_file = source_dir / f"{path_hash}.jpg"
+    preview_file = source_dir / f"{path_hash}-{indexed.modified_at_ns}.jpg"
     preview_file.write_bytes(stored_preview)
 
     # Make agent offline
@@ -1080,6 +1080,102 @@ def test_stored_preview_is_served_for_remote_image_when_agent_offline(
     assert response.content == stored_preview
     assert response.headers["content-type"] == "image/jpeg"
     # No job should be created
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_stored_preview_served_even_if_original_exceeds_size_limit(
+    streaming_client, db_session, remote_download, tmp_path, monkeypatch
+):
+    """Test that stored preview is served even when original file exceeds size limit."""
+
+    agent, source, indexed, document = remote_download
+    document.update({"type": "image", "extension": "jpg"})
+
+    # Set a low size limit (25MB)
+    db_session.add(AppSetting(key="max_preview_size_mb", value="25"))
+
+    # Make original file size exceed limit
+    indexed.size_bytes = 26 * 1024 * 1024
+    db_session.commit()
+
+    # Mock preview directory to use tmp_path
+    preview_dir = tmp_path / "previews"
+    monkeypatch.setattr(
+        "app.api.preview.app_data_preview_directory",
+        lambda *_: preview_dir
+    )
+
+    # Create stored preview (small, under limit)
+    source_dir = preview_dir / source.id
+    source_dir.mkdir(parents=True, exist_ok=True)
+
+    preview_jpeg = Image.new("RGB", (100, 80), color="red")
+    preview_buffer = BytesIO()
+    preview_jpeg.save(preview_buffer, format="JPEG", quality=80)
+    stored_preview = preview_buffer.getvalue()
+
+    from onesearch_shared import remote_path_hash
+    path_hash = remote_path_hash(document["path"])
+    preview_file = source_dir / f"{path_hash}-{indexed.modified_at_ns}.jpg"
+    preview_file.write_bytes(stored_preview)
+
+    # Keep agent online
+    assert agent.status == "online"
+
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+
+    # Should serve the stored preview instead of rejecting with 413
+    assert response.status_code == 200
+    assert response.content == stored_preview
+    assert response.headers["content-type"] == "image/jpeg"
+    # No job should be created - served from cache
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_stale_preview_not_served_when_file_mtime_changes(
+    streaming_client, db_session, remote_download, tmp_path, monkeypatch
+):
+    """Test that stale preview is NOT served when indexed file mtime differs from stored preview."""
+
+    agent, source, indexed, document = remote_download
+    document.update({"type": "image", "extension": "jpg"})
+
+    # Mock preview directory to use tmp_path
+    preview_dir = tmp_path / "previews"
+    monkeypatch.setattr(
+        "app.api.preview.app_data_preview_directory",
+        lambda *_: preview_dir
+    )
+
+    # Create a stored preview for mtime A
+    source_dir = preview_dir / source.id
+    source_dir.mkdir(parents=True, exist_ok=True)
+
+    preview_jpeg = Image.new("RGB", (100, 80), color="green")
+    preview_buffer = BytesIO()
+    preview_jpeg.save(preview_buffer, format="JPEG", quality=80)
+    stale_preview = preview_buffer.getvalue()
+
+    from onesearch_shared import remote_path_hash
+    path_hash = remote_path_hash(document["path"])
+    old_mtime = 1_000_000_000_000_000_000
+    preview_file = source_dir / f"{path_hash}-{old_mtime}.jpg"
+    preview_file.write_bytes(stale_preview)
+
+    # But the indexed file has a different mtime (file was updated)
+    indexed.modified_at_ns = 2_000_000_000_000_000_000
+    db_session.commit()
+
+    # Make agent offline so we can't fall back to streaming
+    agent.status = "offline"
+    db_session.commit()
+
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+
+    # Should return 409 agent_offline (NOT serve the stale preview)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "agent_offline"
+    # No job should have been created
     assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
 
 

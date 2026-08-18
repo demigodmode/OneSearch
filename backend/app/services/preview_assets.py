@@ -3,8 +3,13 @@
 
 """Derived preview asset generation and storage for remote documents."""
 
+import glob
+import shutil
+from contextlib import suppress
+from io import BytesIO
 from pathlib import Path
 
+from onesearch_shared import remote_path_hash
 from PIL import Image
 
 
@@ -16,9 +21,12 @@ def app_data_preview_directory(database_url: str) -> Path:
     return Path("/app/data/previews")
 
 
-def _is_browser_displayable_image(extension: str) -> bool:
+BROWSER_DISPLAYABLE_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif"}
+
+
+def is_browser_displayable_image(extension: str) -> bool:
     """Check if extension is a browser-displayable image type."""
-    return extension.lower() in {"jpg", "jpeg", "png", "webp", "gif"}
+    return extension.lower() in BROWSER_DISPLAYABLE_IMAGE_EXTENSIONS
 
 
 def generate_derived_jpeg_preview(
@@ -37,47 +45,54 @@ def generate_derived_jpeg_preview(
     Corrupt or undecodable images do not raise an exception.
     """
     try:
-        image = Image.open(source_path)
-        # Animated GIFs: use first frame which is already loaded in PIL
-        # Ensure RGB
-        if image.mode in {"RGBA", "LA", "P"}:
-            rgb_image = Image.new("RGB", image.size, (255, 255, 255))
-            rgb_image.paste(image, mask=image.split()[-1] if image.mode in {"RGBA", "LA"} else None)
-            image = rgb_image
-        elif image.mode != "RGB":
-            image = image.convert("RGB")
+        with Image.open(source_path) as image:
+            # Animated GIFs: use first frame which is already loaded in PIL
+            # Ensure RGB
+            if image.mode in {"RGBA", "LA", "P"}:
+                rgb_image = Image.new("RGB", image.size, (255, 255, 255))
+                rgb_image.paste(image, mask=image.split()[-1] if image.mode in {"RGBA", "LA"} else None)
+                image = rgb_image
+            elif image.mode != "RGB":
+                image = image.convert("RGB")
 
-        # Scale down if needed
-        image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
+            # Scale down if needed
+            image.thumbnail((max_dimension, max_dimension), Image.Resampling.LANCZOS)
 
-        # Save as JPEG with quality cap
-        jpeg_buffer = bytearray()
-        image.save(
-            jpeg_buffer, format="JPEG", quality=quality, optimize=False
-        )  # optimize=False for speed
+            # Save as JPEG to BytesIO with quality cap
+            jpeg_buffer = BytesIO()
+            image.save(jpeg_buffer, format="JPEG", quality=quality, optimize=False)
 
-        if len(jpeg_buffer) <= max_bytes:
-            return bytes(jpeg_buffer)
+            preview_bytes = jpeg_buffer.getvalue()
+            if len(preview_bytes) <= max_bytes:
+                return preview_bytes
         return None
     except Exception:
         # Corrupt or unsupported images don't fail the scan
         return None
 
 
-def store_preview(source_id: str, path: str, preview_bytes: bytes, base_dir: Path) -> Path | None:
+def store_preview(source_id: str, path: str, preview_bytes: bytes, base_dir: Path, modified_at_ns: int) -> Path | None:
     """
-    Store a derived preview on disk.
+    Store a derived preview on disk, keyed by path and mtime.
+
+    Preview is stored as {path_hash}-{modified_at_ns}.jpg.
+    Old variants with different mtimes are cleaned up.
 
     Returns the path to the stored preview file, or None if storage failed.
     """
     try:
-        from onesearch_shared import remote_path_hash
-
         source_dir = base_dir / source_id
         source_dir.mkdir(parents=True, exist_ok=True)
 
         path_hash = remote_path_hash(path)
-        preview_file = source_dir / f"{path_hash}.jpg"
+        preview_file = source_dir / f"{path_hash}-{modified_at_ns}.jpg"
+
+        # Clean up old variants with different mtimes
+        for old_file in glob.glob(str(source_dir / f"{path_hash}-*.jpg")):
+            old_path = Path(old_file)
+            if old_path != preview_file:
+                with suppress(Exception):
+                    old_path.unlink()
 
         # Atomic write: write to temp file then rename
         temp_file = preview_file.with_suffix(".tmp")
@@ -89,14 +104,12 @@ def store_preview(source_id: str, path: str, preview_bytes: bytes, base_dir: Pat
         return None
 
 
-def load_preview(source_id: str, path: str, base_dir: Path) -> bytes | None:
-    """Load a stored derived preview from disk."""
+def load_preview(source_id: str, path: str, base_dir: Path, modified_at_ns: int) -> bytes | None:
+    """Load a stored derived preview from disk, matching the provided mtime."""
     try:
-        from onesearch_shared import remote_path_hash
-
         source_dir = base_dir / source_id
         path_hash = remote_path_hash(path)
-        preview_file = source_dir / f"{path_hash}.jpg"
+        preview_file = source_dir / f"{path_hash}-{modified_at_ns}.jpg"
 
         if preview_file.exists():
             return preview_file.read_bytes()
@@ -106,14 +119,15 @@ def load_preview(source_id: str, path: str, base_dir: Path) -> bytes | None:
 
 
 def delete_preview(source_id: str, path: str, base_dir: Path) -> None:
-    """Delete a stored derived preview."""
+    """Delete stored derived previews, including all mtime variants."""
     try:
-        from onesearch_shared import remote_path_hash
-
         source_dir = base_dir / source_id
         path_hash = remote_path_hash(path)
-        preview_file = source_dir / f"{path_hash}.jpg"
-        preview_file.unlink(missing_ok=True)
+
+        # Delete all {path_hash}-*.jpg variants
+        for file_path in glob.glob(str(source_dir / f"{path_hash}-*.jpg")):
+            with suppress(Exception):
+                Path(file_path).unlink()
     except Exception:
         pass
 
@@ -123,8 +137,6 @@ def delete_source_previews(source_id: str, base_dir: Path) -> None:
     try:
         source_dir = base_dir / source_id
         if source_dir.exists():
-            import shutil
-
             shutil.rmtree(source_dir, ignore_errors=True)
     except Exception:
         pass

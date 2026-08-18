@@ -21,7 +21,10 @@ from ..db.database import get_db
 from ..models import Agent, IndexedFile, Source, User
 from ..services.agent_jobs import AgentJobService, JobConflict
 from ..services.app_settings import AppSettingsService
-from ..services.preview_assets import app_data_preview_directory, load_preview
+from ..services.preview_assets import (
+    app_data_preview_directory,
+    load_preview,
+)
 from ..services.remote_files import (
     RemoteFileChanged,
     RemoteFileMissing,
@@ -74,11 +77,16 @@ async def get_document_preview(
         # Try to load stored preview first (doesn't require agent online)
         preview_base = app_data_preview_directory(runtime_settings.database_url)
         doc_path = str(document.get("path") or "")
-        stored_preview = load_preview(source.id, doc_path, preview_base)
+        stored_preview = load_preview(source.id, doc_path, preview_base, modified_at_ns=indexed.modified_at_ns)
+        # If we have a stored preview with matching mtime, serve it regardless of original file size
+        # (stored preview is already bounded ≤2MB)
+        if stored_preview is not None:
+            return Response(content=stored_preview, media_type="image/jpeg")
     else:
         file_path = _validated_document_path(document, source)
         size_bytes = max(file_path.stat().st_size, int(document.get("size_bytes") or 0))
         stored_preview = None
+    # Size check applies to fallback streaming path and local files
     max_bytes = app_settings.max_preview_size_mb * 1024 * 1024
     if size_bytes > max_bytes:
         _preview_error(
@@ -123,10 +131,6 @@ async def get_document_preview(
         )
 
     if source.location_type == "agent":
-        # If we have a stored preview, use it without requiring agent online
-        if stored_preview is not None:
-            return Response(content=stored_preview, media_type="image/jpeg")
-
         # Fall back to streaming from agent
         _require_available_remote_source(source, db)
         return await _remote_file_response(

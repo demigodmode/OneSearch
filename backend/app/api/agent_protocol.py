@@ -511,9 +511,9 @@ async def receive_preview(
             if hashlib.sha256(bytes(body)).hexdigest() != checksum:
                 raise RemoteFileChanged("preview checksum mismatch")
 
-        # Store the preview
+        # Store the preview with mtime for freshness tracking
         preview_base = app_data_preview_directory(runtime_settings.database_url)
-        store_preview(job.source_id, canonical_path, bytes(body), preview_base)
+        store_preview(job.source_id, canonical_path, bytes(body), preview_base, modified_at_ns=modified_at_ns)
 
         db.commit()
     except (RemoteFileChanged, JobLeaseError, JobConflict) as error:
@@ -580,17 +580,18 @@ async def receive_file_chunk(
                         from app.services.preview_assets import (
                             app_data_preview_directory,
                             generate_derived_jpeg_preview,
+                            is_browser_displayable_image,
                             store_preview,
                         )
 
                         extension = PathlibPath(payload["path"]).suffix.lstrip(".").lower()
-                        if extension in {"jpg", "jpeg", "png", "webp", "gif"}:
+                        if is_browser_displayable_image(extension):
                             preview_bytes = await asyncio.to_thread(
                                 generate_derived_jpeg_preview, str(temporary)
                             )
                             if preview_bytes:
                                 preview_base = app_data_preview_directory(runtime_settings.database_url)
-                                store_preview(job.source_id, payload["path"], preview_bytes, preview_base)
+                                store_preview(job.source_id, payload["path"], preview_bytes, preview_base, modified_at_ns=payload["modified_at"])
 
                     await get_remote_ingest_service(db).accept_server_document(
                         agent.id, job_id, lease_token, result
