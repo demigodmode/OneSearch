@@ -3,14 +3,12 @@
 
 """Tests for preview asset storage and cleanup."""
 
-import hashlib
 import json
 from datetime import datetime, timezone
 from io import BytesIO
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
 import pytest
+from onesearch_shared import remote_path_hash
 from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -19,17 +17,11 @@ from sqlalchemy.pool import StaticPool
 from app.api.auth import create_access_token, hash_password
 from app.db.database import get_db
 from app.main import app
-from app.models import Agent, AgentJob, AppSetting, Base, IndexedFile, Source, User
-from app.services.agent_auth import create_agent_token, hash_token
-from app.services.agent_jobs import AgentJobService
+from app.models import Agent, AppSetting, Base, IndexedFile, Source, User
 from app.services.preview_assets import (
-    app_data_preview_directory,
     delete_preview,
-    delete_source_previews,
     store_preview,
 )
-from app.services.remote_ingest import RemoteIngestService, canonical_remote_path
-from onesearch_shared import remote_path_hash
 
 engine = create_engine(
     "sqlite:///:memory:",
@@ -95,8 +87,6 @@ def test_reconciliation_deletes_preview_assets(db_session, tmp_path, monkeypatch
     preview_file = preview_dir / source.id / f"{path_hash}.jpg"
     assert preview_file.exists()
 
-    # Run reconciliation with empty manifest (document is gone)
-    ingest = RemoteIngestService(db_session, None)
     # Simulate reconciliation by deleting the indexed file
     db_session.delete(indexed)
     db_session.commit()
