@@ -1,6 +1,7 @@
 """File-backed SQLite race regressions for durable remote jobs."""
 
 import asyncio
+import json
 import threading
 from datetime import datetime, timezone
 
@@ -32,7 +33,7 @@ def _database(tmp_path):
         platform="linux",
         version="1",
         protocol_version=1,
-        allowed_roots="[]",
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
     )
     source = Source(
         id="source",

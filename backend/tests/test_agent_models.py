@@ -77,7 +77,7 @@ def test_agent_and_enrollment_persist_with_defaults(agent_db):
     agent_db.refresh(agent)
     assert json.loads(agent.allowed_roots) == [{"root_id": "media", "path": "/mnt/media"}]
     assert agent.default_processing_mode == "on_agent"
-    assert agent.auto_update is False
+    assert agent.auto_update is None
     assert agent.status == "pending"
     assert agent.token_hash is None
     assert agent.approved_at is None
@@ -436,7 +436,7 @@ def test_migration_is_head_and_round_trips_only_a_temporary_database(tmp_path):
             column[1] for column in connection.execute("PRAGMA table_info('indexed_files')")
         }
     assert row == ("local", None, None)
-    assert revision == "e8b4c6d912fa"
+    assert revision == "d4a7f2b9c801"
     assert "modified_at_ns" in indexed_columns
     assert "ix_agent_jobs_agent_status_created" in index_names
     assert "ix_agent_jobs_status_lease_expires" in index_names
@@ -450,4 +450,4 @@ def test_migration_is_head_and_round_trips_only_a_temporary_database(tmp_path):
     alembic("check")
     with sqlite3.connect(database_path) as connection:
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-    assert revision == "e8b4c6d912fa"
+    assert revision == "d4a7f2b9c801"
