@@ -720,8 +720,8 @@ class RemoteIngestService:
             self.db.rollback()
             raise
         # Clean up previews for deleted documents
-        from .preview_assets import app_data_preview_directory, delete_preview
         from ..config import settings as runtime_settings
+        from .preview_assets import app_data_preview_directory, delete_preview
         preview_base = app_data_preview_directory(runtime_settings.database_url)
         for row in missing:
             delete_preview(job.source_id, row.path, preview_base)

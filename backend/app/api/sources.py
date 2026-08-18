@@ -13,7 +13,6 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -394,7 +393,7 @@ def generate_source_id(name: str) -> str:
     return source_id or "source"
 
 
-@router.get("", response_model=List[SourceResponse])
+@router.get("", response_model=list[SourceResponse])
 async def list_sources(
     db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
 ):
@@ -762,8 +761,8 @@ async def delete_source(
 
     # Clean up stored previews for this source
     try:
-        from app.services.preview_assets import app_data_preview_directory, delete_source_previews
         from app.config import settings as runtime_settings
+        from app.services.preview_assets import app_data_preview_directory, delete_source_previews
         preview_base = app_data_preview_directory(runtime_settings.database_url)
         delete_source_previews(source_id, preview_base)
     except Exception as e:
