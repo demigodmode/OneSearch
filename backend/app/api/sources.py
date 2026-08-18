@@ -760,6 +760,15 @@ async def delete_source(
     if hasattr(request.app.state, "scheduler"):
         request.app.state.scheduler.remove_source(source_id)
 
+    # Clean up stored previews for this source
+    try:
+        from app.services.preview_assets import app_data_preview_directory, delete_source_previews
+        from app.config import settings as runtime_settings
+        preview_base = app_data_preview_directory(runtime_settings.database_url)
+        delete_source_previews(source_id, preview_base)
+    except Exception as e:
+        logger.warning(f"Failed to clean up previews for source {source_id}: {e}")
+
     # Delete source (cascade will delete indexed_files)
     db.delete(source)
     db.commit()

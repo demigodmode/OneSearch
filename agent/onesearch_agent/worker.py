@@ -474,6 +474,7 @@ async def extract_confined(
     )
 
 
+
 async def run_scan_job(
     lease,
     client,
@@ -618,6 +619,28 @@ async def run_scan_job(
                             )
                     except BatchBuildError as error:
                         failures[path] = ScanFailure(path=path, error=_safe_failure(error))
+                    # Generate and upload preview for browser-displayable images
+                    extension = Path(path).suffix.lstrip(".").lower()
+                    if extension in {"jpg", "jpeg", "png", "webp", "gif"}:
+                        with suppress(Exception):
+                            from app.services.preview_assets import generate_derived_jpeg_preview
+
+                            preview_bytes = await asyncio.to_thread(
+                                generate_derived_jpeg_preview, path
+                            )
+                            if preview_bytes is not None:
+                                await _submit_idempotent(
+                                    lambda path=path, data=preview_bytes: client.upload_preview(
+                                        lease.id,
+                                        lease.lease_token,
+                                        path=path,
+                                        modified_at_ns=expected[path].modified_at,
+                                        preview_bytes=data,
+                                        checksum=hashlib.sha256(data).hexdigest(),
+                                    ),
+                                    attempts=_mutation_attempts,
+                                    sleep=_sleep,
+                                )
             finally:
                 await keeper.advance()
         for batch in builder.finish():
@@ -799,6 +822,28 @@ async def _run_v3_scan_job(
                     outcomes.append(
                         ScanPathOutcome(path=document.path, status=ScanPathOutcomeStatus.INDEXED)
                     )
+                    # Generate and upload preview for browser-displayable images
+                    extension = Path(document.path).suffix.lstrip(".").lower()
+                    if extension in {"jpg", "jpeg", "png", "webp", "gif"}:
+                        with suppress(Exception):
+                            from app.services.preview_assets import generate_derived_jpeg_preview
+
+                            preview_bytes = await asyncio.to_thread(
+                                generate_derived_jpeg_preview, document.path
+                            )
+                            if preview_bytes is not None:
+                                await _submit_idempotent(
+                                    lambda path=document.path, data=preview_bytes, mtime=expected[document.path].modified_at: client.upload_preview(
+                                        lease.id,
+                                        lease.lease_token,
+                                        path=path,
+                                        modified_at_ns=mtime,
+                                        preview_bytes=data,
+                                        checksum=hashlib.sha256(data).hexdigest(),
+                                    ),
+                                    attempts=mutation_attempts,
+                                    sleep=sleep,
+                                )
             outcome_payload = ScanPageOutcomePayload(
                 job_id=lease.id,
                 source_id=lease.source_id,

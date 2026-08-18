@@ -69,7 +69,7 @@ def remote_job(db_session):
         platform="x",
         version="1",
         protocol_version=1,
-        allowed_roots="[]",
+        allowed_roots='[{"root_id":"data","path":"/data"}]',
         status="online",
     )
     source = Source(

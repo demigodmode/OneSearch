@@ -719,7 +719,12 @@ class RemoteIngestService:
         except BaseException:
             self.db.rollback()
             raise
+        # Clean up previews for deleted documents
+        from .preview_assets import app_data_preview_directory, delete_preview
+        from ..config import settings as runtime_settings
+        preview_base = app_data_preview_directory(runtime_settings.database_url)
         for row in missing:
+            delete_preview(job.source_id, row.path, preview_base)
             self.db.delete(row)
         for failure in manifest.failures:
             path = canonical_remote_path(failure.path)

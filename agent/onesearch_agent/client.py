@@ -312,3 +312,17 @@ class AgentClient:
             retry=False,
             mutation=True,
         )
+
+    async def upload_preview(self, job_id, lease_token, *, path, modified_at_ns, preview_bytes, checksum=None):
+        params = {"path": path, "modified_at_ns": modified_at_ns}
+        if checksum is not None:
+            params["checksum"] = checksum
+        return await self._request(
+            "PUT",
+            f"/api/agent/v1/jobs/{job_id}/previews",
+            content=preview_bytes,
+            params=params,
+            headers={"X-OneSearch-Lease-Token": lease_token},
+            retry=False,
+            mutation=True,
+        )

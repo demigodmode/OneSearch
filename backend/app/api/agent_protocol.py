@@ -465,6 +465,68 @@ async def acknowledge_cancellation(
     return {"status": "ok"}
 
 
+@router.put("/jobs/{job_id}/previews", dependencies=[Depends(require_remote_agents_enabled)])
+async def receive_preview(
+    job_id: str,
+    request: Request,
+    agent: ApprovedAgent,
+    db: Database,
+    path: str | None = None,
+    modified_at_ns: int | None = None,
+    checksum: str | None = None,
+    lease_token: Annotated[str | None, Header(alias=LEASE_TOKEN_HEADER)] = None,
+):
+    """Accept a bounded derived JPEG preview from an agent for offline viewing."""
+    if lease_token is None or path is None or modified_at_ns is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired job lease")
+    try:
+        jobs = AgentJobService(db)
+        job = jobs.validate_lease(agent.id, job_id, lease_token)
+
+        # Only accept previews for scan jobs
+        if job.kind != "scan" or job.source_id is None:
+            raise JobConflict("invalid preview job")
+
+        # Validate and canonicalize path
+        canonical_path = canonical_remote_path(path)
+
+        # Read bounded preview body
+        from app.config import settings as runtime_settings
+        from app.services.preview_assets import app_data_preview_directory, store_preview
+
+        max_preview_bytes = 2 * 1024 * 1024
+        body = bytearray()
+        async for part in request.stream():
+            body.extend(part)
+            if len(body) > max_preview_bytes:
+                raise RemoteFileChanged("preview exceeds size limit")
+
+        if not body:
+            raise RemoteFileChanged("preview body is empty")
+
+        # Verify checksum if provided
+        if checksum is not None:
+            import hashlib
+
+            if hashlib.sha256(bytes(body)).hexdigest() != checksum:
+                raise RemoteFileChanged("preview checksum mismatch")
+
+        # Store the preview
+        preview_base = app_data_preview_directory(runtime_settings.database_url)
+        store_preview(job.source_id, canonical_path, bytes(body), preview_base)
+
+        db.commit()
+    except (RemoteFileChanged, JobLeaseError, JobConflict) as error:
+        db.rollback()
+        if isinstance(error, RemoteFileChanged):
+            raise HTTPException(status_code=409, detail={"code": error.code, "message": str(error)}) from error
+        raise _job_error(error) from error
+    except (JobNotFound) as error:
+        db.rollback()
+        raise _job_error(error) from error
+    return {"status": "ok"}
+
+
 @router.put("/jobs/{job_id}/file-chunks", dependencies=[Depends(require_remote_agents_enabled)])
 async def receive_file_chunk(
     job_id: str,
@@ -508,6 +570,28 @@ async def receive_file_chunk(
                         modified_at=payload["modified_at"],
                         metadata={**extracted.metadata, "type": extracted.type},
                     )
+
+                    # Generate derived preview for browser-displayable images
+                    preview_bytes = None
+                    if extracted.type == "image":
+                        from pathlib import Path as PathlibPath
+
+                        from app.config import settings as runtime_settings
+                        from app.services.preview_assets import (
+                            app_data_preview_directory,
+                            generate_derived_jpeg_preview,
+                            store_preview,
+                        )
+
+                        extension = PathlibPath(payload["path"]).suffix.lstrip(".").lower()
+                        if extension in {"jpg", "jpeg", "png", "webp", "gif"}:
+                            preview_bytes = await asyncio.to_thread(
+                                generate_derived_jpeg_preview, str(temporary)
+                            )
+                            if preview_bytes:
+                                preview_base = app_data_preview_directory(runtime_settings.database_url)
+                                store_preview(job.source_id, payload["path"], preview_bytes, preview_base)
+
                     await get_remote_ingest_service(db).accept_server_document(
                         agent.id, job_id, lease_token, result
                     )
