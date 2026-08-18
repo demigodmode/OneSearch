@@ -24,6 +24,7 @@ from app.api.auth import create_access_token, hash_password
 from app.db.database import get_db
 from app.main import app
 from app.models import Agent, AgentJob, AppSetting, Base, IndexedFile, Source, User
+from app.services.agent_jobs import AgentJobService
 
 engine = create_engine(
     "sqlite:///:memory:",
@@ -1044,7 +1045,6 @@ def test_stored_preview_is_served_for_remote_image_when_agent_offline(
     streaming_client, db_session, remote_download, tmp_path, monkeypatch
 ):
     """Test that stored derived preview is served even when agent is offline."""
-    from app.services.preview_assets import app_data_preview_directory
 
     agent, source, _indexed, document = remote_download
     document.update({"type": "image", "extension": "jpg"})
@@ -1083,8 +1083,10 @@ def test_stored_preview_is_served_for_remote_image_when_agent_offline(
     assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
 
 
-def test_upload_preview_endpoint_requires_lease_token(client, db_session):
+def test_upload_preview_endpoint_requires_lease_token(db_session, monkeypatch):
     """Test preview upload endpoint rejects request without lease token."""
+    from fastapi.testclient import TestClient
+
     from app.services.agent_auth import create_agent_token, hash_token
 
     agent = Agent(
@@ -1093,108 +1095,51 @@ def test_upload_preview_endpoint_requires_lease_token(client, db_session):
         platform="linux",
         version="1",
         protocol_version=3,
-        allowed_roots=json.dumps([{"root_id": "test", "path": "test"}]),
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
         status="online",
         approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
         last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     token = create_agent_token()
     agent.token_hash = hash_token(token)
-    db_session.add(agent)
-    db_session.commit()
-
-    # Missing lease token - should get 401
-    response = client.put(
-        "/api/agent/v1/jobs/test-job/previews?path=test.jpg&modified_at_ns=123",
-        content=b"test jpeg",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-
-    assert response.status_code == 401
-
-
-def test_upload_preview_endpoint_validates_job_lease(client, db_session):
-    """Test preview upload endpoint validates job lease token."""
-    from app.services.agent_auth import create_agent_token, hash_token
-
-    agent = Agent(
-        id="preview-test-agent",
-        name="Preview Test Agent",
-        platform="linux",
-        version="1",
-        protocol_version=3,
-        allowed_roots=json.dumps([{"root_id": "test", "path": "test"}]),
-        status="online",
-        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
-        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
-    )
-    token = create_agent_token()
-    agent.token_hash = hash_token(token)
-    db_session.add(agent)
-    db_session.commit()
-
-    # Invalid lease token - should get 401
-    response = client.put(
-        "/api/agent/v1/jobs/test-job/previews?path=test.jpg&modified_at_ns=123",
-        content=b"test jpeg",
-        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": "invalid-token"},
-    )
-
-    assert response.status_code == 401
-
-
-def test_upload_preview_endpoint_rejects_oversized_preview(client, db_session):
-    """Test preview upload endpoint rejects previews exceeding 2MB."""
-    from app.services.agent_auth import create_agent_token, hash_token
-    from app.models import AgentJob
-    from app.services.agent_jobs import AgentJobService
-
-    agent = Agent(
-        id="preview-test-agent",
-        name="Preview Test Agent",
-        platform="linux",
-        version="1",
-        protocol_version=3,
-        allowed_roots=json.dumps([{"root_id": "test", "path": "test"}]),
-        status="online",
-        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
-        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
-    )
     source = Source(
         id="preview-test-source",
         name="Preview Test",
-        root_path="test",
+        root_path="/data",
         location_type="agent",
         agent_id=agent.id,
         processing_mode="on_agent",
     )
-    token = create_agent_token()
-    agent.token_hash = hash_token(token)
-    db_session.add_all([agent, source])
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
     db_session.commit()
 
     # Create a job and get a lease
-    job = AgentJobService(db_session).enqueue_scan(
-        source.id, agent.id, full=True, processing_mode="on_agent"
-    )
-    lease = AgentJobService(db_session).claim_next(agent.id)
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
     db_session.commit()
 
-    # Send 2MB+ of data - should be rejected
-    oversized = b"x" * (2 * 1024 * 1024 + 1)
-    response = client.put(
-        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
-        content=oversized,
-        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
-    )
+    def override_get_db():
+        yield db_session
 
-    assert response.status_code == 409
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        # Missing lease token - should get 401
+        response = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+            content=b"test jpeg",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 401
 
 
-def test_upload_preview_verifies_checksum(client, db_session):
-    """Test preview upload endpoint verifies checksum when provided."""
+def test_upload_preview_endpoint_validates_job_lease(db_session, monkeypatch):
+    """Test preview upload endpoint validates job lease token."""
+    from fastapi.testclient import TestClient
+
     from app.services.agent_auth import create_agent_token, hash_token
-    from app.services.agent_jobs import AgentJobService
 
     agent = Agent(
         id="preview-test-agent",
@@ -1202,7 +1147,59 @@ def test_upload_preview_verifies_checksum(client, db_session):
         platform="linux",
         version="1",
         protocol_version=3,
-        allowed_roots=json.dumps([{"root_id": "test", "path": "test"}]),
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    source = Source(
+        id="preview-test-source",
+        name="Preview Test",
+        root_path="/data",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_agent",
+    )
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
+    db_session.commit()
+
+    # Create a job
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    db_session.commit()
+
+    def override_get_db():
+        yield db_session
+
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        # Invalid lease token - should get 401
+        response = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+            content=b"test jpeg",
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": "invalid-token"},
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 401
+
+
+def test_upload_preview_endpoint_rejects_oversized_preview(db_session, monkeypatch):
+    """Test preview upload endpoint rejects previews exceeding 2MB."""
+    from fastapi.testclient import TestClient
+
+    from app.services.agent_auth import create_agent_token, hash_token
+
+    agent = Agent(
+        id="preview-test-agent",
+        name="Preview Test Agent",
+        platform="linux",
+        version="1",
+        protocol_version=3,
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
         status="online",
         approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
         last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
@@ -1210,39 +1207,100 @@ def test_upload_preview_verifies_checksum(client, db_session):
     source = Source(
         id="preview-test-source",
         name="Preview Test",
-        root_path="test",
+        root_path="/data",
         location_type="agent",
         agent_id=agent.id,
         processing_mode="on_agent",
     )
     token = create_agent_token()
     agent.token_hash = hash_token(token)
-    db_session.add_all([agent, source])
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
     db_session.commit()
 
-    job = AgentJobService(db_session).enqueue_scan(
-        source.id, agent.id, full=True, processing_mode="on_agent"
-    )
+    # Create a job and get a lease
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
     lease = AgentJobService(db_session).claim_next(agent.id)
     db_session.commit()
 
-    preview_data = b"test preview data"
-    wrong_checksum = hashlib.sha256(b"wrong data").hexdigest()
+    def override_get_db():
+        yield db_session
 
-    response = client.put(
-        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123&checksum={wrong_checksum}",
-        content=preview_data,
-        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        # Send 2MB+ of data - should be rejected
+        oversized = b"x" * (2 * 1024 * 1024 + 1)
+        response = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+            content=oversized,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 409
+
+
+def test_upload_preview_verifies_checksum(db_session, monkeypatch):
+    """Test preview upload endpoint verifies checksum when provided."""
+    from fastapi.testclient import TestClient
+
+    from app.services.agent_auth import create_agent_token, hash_token
+
+    agent = Agent(
+        id="preview-test-agent",
+        name="Preview Test Agent",
+        platform="linux",
+        version="1",
+        protocol_version=3,
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
+    source = Source(
+        id="preview-test-source",
+        name="Preview Test",
+        root_path="/data",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_agent",
+    )
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
+    db_session.commit()
 
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+
+    def override_get_db():
+        yield db_session
+
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        preview_data = b"test preview data"
+        wrong_checksum = hashlib.sha256(b"wrong data").hexdigest()
+
+        response = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123&checksum={wrong_checksum}",
+            content=preview_data,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+
+    app.dependency_overrides.clear()
     assert response.status_code == 409
     assert "checksum" in response.json()["detail"]["message"].lower()
 
 
-def test_upload_preview_idempotent_on_same_path_mtime(client, db_session):
+def test_upload_preview_idempotent_on_same_path_mtime(db_session, monkeypatch):
     """Test re-uploading preview for same path+mtime is idempotent."""
+    from fastapi.testclient import TestClient
+
     from app.services.agent_auth import create_agent_token, hash_token
-    from app.services.agent_jobs import AgentJobService
 
     agent = Agent(
         id="preview-test-agent",
@@ -1250,7 +1308,7 @@ def test_upload_preview_idempotent_on_same_path_mtime(client, db_session):
         platform="linux",
         version="1",
         protocol_version=3,
-        allowed_roots=json.dumps([{"root_id": "test", "path": "test"}]),
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
         status="online",
         approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
         last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
@@ -1258,37 +1316,108 @@ def test_upload_preview_idempotent_on_same_path_mtime(client, db_session):
     source = Source(
         id="preview-test-source",
         name="Preview Test",
-        root_path="test",
+        root_path="/data",
         location_type="agent",
         agent_id=agent.id,
         processing_mode="on_agent",
     )
     token = create_agent_token()
     agent.token_hash = hash_token(token)
-    db_session.add_all([agent, source])
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
     db_session.commit()
 
-    job = AgentJobService(db_session).enqueue_scan(
-        source.id, agent.id, full=True, processing_mode="on_agent"
-    )
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
     lease = AgentJobService(db_session).claim_next(agent.id)
     db_session.commit()
 
-    preview_data = b"test preview data"
-    checksum = hashlib.sha256(preview_data).hexdigest()
+    def override_get_db():
+        yield db_session
 
-    # First upload should succeed
-    response1 = client.put(
-        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123&checksum={checksum}",
-        content=preview_data,
-        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
-    )
-    assert response1.status_code == 200
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
 
-    # Second upload with same path/mtime should also succeed (idempotent)
-    response2 = client.put(
-        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123&checksum={checksum}",
-        content=preview_data,
-        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    with TestClient(app) as test_client:
+        preview_data = b"test preview data"
+        checksum = hashlib.sha256(preview_data).hexdigest()
+
+        # First upload should succeed
+        response1 = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123&checksum={checksum}",
+            content=preview_data,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+        assert response1.status_code == 200
+
+        # Second upload with same path/mtime should also succeed (idempotent)
+        response2 = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123&checksum={checksum}",
+            content=preview_data,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+        assert response2.status_code == 200
+
+    app.dependency_overrides.clear()
+
+
+def test_upload_preview_rejects_path_traversal(db_session, monkeypatch):
+    """Test preview upload rejects relative paths like ../evil and absolute paths."""
+    from fastapi.testclient import TestClient
+
+    from app.services.agent_auth import create_agent_token, hash_token
+
+    agent = Agent(
+        id="preview-test-agent",
+        name="Preview Test Agent",
+        platform="linux",
+        version="1",
+        protocol_version=3,
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
-    assert response2.status_code == 200
+    source = Source(
+        id="preview-test-source",
+        name="Preview Test",
+        root_path="/data",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_agent",
+    )
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
+    db_session.commit()
+
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+
+    def override_get_db():
+        yield db_session
+
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        preview_data = b"test jpeg"
+
+        # Test relative path with traversal
+        response1 = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=../evil/file.jpg&modified_at_ns=123",
+            content=preview_data,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+        # Should be rejected (409 for invalid path or similar)
+        assert response1.status_code in {400, 409}
+
+        # Test absolute path
+        response2 = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=/etc/passwd&modified_at_ns=123",
+            content=preview_data,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+        # Should be rejected
+        assert response2.status_code in {400, 409}
+
+    app.dependency_overrides.clear()
