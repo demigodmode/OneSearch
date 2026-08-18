@@ -110,4 +110,4 @@ known-first-party = ["app", "onesearch"]
 testpaths = ["agent/tests", "backend/tests", "cli/tests", "shared/tests"]
 pythonpath = ["agent", "shared"]
 asyncio_mode = "auto"
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --import-mode=importlib"
