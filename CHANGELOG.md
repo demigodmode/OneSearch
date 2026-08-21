@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added agent health and job details to the admin console, along with disable and revoke controls. Remote sources use the existing global or per-source schedules, and local read-only mounts remain the default.
 - Added native Linux amd64, Linux arm64, and Windows x64 packaging plus a Docker agent image workflow. Update checks are off by default, native artifacts use signed release manifests, and Docker agents never replace their own image.
 
+---
+
+## [1.3.1] - 2026-08-21
+
+### Security
+
+- Updated Pillow and pypdf to patched releases addressing the open Python dependency advisories.
+- Updated brace-expansion, nanoid, PostCSS, React Router, and related frontend packages to patched releases. The resulting frontend dependency tree reports no known vulnerabilities through `npm audit`.
+
+---
+
 ## [1.3.0] - 2026-07-06
 
 ### Added
@@ -720,6 +731,7 @@ Milestone 1 complete. All core features are in — search, indexing, auth, sched
 
 ---
 
+[1.3.1]: https://github.com/demigodmode/OneSearch/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/demigodmode/OneSearch/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/demigodmode/OneSearch/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/demigodmode/OneSearch/compare/v1.1.1...v1.2.0
