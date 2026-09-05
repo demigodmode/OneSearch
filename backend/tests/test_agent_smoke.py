@@ -232,8 +232,7 @@ class Scenario:
             self.phases_seen.add("offline_search" if self.status == "offline" else "search")
             return reply(200, {"results": results, "total": len(results)})
         if method == "GET" and path.startswith("/api/documents/") and path.endswith("/preview"):
-            assert self.status == "online"
-            self.phases_seen.add("preview")
+            self.phases_seen.add("offline_preview" if self.status == "offline" else "preview")
             return reply(200, b"preview")
         if method == "GET" and path.startswith("/api/documents/") and "/download?" not in path:
             self.phases_seen.add("offline_detail" if self.status == "offline" else "detail")
@@ -255,7 +254,6 @@ class Scenario:
             self.cleanup_started = True
             return reply(204)
         if (method, path) == ("POST", "/api/agents/agent-1/revoke"):
-            assert "current_install" in self.phases_seen
             self.revoked = True
             self.status = "revoked"
             self.phases_seen.add("revocation")
@@ -389,6 +387,7 @@ def test_complete_smoke_is_stateful_fail_closed_and_covers_every_release_phase()
         "download",
         "offline_search",
         "offline_detail",
+        "offline_preview",
         "offline_download_rejected",
         "rename_reconciled",
         "rename_removed_original",
@@ -405,9 +404,50 @@ def test_complete_smoke_is_stateful_fail_closed_and_covers_every_release_phase()
         phase for phase in evidence["phases"] if phase["name"] == "offline_cache_and_catch_up"
     )
     assert offline_phase["observations"]["catch_up_reason"] == "catch_up"
+    assert offline_phase["observations"]["cached_preview"] is True
     assert scenario.commands.index("update_check") < scenario.commands.index("heartbeat_probe")
     assert scenario.commands.index("current_install") < scenario.commands.index("heartbeat_probe")
     assert scenario.enrollment_code not in json.dumps(evidence)
+
+
+def test_first_agent_release_records_upgrade_as_not_applicable():
+    smoke = smoke_module()
+    scenario = Scenario(smoke)
+    commands = command_templates()
+    for name in (
+        "state_probe",
+        "previous_install",
+        "previous_start",
+        "previous_stop",
+        "current_install",
+    ):
+        commands.pop(name)
+
+    evidence = smoke.SmokeRunner(
+        config(smoke, commands=commands, previous_version="", first_agent_release=True),
+        scenario,
+        scenario,
+        clock=scenario.monotonic,
+        sleep=scenario.sleep,
+    ).run()
+
+    upgrade = next(phase for phase in evidence["phases"] if phase["name"] == "clean_upgrade")
+    assert upgrade["status"] == "not_applicable"
+    assert upgrade["reason"] == "no previous supported agent release"
+    assert not {
+        "state_probe",
+        "previous_install",
+        "previous_start",
+        "previous_stop",
+        "current_install",
+    } & set(scenario.commands)
+
+
+def test_first_agent_release_rejects_a_previous_agent_version():
+    smoke = smoke_module()
+
+    with pytest.raises(ValueError, match="first_agent_release.*previous_version"):
+        config(smoke, first_agent_release=True, previous_version="1.0.0").validate()
 
 
 def test_missing_input_fails_before_transport_side_effects():

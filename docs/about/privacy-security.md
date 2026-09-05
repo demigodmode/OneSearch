@@ -19,10 +19,11 @@ Indexed data stays on infrastructure you control:
 - Source files: Read-only access on the server or agent machine, never modified
 - Search index and extracted content: Stored in the server's Meilisearch data
 - Source, file, agent, and job metadata: Stored in the server database
+- Derived remote image previews: Stored in the server data directory so previews remain available while an agent is offline
 - Agent configuration and credential: Stored on the agent machine
 - Logs: Stored only on your systems
 
-With on-agent processing, the agent sends extracted text and metadata to the server. With on-server processing, it sends changed originals to temporary server storage for extraction. The server does not retain those original-file transfers after processing. Searchable text and metadata remain in the central index in both modes.
+With on-agent processing, the agent sends extracted text and metadata to the server. Remote image sources may also send reduced JPEG previews for offline viewing; these derived assets remain in the server data directory until replaced or the source is removed. With on-server processing, the agent sends changed originals to temporary server storage for extraction. The server does not retain those original-file transfers after processing. Searchable text and metadata remain in the central index in both modes.
 
 ### No tracking
 

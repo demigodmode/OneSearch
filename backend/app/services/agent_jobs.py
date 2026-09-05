@@ -11,7 +11,6 @@ from onesearch_shared import (
     REMOTE_MAX_ENTRIES_PER_DIRECTORY,
     REMOTE_MAX_MANIFEST_PAGE_BYTES,
     REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
-    REMOTE_MAX_SCAN_FILES,
     REMOTE_MAX_SNAPSHOT_BYTES,
     AgentJobLease,
     BatchAck,
@@ -114,6 +113,7 @@ class AgentJobService:
             }
         )
         payload = {
+            "protocol_version": 3,
             "full": full,
             "root_id": root_id,
             "root_path": source.root_path,
@@ -129,40 +129,10 @@ class AgentJobService:
                 "max_batch_documents": REMOTE_MAX_BATCH_DOCUMENTS,
                 "max_batch_bytes": REMOTE_MAX_BATCH_BYTES,
                 "max_entries_per_directory": REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+                "max_manifest_page_entries": REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
+                "max_manifest_page_bytes": REMOTE_MAX_MANIFEST_PAGE_BYTES,
             },
         }
-        if agent is not None and agent.protocol_version >= 3:
-            payload["protocol_version"] = 3
-            payload["limits"].update(
-                {
-                    "max_manifest_page_entries": REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
-                    "max_manifest_page_bytes": REMOTE_MAX_MANIFEST_PAGE_BYTES,
-                }
-            )
-        else:
-            payload["known_files"] = {
-                item.path: {
-                    "size_bytes": item.size_bytes,
-                    "modified_at": item.modified_at_ns
-                    if item.modified_at_ns is not None
-                    else (
-                        int(
-                            (
-                                item.modified_at.replace(tzinfo=timezone.utc)
-                                if item.modified_at.tzinfo is None
-                                else item.modified_at
-                            ).timestamp()
-                            * 1_000_000_000
-                        )
-                        if item.modified_at is not None
-                        else None
-                    ),
-                    "hash": item.hash,
-                    "status": item.status,
-                }
-                for item in source.indexed_files
-            }
-            payload["limits"]["max_scan_files"] = REMOTE_MAX_SCAN_FILES
         job = AgentJob(
             id=secrets.token_urlsafe(18),
             agent_id=source.agent_id,
@@ -199,6 +169,37 @@ class AgentJobService:
             processing_mode=None,
             active_key=active_key,
             payload=json.dumps({"operation": "validate", "root_path": root_path}),
+            checkpoint="{}",
+        )
+        try:
+            with self.db.begin_nested():
+                self.db.add(job)
+                self.db.flush()
+            return job
+        except IntegrityError:
+            winner = self.db.scalar(select(AgentJob).where(AgentJob.active_key == active_key))
+            if winner is None:
+                raise
+            return winner
+
+    def enqueue_browse_list(self, agent_id: str, root_id: str, path: str) -> AgentJob:
+        """Coalesce one administrative directory listing per agent/root/path."""
+        digest = hashlib.sha256(f"{root_id}\0{path}".encode()).hexdigest()
+        active_key = f"browse-list:{agent_id}:{digest}"
+        job = AgentJob(
+            id=secrets.token_urlsafe(18),
+            agent_id=agent_id,
+            source_id=None,
+            kind="browse",
+            reason="browse",
+            status="pending",
+            processing_mode=None,
+            active_key=active_key,
+            payload=json.dumps(
+                {"operation": "list", "root_id": root_id, "path": path},
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
             checkpoint="{}",
         )
         try:
@@ -263,15 +264,6 @@ class AgentJobService:
             jobs.append(child)
         self.db.flush()
         return jobs
-
-    def validate_manifest_retry(self, scan_job: AgentJob, manifest: dict) -> None:
-        """A parent manifest is immutable once fan-out has started."""
-        checkpoint = json.loads(scan_job.checkpoint or "{}")
-        existing = checkpoint.get("remote_manifest") if checkpoint.get("version") == 1 else None
-        if existing is not None and json.dumps(
-            existing, sort_keys=True, separators=(",", ":")
-        ) != json.dumps(manifest, sort_keys=True, separators=(",", ":")):
-            raise JobConflict("remote manifest conflict")
 
     def enqueue_stream_file(
         self, source: Source, *, path: str, size_bytes: int, modified_at: int

@@ -42,7 +42,7 @@ COPY cli/ ./cli/
 COPY shared/ ./shared/
 
 # Install all workspace packages to user directory
-RUN uv pip install --system ./shared ./backend ./cli
+RUN uv pip install --system --no-editable ./shared ./backend ./cli
 
 # =============================================================================
 # Stage 3: Meilisearch binary

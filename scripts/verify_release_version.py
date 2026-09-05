@@ -7,6 +7,8 @@ import re
 import sys
 from pathlib import Path
 
+from scripts.release import RELEASE_VERSION_SOURCES
+
 
 def _pyproject_version(path: Path) -> str:
     match = re.search(r'^version = "([^"]+)"$', path.read_text(), re.MULTILINE)
@@ -15,18 +17,22 @@ def _pyproject_version(path: Path) -> str:
     return match.group(1)
 
 
+def _runtime_version(path: Path) -> str:
+    match = re.search(r'^__version__ = "([^"]+)"$', path.read_text(), re.MULTILINE)
+    if match is None:
+        raise ValueError(f"missing __version__ in {path}")
+    return match.group(1)
+
+
+def _json_version(path: Path) -> str:
+    return json.loads(path.read_text())["version"]
+
+
 def verify(root: Path, expected: str) -> None:
+    parsers = {"toml": _pyproject_version, "runtime": _runtime_version, "json": _json_version}
     sources = {
-        "root": _pyproject_version(root / "pyproject.toml"),
-        "backend": _pyproject_version(root / "backend" / "pyproject.toml"),
-        "cli": _pyproject_version(root / "cli" / "pyproject.toml"),
-        "agent": _pyproject_version(root / "agent" / "pyproject.toml"),
-        "agent runtime": re.search(
-            r'^__version__ = "([^"]+)"$',
-            (root / "agent" / "onesearch_agent" / "__init__.py").read_text(),
-            re.MULTILINE,
-        ).group(1),
-        "frontend": json.loads((root / "frontend" / "package.json").read_text())["version"],
+        name: parsers[kind](root / relative_path)
+        for name, (relative_path, kind) in RELEASE_VERSION_SOURCES.items()
     }
     for name, actual in sources.items():
         if actual != expected:

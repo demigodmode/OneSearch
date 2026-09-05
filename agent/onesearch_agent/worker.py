@@ -17,18 +17,19 @@ from onesearch_shared import (
     REMOTE_JOB_HEARTBEAT_SECONDS,
     REMOTE_MAX_BATCH_BYTES,
     REMOTE_MAX_BATCH_DOCUMENTS,
+    REMOTE_MAX_BROWSE_DIRECTORIES,
     REMOTE_MAX_ENTRIES_PER_DIRECTORY,
     REMOTE_MAX_MANIFEST_PAGE_BYTES,
     REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
-    REMOTE_MAX_SCAN_FILES,
     REMOTE_MAX_SNAPSHOT_BYTES,
+    BrowseDirectoryEntry,
+    BrowseResult,
     DocumentBatch,
     JobCompletion,
     JobFailureReason,
     JobProgress,
     JobStatus,
     NormalizedRemoteDocument,
-    ScanFailure,
     ScanFile,
     ScanPageOutcome,
     ScanPageOutcomePayload,
@@ -44,7 +45,6 @@ from pydantic import (
     StrictInt,
     StrictStr,
     ValidationError,
-    model_validator,
 )
 
 from app.services.extractor_config import choose_extractor
@@ -55,6 +55,7 @@ from .paths import (
     ConfinedFileMissing,
     PathOutsideAllowedRoots,
     confined_relative,
+    list_confined_browse_directories_page,
     list_confined_entries_page,
     open_confined_file,
     resolve_allowed_path,
@@ -89,16 +90,6 @@ class ExtractionPayload(BaseModel):
     raw_metadata_timeout_seconds: StrictInt = Field(gt=0)
 
 
-class ScanLimits(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-
-    max_snapshot_bytes: StrictInt = Field(gt=0, le=REMOTE_MAX_SNAPSHOT_BYTES)
-    max_batch_documents: StrictInt = Field(gt=0, le=REMOTE_MAX_BATCH_DOCUMENTS)
-    max_batch_bytes: StrictInt = Field(gt=0, le=REMOTE_MAX_BATCH_BYTES)
-    max_scan_files: StrictInt = Field(gt=0, le=REMOTE_MAX_SCAN_FILES)
-    max_entries_per_directory: StrictInt = Field(gt=0, le=REMOTE_MAX_ENTRIES_PER_DIRECTORY)
-
-
 class V3ScanLimits(BaseModel):
     """Paged scans bound each manifest page, not the complete inventory."""
 
@@ -122,23 +113,13 @@ class ScanPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     full: StrictBool
-    protocol_version: StrictInt | None = Field(default=None, ge=1, le=3)
+    protocol_version: StrictInt = Field(ge=3, le=3)
     root_id: StrictStr = Field(min_length=1)
     root_path: StrictStr = Field(min_length=1)
     include_patterns: list[StrictStr] | None
     exclude_patterns: list[StrictStr] | None
-    known_files: dict[StrictStr, dict[StrictStr, object]] | None = None
     extraction: ExtractionPayload
-    limits: ScanLimits | V3ScanLimits
-
-    @model_validator(mode="after")
-    def validate_protocol_contract(self):
-        if self.protocol_version == 3:
-            if self.known_files is not None or not isinstance(self.limits, V3ScanLimits):
-                raise ValueError("protocol v3 uses paged manifest limits without legacy inventory fields")
-        elif self.known_files is None or not isinstance(self.limits, ScanLimits):
-            raise ValueError("legacy scan payload requires inventory and scan limits")
-        return self
+    limits: V3ScanLimits
 
 
 def _batch_wire_bytes(batch) -> bytes:
@@ -448,6 +429,61 @@ async def _maybe_upload_preview(
             )
 
 
+async def _maybe_upload_confined_preview(
+    client,
+    lease,
+    path: str,
+    expected: ScanFile,
+    *,
+    root_id,
+    roots,
+    source_prefix,
+    max_snapshot_bytes,
+    mutation_attempts: int = 3,
+    sleep=asyncio.sleep,
+) -> None:
+    """Create a preview from a no-follow snapshot of a source-relative file."""
+    with suppress(Exception):
+        if max_snapshot_bytes <= 0 or expected.size_bytes > max_snapshot_bytes:
+            return
+        confined_path = confined_relative(source_prefix, path)
+        with tempfile.TemporaryDirectory(prefix="onesearch-agent-preview-") as directory:
+            snapshot = Path(directory) / Path(path).name
+            with (
+                open_confined_file(root_id, confined_path, roots) as handle,
+                snapshot.open("wb") as output,
+            ):
+                before = os.fstat(handle.fileno())
+                if (
+                    not stat.S_ISREG(before.st_mode)
+                    or before.st_size != expected.size_bytes
+                    or before.st_mtime_ns != expected.modified_at
+                ):
+                    return
+                copied = 0
+                while block := handle.read(64 * 1024):
+                    copied += len(block)
+                    if copied > max_snapshot_bytes:
+                        return
+                    output.write(block)
+                after = os.fstat(handle.fileno())
+                if (
+                    copied != before.st_size
+                    or after.st_size != before.st_size
+                    or after.st_mtime_ns != before.st_mtime_ns
+                ):
+                    return
+            await _maybe_upload_preview(
+                client,
+                lease,
+                path,
+                expected.modified_at,
+                snapshot,
+                mutation_attempts=mutation_attempts,
+                sleep=sleep,
+            )
+
+
 async def extract_confined(
     root_id,
     path,
@@ -528,8 +564,21 @@ async def run_scan_job(
     state_dir: Path | None = None,
 ) -> None:
     """Execute a scan, preserving per-file failures in the terminal manifest."""
+    raw_payload = getattr(lease, "payload", None)
+    if not isinstance(raw_payload, dict) or raw_payload.get("protocol_version") != 3:
+        await _complete_with_recovery(
+            client,
+            lease,
+            JobCompletion(
+                job_id=lease.id,
+                status=JobStatus.FAILED,
+                reason=JobFailureReason.PROTOCOL_INCOMPATIBLE,
+                detail="scan job requires protocol version 3",
+            ),
+        )
+        return
     try:
-        payload = ScanPayload.model_validate(getattr(lease, "payload", None))
+        payload = ScanPayload.model_validate(raw_payload)
     except ValidationError:
         payload = None
     source_prefix = None
@@ -558,16 +607,13 @@ async def run_scan_job(
         )
         return
     root_id, limits = payload.root_id, payload.limits
-    max_files = None if payload.protocol_version == 3 else limits.max_scan_files
     extraction = payload.extraction.model_dump()
     scanner = RemoteScanner(
         root_id,
         roots,
         include_patterns=payload.include_patterns,
         exclude_patterns=payload.exclude_patterns,
-        known={} if payload.full else payload.known_files,
         source_prefix=source_prefix,
-        max_files=max_files,
         max_entries_per_directory=limits.max_entries_per_directory,
     )
     keeper = LeaseKeeper(
@@ -579,133 +625,31 @@ async def run_scan_job(
     )
     await keeper.start()
     try:
-        if getattr(lease.payload, "get", lambda _key, _default=None: None)("protocol_version") == 3:
-            if state_dir is None:
-                await _complete_with_recovery(
-                    client,
-                    lease,
-                    JobCompletion(
-                        job_id=lease.id,
-                        status=JobStatus.FAILED,
-                        reason=JobFailureReason.PROTOCOL_INCOMPATIBLE,
-                        detail="protocol v3 requires durable state",
-                    ),
-                )
-                return
-            await _run_v3_scan_job(
-                lease,
-                client,
-                keeper=keeper,
-                scanner=scanner,
-                root_id=root_id,
-                roots=roots,
-                source_prefix=source_prefix,
-                extraction=extraction,
-                limits=limits,
-                state_dir=state_dir,
-                mutation_attempts=_mutation_attempts,
-                sleep=_sleep,
-            )
-            return
-        manifest = await asyncio.to_thread(scanner.scan, job_id=lease.id, source_id=lease.source_id)
-        keeper.set_total(len(scanner.changed_paths))
-        await keeper.check()
-        if lease.processing_mode.value == "on_server":
-            await _submit_or_cancel(
-                keeper,
-                lambda: client.submit_manifest(lease.id, manifest, lease.lease_token),
-                attempts=_mutation_attempts,
-                sleep=_sleep,
-            )
-            await _complete_with_recovery(
-                client, lease, JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED)
-            )
-            return
-        failures = {failure.path: failure for failure in manifest.failures}
-        expected = {item.path: item for item in manifest.files}
-        builder = StreamingBatchBuilder(
-            lease.id,
-            max_documents=limits.max_batch_documents,
-            max_bytes=limits.max_batch_bytes,
-        )
-        for path in scanner.changed_paths:
-            await keeper.check()
-            try:
-                document = await extract_confined(
-                    root_id,
-                    path,
-                    roots,
-                    source_prefix=source_prefix,
-                    expected=expected[path],
-                    source_id=lease.source_id,
-                    extraction=extraction,
-                    max_snapshot_bytes=limits.max_snapshot_bytes,
-                )
-            except asyncio.CancelledError:
-                raise
-            except Exception as error:
-                failures[path] = ScanFailure(path=path, error=_safe_failure(error))
-            else:
-                if document is not None:
-                    try:
-                        for batch in builder.add(document):
-                            await keeper.check()
-                            await _submit_or_cancel(
-                                keeper,
-                                lambda batch=batch: client.submit_batch(
-                                    lease.id, batch, lease.lease_token
-                                ),
-                                attempts=_mutation_attempts,
-                                sleep=_sleep,
-                            )
-                    except BatchBuildError as error:
-                        failures[path] = ScanFailure(path=path, error=_safe_failure(error))
-                    # Generate and upload preview for browser-displayable images
-                    await _maybe_upload_preview(
-                        client,
-                        lease,
-                        path,
-                        expected[path].modified_at,
-                        path,
-                        mutation_attempts=_mutation_attempts,
-                        sleep=_sleep,
-                    )
-            finally:
-                await keeper.advance()
-        for batch in builder.finish():
-            await keeper.check()
-            await _submit_or_cancel(
-                keeper,
-                lambda batch=batch: client.submit_batch(lease.id, batch, lease.lease_token),
-                attempts=_mutation_attempts,
-                sleep=_sleep,
-            )
-        manifest = manifest.model_copy(
-            update={"failures": [failures[path] for path in sorted(failures)]}
-        )
-        await keeper.check()
-        await _submit_or_cancel(
-            keeper,
-            lambda: client.submit_manifest(lease.id, manifest, lease.lease_token),
-            attempts=_mutation_attempts,
-            sleep=_sleep,
-        )
-        await keeper.check()
-        if not manifest.complete:
+        if state_dir is None:
             await _complete_with_recovery(
                 client,
                 lease,
                 JobCompletion(
                     job_id=lease.id,
                     status=JobStatus.FAILED,
-                    reason=JobFailureReason.INTERNAL_ERROR,
-                    detail="incomplete scan",
-                    checkpoint=manifest.checkpoint,
+                    reason=JobFailureReason.PROTOCOL_INCOMPATIBLE,
+                    detail="protocol v3 requires durable state",
                 ),
             )
             return
-        await _complete_with_recovery(
-            client, lease, JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED)
+        await _run_v3_scan_job(
+            lease,
+            client,
+            keeper=keeper,
+            scanner=scanner,
+            root_id=root_id,
+            roots=roots,
+            source_prefix=source_prefix,
+            extraction=extraction,
+            limits=limits,
+            state_dir=state_dir,
+            mutation_attempts=_mutation_attempts,
+            sleep=_sleep,
         )
     except ScanCancelled:
         return
@@ -852,12 +796,15 @@ async def _run_v3_scan_job(
                         ScanPathOutcome(path=document.path, status=ScanPathOutcomeStatus.INDEXED)
                     )
                     # Generate and upload preview for browser-displayable images
-                    await _maybe_upload_preview(
+                    await _maybe_upload_confined_preview(
                         client,
                         lease,
                         document.path,
-                        expected[document.path].modified_at,
-                        document.path,
+                        expected[document.path],
+                        root_id=root_id,
+                        roots=roots,
+                        source_prefix=source_prefix,
+                        max_snapshot_bytes=limits.max_snapshot_bytes,
                         mutation_attempts=mutation_attempts,
                         sleep=sleep,
                     )
@@ -910,20 +857,62 @@ async def _run_v3_scan_job(
 async def run_browse_job(lease, client, *, roots) -> None:
     payload = getattr(lease, "payload", {})
     try:
-        if lease.kind.value != "browse" or payload.get("operation") != "validate":
+        if lease.kind.value != "browse":
             raise ValueError("invalid browse payload")
-        target = resolve_allowed_path(payload["root_path"], roots)
-        if not target.is_dir():
-            raise ValueError("browse root is not a directory")
-        candidates = []
-        for root in roots:
-            root_path = Path(root.path).resolve()
+        if payload.get("operation") == "validate":
+            target = resolve_allowed_path(payload["root_path"], roots)
+            if not target.is_dir():
+                raise ValueError("browse root is not a directory")
+            candidates = []
+            for root in roots:
+                root_path = Path(root.path).resolve()
+                try:
+                    candidates.append((len(root_path.parts), root, target.relative_to(root_path)))
+                except ValueError:
+                    continue
+            _depth, root, relative = max(candidates, key=lambda item: item[0])
+            list_confined_entries_page(root.root_id, relative.as_posix(), roots, max_entries=1)
+            completion = JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED)
+        elif payload.get("operation") == "list":
+            root_id, relative = payload["root_id"], payload["path"]
+            if not isinstance(root_id, str) or not isinstance(relative, str):
+                raise ValueError("invalid browse payload")
+            # The scanner primitive resolves each component with no-follow handles. It is
+            # deliberately capped independently from the small UI response limit.
+            keeper = LeaseKeeper(lease, client)
             try:
-                candidates.append((len(root_path.parts), root, target.relative_to(root_path)))
-            except ValueError:
-                continue
-        _depth, root, relative = max(candidates, key=lambda item: item[0])
-        list_confined_entries_page(root.root_id, relative.as_posix(), roots, max_entries=1)
+                await keeper.start()
+                page = await asyncio.to_thread(
+                    list_confined_browse_directories_page,
+                    root_id,
+                    relative,
+                    roots,
+                    max_entries=REMOTE_MAX_BROWSE_DIRECTORIES,
+                )
+                await keeper.check()
+            finally:
+                await keeper.close()
+            completion = JobCompletion(
+                job_id=lease.id,
+                status=JobStatus.SUCCEEDED,
+                browse_result=BrowseResult(
+                    root_id=root_id,
+                    path=relative,
+                    entries=[
+                        BrowseDirectoryEntry(name=entry.name, path=entry.relative_path)
+                        for entry in page.entries
+                    ],
+                    truncated=page.truncated,
+                ),
+            )
+        else:
+            raise ValueError("invalid browse payload")
+    except ScanCancelled:
+        # cancel_ack made the server terminal; never race it with a failed completion.
+        return
+    except JobLeaseError:
+        # A 401 means this worker no longer owns the job (expired or requeued).
+        return
     except Exception:
         completion = JobCompletion(
             job_id=lease.id,
@@ -931,8 +920,6 @@ async def run_browse_job(lease, client, *, roots) -> None:
             reason=JobFailureReason.INVALID_REQUEST,
             detail="invalid browse payload",
         )
-    else:
-        completion = JobCompletion(job_id=lease.id, status=JobStatus.SUCCEEDED)
     await _complete_with_recovery(client, lease, completion)
 
 

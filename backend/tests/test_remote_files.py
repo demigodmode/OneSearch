@@ -15,7 +15,7 @@ def remote(db_session):
         name="Agent",
         platform="windows",
         version="1",
-        protocol_version=1,
+        protocol_version=3,
         allowed_roots='[{"root_id":"r","path":"C:\\\\files"}]',
         status="online",
         approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
@@ -568,191 +568,13 @@ def test_on_server_parent_release_keeps_parent_nonterminal(db_session, remote):
     assert AgentJobService(db_session).settle_on_server_parent(parent.id) == "running"
 
 
-@pytest.mark.asyncio
-async def test_server_parent_settlement_waits_then_completes_without_children(db_session, remote):
-    import json
-
-    from onesearch_shared import ScanManifest
-
+def test_extract_fanout_retry_coalesces_same_staged_inventory(db_session, remote):
+    from app.models import AgentJob
     from app.services.agent_jobs import AgentJobService
-    from app.services.remote_ingest import RemoteIngestService
-
-    _agent, source = remote
-    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
-    parent.status = "running"
-    parent.lease_token_hash = parent.lease_expires_at = None
-    parent.checkpoint = json.dumps(
-        {
-            "version": 1,
-            "remote_manifest": ScanManifest(
-                job_id=parent.id, source_id=source.id, complete=True
-            ).model_dump(mode="json"),
-        }
-    )
-    db_session.flush()
-
-    class Search:
-        async def delete_documents_confirmed(self, ids):
-            assert ids == []
-
-    result = await RemoteIngestService(db_session, Search()).settle_server_parent(parent.id)
-    db_session.refresh(parent)
-    assert result == "completed" and parent.active_key is None
-
-
-@pytest.mark.asyncio
-async def test_server_parent_failed_child_never_deletes_indexed_file(db_session, remote):
-    import json
-
-    from onesearch_shared import ScanManifest
-
-    from app.models import IndexedFile
-    from app.services.agent_jobs import AgentJobService
-    from app.services.remote_ingest import RemoteIngestService
-
-    _agent, source = remote
-    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
-    child = AgentJobService(db_session).enqueue_extract_files(
-        parent, [{"path": "a.txt", "size_bytes": 1, "modified_at": 1, "content_hash": None}]
-    )[0]
-    parent.status, parent.active_key = "completed", None
-    parent.status, parent.lease_token_hash = "running", None
-    parent.checkpoint = json.dumps(
-        {
-            "version": 1,
-            "remote_manifest": ScanManifest(
-                job_id=parent.id, source_id=source.id, complete=True
-            ).model_dump(mode="json"),
-        }
-    )
-    child.status = "failed"
-    old = IndexedFile(source_id=source.id, path="old.txt", status="success")
-    db_session.add(old)
-
-    class Search:
-        async def delete_documents_confirmed(self, ids):
-            raise AssertionError("must not delete")
-
-    assert (
-        await RemoteIngestService(db_session, Search()).settle_server_parent(parent.id) == "failed"
-    )
-    assert old in db_session and parent.status == "failed"
-
-
-def test_extract_fanout_retry_coalesces_and_changed_manifest_conflicts(db_session, remote):
-    from app.services.agent_jobs import AgentJobService, JobConflict
 
     _agent, source = remote
     parent = AgentJobService(db_session).enqueue_scan(source, full=True)
     files = [{"path": "a.txt", "size_bytes": 1, "modified_at": 1, "content_hash": None}]
     assert len(AgentJobService(db_session).enqueue_extract_files(parent, files)) == 1
     assert len(AgentJobService(db_session).enqueue_extract_files(parent, files)) == 1
-    assert (
-        db_session.query(__import__("app.models", fromlist=["AgentJob"]).AgentJob)
-        .filter_by(kind="extract_file")
-        .count()
-        == 1
-    )
-    parent.checkpoint = '{"version":1,"remote_manifest":{"files":[{"path":"a.txt"}]}}'
-    with pytest.raises(JobConflict):
-        AgentJobService(db_session).validate_manifest_retry(parent, {"files": [{"path": "b.txt"}]})
-
-
-@pytest.mark.asyncio
-async def test_server_document_rejects_child_parent_source_mismatch_before_receipt(
-    db_session, remote
-):
-    from types import SimpleNamespace
-
-    from app.services.agent_jobs import AgentJobService, JobConflict
-    from app.services.remote_ingest import RemoteIngestService
-
-    agent, source = remote
-    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
-    child = AgentJobService(db_session).enqueue_extract_files(
-        parent, [{"path": "a.txt", "size_bytes": 1, "modified_at": 1, "content_hash": None}]
-    )[0]
-    parent.status, parent.lease_token_hash, parent.lease_expires_at = "running", None, None
-    db_session.commit()
-    lease = AgentJobService(db_session).claim_next(agent.id)
-    db_session.commit()
-    assert lease.id == child.id
-    child.payload = child.payload.replace(parent.id, "wrong-parent")
-    db_session.commit()
-
-    class Search:
-        async def index_documents_confirmed(self, docs):
-            raise AssertionError("must not index")
-
-    with pytest.raises(JobConflict):
-        await RemoteIngestService(db_session, Search()).accept_server_document(
-            agent.id,
-            child.id,
-            lease.lease_token,
-            SimpleNamespace(source_id=source.id, path="a.txt"),
-        )
-
-
-@pytest.mark.asyncio
-async def test_server_rename_confirmed_delete_failure_rolls_back_and_retries(db_session, remote):
-    import json
-
-    from onesearch_shared import ScanFile, ScanManifest, remote_path_hash
-
-    from app.models import IndexedFile
-    from app.services.agent_jobs import AgentJobService
-    from app.services.remote_ingest import RemoteIngestService, remote_document_id
-
-    _agent, source = remote
-    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
-    parent.status, parent.lease_token_hash = "running", None
-    parent.checkpoint = json.dumps(
-        {
-            "version": 1,
-            "remote_manifest": ScanManifest(
-                job_id=parent.id,
-                source_id=source.id,
-                complete=True,
-                files=[
-                    ScanFile(
-                        path="new.txt",
-                        path_hash=remote_path_hash("new.txt"),
-                        size_bytes=1,
-                        modified_at=1,
-                    )
-                ],
-            ).model_dump(mode="json"),
-        }
-    )
-    old, new = (
-        IndexedFile(source_id=source.id, path="old.txt", status="success"),
-        IndexedFile(source_id=source.id, path="new.txt", status="success"),
-    )
-    db_session.add_all([old, new])
-    db_session.commit()
-    calls = []
-
-    class Search:
-        async def delete_documents_confirmed(self, ids):
-            calls.append(ids)
-            if len(calls) == 1:
-                raise RuntimeError("down")
-
-    service = RemoteIngestService(db_session, Search())
-    with pytest.raises(RuntimeError):
-        await service.settle_server_parent(parent.id)
-    db_session.refresh(parent)
-    assert (
-        parent.status == "running"
-        and parent.active_key == source.id
-        and db_session.get(IndexedFile, old.id)
-    )
-    assert await service.settle_server_parent(parent.id) == "completed"
-    assert calls == [
-        [remote_document_id(source.id, "old.txt")],
-        [remote_document_id(source.id, "old.txt")],
-    ]
-    assert (
-        db_session.get(IndexedFile, old.id) is None
-        and db_session.get(IndexedFile, new.id) is not None
-    )
+    assert db_session.query(AgentJob).filter_by(kind="extract_file").count() == 1

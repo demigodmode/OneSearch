@@ -70,7 +70,7 @@ Docker never self-updates. Change its pinned image tag, pull, and recreate the c
 
 ### Preview or download unavailable
 
-Indexed content stays searchable while an agent is offline, but the server needs an online agent to retrieve an original remote file. Reconnect the agent and retry. A `remote_file_missing` error means the path no longer exists. A `remote_file_changed` error means its size or modification time changed after indexing; reindex the source before retrying. RAW embedded previews are not supported for remote files.
+Indexed content and stored image previews remain available while an agent is offline, but the server needs an online agent to retrieve an original remote file or generate a preview that was not stored during indexing. Reconnect the agent and retry. A `remote_file_missing` error means the path no longer exists. A `remote_file_changed` error means its size or modification time changed after indexing; reindex the source before retrying. RAW embedded previews are not supported for remote files.
 
 If a machine or credential is lost, revoke the agent before enrolling a replacement.
 

@@ -61,7 +61,7 @@ An agent response contains administrative data, not its bearer token:
   "name": "archive-node",
   "platform": "Linux-x86_64",
   "version": "1.3.0",
-  "protocol_version": 2,
+  "protocol_version": 3,
   "allowed_roots": [
     {
       "root_id": "documents",
@@ -105,7 +105,7 @@ POST /api/agent/v1/enroll HTTP/1.1
 Content-Type: application/json
 
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "enrollment_token": "<ONE_TIME_CODE>",
   "agent_name": "archive-node",
   "agent_version": "1.3.0",
@@ -123,7 +123,7 @@ Content-Type: application/json
 
 ```json
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "agent_id": "agent-id",
   "agent_token": "<REDACTED>",
   "allowed_roots": [
@@ -149,7 +149,9 @@ All other protocol endpoints use `Authorization: Bearer <AGENT_TOKEN>`.
 | `GET` | `/api/agent/v1/jobs/{job_id}/status` | Read the server-side state of a job owned by this agent. |
 | `POST` | `/api/agent/v1/jobs/{job_id}/heartbeat` | Extend a lease and report progress. |
 | `POST` | `/api/agent/v1/jobs/{job_id}/batches` | Submit normalized documents for an on-agent job. |
-| `POST` | `/api/agent/v1/jobs/{job_id}/manifest` | Submit scan and reconciliation metadata. |
+| `PUT` | `/api/agent/v1/jobs/{job_id}/previews` | Upload a bounded derived image preview for offline serving. |
+| `POST` | `/api/agent/v1/jobs/{job_id}/manifest-pages` | Persist one bounded, checksummed v3 scan-inventory page; the final page closes inventory. |
+| `POST` | `/api/agent/v1/jobs/{job_id}/page-outcomes` | Persist the bounded processing outcomes for one on-agent manifest page. |
 | `POST` | `/api/agent/v1/jobs/{job_id}/complete` | Complete, fail, or cancel a leased job. |
 | `POST` | `/api/agent/v1/jobs/{job_id}/cancel-ack` | Acknowledge a server-requested cancellation. |
 | `PUT` | `/api/agent/v1/jobs/{job_id}/file-chunks` | Transfer bounded original-file chunks for on-server extraction or an authorized preview/download stream. |
@@ -171,7 +173,7 @@ A successful claim returns a job lease:
 }
 ```
 
-The agent must send the issued lease token in `X-OneSearch-Lease-Token` for job heartbeat, batch, manifest, completion, cancellation, and file-chunk requests. Leases expire if they are not renewed. A stale or incorrect lease receives `401`, and work can return to the pending queue.
+The agent must send the issued lease token in `X-OneSearch-Lease-Token` for job heartbeat, batch, manifest-page, page-outcome, completion, cancellation, and file-chunk requests. Leases expire if they are not renewed. A stale or incorrect lease receives `401`, and work can return to the pending queue.
 
 Document batches use `batch_id` as an idempotency key within a job. Repeating the same batch ID with the same canonical payload returns an acknowledgement with `duplicate: true`. Reusing it with different content is a conflict.
 
@@ -207,3 +209,5 @@ Document batches use `batch_id` as an idempotency key within a job. Repeating th
 ```
 
 Protocol timestamps are Unix UTC epoch seconds unless a field specifies nanoseconds. Remote scan and document `modified_at` values use epoch nanoseconds. Unknown fields and incompatible protocol versions are rejected. Do not log bearer tokens, enrollment codes, lease tokens, or original-file chunks.
+
+Scan jobs use protocol v3 only. Agents submit bounded `manifest-pages` in sequence, then submit a page outcome for each on-agent page before completing the scan; there is no whole-manifest endpoint.

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from onesearch_shared import ScanFailure, ScanFile, ScanManifest, remote_path_hash
-
 from app.services.scanner import get_default_exclude_patterns, path_is_included
 
 from .paths import (
@@ -15,7 +13,7 @@ from .paths import (
     iter_confined_entries,
     list_confined_entries_page,
 )
-from .scan_spool import ScanSpool, ScanSpoolError
+from .scan_spool import ScanSpool
 
 
 def canonical_path(path: str) -> str:
@@ -38,9 +36,7 @@ class RemoteScanner:
         *,
         include_patterns=None,
         exclude_patterns=None,
-        known=None,
         source_prefix="",
-        max_files: int | None = 100000,
         max_entries_per_directory=100000,
     ):
         self.root_id, self.roots = root_id, roots
@@ -48,10 +44,8 @@ class RemoteScanner:
         self.exclude_patterns = (
             get_default_exclude_patterns() if exclude_patterns is None else exclude_patterns
         )
-        self.known = known or {}
         self.source_prefix = confined_relative("", source_prefix)
-        self.changed_paths: list[str] = []
-        self.max_files, self.max_entries_per_directory = max_files, max_entries_per_directory
+        self.max_entries_per_directory = max_entries_per_directory
 
     def _included(self, path: str) -> bool:
         return path_is_included(path, self.include_patterns, [])
@@ -105,58 +99,6 @@ class RemoteScanner:
                 continue
             yield entry
 
-    def scan(self, *, job_id: str, source_id: str) -> ScanManifest:
-        files, failures = [], []
-        self.changed_paths = []
-        try:
-            for entry in self._walk():
-                path = entry.relative_path
-                if not self._included(path) or self._excluded(path):
-                    continue
-                item = ScanFile(
-                    path=path,
-                    path_hash=remote_path_hash(path),
-                    size_bytes=entry.size_bytes,
-                    modified_at=entry.modified_at_ns,
-                    content_hash=None,
-                )
-                files.append(item)
-                if self.max_files is not None and len(files) > self.max_files:
-                    failures.append(ScanFailure(path=path, error="scan file limit exceeded"))
-                    return ScanManifest(
-                        job_id=job_id,
-                        source_id=source_id,
-                        files=files[:-1],
-                        changed_paths=list(self.changed_paths),
-                        failures=failures,
-                        complete=False,
-                    )
-                old = self.known.get(path)
-                if (
-                    old is None
-                    or old.get("status", "success") != "success"
-                    or old.get("size_bytes") != item.size_bytes
-                    or old.get("modified_at") != item.modified_at
-                ):
-                    self.changed_paths.append(path)
-        except PathOutsideAllowedRoots as error:
-            return ScanManifest(
-                job_id=job_id,
-                source_id=source_id,
-                files=files,
-                changed_paths=list(self.changed_paths),
-                failures=[ScanFailure(path="scan", error=str(error)[:500])],
-                complete=False,
-            )
-        return ScanManifest(
-            job_id=job_id,
-            source_id=source_id,
-            files=files,
-            changed_paths=list(self.changed_paths),
-            failures=failures,
-            complete=True,
-        )
-
     def scan_v3(
         self, *, state_dir, job_id: str, source_id: str, payload_identity: str, resume: bool = False
     ) -> ScanSpool:
@@ -190,17 +132,7 @@ class RemoteScanner:
                         if not self._excluded(path):
                             spool.enqueue_directory(path)
                     elif self._included(path) and not self._excluded(path):
-                        try:
-                            spool.append_file(
-                                path, size_bytes, modified_at_ns, max_files=self.max_files
-                            )
-                        except ScanSpoolError as error:
-                            if str(error) != "scan file limit exceeded":
-                                raise
-                            spool.record_incomplete("scan file limit exceeded")
-                            raise ScanSpoolError(
-                                "scan file limit exceeded; scan incomplete"
-                            ) from error
+                        spool.append_file(path, size_bytes, modified_at_ns)
                 spool.complete_directory(directory)
             spool.finish()
             return spool

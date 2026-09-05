@@ -2,7 +2,10 @@ import asyncio
 
 from onesearch_shared import REMOTE_MAX_BATCH_BYTES, REMOTE_MAX_MANIFEST_PAGE_BYTES
 
-from app.request_body_limits import RemoteAgentBodyLimitMiddleware
+from app.request_body_limits import (
+    REMOTE_AGENT_COMPLETION_BODY_LIMIT,
+    RemoteAgentBodyLimitMiddleware,
+)
 
 
 def _scope(path, headers=()):
@@ -129,3 +132,19 @@ def test_app_rejects_oversize_manifest_pages_and_outcomes_before_validation(clie
         response = client.post(f"/api/agent/v1/jobs/j/{suffix}", content=oversized)
         assert response.status_code == 413
         assert response.json() == {"detail": "Request body too large"}
+
+
+def test_completion_body_is_bounded_before_endpoint_or_json_parsing():
+    called = []
+
+    async def endpoint(*_args):
+        called.append(True)
+
+    body = b"{" + b" " * REMOTE_AGENT_COMPLETION_BODY_LIMIT
+    app = RemoteAgentBodyLimitMiddleware(endpoint)
+    sent = _run(
+        app,
+        _scope("/api/agent/v1/jobs/j/complete"),
+        [{"type": "http.request", "body": body, "more_body": False}],
+    )
+    assert sent[0]["status"] == 413 and called == []

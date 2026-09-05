@@ -23,7 +23,17 @@ from sqlalchemy.pool import StaticPool
 from app.api.auth import create_access_token, hash_password
 from app.db.database import get_db
 from app.main import app
-from app.models import Agent, AgentJob, AppSetting, Base, IndexedFile, Source, User
+from app.models import (
+    Agent,
+    AgentJob,
+    AgentScanEntry,
+    AgentScanPage,
+    AppSetting,
+    Base,
+    IndexedFile,
+    Source,
+    User,
+)
 from app.services.agent_jobs import AgentJobService
 
 engine = create_engine(
@@ -32,6 +42,79 @@ engine = create_engine(
     poolclass=StaticPool,
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def preview_jpeg_bytes(color="blue") -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (8, 6), color=color).save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+def stage_preview_entry(db_session, job, *, path="test.jpg", modified_at_ns=123):
+    """Create the v3 scan receipt that authorizes one on-agent preview upload."""
+    from onesearch_shared import remote_path_hash
+
+    page = AgentScanPage(
+        job_id=job.id,
+        sequence=0,
+        checksum="a" * 64,
+        cursor="",
+        scanned_count=1,
+        is_final=False,
+        entry_count=1,
+    )
+    entry = AgentScanEntry(
+        job_id=job.id,
+        page_sequence=0,
+        path=path,
+        path_hash=remote_path_hash(path),
+        size_bytes=1,
+        modified_at_ns=modified_at_ns,
+        needs_processing=True,
+    )
+    db_session.add_all([page, entry])
+    db_session.commit()
+
+
+@pytest.fixture
+def active_preview_upload(db_session, monkeypatch):
+    from app.services.agent_auth import create_agent_token, hash_token
+
+    agent = Agent(
+        id="preview-test-agent",
+        name="Preview Test Agent",
+        platform="linux",
+        version="1",
+        protocol_version=3,
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    source = Source(
+        id="preview-test-source",
+        name="Preview Test",
+        root_path="/data",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_agent",
+    )
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
+    db_session.commit()
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    stage_preview_entry(db_session, job)
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client, job, lease, source, token
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -1317,6 +1400,7 @@ def test_upload_preview_endpoint_rejects_oversized_preview(db_session, monkeypat
     job = AgentJobService(db_session).enqueue_scan(source, full=True)
     lease = AgentJobService(db_session).claim_next(agent.id)
     db_session.commit()
+    stage_preview_entry(db_session, job)
 
     def override_get_db():
         yield db_session
@@ -1370,6 +1454,7 @@ def test_upload_preview_verifies_checksum(db_session, monkeypatch):
     job = AgentJobService(db_session).enqueue_scan(source, full=True)
     lease = AgentJobService(db_session).claim_next(agent.id)
     db_session.commit()
+    stage_preview_entry(db_session, job)
 
     def override_get_db():
         yield db_session
@@ -1378,7 +1463,7 @@ def test_upload_preview_verifies_checksum(db_session, monkeypatch):
     app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as test_client:
-        preview_data = b"test preview data"
+        preview_data = preview_jpeg_bytes()
         wrong_checksum = hashlib.sha256(b"wrong data").hexdigest()
 
         response = test_client.put(
@@ -1425,6 +1510,7 @@ def test_upload_preview_idempotent_on_same_path_mtime(db_session, monkeypatch):
     job = AgentJobService(db_session).enqueue_scan(source, full=True)
     lease = AgentJobService(db_session).claim_next(agent.id)
     db_session.commit()
+    stage_preview_entry(db_session, job)
 
     def override_get_db():
         yield db_session
@@ -1433,7 +1519,7 @@ def test_upload_preview_idempotent_on_same_path_mtime(db_session, monkeypatch):
     app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(app) as test_client:
-        preview_data = b"test preview data"
+        preview_data = preview_jpeg_bytes()
         checksum = hashlib.sha256(preview_data).hexdigest()
 
         # First upload should succeed
@@ -1453,6 +1539,156 @@ def test_upload_preview_idempotent_on_same_path_mtime(db_session, monkeypatch):
         assert response2.status_code == 200
 
     app.dependency_overrides.clear()
+
+
+def test_upload_preview_rejects_unknown_staged_path(active_preview_upload, tmp_path, monkeypatch):
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=unknown.jpg&modified_at_ns=123",
+        content=preview_jpeg_bytes(),
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
+
+
+def test_upload_preview_rejects_stale_staged_mtime(active_preview_upload, tmp_path, monkeypatch):
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=122",
+        content=preview_jpeg_bytes(),
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
+
+
+def test_upload_preview_rejects_non_jpeg_body(active_preview_upload, tmp_path, monkeypatch):
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+        content=b"not a jpeg",
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
+
+
+def test_upload_preview_accepts_exact_staged_jpeg(active_preview_upload, tmp_path, monkeypatch):
+    from app.services.preview_assets import load_preview
+
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+    body = preview_jpeg_bytes()
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+        content=body,
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 200
+    assert load_preview(source.id, "test.jpg", tmp_path, 123) == body
+
+
+def test_upload_preview_rejects_conflicting_retry_without_replacing_stored_preview(
+    active_preview_upload, tmp_path, monkeypatch
+):
+    from app.services.preview_assets import load_preview
+
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+    original = preview_jpeg_bytes()
+    headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
+    url = f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123"
+    assert client.put(url, content=original, headers=headers).status_code == 200
+
+    response = client.put(url, content=preview_jpeg_bytes("red"), headers=headers)
+
+    assert response.status_code == 409
+    assert load_preview(source.id, "test.jpg", tmp_path, 123) == original
+
+    assert client.put(url, content=b"invalid replacement", headers=headers).status_code == 409
+    assert load_preview(source.id, "test.jpg", tmp_path, 123) == original
+
+
+@pytest.mark.parametrize("wrong_version", ["agent", "job"])
+def test_upload_preview_rejects_non_v3_agent_or_job_without_creating_file(
+    active_preview_upload, db_session, tmp_path, monkeypatch, wrong_version
+):
+    client, job, lease, source, token = active_preview_upload
+    if wrong_version == "agent":
+        db_session.get(Agent, "preview-test-agent").protocol_version = 2
+    else:
+        payload = json.loads(job.payload)
+        payload["protocol_version"] = 2
+        job.payload = json.dumps(payload)
+    db_session.commit()
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+        content=preview_jpeg_bytes(),
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
+
+
+def test_upload_preview_rejects_on_server_scan_without_creating_file(
+    active_preview_upload, db_session, tmp_path, monkeypatch
+):
+    client, job, lease, source, token = active_preview_upload
+    job.processing_mode = "on_server"
+    db_session.commit()
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+        content=preview_jpeg_bytes(),
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
+
+
+def test_upload_preview_rejects_decompression_bomb_jpeg_without_creating_file(
+    active_preview_upload, tmp_path, monkeypatch
+):
+    from app.services import preview_assets
+
+    class OversizedJpeg:
+        format, width, height = "JPEG", 4_001, 4_000
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+    monkeypatch.setattr(preview_assets.Image, "open", lambda *_args: OversizedJpeg())
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+        content=preview_jpeg_bytes(),
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
 
 
 def test_upload_preview_rejects_path_traversal(db_session, monkeypatch):

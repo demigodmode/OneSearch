@@ -66,12 +66,14 @@ export interface SourceBase {
  */
 export interface SourceCreate extends SourceBase {
   id?: string // Auto-generated if not provided
+  path_validation_job_id?: string | null
 }
 
 /**
  * Request body for updating a source (all fields optional)
  */
 export interface SourceUpdate {
+  path_validation_job_id?: string | null
   name?: string
   root_path?: string
   include_patterns?: string[] | null
@@ -119,6 +121,29 @@ export interface SourcePathTestResponse {
   hint?: string | null
   job_id?: string | null
   status?: SourcePathTestStatus | null
+}
+
+export interface SourceBrowseRequest {
+  agent_id: string
+  root_id: string
+  path: string
+}
+
+export interface SourceBrowseEntry {
+  name: string
+  path: string
+}
+
+export type SourceBrowseStatus = 'pending' | 'claimed' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
+
+export interface SourceBrowseResponse {
+  job_id: string
+  status: SourceBrowseStatus
+  root_id: string
+  path: string
+  entries: SourceBrowseEntry[]
+  truncated: boolean
+  error?: string | null
 }
 
 export type AgentStatus = 'pending' | 'online' | 'offline' | 'degraded' | 'disabled' | 'revoked'

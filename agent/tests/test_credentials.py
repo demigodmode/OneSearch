@@ -37,7 +37,11 @@ def test_backend_marker_is_atomic_and_rejects_corruption(tmp_path: Path):
         store.load_backend_marker()
 
 
-def test_windows_auto_selects_keyring(tmp_path: Path):
+def test_windows_auto_selects_keyring(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(
+        "onesearch_agent.credentials.keyring.get_keyring",
+        lambda: type("SecureBackend", (), {"priority": 1})(),
+    )
     config = type(
         "Config",
         (),
@@ -116,6 +120,10 @@ def test_linux_auto_prefers_usable_keyring(tmp_path: Path, monkeypatch):
             "state_dir": tmp_path,
         },
     )()
+    monkeypatch.setattr(
+        "onesearch_agent.credentials.keyring.get_keyring",
+        lambda: type("SecureBackend", (), {"priority": 1})(),
+    )
     monkeypatch.setattr(KeyringCredentialStore, "load", lambda self, optional=False: "present")
     assert isinstance(credential_store(config, system="posix"), KeyringCredentialStore)
 
@@ -131,6 +139,10 @@ def test_windows_auto_never_selects_file_after_keyring_error(tmp_path: Path, mon
             "state_dir": tmp_path,
         },
     )()
+    monkeypatch.setattr(
+        "onesearch_agent.credentials.keyring.get_keyring",
+        lambda: type("SecureBackend", (), {"priority": 1})(),
+    )
     monkeypatch.setattr(
         KeyringCredentialStore,
         "load",

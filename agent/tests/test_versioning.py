@@ -22,12 +22,14 @@ def test_release_bumps_actual_agent_init(tmp_path, monkeypatch):
 def test_release_version_verifier_rejects_mismatched_checked_out_sources(tmp_path):
     from scripts.verify_release_version import verify
 
-    for directory in ("", "backend", "cli", "agent"):
+    for directory in ("", "backend", "cli", "agent", "shared"):
         path = tmp_path / directory / "pyproject.toml"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text('[project]\nversion = "1.3.0"\n')
     (tmp_path / "agent" / "onesearch_agent").mkdir()
     (tmp_path / "agent" / "onesearch_agent" / "__init__.py").write_text('__version__ = "1.3.0"\n')
+    (tmp_path / "cli" / "onesearch").mkdir()
+    (tmp_path / "cli" / "onesearch" / "__init__.py").write_text('__version__ = "1.3.0"\n')
     (tmp_path / "frontend").mkdir()
     (tmp_path / "frontend" / "package.json").write_text('{"version": "1.3.0"}')
     verify(tmp_path, "1.3.0")

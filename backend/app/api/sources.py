@@ -11,11 +11,12 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from onesearch_shared import BrowseResult
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -24,6 +25,8 @@ from ..db.database import get_db
 from ..models import Agent, AgentJob, IndexedFile, Source, User
 from ..schemas import (
     ScheduleConfig,
+    SourceBrowseRequest,
+    SourceBrowseResponse,
     SourceCreate,
     SourcePathTestRequest,
     SourcePathTestResponse,
@@ -52,6 +55,10 @@ from .auth import get_current_user
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
+
+# A remote path may change between validation and source creation. Keep the proof
+# short-lived without consuming it; current administration is single-user.
+REMOTE_PATH_VALIDATION_MAX_AGE = timedelta(minutes=10)
 
 
 def _configured_allowed_paths() -> list[Path]:
@@ -236,26 +243,36 @@ def _remote_agent(db: Session, agent_id: str | None, *, online: bool = False) ->
     return agent
 
 
-def _remote_path_authorized(agent: Agent, root_path: str) -> bool:
+def _canonical_remote_path(agent: Agent, root_path: str) -> str | None:
     if (
         not root_path
         or root_path != root_path.strip()
         or ".." in root_path.replace("\\", "/").split("/")
     ):
-        return False
-    try:
-        roots = json.loads(agent.allowed_roots)
-    except (TypeError, json.JSONDecodeError):
-        return False
-    if not isinstance(roots, list):
-        return False
+        return None
     windows = str(agent.platform).lower().startswith("win")
     path_class = PureWindowsPath if windows else PurePosixPath
     candidate = path_class(root_path)
     if windows:
         if not candidate.drive or "/" in root_path:
-            return False
+            return None
     elif not candidate.is_absolute() or "\\" in root_path:
+        return None
+    return str(candidate)
+
+
+def _remote_path_authorized(agent: Agent, root_path: str) -> bool:
+    canonical_root = _canonical_remote_path(agent, root_path)
+    if canonical_root is None:
+        return False
+    windows = str(agent.platform).lower().startswith("win")
+    path_class = PureWindowsPath if windows else PurePosixPath
+    candidate = path_class(canonical_root)
+    try:
+        roots = json.loads(agent.allowed_roots)
+    except (TypeError, json.JSONDecodeError):
+        return False
+    if not isinstance(roots, list):
         return False
     for item in roots:
         if not isinstance(item, dict) or not isinstance(item.get("path"), str):
@@ -267,6 +284,38 @@ def _remote_path_authorized(agent: Agent, root_path: str) -> bool:
         except (TypeError, ValueError):
             pass
     return False
+
+
+def _require_remote_path_validation(
+    db: Session, *, job_id: str | None, agent: Agent, root_path: str
+) -> None:
+    """Require recent durable evidence that this agent validated this exact root."""
+    if not job_id:
+        raise HTTPException(status_code=422, detail="Remote path validation is required")
+    job = db.get(AgentJob, job_id)
+    if job is None or job.kind != "browse" or job.reason != "validate":
+        raise HTTPException(status_code=404, detail="Path validation not found")
+    if job.agent_id != agent.id or job.status != "completed" or job.completed_at is None:
+        raise HTTPException(status_code=409, detail="Remote path validation is not successful")
+    completed_at = job.completed_at
+    if completed_at.tzinfo is not None:
+        completed_at = completed_at.astimezone(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if completed_at < now - REMOTE_PATH_VALIDATION_MAX_AGE or completed_at > now:
+        raise HTTPException(status_code=409, detail="Remote path validation has expired")
+    try:
+        payload = json.loads(job.payload)
+    except (TypeError, json.JSONDecodeError):
+        payload = None
+    expected_path = _canonical_remote_path(agent, root_path)
+    validated_path = (
+        _canonical_remote_path(agent, payload.get("root_path"))
+        if isinstance(payload, dict) and payload.get("operation") == "validate"
+        and isinstance(payload.get("root_path"), str)
+        else None
+    )
+    if expected_path is None or validated_path != expected_path:
+        raise HTTPException(status_code=409, detail="Remote path validation does not match source path")
 
 
 def _agent_allowed_root_paths(agent: Agent) -> list[str] | None:
@@ -282,6 +331,55 @@ def _agent_allowed_root_paths(agent: Agent) -> list[str] | None:
             return None
         paths.append(root["path"])
     return paths
+
+
+def _agent_allowed_root_ids(agent: Agent) -> set[str] | None:
+    try:
+        roots = json.loads(agent.allowed_roots)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(roots, list):
+        return None
+    ids = {item.get("root_id") for item in roots if isinstance(item, dict)}
+    return ids if len(ids) == len(roots) and all(isinstance(root_id, str) for root_id in ids) else None
+
+
+def _browse_payload(job: AgentJob) -> dict | None:
+    try:
+        payload = json.loads(job.payload)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(payload, dict)
+        or job.kind != "browse"
+        or job.reason != "browse"
+        or payload.get("operation") != "list"
+        or not isinstance(payload.get("root_id"), str)
+        or not isinstance(payload.get("path"), str)
+    ):
+        return None
+    return payload
+
+
+def _browse_response(job: AgentJob, payload: dict) -> SourceBrowseResponse:
+    if job.status in {"pending", "claimed", "running", "cancelling"}:
+        return SourceBrowseResponse.pending(
+            job_id=job.id, status=job.status, root_id=payload["root_id"], path=payload["path"]
+        )
+    if job.status == "completed":
+        try:
+            checkpoint = json.loads(job.checkpoint)
+            result = BrowseResult.model_validate(checkpoint["browse_result"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            raise HTTPException(status_code=409, detail="Browse result is unavailable") from None
+        if result.root_id != payload["root_id"] or result.path != payload["path"]:
+            raise HTTPException(status_code=409, detail="Browse result is unavailable")
+        return SourceBrowseResponse.completed(job_id=job.id, result=result)
+    if job.status in {"failed", "cancelled"}:
+        return SourceBrowseResponse.pending(
+            job_id=job.id, status=job.status, root_id=payload["root_id"], path=payload["path"]
+        ).model_copy(update={"error": "Directory browse did not complete."})
+    raise HTTPException(status_code=409, detail="Browse result is unavailable")
 
 
 def _remote_path_result(
@@ -379,7 +477,10 @@ def _validate_source_location(
     agent = _remote_agent(db, agent_id)
     if not _remote_path_authorized(agent, root_path):
         raise HTTPException(status_code=422, detail="Remote root path is not authorized")
-    return root_path
+    # Store the same canonical spelling used to bind validation evidence.
+    canonical_path = _canonical_remote_path(agent, root_path)
+    assert canonical_path is not None  # _remote_path_authorized checked it above.
+    return canonical_path
 
 
 def generate_source_id(name: str) -> str:
@@ -464,6 +565,46 @@ async def get_source_path_test(
     return _remote_path_result(job, db.get(Agent, job.agent_id), payload=payload)
 
 
+@router.post("/browse", response_model=SourceBrowseResponse)
+async def browse_source_directory(
+    request_data: SourceBrowseRequest,
+    db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Queue a bounded directory-only browse; this never creates a source."""
+    if not AppSettingsService(db).get_settings().remote_agents_enabled:
+        raise HTTPException(status_code=409, detail="Remote agents are disabled")
+    agent = _remote_agent(db, request_data.agent_id, online=True)
+    root_ids = _agent_allowed_root_ids(agent)
+    if root_ids is None or request_data.root_id not in root_ids:
+        raise HTTPException(status_code=422, detail="Remote root is not authorized")
+    try:
+        # Reuse the wire contract's canonical-relative validation before persistence.
+        path = BrowseResult(
+            root_id=request_data.root_id, path=request_data.path, entries=[], truncated=False
+        ).path
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="Browse path is invalid") from error
+    job = AgentJobService(db).enqueue_browse_list(agent.id, request_data.root_id, path)
+    db.commit()
+    return SourceBrowseResponse.pending(
+        job_id=job.id, status=job.status, root_id=request_data.root_id, path=path
+    )
+
+
+@router.get("/browse/{job_id}", response_model=SourceBrowseResponse)
+async def get_source_directory_browse(
+    job_id: str,
+    db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    job = db.get(AgentJob, job_id)
+    payload = _browse_payload(job) if job is not None else None
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Browse job not found")
+    return _browse_response(job, payload)
+
+
 @router.get("/{source_id}", response_model=SourceResponse)
 async def get_source(
     source_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
@@ -528,6 +669,13 @@ async def create_source(
         processing_mode=source_data.processing_mode,
         root_path=source_data.root_path,
     )
+    if source_data.location_type == "agent":
+        _require_remote_path_validation(
+            db,
+            job_id=source_data.path_validation_job_id,
+            agent=_remote_agent(db, source_data.agent_id),
+            root_path=root_path,
+        )
 
     # Validate schedule if provided and not following the global default
     if not source_data.use_default_schedule:
@@ -630,14 +778,43 @@ async def update_source(
     for field in prospective:
         if field in source_data.model_fields_set:
             prospective[field] = getattr(source_data, field)
-    binding_changed = bool(
-        {"location_type", "agent_id", "processing_mode", "root_path"} & source_data.model_fields_set
+
+    # The form submits the current binding with ordinary edits. Treat a spelling
+    # which canonicalizes to the stored remote path as maintenance, too.
+    existing_agent = db.get(Agent, source.agent_id) if source.location_type == "agent" else None
+    stored_canonical_path = (
+        _canonical_remote_path(existing_agent, source.root_path)
+        if existing_agent is not None
+        else None
+    )
+    candidate_path = (
+        _canonical_remote_path(existing_agent, prospective["root_path"])
+        if source.location_type == "agent"
+        and prospective["location_type"] == "agent"
+        and source.agent_id == prospective["agent_id"]
+        and existing_agent is not None
+        else None
+    )
+    unchanged_remote_binding = (
+        candidate_path is not None and candidate_path == stored_canonical_path
     )
     root_path = _validate_source_location(
         db,
         **prospective,
-        allow_disabled_maintenance=not binding_changed and source.location_type == "agent",
+        allow_disabled_maintenance=unchanged_remote_binding,
     )
+    remote_binding_changed = prospective["location_type"] == "agent" and (
+        source.location_type != "agent"
+        or source.agent_id != prospective["agent_id"]
+        or stored_canonical_path != root_path
+    )
+    if remote_binding_changed:
+        _require_remote_path_validation(
+            db,
+            job_id=source_data.path_validation_job_id,
+            agent=_remote_agent(db, prospective["agent_id"]),
+            root_path=root_path,
+        )
     source.location_type, source.agent_id, source.processing_mode, source.root_path = (
         prospective["location_type"],
         prospective["agent_id"],

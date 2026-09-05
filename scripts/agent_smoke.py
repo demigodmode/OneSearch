@@ -49,6 +49,8 @@ def redact(value: Any) -> Any:
         }
     if isinstance(value, list):
         return [redact(item) for item in value]
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
     text = str(value)
     for pattern in SECRET_PATTERNS:
         text = pattern.sub(r"\1[REDACTED]", text)
@@ -139,7 +141,7 @@ class SubprocessRunner:
         return Reply(completed.returncode, body)
 
 
-REQUIRED_COMMANDS = {
+BASE_COMMANDS = {
     "enroll",
     "start",
     "stop",
@@ -147,14 +149,17 @@ REQUIRED_COMMANDS = {
     "delete_fixture",
     "restore_fixture",
     "update_check",
+    "heartbeat_probe",
+    "cleanup_processes",
+}
+UPGRADE_COMMANDS = {
     "state_probe",
     "previous_install",
     "previous_start",
     "previous_stop",
     "current_install",
-    "heartbeat_probe",
-    "cleanup_processes",
 }
+REQUIRED_COMMANDS = BASE_COMMANDS | UPGRADE_COMMANDS
 
 
 @dataclass
@@ -170,6 +175,7 @@ class SmokeConfig:
     notification_regex: str
     original_marker: str
     renamed_marker: str
+    first_agent_release: bool = False
     poll_attempts: int = 30
     poll_seconds: float = 1.0
     due_intervals: int = 2
@@ -178,6 +184,8 @@ class SmokeConfig:
     cleanup_evidence_on_failure: bool = False
 
     def validate(self) -> None:
+        if self.first_agent_release and self.previous_version:
+            raise ValueError("first_agent_release cannot be combined with previous_version")
         missing = [
             name
             for name, value in vars(self).items()
@@ -188,7 +196,6 @@ class SmokeConfig:
                 "agent_name",
                 "fixture_agent_path",
                 "fixture_server_path",
-                "previous_version",
                 "current_version",
                 "notification_regex",
                 "original_marker",
@@ -196,11 +203,14 @@ class SmokeConfig:
             }
             and not value
         ]
-        missing.extend(sorted(REQUIRED_COMMANDS - set(self.commands)))
+        if not self.first_agent_release and not self.previous_version:
+            missing.append("previous_version")
+        required_commands = BASE_COMMANDS if self.first_agent_release else REQUIRED_COMMANDS
+        missing.extend(sorted(required_commands - set(self.commands)))
         invalid = [
             name
             for name, command in self.commands.items()
-            if name in REQUIRED_COMMANDS and not _is_json_argv(command)
+            if name in required_commands and not _is_json_argv(command)
         ]
         secret_placeholders = [
             name
@@ -422,7 +432,19 @@ class SmokeRunner:
             self.phase("offline_cache_and_catch_up", self._offline)
             self.phase("reconciliation_and_reconnect", self._reconcile)
             self.phase("signed_update_notification", self._update)
-            self.phase("clean_upgrade", self._upgrade)
+            if self.config.first_agent_release:
+                now = time.time()
+                self.evidence["phases"].append(
+                    {
+                        "name": "clean_upgrade",
+                        "started_at": now,
+                        "ended_at": now,
+                        "status": "not_applicable",
+                        "reason": "no previous supported agent release",
+                    }
+                )
+            else:
+                self.phase("clean_upgrade", self._upgrade)
             self.phase("revocation", self._revoke)
         except Exception as error:
             primary_error = error
@@ -552,6 +574,11 @@ class SmokeRunner:
             raise RuntimeError("cached search was unavailable while the agent was offline")
         self.http("GET", f"/api/documents/{self.values['document_id']}")
         self.http(
+            "GET",
+            f"/api/documents/{self.values['document_id']}/preview",
+            expected={200},
+        )
+        self.http(
             "POST",
             f"/api/documents/{self.values['document_id']}/download-link",
             expected={409},
@@ -574,6 +601,7 @@ class SmokeRunner:
         return {
             "cached_search": True,
             "cached_detail": True,
+            "cached_preview": True,
             "download_rejected": True,
             "missed_intervals": self.config.due_intervals,
             "catch_up_job": pending[0]["id"],
@@ -732,8 +760,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--fixture-agent-path", required=True)
     parser.add_argument("--fixture-server-path", required=True)
     parser.add_argument("--commands-json", type=Path, required=True)
-    parser.add_argument("--previous-version", required=True)
+    parser.add_argument("--previous-version", default="")
     parser.add_argument("--current-version", required=True)
+    parser.add_argument(
+        "--first-agent-release",
+        action="store_true",
+        help="Record agent upgrade as not applicable when no prior agent release exists.",
+    )
     parser.add_argument("--notification-regex", required=True)
     parser.add_argument("--original-marker", required=True)
     parser.add_argument("--renamed-marker", required=True)
@@ -764,6 +797,7 @@ def main(argv: list[str] | None = None) -> int:
             args.notification_regex,
             args.original_marker,
             args.renamed_marker,
+            args.first_agent_release,
             args.poll_attempts,
             args.poll_seconds,
             args.due_intervals,

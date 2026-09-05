@@ -13,6 +13,7 @@ from onesearch_agent.packaging import (
     should_launch_windows_service,
     sign_bytes,
     sign_manifest,
+    validate_public_key,
     verify_key_pair,
 )
 from onesearch_agent.update import UpdateManager
@@ -48,6 +49,18 @@ def test_key_pair_requires_base64_raw_matching_32_byte_keys():
         verify_key_pair(
             base64.b64encode(private_raw).decode(), base64.b64encode(b"x" * 32).decode()
         )
+
+
+def test_embedded_public_key_file_requires_a_raw_base64_ed25519_key():
+    private = Ed25519PrivateKey.generate()
+    public = private.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+
+    assert validate_public_key(base64.b64encode(public).decode()) == public
+    placeholder = Path("agent/onesearch_agent/release_public_key.txt").read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="public key must be base64"):
+        validate_public_key(placeholder)
 
 
 def test_checksum_signature_uses_the_raw_ed25519_key_contract():

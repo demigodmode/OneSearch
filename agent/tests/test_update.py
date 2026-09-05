@@ -2,6 +2,8 @@ import base64
 import hashlib
 import io
 import json
+import os
+import stat
 import sys
 from pathlib import Path
 from urllib.error import URLError
@@ -124,6 +126,12 @@ def manager(key, **kwargs):
     return UpdateManager(public_key=public_key, platform="win32-x64", **kwargs)
 
 
+def write_native_binary(path: Path, content: bytes) -> None:
+    path.write_bytes(content)
+    if os.name != "nt":
+        path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
 class RecordingResponse:
     def __init__(
         self,
@@ -213,7 +221,7 @@ def test_production_download_streams_verified_artifact_before_publishing_transac
         artifact_on_read=lambda: assert_transaction_not_published(state_dir),
     )
     current = tmp_path / "onesearch-agent.exe"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
 
     transaction = manager(signing_key).stage(
         auto_update=True,
@@ -254,7 +262,7 @@ def test_production_stream_failure_closes_response_and_removes_partial_update(
     payload = signed_manifest(signing_key, artifact=artifact, **overrides)
     _, _, artifact_response = production_responses(monkeypatch, payload, artifact, chunk_size=2)
     current = tmp_path / "onesearch-agent.exe"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
     state_dir = tmp_path / "state"
 
     with pytest.raises(UpdateError, match=message):
@@ -273,7 +281,7 @@ def test_oversized_signed_artifact_is_rejected_before_artifact_contact(signing_k
     payload = signed_manifest(signing_key, size=MAX_ARTIFACT_BYTES + 1)
     contacts = []
     current = tmp_path / "onesearch-agent.exe"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
 
     with pytest.raises(UpdateError, match="size"):
         manager(
@@ -301,7 +309,7 @@ def test_production_stream_read_failure_closes_response_and_removes_partial_upda
         artifact_fail_after=2,
     )
     current = tmp_path / "onesearch-agent.exe"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
     state_dir = tmp_path / "state"
 
     with pytest.raises(OSError, match="connection lost"):
@@ -328,7 +336,7 @@ def test_production_stream_publication_failure_removes_verified_staged_file(
         chunk_size=2,
     )
     current = tmp_path / "onesearch-agent.exe"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
     state_dir = tmp_path / "state"
 
     def fail_publication(cls, **kwargs):
@@ -369,7 +377,7 @@ def test_rejects_manifest_with_invalid_ed25519_signature(signing_key):
 
 def test_rejects_checksum_mismatch_before_replacing_binary(signing_key, tmp_path: Path):
     current = tmp_path / "onesearch-agent.exe"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
     payload = signed_manifest(signing_key, sha256="0" * 64)
     with pytest.raises(UpdateError, match="in-process"):
         manager(
@@ -387,7 +395,7 @@ def test_rejects_incompatible_protocol_range(signing_key):
 
 def test_in_process_update_cannot_replace_a_running_binary(signing_key, tmp_path: Path):
     current = tmp_path / "onesearch-agent.exe"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
     with pytest.raises(UpdateError, match="in-process"):
         manager(signing_key).apply(
             auto_update=True, current_binary=current, health_check=lambda: True
@@ -397,7 +405,7 @@ def test_in_process_update_cannot_replace_a_running_binary(signing_key, tmp_path
 
 def test_in_process_update_never_attempts_windows_locked_executable(signing_key, tmp_path: Path):
     current = tmp_path / "onesearch-agent.exe"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
     with pytest.raises(UpdateError, match="in-process"):
         manager(signing_key).apply(
             auto_update=True, current_binary=current, health_check=lambda: False
@@ -407,7 +415,7 @@ def test_in_process_update_never_attempts_windows_locked_executable(signing_key,
 
 def test_docker_agent_notifies_but_never_replaces_container(signing_key, tmp_path: Path):
     current = tmp_path / "onesearch-agent"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
     payload = signed_manifest(signing_key)
     downloads = []
     notices = []
@@ -427,7 +435,7 @@ def test_docker_agent_notifies_but_never_replaces_container(signing_key, tmp_pat
 
 def test_stage_and_launch_forwards_docker_notice_without_launching(monkeypatch, tmp_path):
     current = tmp_path / "onesearch-agent"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
     notices = []
     manager_options = []
 
@@ -473,7 +481,7 @@ def test_stage_and_launch_keeps_native_launch_behavior_with_notices(monkeypatch,
     current = tmp_path / ("onesearch-agent" + suffix)
     helper = tmp_path / ("onesearch-agent-updater" + suffix)
     prepared = tmp_path / "prepared-update.json"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
     helper.write_bytes(b"updater")
     notices = []
     launched = []
@@ -566,7 +574,7 @@ def test_native_update_paths_reject_a_linked_install_parent(monkeypatch, tmp_pat
 
 def test_helper_recovers_crash_after_backup_move_while_stopping(tmp_path):
     current = tmp_path / "onesearch-agent"
-    current.write_bytes(b"old")
+    write_native_binary(current, b"old")
     transaction = UpdateTransaction.create(
         state_dir=tmp_path / "state", current_binary=current, artifact=b"new", version="1.4.0"
     ).save("stopping")
@@ -580,7 +588,7 @@ def test_helper_recovers_crash_after_backup_move_while_stopping(tmp_path):
 
 def test_stopping_transaction_with_current_binary_resumes_swap_safely(tmp_path):
     current = tmp_path / "onesearch-agent"
-    current.write_bytes(b"old")
+    write_native_binary(current, b"old")
     transaction = UpdateTransaction.create(
         state_dir=tmp_path / "state", current_binary=current, artifact=b"new", version="1.4.0"
     ).save("stopping")
@@ -618,7 +626,7 @@ def test_stage_fetches_one_verified_manifest_and_never_replaces_current_binary(
     signing_key, tmp_path
 ):
     current = tmp_path / "onesearch-agent.exe"
-    current.write_bytes(b"old-agent")
+    write_native_binary(current, b"old-agent")
     calls = []
     payload = signed_manifest(signing_key)
     prepared = manager(
@@ -637,7 +645,7 @@ def test_stage_fetches_one_verified_manifest_and_never_replaces_current_binary(
 
 def test_helper_rolls_back_when_new_heartbeat_is_wrong_or_stale(tmp_path):
     current = tmp_path / "onesearch-agent.exe"
-    current.write_bytes(b"old")
+    write_native_binary(current, b"old")
     state = tmp_path / "state"
     transaction = UpdateTransaction.create(
         state_dir=state, current_binary=current, artifact=b"new", version="1.4.0"
@@ -653,7 +661,7 @@ def test_helper_rolls_back_when_new_heartbeat_is_wrong_or_stale(tmp_path):
 
 def test_helper_accepts_only_new_expected_healthy_marker(tmp_path):
     current = tmp_path / "onesearch-agent"
-    current.write_bytes(b"old")
+    write_native_binary(current, b"old")
     state = tmp_path / "state"
     transaction = UpdateTransaction.create(
         state_dir=state, current_binary=current, artifact=b"new", version="1.4.0"
@@ -670,7 +678,7 @@ def test_helper_accepts_only_new_expected_healthy_marker(tmp_path):
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes")
 def test_staged_and_swapped_native_binary_preserves_safe_executable_mode(tmp_path):
     current = tmp_path / "onesearch-agent"
-    current.write_bytes(b"old")
+    write_native_binary(current, b"old")
     current.chmod(0o6755)
     transaction = UpdateTransaction.create(
         state_dir=tmp_path / "state", current_binary=current, artifact=b"new", version="1.4.0"
@@ -685,7 +693,7 @@ def test_staged_and_swapped_native_binary_preserves_safe_executable_mode(tmp_pat
 
 def test_helper_rejects_tampered_transaction_paths(tmp_path):
     state = tmp_path / "state"
-    (tmp_path / "onesearch-agent").write_bytes(b"old")
+    write_native_binary(tmp_path / "onesearch-agent", b"old")
     transaction = UpdateTransaction.create(
         state_dir=state,
         current_binary=tmp_path / "onesearch-agent",
@@ -703,7 +711,7 @@ def test_helper_rejects_tampered_transaction_paths(tmp_path):
 
 def test_helper_started_transaction_never_replaces_last_good_backup(tmp_path):
     current = tmp_path / "onesearch-agent"
-    current.write_bytes(b"old")
+    write_native_binary(current, b"old")
     state = tmp_path / "state"
     transaction = UpdateTransaction.create(
         state_dir=state, current_binary=current, artifact=b"new", version="1.4.0"
@@ -732,7 +740,7 @@ class FakeServiceManager:
 
 def test_transaction_refuses_paths_outside_fixed_sibling_layout(tmp_path):
     current = tmp_path / "onesearch-agent"
-    current.write_bytes(b"old")
+    write_native_binary(current, b"old")
     transaction = UpdateTransaction.create(
         state_dir=tmp_path / "state", current_binary=current, artifact=b"new", version="1.4.0"
     )
@@ -746,7 +754,7 @@ def test_transaction_refuses_paths_outside_fixed_sibling_layout(tmp_path):
 
 def test_transaction_refuses_symlinked_state_ancestry(tmp_path):
     current = tmp_path / "onesearch-agent"
-    current.write_bytes(b"old")
+    write_native_binary(current, b"old")
     UpdateTransaction.create(
         state_dir=tmp_path / "state", current_binary=current, artifact=b"new", version="1.4.0"
     )

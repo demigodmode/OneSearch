@@ -4,9 +4,26 @@
 """Tests for agent worker preview generation."""
 
 import asyncio
+import stat
+from contextlib import contextmanager
+from io import BytesIO
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from onesearch_shared import (
+    REMOTE_MAX_MANIFEST_PAGE_BYTES,
+    REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
+    AllowedRoot,
+    BatchAck,
+    JobKind,
+    ProcessingMode,
+    ScanCheckpoint,
+    ScanFile,
+    ScanManifestPageAck,
+    ScanPageOutcomeAck,
+    remote_path_hash,
+)
 from PIL import Image
 
 from app.services.preview_assets import generate_derived_jpeg_preview
@@ -126,3 +143,172 @@ async def test_maybe_upload_preview_calls_with_correct_params(tmp_path):
     finally:
         if original_submit:
             worker._submit_idempotent = original_submit
+
+
+@pytest.mark.asyncio
+async def test_confined_preview_stops_copy_before_snapshot_limit(monkeypatch):
+    """A growing read cannot write past the v3 snapshot cap or upload a preview."""
+    from onesearch_agent import worker
+
+    class GrowingReader:
+        def __init__(self):
+            self.chunks = iter((b"abc", b"def"))
+
+        def fileno(self):
+            return 1
+
+        def read(self, _size):
+            return next(self.chunks, b"")
+
+    @contextmanager
+    def open_growing_file(*_args, **_kwargs):
+        yield GrowingReader()
+
+    written, preview_calls = [], []
+
+    @contextmanager
+    def record_snapshot_write(_path, _mode):
+        class Output:
+            def write(self, data):
+                written.append(data)
+
+        yield Output()
+
+    async def record_preview(*_args, **_kwargs):
+        preview_calls.append(True)
+
+    monkeypatch.setattr(worker, "open_confined_file", open_growing_file)
+    monkeypatch.setattr(
+        worker.os,
+        "fstat",
+        lambda _fd: SimpleNamespace(st_mode=stat.S_IFREG, st_size=4, st_mtime_ns=1),
+    )
+    monkeypatch.setattr(worker.Path, "open", record_snapshot_write)
+    monkeypatch.setattr(worker, "_maybe_upload_preview", record_preview)
+
+    await worker._maybe_upload_confined_preview(
+        SimpleNamespace(),
+        SimpleNamespace(),
+        "nested/photo.jpg",
+        ScanFile(
+            path="nested/photo.jpg",
+            path_hash=remote_path_hash("nested/photo.jpg"),
+            size_bytes=4,
+            modified_at=1,
+        ),
+        root_id="root-id",
+        roots=[],
+        source_prefix="source_prefix",
+        max_snapshot_bytes=4,
+    )
+
+    assert written == [b"abc"]
+    assert preview_calls == []
+
+
+@pytest.mark.asyncio
+async def test_v3_on_agent_scan_uploads_preview_from_confined_source_path(tmp_path):
+    """A source-relative protocol path must not be reopened from the process CWD."""
+    from onesearch_agent import worker
+
+    source = tmp_path / "source_prefix"
+    image_path = source / "nested" / "photo.jpg"
+    image_path.parent.mkdir(parents=True)
+    Image.new("RGB", (200, 150), color="purple").save(image_path, "JPEG")
+
+    lease = SimpleNamespace(
+        id="preview-job",
+        lease_token="preview-token",
+        kind=JobKind.SCAN,
+        processing_mode=ProcessingMode.ON_AGENT,
+        source_id="source-id",
+        payload={
+            "protocol_version": 3,
+            "full": True,
+            "root_id": "root-id",
+            "root_path": str(source),
+            "include_patterns": None,
+            "exclude_patterns": None,
+            "extraction": {
+                "source_name": "source",
+                "unsupported_file_policy": "metadata_only",
+                "media_metadata_mode": "auto",
+                "raw_metadata_mode": "auto",
+                "index_gps_metadata": False,
+                "max_text_file_size_mb": 10,
+                "max_pdf_file_size_mb": 50,
+                "max_office_file_size_mb": 50,
+                "image_metadata_max_size_mb": 100,
+                "epub_extraction_max_size_mb": 100,
+                "comic_extraction_max_size_mb": 100,
+                "media_probe_max_size_mb": 0,
+                "text_extraction_timeout": 5,
+                "pdf_extraction_timeout": 30,
+                "office_extraction_timeout": 30,
+                "raw_metadata_timeout_seconds": 10,
+            },
+            "limits": {
+                "max_snapshot_bytes": 1024 * 1024,
+                "max_batch_documents": 10,
+                "max_batch_bytes": 100_000,
+                "max_entries_per_directory": 10,
+                "max_manifest_page_entries": REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
+                "max_manifest_page_bytes": REMOTE_MAX_MANIFEST_PAGE_BYTES,
+            },
+        },
+    )
+
+    class Client:
+        def __init__(self):
+            self.pages, self.batches, self.previews = [], [], []
+
+        async def job_heartbeat(self, *_args):
+            pass
+
+        async def submit_manifest_page(self, _job_id, page, _token):
+            self.pages.append(page)
+            return ScanManifestPageAck(
+                job_id=lease.id,
+                sequence=page.page.sequence,
+                checksum=page.checksum,
+                accepted_count=len(page.page.files),
+                changed_paths=["nested/photo.jpg"],
+                checkpoint=page.page.checkpoint,
+            )
+
+        async def submit_batch(self, _job_id, batch, _token):
+            self.batches.append(batch)
+            return BatchAck(batch_id=batch.batch_id, accepted_count=len(batch.documents))
+
+        async def submit_page_outcome(self, _job_id, outcome, _token):
+            return ScanPageOutcomeAck(
+                job_id=lease.id,
+                sequence=outcome.outcome.sequence,
+                checksum=outcome.checksum,
+                settled_count=len(outcome.outcome.results),
+                checkpoint=ScanCheckpoint(cursor="page:0", scanned_count=1),
+            )
+
+        async def upload_preview(self, _job_id, _token, **kwargs):
+            self.previews.append(kwargs)
+
+        async def complete(self, *_args):
+            pass
+
+    client = Client()
+    await worker.run_scan_job(
+        lease,
+        client,
+        roots=[AllowedRoot(root_id="root-id", path=str(tmp_path))],
+        state_dir=tmp_path / "state",
+    )
+
+    assert [file.path for page in client.pages for file in page.page.files] == ["nested/photo.jpg"]
+    assert [document.path for batch in client.batches for document in batch.documents] == [
+        "nested/photo.jpg"
+    ]
+    assert [preview["path"] for preview in client.previews] == ["nested/photo.jpg"]
+    with Image.open(BytesIO(client.previews[0]["preview_bytes"])) as preview:
+        assert preview.format == "JPEG"
+        preview.load()
+        assert preview.size == (200, 150)

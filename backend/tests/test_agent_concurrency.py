@@ -6,13 +6,22 @@ import threading
 from datetime import datetime, timezone
 
 import pytest
-from onesearch_shared import DocumentBatch, NormalizedRemoteDocument
+from onesearch_shared import PROTOCOL_VERSION, DocumentBatch, NormalizedRemoteDocument
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Agent, AgentBatch, AgentJob, Base, IndexedFile, Source
+from app.models import (
+    Agent,
+    AgentBatch,
+    AgentJob,
+    AgentScanEntry,
+    AgentScanPage,
+    Base,
+    IndexedFile,
+    Source,
+)
 from app.services.agent_jobs import AgentJobService, JobConflict, JobLeaseError
-from app.services.remote_ingest import RemoteIngestService
+from app.services.remote_ingest import RemoteIngestService, remote_path_hash
 
 
 def _now():
@@ -32,7 +41,7 @@ def _database(tmp_path):
         name="Agent",
         platform="linux",
         version="1",
-        protocol_version=1,
+        protocol_version=PROTOCOL_VERSION,
         allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
     )
     source = Source(
@@ -54,6 +63,35 @@ def _capture(errors, worker):
         worker()
     except BaseException as error:
         errors.append(error)
+
+
+def _released_v3_server_parent(db):
+    source = db.get(Source, "source")
+    source.processing_mode = "on_server"
+    parent = AgentJobService(db).enqueue_scan(source, full=True)
+    parent.status, parent.lease_token_hash, parent.lease_expires_at = "running", None, None
+    page = AgentScanPage(
+        job_id=parent.id,
+        sequence=0,
+        checksum="0" * 64,
+        cursor="page:1",
+        scanned_count=1,
+        is_final=True,
+        entry_count=1,
+    )
+    entry = AgentScanEntry(
+        job_id=parent.id,
+        page_sequence=0,
+        path="new.txt",
+        path_hash=remote_path_hash("new.txt"),
+        size_bytes=1,
+        modified_at_ns=1,
+        needs_processing=False,
+        outcome_status="skipped",
+    )
+    db.add_all([page, entry])
+    db.flush()
+    return parent
 
 
 def test_two_sqlite_sessions_coalesce_concurrent_enqueue(tmp_path):
@@ -79,45 +117,30 @@ def test_two_sqlite_sessions_coalesce_concurrent_enqueue(tmp_path):
     engine.dispose()
 
 
-def test_server_parent_reconcile_lock_serializes_late_cancel(tmp_path):
-    import json
-
-    from onesearch_shared import ScanManifest
-
+def test_v3_server_parent_settlement_serializes_late_cancel(tmp_path):
     engine, sessions = _database(tmp_path)
     seed = sessions()
-    source = seed.get(Source, "source")
-    source.processing_mode = "on_server"
-    parent = AgentJobService(seed).enqueue_scan(source, full=True)
-    parent.status, parent.lease_token_hash, parent.lease_expires_at = "running", None, None
-    parent.checkpoint = json.dumps(
-        {
-            "version": 1,
-            "remote_manifest": ScanManifest(
-                job_id=parent.id, source_id=source.id, complete=True
-            ).model_dump(mode="json"),
-        }
-    )
+    parent = _released_v3_server_parent(seed)
     seed.add(IndexedFile(source_id="source", path="old.txt", status="success"))
     seed.commit()
     parent_id = parent.id
     seed.close()
-    started, release, cancelled, errors = (
+    deletion_started, release_deletion, cancel_committed = (
         threading.Event(),
         threading.Event(),
         threading.Event(),
-        [],
     )
+    errors = []
 
     class Search:
-        async def delete_documents_confirmed(self, ids):
-            started.set()
-            assert release.wait(5)
+        async def delete_documents_confirmed(self, _ids):
+            deletion_started.set()
+            assert release_deletion.wait(timeout=5)
 
     def settle():
         db = sessions()
         try:
-            asyncio.run(RemoteIngestService(db, Search()).settle_server_parent(parent_id))
+            assert asyncio.run(RemoteIngestService(db, Search()).settle_server_parent(parent_id)) == "completed"
             db.commit()
         finally:
             db.close()
@@ -125,67 +148,53 @@ def test_server_parent_reconcile_lock_serializes_late_cancel(tmp_path):
     def cancel():
         db = sessions()
         try:
-            assert started.wait(5)
+            assert deletion_started.wait(timeout=5)
             AgentJobService(db).cancel(parent_id)
             db.commit()
-            cancelled.set()
+            cancel_committed.set()
         finally:
             db.close()
 
-    first = threading.Thread(target=_capture, args=(errors, settle))
-    second = threading.Thread(target=_capture, args=(errors, cancel))
-    first.start()
-    assert started.wait(5)
-    second.start()
-    assert not cancelled.wait(0.2)
-    release.set()
-    first.join(10)
-    second.join(10)
-    assert not first.is_alive() and not second.is_alive() and errors == []
+    settle_thread = threading.Thread(target=_capture, args=(errors, settle))
+    cancel_thread = threading.Thread(target=_capture, args=(errors, cancel))
+    settle_thread.start()
+    assert deletion_started.wait(timeout=5)
+    cancel_thread.start()
+    assert not cancel_committed.wait(timeout=0.2)
+    release_deletion.set()
+    for thread in (settle_thread, cancel_thread):
+        thread.join(timeout=10)
+        assert not thread.is_alive()
+    assert errors == []
     check = sessions()
     assert check.get(AgentJob, parent_id).status == "completed"
-    assert check.query(IndexedFile).filter_by(path="old.txt").count() == 0
+    assert check.query(IndexedFile).filter_by(source_id="source", path="old.txt").count() == 0
     check.close()
     engine.dispose()
 
 
-def test_server_parent_cancel_first_never_deletes_old_rows(tmp_path):
-    import json
-
-    from onesearch_shared import ScanManifest
-
+def test_v3_server_parent_cancel_first_never_settles_or_deletes(tmp_path):
     engine, sessions = _database(tmp_path)
     db = sessions()
-    source = db.get(Source, "source")
-    source.processing_mode = "on_server"
-    parent = AgentJobService(db).enqueue_scan(source, full=True)
-    parent.status, parent.lease_token_hash, parent.lease_expires_at = "running", None, None
-    parent.checkpoint = json.dumps(
-        {
-            "version": 1,
-            "remote_manifest": ScanManifest(
-                job_id=parent.id, source_id=source.id, complete=True
-            ).model_dump(mode="json"),
-        }
-    )
-    old = IndexedFile(source_id="source", path="old.txt", status="success")
-    db.add(old)
+    parent = _released_v3_server_parent(db)
+    db.add(IndexedFile(source_id="source", path="old.txt", status="success"))
     db.commit()
-    AgentJobService(db).cancel(parent.id)
-    db.commit()
+    calls = []
 
     class Search:
-        async def delete_documents_confirmed(self, _ids):
-            raise AssertionError("cancelled parent must not delete")
+        async def delete_documents_confirmed(self, ids):
+            calls.append(ids)
 
+    AgentJobService(db).cancel(parent.id)
     with pytest.raises(JobConflict):
         asyncio.run(RemoteIngestService(db, Search()).settle_server_parent(parent.id))
-    db.refresh(parent)
-    assert parent.status in {"cancelling", "cancelled"}
-    assert db.get(IndexedFile, old.id) is not None
-    assert parent.status != "completed"
+    assert calls == []
+    assert db.get(AgentJob, parent.id).status != "completed"
+    assert db.query(IndexedFile).filter_by(source_id="source", path="old.txt").count() == 1
     db.close()
     engine.dispose()
+
+
 
 
 def test_two_sqlite_sessions_issue_only_one_claim_lease(tmp_path):

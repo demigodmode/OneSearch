@@ -5,8 +5,8 @@ import sys
 from pathlib import Path
 
 import pytest
-from onesearch_shared import REMOTE_MAX_SCAN_FILES
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import OperationalError
 
 from app.models import Base, IndexedFile
 
@@ -24,13 +24,24 @@ def _database_artifacts(database: Path) -> list[Path]:
     return [Path(str(database) + suffix) for suffix in ("", "-wal", "-shm", "-journal")]
 
 
-def test_fleet_simulation_persists_contended_winners(tmp_path):
-    result = _scale_module().simulate_agent_fleet(
-        database=tmp_path / "fleet.db", agents=25, jitter_seed=7
-    )
+def test_fleet_simulation_persists_contended_winners(tmp_path, monkeypatch):
+    module = _scale_module()
+
+    def direct_job_service_is_not_a_protocol_client(*_args, **_kwargs):
+        raise AssertionError("fleet simulator must drive the HTTP protocol")
+
+    monkeypatch.setattr(module, "AgentJobService", direct_job_service_is_not_a_protocol_client)
+    result = module.simulate_agent_fleet(database=tmp_path / "fleet.db", agents=25, jitter_seed=7)
 
     assert result["setup_transitions"] == {"pending": 25, "approved_offline": 25}
-    assert result["agent_statuses"] == {"offline": 25}
+    assert result["admin_auth"] == {"setup": 200, "authenticated": 200}
+    assert result["agent_statuses"] == {"online": 25}
+    assert result["remote_path_validation"] == {
+        "queued": 25,
+        "claimed": 25,
+        "completed": 25,
+        "source_creates": 25,
+    }
     assert result["fanout"]["polls"] == 25
     assert result["fanout"]["leased_jobs"] == 25
     assert result["fanout"]["persisted_unique_job_ids"] == 25
@@ -64,16 +75,40 @@ def test_fleet_simulation_persists_contended_winners(tmp_path):
     assert not any(path.exists() for path in _database_artifacts(tmp_path / "fleet.db"))
 
 
+def test_http_request_retries_a_raised_sqlite_busy_error():
+    module = _scale_module()
+
+    class Client:
+        calls = 0
+
+        def post(self, _path, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise OperationalError(
+                    "insert",
+                    {},
+                    __import__("sqlite3").OperationalError("database is locked"),
+                )
+            return type("Response", (), {"status_code": 200, "text": "ok"})()
+
+    client = Client()
+    response = module._http_request(client, "post", "/test")
+
+    assert response.status_code == 200
+    assert client.calls == 2
+
+
 def test_scale_run_uses_valid_topology_and_real_enqueue_payload(tmp_path):
     database = tmp_path / "scale.db"
     module = _scale_module()
     topology = module._topology(files=10_000_000, agents=25)
     result = module.run_scale(database=database, agents=2, files=40, batch_size=10)
 
-    assert topology == {"source_count": 100, "max_rows_per_source": REMOTE_MAX_SCAN_FILES}
+    assert topology == {"source_count": 25, "max_rows_per_source": 400_000}
     assert result["rows_inserted"] == 40
     assert result["source_count"] == 2
-    assert result["max_rows_per_source"] <= REMOTE_MAX_SCAN_FILES
+    assert result["max_rows_per_source"] == 20
+    assert result["largest_source_rows"] == 20
     assert result["batch_size"] == 10
     assert result["capacity_estimate_bytes"] == module._estimate_bytes(40)
     assert result["observed_peak_database_bytes"] > 0
@@ -85,9 +120,10 @@ def test_scale_run_uses_valid_topology_and_real_enqueue_payload(tmp_path):
         assert result["process_peak_rss_bytes"] > 0
         assert result["process_current_rss_bytes"] > 0
     enqueue = result["representative_enqueue"]
-    assert enqueue["known_files_count"] <= REMOTE_MAX_SCAN_FILES
-    assert enqueue["payload_max_scan_files"] == REMOTE_MAX_SCAN_FILES
-    assert enqueue["payload_bytes"] > enqueue["known_files_count"]
+    assert enqueue["protocol_version"] == 3
+    assert enqueue["manifest_page_entries"] > 0
+    assert enqueue["manifest_page_bytes"] > 0
+    assert enqueue["payload_bytes"] > 0
     assert enqueue["elapsed_seconds"] >= 0
     assert enqueue["python_heap_delta_bytes"] >= 0
     assert enqueue["python_heap_peak_delta_bytes"] >= enqueue["python_heap_delta_bytes"]
@@ -101,7 +137,7 @@ def test_scale_queries_have_distinct_honest_names_and_evidence(tmp_path):
 
     expected = {
         "source_status",
-        "known_files_projection",
+        "reconciliation_inventory_projection",
         "point_upsert_lookup",
         "reconciliation_source_walk",
         "agent_dashboard",

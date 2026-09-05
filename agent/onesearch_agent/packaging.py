@@ -58,9 +58,14 @@ def _raw_key(value: str, name: str) -> bytes:
     return key
 
 
+def validate_public_key(value: str) -> bytes:
+    """Return a strict raw Ed25519 public key for release artifact embedding."""
+    return _raw_key(value.strip(), "public key")
+
+
 def verify_key_pair(private_key: str, public_key: str) -> None:
     private = _raw_key(private_key, "private key")
-    supplied = _raw_key(public_key, "public key")
+    supplied = validate_public_key(public_key)
     derived = Ed25519PrivateKey.from_private_bytes(private).public_key().public_bytes_raw()
     if not hmac.compare_digest(derived, supplied):
         raise ValueError("public key does not match private key")

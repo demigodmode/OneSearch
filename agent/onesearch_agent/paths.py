@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import heapq
 import ntpath
 import os
 import stat
@@ -49,6 +50,39 @@ class SafeDirectoryPage:
     failures: tuple[SafeDirectoryFailure, ...] = ()
 
 
+@dataclass(frozen=True)
+class _DescendingDirectoryName:
+    """Reverse heap ordering so a fixed heap retains lexicographically first names."""
+
+    value: str
+
+    def __lt__(self, other: _DescendingDirectoryName) -> bool:
+        return (self.value.casefold(), self.value) > (other.value.casefold(), other.value)
+
+
+def _bounded_browse_names(names, *, max_entries: int, scan_budget: int) -> tuple[list[str], bool, int]:
+    """Fixed-heap selection contract used to test hostile enumeration bounds."""
+    heap: list[tuple[_DescendingDirectoryName, str]] = []
+    truncated = False
+    scanned = 0
+    for scanned, name in enumerate(names, start=1):
+        if scanned > scan_budget:
+            truncated = True
+            break
+        item = (_DescendingDirectoryName(name), name)
+        if len(heap) < max_entries:
+            heapq.heappush(heap, item)
+        else:
+            truncated = True
+            if (name.casefold(), name) < (heap[0][1].casefold(), heap[0][1]):
+                heapq.heapreplace(heap, item)
+    return (
+        sorted((name for _key, name in heap), key=lambda name: (name.casefold(), name)),
+        truncated,
+        scanned,
+    )
+
+
 def confined_relative(prefix: str, relative: str) -> str:
     """Join two protocol-relative paths after validating both components."""
     prefix_parts = _relative_parts(prefix)
@@ -77,6 +111,121 @@ def list_confined_entries_page(
         root_id, relative, roots, max_entries=max_entries + 1
     )
     return SafeDirectoryPage(tuple(found[:max_entries]), len(found) > max_entries, tuple(failures))
+
+
+def list_confined_browse_directories_page(
+    root_id: str,
+    relative: str,
+    roots: list[AllowedRoot],
+    *,
+    max_entries: int,
+    scan_budget: int = 10_000,
+) -> SafeDirectoryPage:
+    """Return a bounded, deterministic directory-only administrative listing.
+
+    Scanner traversal deliberately remains unbounded/paged. This browse-only primitive
+    streams names into a fixed-size heap and stops at a hard scan budget.
+    """
+    if max_entries < 1 or scan_budget < 1:
+        raise ValueError("browse limits must be positive")
+    if os.name == "nt":
+        return _windows_browse_directory_page(root_id, relative, roots, max_entries, scan_budget)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    directory_fd = -1
+    heap: list[tuple[_DescendingDirectoryName, str]] = []
+    scanned = 0
+    truncated = False
+    try:
+        directory_fd = os.open(_root(root_id, roots), flags)
+        for part in _relative_parts(relative):
+            child = os.open(part, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child
+        with os.scandir(directory_fd) as candidates:
+            for candidate in candidates:
+                scanned += 1
+                if scanned > scan_budget:
+                    truncated = True
+                    break
+                name = candidate.name
+                fd = -1
+                try:
+                    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd)
+                    if not stat.S_ISDIR(os.fstat(fd).st_mode):
+                        continue
+                    item = (_DescendingDirectoryName(name), name)
+                    if len(heap) < max_entries:
+                        heapq.heappush(heap, item)
+                    else:
+                        truncated = True
+                        if (name.casefold(), name) < (heap[0][1].casefold(), heap[0][1]):
+                            heapq.heapreplace(heap, item)
+                except OSError:
+                    # Symlinks and raced entries are omitted; no host path is exposed.
+                    continue
+                finally:
+                    if fd != -1:
+                        os.close(fd)
+        names = sorted((name for _key, name in heap), key=lambda name: (name.casefold(), name))
+        return SafeDirectoryPage(
+            tuple(
+                SafeDirectoryEntry(f"{relative}/{name}".strip("/"), name, True, 0, 0)
+                for name in names
+            ),
+            truncated,
+        )
+    except OSError as error:
+        raise PathOutsideAllowedRoots("path cannot be listed safely") from error
+    finally:
+        if directory_fd != -1:
+            os.close(directory_fd)
+
+
+def _windows_browse_directory_page(root_id, relative, roots, max_entries, scan_budget):
+    """Windows equivalent using the streaming native name iterator and fixed heap."""
+    root_handle = directory_handle = None
+    heap: list[tuple[_DescendingDirectoryName, str]] = []
+    truncated = False
+    try:
+        root_handle, root_path, directory_handle, directory_path = _windows_verified_directory(
+            root_id, relative, roots
+        )
+        for scanned, name in enumerate(_windows_directory_names(directory_handle), start=1):
+            if scanned > scan_budget:
+                truncated = True
+                break
+            child = None
+            try:
+                child = _windows_open_relative(directory_handle, name)
+                if _windows_is_reparse_point(child):
+                    continue
+                final = _windows_final_path(child)
+                is_dir, _size, _mtime = _windows_handle_metadata(child)
+                if not is_dir or not (
+                    _windows_is_within(final, root_path) and _windows_is_within(final, directory_path)
+                ):
+                    continue
+                item = (_DescendingDirectoryName(name), name)
+                if len(heap) < max_entries:
+                    heapq.heappush(heap, item)
+                else:
+                    truncated = True
+                    if (name.casefold(), name) < (heap[0][1].casefold(), heap[0][1]):
+                        heapq.heapreplace(heap, item)
+            except OSError:
+                continue
+            finally:
+                _windows_close(child)
+        names = sorted((name for _key, name in heap), key=lambda name: (name.casefold(), name))
+        return SafeDirectoryPage(
+            tuple(SafeDirectoryEntry(f"{relative}/{name}".strip("/"), name, True, 0, 0) for name in names),
+            truncated,
+        )
+    except OSError as error:
+        raise PathOutsideAllowedRoots("path cannot be listed safely") from error
+    finally:
+        _windows_close(directory_handle)
+        _windows_close(root_handle)
 
 
 def list_confined_entries(

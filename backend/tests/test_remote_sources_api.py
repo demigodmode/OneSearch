@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from onesearch_shared import PROTOCOL_VERSION
 
 from app.api.sources import _remote_path_authorized, _remote_path_result
 from app.models import Agent, AgentJob, AppSetting, Source
@@ -17,6 +18,40 @@ def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _completed_validation(
+    db_session, agent_id, root_path="/srv/docs/team", *, job_id="validation-job", **overrides
+):
+    """Persist the durable success evidence required for remote source creation."""
+    values = {
+        "id": job_id,
+        "agent_id": agent_id,
+        "kind": "browse",
+        "reason": "validate",
+        "status": "completed",
+        "payload": json.dumps({"operation": "validate", "root_path": root_path}),
+        "completed_at": _now(),
+    }
+    values.update(overrides)
+    job = AgentJob(**values)
+    db_session.add(job)
+    db_session.commit()
+    return job
+
+
+def _remote_source(db_session, agent_id, *, source_id="remote-source", root_path="/srv/docs/team"):
+    source = Source(
+        id=source_id,
+        name="Remote source",
+        root_path=root_path,
+        location_type="agent",
+        agent_id=agent_id,
+        processing_mode="on_server",
+    )
+    db_session.add(source)
+    db_session.commit()
+    return source
+
+
 @pytest.fixture
 def approved_agent(db_session):
     agent = Agent(
@@ -24,7 +59,7 @@ def approved_agent(db_session):
         name="Remote",
         platform="linux",
         version="1",
-        protocol_version=1,
+        protocol_version=PROTOCOL_VERSION,
         token_hash=hash_token("credential"),
         allowed_roots=json.dumps([{"root_id": "docs", "path": "/srv/docs"}]),
         default_processing_mode="on_server",
@@ -39,6 +74,7 @@ def approved_agent(db_session):
 def test_remote_source_create_preserves_authorized_path_and_inherits_mode(
     client, db_session, approved_agent
 ):
+    validation = _completed_validation(db_session, approved_agent.id)
     response = client.post(
         "/api/sources",
         json={
@@ -48,11 +84,200 @@ def test_remote_source_create_preserves_authorized_path_and_inherits_mode(
             "location_type": "agent",
             "agent_id": approved_agent.id,
             "processing_mode": None,
+            "path_validation_job_id": validation.id,
         },
     )
     assert response.status_code == 201, response.text
     source = db_session.get(Source, "remote-source")
     assert source.root_path == "/srv/docs/team" and source.processing_mode is None
+
+
+def test_remote_source_create_requires_completed_matching_validation(client, db_session, approved_agent):
+    missing = client.post(
+        "/api/sources",
+        json={"name": "Missing", "root_path": "/srv/docs/team", "location_type": "agent", "agent_id": approved_agent.id},
+    )
+    assert missing.status_code == 422
+
+    validation = _completed_validation(db_session, approved_agent.id)
+    permitted = client.post(
+        "/api/sources",
+        json={"name": "Permitted", "root_path": "/srv/docs/team", "location_type": "agent", "agent_id": approved_agent.id, "path_validation_job_id": validation.id},
+    )
+    assert permitted.status_code == 201, permitted.text
+
+
+@pytest.mark.parametrize(
+    "job_kwargs,requested_path,expected_status",
+    [
+        ({"status": "pending"}, "/srv/docs/team", 409),
+        ({"status": "failed"}, "/srv/docs/team", 409),
+        ({"status": "cancelled"}, "/srv/docs/team", 409),
+        ({"kind": "scan", "reason": "manual"}, "/srv/docs/team", 404),
+        ({"kind": "browse", "reason": "list"}, "/srv/docs/team", 404),
+        ({"payload": json.dumps({"operation": "validate", "root_path": "/srv/docs/other"})}, "/srv/docs/team", 409),
+        ({"completed_at": datetime(2000, 1, 1)}, "/srv/docs/team", 409),
+    ],
+)
+def test_remote_source_create_rejects_invalid_validation_evidence(
+    client, db_session, approved_agent, job_kwargs, requested_path, expected_status
+):
+    defaults = {
+        "id": "validation-job",
+        "agent_id": approved_agent.id,
+        "kind": "browse",
+        "reason": "validate",
+        "status": "completed",
+        "payload": json.dumps({"operation": "validate", "root_path": "/srv/docs/team"}),
+        "completed_at": _now(),
+    }
+    defaults.update(job_kwargs)
+    db_session.add(AgentJob(**defaults))
+    db_session.commit()
+
+    response = client.post(
+        "/api/sources",
+        json={"name": "Rejected", "root_path": requested_path, "location_type": "agent", "agent_id": approved_agent.id, "path_validation_job_id": "validation-job"},
+    )
+    assert response.status_code == expected_status
+    assert db_session.get(Source, "rejected") is None
+
+
+def test_remote_source_create_rejects_missing_or_other_agent_validation(client, db_session, approved_agent):
+    missing = client.post(
+        "/api/sources",
+        json={"name": "Missing job", "root_path": "/srv/docs/team", "location_type": "agent", "agent_id": approved_agent.id, "path_validation_job_id": "missing"},
+    )
+    other = _completed_validation(db_session, "different-agent", job_id="other-validation")
+    response = client.post(
+        "/api/sources",
+        json={"name": "Other", "root_path": "/srv/docs/team", "location_type": "agent", "agent_id": approved_agent.id, "path_validation_job_id": other.id},
+    )
+    assert missing.status_code == 404
+    assert response.status_code == 409
+
+
+def test_remote_source_create_compares_canonical_validation_path(client, db_session, approved_agent):
+    validation = _completed_validation(db_session, approved_agent.id, "/srv/docs/team")
+    response = client.post(
+        "/api/sources",
+        json={"name": "Canonical", "root_path": "/srv/docs/./team", "location_type": "agent", "agent_id": approved_agent.id, "path_validation_job_id": validation.id},
+    )
+    assert response.status_code == 201, response.text
+    assert db_session.get(Source, "canonical").root_path == "/srv/docs/team"
+
+
+def test_remote_source_update_requires_matching_validation_before_mutating_source(
+    client, db_session, approved_agent, monkeypatch
+):
+    source = _remote_source(db_session, approved_agent.id)
+    scheduler = Mock()
+    monkeypatch.setattr(client.app.state, "scheduler", scheduler, raising=False)
+
+    response = client.put(
+        f"/api/sources/{source.id}",
+        json={"root_path": "/srv/docs/new", "scan_schedule": "@daily"},
+    )
+
+    assert response.status_code == 422
+    db_session.expire_all()
+    unchanged = db_session.get(Source, source.id)
+    assert unchanged.root_path == "/srv/docs/team"
+    assert unchanged.scan_schedule is None
+    scheduler.update_source_schedule.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "job_kwargs,update,expected_status",
+    [
+        ({"agent_id": "other-agent"}, {"root_path": "/srv/docs/new"}, 409),
+        ({"root_path": "/srv/docs/other"}, {"root_path": "/srv/docs/new"}, 409),
+        ({"completed_at": datetime(2000, 1, 1)}, {"root_path": "/srv/docs/new"}, 409),
+        ({"status": "pending"}, {"root_path": "/srv/docs/new"}, 409),
+    ],
+)
+def test_remote_source_update_rejects_wrong_or_stale_validation_evidence(
+    client, db_session, approved_agent, job_kwargs, update, expected_status
+):
+    source = _remote_source(db_session, approved_agent.id)
+    defaults = {"job_id": "update-validation", "root_path": "/srv/docs/new"}
+    defaults.update(job_kwargs)
+    validation_agent_id = defaults.pop("agent_id", approved_agent.id)
+    validation = _completed_validation(db_session, validation_agent_id, **defaults)
+    update["path_validation_job_id"] = validation.id
+
+    response = client.put(f"/api/sources/{source.id}", json=update)
+
+    assert response.status_code == expected_status
+    db_session.expire_all()
+    assert db_session.get(Source, source.id).root_path == "/srv/docs/team"
+
+
+def test_remote_source_update_accepts_recent_validation_for_target_agent(client, db_session, approved_agent):
+    source = _remote_source(db_session, approved_agent.id)
+    validation = _completed_validation(
+        db_session, approved_agent.id, "/srv/docs/new", job_id="update-validation"
+    )
+
+    response = client.put(
+        f"/api/sources/{source.id}",
+        json={"root_path": "/srv/docs/./new", "path_validation_job_id": validation.id},
+    )
+
+    assert response.status_code == 200, response.text
+    assert db_session.get(Source, source.id).root_path == "/srv/docs/new"
+
+
+def test_remote_source_update_agent_change_uses_validation_from_target_agent(
+    client, db_session, approved_agent
+):
+    source = _remote_source(db_session, approved_agent.id)
+    target = Agent(
+        id="target-agent",
+        name="Target",
+        platform="linux",
+        version="1",
+        protocol_version=PROTOCOL_VERSION,
+        token_hash=hash_token("target-credential"),
+        allowed_roots=json.dumps([{"root_id": "docs", "path": "/srv/docs"}]),
+        default_processing_mode="on_server",
+        status="offline",
+        approved_at=_now(),
+    )
+    db_session.add(target)
+    db_session.commit()
+    validation = _completed_validation(
+        db_session, target.id, "/srv/docs/team", job_id="target-validation"
+    )
+
+    response = client.put(
+        f"/api/sources/{source.id}",
+        json={"agent_id": target.id, "path_validation_job_id": validation.id},
+    )
+
+    assert response.status_code == 200, response.text
+    assert db_session.get(Source, source.id).agent_id == target.id
+
+
+def test_remote_source_update_without_binding_change_needs_no_new_validation(
+    client, db_session, approved_agent
+):
+    source = _remote_source(db_session, approved_agent.id)
+
+    response = client.put(f"/api/sources/{source.id}", json={"name": "Renamed remote source"})
+
+    assert response.status_code == 200, response.text
+    assert db_session.get(Source, source.id).name == "Renamed remote source"
+
+
+def test_remote_source_update_treats_existing_canonical_equivalent_path_as_unchanged(
+    client, db_session, approved_agent
+):
+    source = _remote_source(db_session, approved_agent.id, root_path="/srv/docs/./team")
+
+    response = client.put(f"/api/sources/{source.id}", json={"name": "Renamed remote source"})
+
+    assert response.status_code == 200, response.text
 
 
 def test_remote_source_rejects_unapproved_or_outside_path(client, db_session, approved_agent):
@@ -325,7 +550,7 @@ def test_remote_path_test_poll_uses_the_job_agent_and_immutable_payload(
         name="Other",
         platform="linux",
         version="1",
-        protocol_version=1,
+        protocol_version=PROTOCOL_VERSION,
         token_hash=hash_token("other-credential"),
         allowed_roots=json.dumps([{"root_id": "other", "path": "/srv/other"}]),
         status="online",
@@ -466,7 +691,7 @@ def test_remote_path_authorization_is_platform_aware_and_lexical(approved_agent)
         name="W",
         platform="windows",
         version="1",
-        protocol_version=1,
+        protocol_version=PROTOCOL_VERSION,
         allowed_roots=json.dumps([{"root_id": "docs", "path": "C:\\Data\\Docs"}]),
     )
     assert _remote_path_authorized(windows, "c:\\data\\docs\\Team")
@@ -505,7 +730,9 @@ async def test_dispatcher_uses_override_or_agent_default_mode(
     assert payload["root_id"] == "docs"
     assert payload["root_path"] == source.root_path
     assert payload["include_patterns"] is None and payload["exclude_patterns"] is None
-    assert payload["known_files"] == {}
+    assert payload["protocol_version"] == 3
+    assert payload["limits"]["max_manifest_page_entries"] > 0
+    assert payload["limits"]["max_manifest_page_bytes"] > 0
     assert set(payload["extraction"]) == {
         "source_name",
         "unsupported_file_policy",
@@ -686,7 +913,7 @@ def test_offline_scheduled_job_is_claimed_after_heartbeat(client, db_session, ap
     heartbeat = client.post(
         "/api/agent/v1/heartbeat",
         headers=headers,
-        json={"protocol_version": 1, "agent_version": "1", "platform": "linux"},
+        json={"protocol_version": PROTOCOL_VERSION, "agent_version": "1", "platform": "linux"},
     )
     assert heartbeat.status_code == 200 and heartbeat.json()["status"] == "online"
     claimed = client.post("/api/agent/v1/jobs/claim", headers=headers)

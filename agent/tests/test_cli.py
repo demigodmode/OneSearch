@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import URLError
@@ -133,7 +134,8 @@ def test_service_cli_delegates_and_propagates_safe_error(tmp_path: Path, monkeyp
         "onesearch_agent.cli.install", lambda path, executable: calls.append((path, executable))
     )
     result = CliRunner().invoke(main, ["--config", str(config), "service", "install"])
-    assert result.exit_code == 0 and calls[0][1].endswith("python.exe")
+    assert result.exit_code == 0
+    assert Path(calls[0][1]).resolve() == Path(sys.executable).resolve()
 
 
 def test_enroll_honors_file_credential_policy(tmp_path: Path, monkeypatch):

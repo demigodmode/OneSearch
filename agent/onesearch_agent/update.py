@@ -16,6 +16,8 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from onesearch_shared import MINIMUM_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION
 
+from .packaging import validate_public_key
+
 
 class UpdateError(RuntimeError):
     """A release artifact was absent, malformed, or unsafe to install."""
@@ -153,7 +155,7 @@ def _embedded_public_key() -> bytes:
     if not value:
         raise UpdateError("native updates are unavailable: no release public key was embedded")
     try:
-        return base64.b64decode(value, validate=True)
+        return validate_public_key(value)
     except ValueError as error:
         raise UpdateError(
             "native updates are unavailable: embedded public key is invalid"

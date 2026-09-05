@@ -4,6 +4,7 @@
 """Versioned protocol endpoints used by remote indexing agents."""
 
 import asyncio
+import hashlib
 import json
 import time
 import uuid
@@ -18,11 +19,11 @@ from onesearch_shared import (
     AgentJobLease,
     AgentJobStatusResponse,
     BatchAck,
+    BrowseResult,
     DocumentBatch,
     JobCompletion,
     JobProgress,
     NormalizedRemoteDocument,
-    ScanManifest,
     ScanManifestPage,
     ScanManifestPageAck,
     ScanPageOutcome,
@@ -31,10 +32,11 @@ from onesearch_shared import (
 from onesearch_shared import (
     AgentHeartbeat as AgentHeartbeatRequest,
 )
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..db.database import get_db
-from ..models import Agent
+from ..models import Agent, AgentScanEntry
 from ..schemas import AgentHeartbeatResponse
 from ..services.agent_auth import (
     consume_enrollment_code,
@@ -95,6 +97,33 @@ def _classify_stream_failure(request: JobCompletion) -> tuple[str, RemoteFileErr
     if reason == "invalid_request" and request.detail == "remote_file_changed":
         return "remote_file_changed", RemoteFileChanged("remote file changed")
     return "remote_stream_failed", RemoteStreamTimeout("remote stream failed")
+
+
+def _validated_browse_result(job, result: BrowseResult) -> dict:
+    """Bind a directory-only result to the immutable server-issued list request."""
+    try:
+        payload = json.loads(job.payload)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise JobConflict("invalid browse payload") from error
+    if (
+        job.kind != "browse"
+        or job.reason != "browse"
+        or not isinstance(payload, dict)
+        or payload.get("operation") != "list"
+        or result.root_id != payload.get("root_id")
+        or result.path != payload.get("path")
+    ):
+        raise JobConflict("browse result does not match job")
+    expected_paths = [
+        f"{result.path}/{entry.name}".strip("/") for entry in result.entries
+    ]
+    if [entry.path for entry in result.entries] != expected_paths:
+        raise JobConflict("browse result contains non-child entries")
+    if [entry.name for entry in result.entries] != sorted(
+        (entry.name for entry in result.entries), key=lambda name: (name.casefold(), name)
+    ):
+        raise JobConflict("browse result is not deterministic")
+    return result.model_dump(mode="json")
 
 
 def _validate_enrollment(request: AgentEnrollmentRequest) -> None:
@@ -199,7 +228,9 @@ async def heartbeat(
 )
 async def claim_job(agent: ApprovedAgent, db: Database):
     """Long poll without retaining the request transaction while waiting."""
-    deadline = claim_clock() + CLAIM_TIMEOUT_SECONDS
+    timeout_seconds = db.info.get("claim_timeout_seconds", CLAIM_TIMEOUT_SECONDS)
+    poll_seconds = db.info.get("claim_poll_seconds", CLAIM_POLL_SECONDS)
+    deadline = claim_clock() + timeout_seconds
     while True:
         poll_db = make_claim_session(db)
         try:
@@ -213,7 +244,7 @@ async def claim_job(agent: ApprovedAgent, db: Database):
         remaining = deadline - claim_clock()
         if remaining <= 0:
             break
-        await claim_sleep(min(CLAIM_POLL_SECONDS, remaining))
+        await claim_sleep(min(poll_seconds, remaining))
     from fastapi.responses import Response
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -223,15 +254,13 @@ async def claim_job(agent: ApprovedAgent, db: Database):
 async def job_status(job_id: str, agent: ApprovedAgent, db: Database):
     try:
         job = AgentJobService(db).status_for_agent(job_id, agent.id)
-    except JobNotFound as error:
+    except (JobNotFound) as error:
         raise HTTPException(status_code=404, detail="job not found") from error
     response = AgentJobStatusResponse(
         job_id=job.id,
         status=job.status,
         handoff_released=AgentJobService.on_server_handoff_released(job),
     )
-    if agent.protocol_version < 3:
-        return response.model_dump(exclude={"handoff_released"})
     return response
 
 
@@ -336,54 +365,6 @@ async def submit_page_outcome(
         raise _job_error(error) from error
 
 
-@router.post("/jobs/{job_id}/manifest", dependencies=[Depends(require_remote_agents_enabled)])
-async def submit_manifest(
-    job_id: str,
-    request: ScanManifest,
-    agent: ApprovedAgent,
-    db: Database,
-    lease_token: Annotated[str | None, Header(alias=LEASE_TOKEN_HEADER)] = None,
-):
-    if request.job_id != job_id or lease_token is None:
-        raise HTTPException(status_code=401, detail="Invalid or expired job lease")
-    try:
-        job = AgentJobService(db).validate_lease(agent.id, job_id, lease_token)
-        if job.processing_mode == "on_server" and job.kind == "scan":
-            if request.job_id != job_id or request.source_id != job.source_id:
-                raise JobConflict("invalid remote manifest")
-            jobs = AgentJobService(db)
-            jobs.validate_manifest_retry(job, request.model_dump(mode="json"))
-            files = []
-            for item in request.files:
-                path = canonical_remote_path(item.path)
-                if item.path_hash != __import__("onesearch_shared").remote_path_hash(path):
-                    raise JobConflict("manifest path hash mismatch")
-                files.append({**item.model_dump(mode="json"), "path": path})
-            manifest_payload = request.model_dump(mode="json")
-            manifest_payload["files"] = files
-            job.checkpoint = json.dumps(
-                {"version": 1, "remote_manifest": manifest_payload},
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            selected_paths = (
-                set(request.changed_paths) if request.changed_paths is not None else None
-            )
-            jobs.enqueue_extract_files(
-                job,
-                files
-                if selected_paths is None
-                else [item for item in files if item["path"] in selected_paths],
-            )
-        else:
-            get_remote_ingest_service(db).accept_manifest(agent.id, job_id, lease_token, request)
-        db.commit()
-    except (JobNotFound, JobLeaseError, JobConflict) as error:
-        db.rollback()
-        raise _job_error(error) from error
-    return {"status": "ok"}
-
-
 @router.post("/jobs/{job_id}/complete", dependencies=[Depends(require_remote_agents_enabled)])
 async def complete_job(
     job_id: str,
@@ -397,6 +378,15 @@ async def complete_job(
     try:
         jobs = AgentJobService(db)
         job = jobs.validate_lease(agent.id, job_id, lease_token)
+        browse_result = None
+        if request.browse_result is not None:
+            browse_result = _validated_browse_result(job, request.browse_result)
+        elif (
+            request.status.value == "succeeded"
+            and job.kind == "browse"
+            and job.reason == "browse"
+        ):
+            raise JobConflict("browse list completion requires a result")
         stream_failure = (
             _classify_stream_failure(request)
             if job.kind == "stream_file" and request.status.value == "failed"
@@ -425,9 +415,13 @@ async def complete_job(
                 lease_token,
                 request.status.value,
                 error=stream_failure[0] if stream_failure else request.detail,
-                checkpoint=request.checkpoint.model_dump(mode="json")
-                if request.checkpoint
-                else None,
+                checkpoint=(
+                    {"browse_result": browse_result}
+                    if browse_result is not None
+                    else request.checkpoint.model_dump(mode="json")
+                    if request.checkpoint
+                    else None
+                ),
             )
             if job.kind == "extract_file" and job.processing_mode == "on_server":
                 parent_id = json.loads(job.payload)["parent_job_id"]
@@ -483,16 +477,43 @@ async def receive_preview(
         jobs = AgentJobService(db)
         job = jobs.validate_lease(agent.id, job_id, lease_token)
 
-        # Only accept previews for scan jobs
-        if job.kind != "scan" or job.source_id is None:
+        try:
+            payload = json.loads(job.payload)
+        except (TypeError, json.JSONDecodeError) as error:
+            raise JobConflict("invalid preview job") from error
+
+        # Previews are produced only by changed paths from an active v3 on-agent scan.
+        if (
+            job.kind != "scan"
+            or job.source_id is None
+            or job.processing_mode != "on_agent"
+            or agent.protocol_version != 3
+            or not isinstance(payload, dict)
+            or type(payload.get("protocol_version")) is not int
+            or payload["protocol_version"] != 3
+        ):
             raise JobConflict("invalid preview job")
 
         # Validate and canonicalize path
         canonical_path = canonical_remote_path(path)
+        staged_entry = db.scalar(
+            select(AgentScanEntry.id).where(
+                AgentScanEntry.job_id == job.id,
+                AgentScanEntry.path == canonical_path,
+                AgentScanEntry.modified_at_ns == modified_at_ns,
+                AgentScanEntry.needs_processing.is_(True),
+            )
+        )
+        if staged_entry is None:
+            raise JobConflict("invalid preview target")
 
         # Read bounded preview body
         from app.config import settings as runtime_settings
-        from app.services.preview_assets import app_data_preview_directory, store_preview
+        from app.services.preview_assets import (
+            app_data_preview_directory,
+            is_valid_derived_jpeg,
+            store_preview_if_absent_or_identical,
+        )
 
         max_preview_bytes = 2 * 1024 * 1024
         body = bytearray()
@@ -505,15 +526,20 @@ async def receive_preview(
             raise RemoteFileChanged("preview body is empty")
 
         # Verify checksum if provided
-        if checksum is not None:
-            import hashlib
+        if checksum is not None and hashlib.sha256(bytes(body)).hexdigest() != checksum:
+            raise RemoteFileChanged("preview checksum mismatch")
+        if not is_valid_derived_jpeg(bytes(body)):
+            raise RemoteFileChanged("invalid preview body")
 
-            if hashlib.sha256(bytes(body)).hexdigest() != checksum:
-                raise RemoteFileChanged("preview checksum mismatch")
-
-        # Store the preview with mtime for freshness tracking
+        # Preserve idempotent retries, but never let a conflicting retry overwrite a preview.
         preview_base = app_data_preview_directory(runtime_settings.database_url)
-        store_preview(job.source_id, canonical_path, bytes(body), preview_base, modified_at_ns=modified_at_ns)
+        stored = store_preview_if_absent_or_identical(
+            job.source_id, canonical_path, bytes(body), preview_base, modified_at_ns
+        )
+        if stored is False:
+            raise RemoteFileChanged("preview body conflict")
+        if stored is None:
+            raise RemoteFileChanged("preview storage failed")
 
         db.commit()
     except (RemoteFileChanged, JobLeaseError, JobConflict) as error:
@@ -521,7 +547,7 @@ async def receive_preview(
         if isinstance(error, RemoteFileChanged):
             raise HTTPException(status_code=409, detail={"code": error.code, "message": str(error)}) from error
         raise _job_error(error) from error
-    except (JobNotFound) as error:
+    except JobNotFound as error:
         db.rollback()
         raise _job_error(error) from error
     return {"status": "ok"}

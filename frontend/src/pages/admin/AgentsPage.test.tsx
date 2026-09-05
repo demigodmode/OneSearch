@@ -66,14 +66,14 @@ describe('AgentsPage user flows', () => {
     expect(screen.getByText('enrollment unavailable')).toBeInTheDocument()
   })
   it('renders agent details and persists a changed default processing mode', () => {
-    detailState = { data: { ...online, allowed_roots: [{ root_id: 'docs', path: '/srv/docs' }], auto_update: true, sources: [{ id: 'source-1', name: 'Remote docs', root_path: '/srv/docs', next_scan_at: null }], recent_jobs: [{ id: 'job-1', kind: 'scan', status: 'failed', source_id: 'source-1', created_at: '', completed_at: null, error: 'disk full' }] }, isLoading: false, error: null }
+    detailState = { data: { ...online, allowed_roots: [{ root_id: 'docs', path: '/srv/docs' }], auto_update: true, update_report: { auto_update: true, runtime_kind: 'native', status: 'current', available_version: null, checked_at: '2026-08-11T12:00:00Z', error_code: null }, sources: [{ id: 'source-1', name: 'Remote docs', root_path: '/srv/docs', next_scan_at: null }], recent_jobs: [{ id: 'job-1', kind: 'scan', status: 'failed', source_id: 'source-1', created_at: '', completed_at: null, error: 'disk full' }] }, isLoading: false, error: null }
     render(<AgentsPage />)
     fireEvent.click(screen.getAllByText('Online agent')[0])
     expect(screen.getByText('Allowed roots')).toBeInTheDocument()
     expect(screen.getByText('/srv/docs')).toBeInTheDocument()
     expect(screen.getByText(/Remote docs: \/srv\/docs/)).toBeInTheDocument()
     expect(screen.getByText(/scan · failed — disk full/)).toBeInTheDocument()
-    expect(screen.getByText('Auto-update: enabled.')).toBeInTheDocument()
+    expect(screen.getByText('Native update status: current.')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Default processing mode'), { target: { value: 'on_server' } })
     expect(hooks.mode).toHaveBeenCalledWith({ id: 'online', mode: 'on_server' }, expect.anything())
     const options = hooks.mode.mock.calls[0][1]

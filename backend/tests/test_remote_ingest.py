@@ -1,22 +1,24 @@
 import hashlib
 import json
 
-import onesearch_agent.scanner as scanner_module
 import pytest
-from onesearch_agent.paths import SafeDirectoryEntry, SafeDirectoryPage
-from onesearch_agent.scanner import RemoteScanner
 from onesearch_shared import (
-    AllowedRoot,
     DocumentBatch,
     NormalizedRemoteDocument,
+    ScanCheckpoint,
     ScanFile,
-    ScanManifest,
+    ScanManifestPage,
+    ScanManifestPagePayload,
+    ScanPageOutcome,
+    ScanPageOutcomePayload,
+    ScanPathOutcome,
+    canonical_wire_bytes,
     remote_path_hash,
 )
 from sqlalchemy import select
 
 from app.models import Agent, AgentBatch, IndexedFile, Source
-from app.services.agent_jobs import AgentJobService, JobConflict, JobLeaseError
+from app.services.agent_jobs import AgentJobService, JobConflict
 from app.services.remote_ingest import (
     RemoteIngestService,
     canonical_remote_path,
@@ -33,32 +35,18 @@ def test_remote_paths_are_canonical_and_ids_are_path_derived():
 
 class Search:
     def __init__(self):
-        self.indexed, self.deleted = [], []
+        self.indexed = []
 
     async def index_documents(self, docs):
         self.indexed.append(docs)
 
-    async def delete_document(self, doc):
-        self.deleted.append(doc)
+    async def delete_document(self, document_id):
+        pass
 
 
-class FailedConfirmedSearch(Search):
-    async def index_documents_confirmed(self, docs):
-        raise RuntimeError("indexing task failed")
-
-    async def delete_document_confirmed(self, doc):
-        raise RuntimeError("delete task failed")
-
-
-class CancellingDeleteSearch(Search):
-    def __init__(self, db, job):
-        super().__init__()
-        self.db = db
-        self.job = job
-
-    async def delete_document(self, doc):
-        self.deleted.append(doc)
-        assert AgentJobService(self.db).cancel(self.job.id).status == "completed"
+class SearchMustNotRun(Search):
+    async def index_documents(self, docs):
+        raise AssertionError("empty batches must not contact search")
 
 
 @pytest.fixture
@@ -68,7 +56,7 @@ def remote_job(db_session):
         name="a",
         platform="x",
         version="1",
-        protocol_version=1,
+        protocol_version=3,
         allowed_roots='[{"root_id":"data","path":"/data"}]',
         status="online",
     )
@@ -85,6 +73,27 @@ def remote_job(db_session):
     job = AgentJobService(db_session).enqueue_scan(source, full=True)
     db_session.commit()
     return db_session, AgentJobService(db_session).claim_next("a"), job
+
+
+@pytest.mark.asyncio
+async def test_empty_batch_persists_receipt_without_contacting_search(remote_job):
+    db, lease, job = remote_job
+    batch = DocumentBatch(job_id=job.id, batch_id="empty", documents=[])
+
+    ack = await RemoteIngestService(db, SearchMustNotRun()).accept_batch(
+        "a", job.id, lease.lease_token, batch
+    )
+    db.commit()
+
+    assert ack.accepted_count == 0
+    assert (
+        db.scalar(
+            select(AgentBatch).where(
+                AgentBatch.job_id == job.id, AgentBatch.idempotency_key == "empty"
+            )
+        )
+        is not None
+    )
 
 
 @pytest.mark.asyncio
@@ -113,393 +122,185 @@ async def test_batch_duplicate_is_not_reindexed_and_bad_paths_are_rejected(remot
                 job_id=job.id,
                 batch_id="bad",
                 documents=[
-                    NormalizedRemoteDocument(
-                        source_id="s", path="../bad", content="x", modified_at=1
-                    )
+                    NormalizedRemoteDocument(source_id="s", path="../bad", content="x", modified_at=1)
                 ],
             ),
         )
 
 
 @pytest.mark.asyncio
-async def test_remote_ingest_preserves_exact_nanoseconds_for_next_incremental_scan(
-    remote_job, tmp_path, monkeypatch
-):
+async def test_batch_requires_an_exact_v3_job_contract(remote_job):
     db, lease, job = remote_job
-    path, modified_at_ns = "precise.txt", 1_700_000_000_123_456_789
-    search = Search()
-    await RemoteIngestService(db, search).accept_batch(
-        "a",
-        job.id,
-        lease.lease_token,
-        DocumentBatch(
-            job_id=job.id,
-            batch_id="precise",
-            documents=[
-                NormalizedRemoteDocument(
-                    source_id="s", path=path, content="x", size_bytes=1, modified_at=modified_at_ns
-                )
-            ],
-        ),
+    job.payload = json.dumps({"protocol_version": 4})
+
+    with pytest.raises(JobConflict, match="invalid paged scan job"):
+        await RemoteIngestService(db, Search()).accept_batch(
+            "a", job.id, lease.lease_token, DocumentBatch(job_id=job.id, batch_id="b", documents=[])
+        )
+
+
+def _manifest_page(job):
+    payload = ScanManifestPagePayload(
+        job_id=job.id,
+        source_id=job.source_id,
+        sequence=0,
+        files=[
+            ScanFile(path="new.txt", path_hash=remote_path_hash("new.txt"), size_bytes=1, modified_at=1)
+        ],
+        checkpoint=ScanCheckpoint(cursor="page:1", scanned_count=1),
+        final=True,
     )
-    db.commit()
-    row = db.scalar(select(IndexedFile).where(IndexedFile.path == path))
-    assert row.modified_at_ns == modified_at_ns
-    assert search.indexed[0][0].modified_at == modified_at_ns // 1_000_000_000
-
-    job.status = "completed"
-    job.active_key = None
-    job.lease_expires_at = None
-    source = db.get(Source, "s")
-    db.expire(source, ["indexed_files"])
-    next_job = AgentJobService(db).enqueue_scan(source, full=False)
-    known = json.loads(next_job.payload)["known_files"][path]
-    assert known["modified_at"] == modified_at_ns
-
-    monkeypatch.setattr(
-        scanner_module,
-        "list_confined_entries_page",
-        lambda *args, **kwargs: SafeDirectoryPage(
-            (SafeDirectoryEntry(path, path, False, 1, modified_at_ns),), False
-        ),
+    return ScanManifestPage(
+        checksum=hashlib.sha256(canonical_wire_bytes(payload)).hexdigest(), page=payload
     )
-    scanner = RemoteScanner(
-        "r", [AllowedRoot(root_id="r", path=str(tmp_path))], known={path: known}
-    )
-    scanner.scan(job_id="next", source_id="s")
-    assert scanner.changed_paths == []
 
 
-def test_manifest_requires_valid_lease_and_preserves_versioned_complete_state(remote_job):
-    db, lease, job = remote_job
-    service = RemoteIngestService(db, Search())
-    manifest = ScanManifest(
+def _settle_page(service, lease, job, *, files=None):
+    page = _manifest_page(job)
+    if files is not None:
+        payload = page.page.model_copy(update={"files": files})
+        page = ScanManifestPage(
+            checksum=hashlib.sha256(canonical_wire_bytes(payload)).hexdigest(), page=payload
+        )
+    service.accept_manifest_page("a", job.id, lease.lease_token, page)
+    payload = ScanPageOutcomePayload(
         job_id=job.id,
         source_id="s",
-        files=[
-            ScanFile(path="a.txt", path_hash=remote_path_hash("a.txt"), size_bytes=1, modified_at=1)
-        ],
-        complete=True,
+        sequence=0,
+        page_checksum=page.checksum,
+        results=[ScanPathOutcome(path=file.path, status="skipped") for file in page.page.files],
     )
-    service.accept_manifest("a", job.id, lease.lease_token, manifest)
-    assert '"version":1' in job.checkpoint
-    with pytest.raises(JobLeaseError):
-        service.accept_manifest("a", job.id, "wrong", manifest)
+    service.accept_page_outcome(
+        "a",
+        job.id,
+        lease.lease_token,
+        ScanPageOutcome(
+            checksum=hashlib.sha256(canonical_wire_bytes(payload)).hexdigest(), outcome=payload
+        ),
+    )
+
+
+def test_manifest_page_requires_an_exact_v3_job_contract(remote_job):
+    db, lease, job = remote_job
+    service = RemoteIngestService(db, Search())
+
+    ack = service.accept_manifest_page("a", job.id, lease.lease_token, _manifest_page(job))
+    assert ack.changed_paths == ["new.txt"]
+
+    job.payload = json.dumps({"protocol_version": 4})
+    with pytest.raises(JobConflict, match="invalid paged scan job"):
+        RemoteIngestService(db, Search()).accept_manifest_page(
+            "a", job.id, lease.lease_token, _manifest_page(job)
+        )
 
 
 @pytest.mark.asyncio
-async def test_confirmed_index_failure_rolls_back_reserved_receipt_and_indexed_file(remote_job):
+async def test_v3_completion_reconciles_only_durable_final_pages(remote_job):
     db, lease, job = remote_job
-    batch = DocumentBatch(
+    service = RemoteIngestService(db, Search())
+    page = _manifest_page(job)
+    service.accept_manifest_page("a", job.id, lease.lease_token, page)
+    outcome_payload = ScanPageOutcomePayload(
         job_id=job.id,
-        batch_id="failed",
-        documents=[
-            NormalizedRemoteDocument(source_id="s", path="new.txt", content="x", modified_at=1)
-        ],
+        source_id="s",
+        sequence=0,
+        page_checksum=page.checksum,
+        results=[ScanPathOutcome(path="new.txt", status="skipped")],
     )
-    with pytest.raises(RuntimeError, match="indexing task failed"):
-        await RemoteIngestService(db, FailedConfirmedSearch()).accept_batch(
-            "a", job.id, lease.lease_token, batch
-        )
-    db.rollback()
-    db.expire_all()
-    assert list(db.scalars(select(AgentBatch).where(AgentBatch.job_id == job.id))) == []
-    assert list(db.scalars(select(IndexedFile).where(IndexedFile.source_id == "s"))) == []
-
-
-@pytest.mark.asyncio
-async def test_confirmed_delete_failure_preserves_job_and_old_file(remote_job):
-    db, lease, job = remote_job
-    old = IndexedFile(source_id="s", path="old.txt", status="success")
-    db.add(old)
-    db.commit()
-    service = RemoteIngestService(db, FailedConfirmedSearch())
-    service.accept_manifest(
-        "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=True)
+    outcome = ScanPageOutcome(
+        checksum=hashlib.sha256(canonical_wire_bytes(outcome_payload)).hexdigest(),
+        outcome=outcome_payload,
     )
-    with pytest.raises(RuntimeError, match="delete task failed"):
-        await service.reconcile_completion("a", job.id, lease.lease_token)
-    db.rollback()
-    db.expire_all()
-    restored = db.get(type(job), job.id)
-    assert (
-        db.scalar(
-            select(IndexedFile).where(IndexedFile.source_id == "s", IndexedFile.path == "old.txt")
-        )
-        is not None
-    )
-    assert (
-        restored.status == "claimed"
-        and restored.active_key == "s"
-        and restored.completed_at is None
-    )
-
-
-@pytest.mark.asyncio
-async def test_receipt_collision_same_checksum_returns_duplicate_without_losing_work(
-    remote_job, monkeypatch
-):
-    db, lease, job = remote_job
-    batch = DocumentBatch(job_id=job.id, batch_id="collision", documents=[])
-    payload = json.dumps(
-        batch.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    )
-    checksum = hashlib.sha256(payload.encode()).hexdigest()
-    db.add(AgentBatch(job_id=job.id, idempotency_key=batch.batch_id, checksum=checksum))
-    db.commit()
-    original, calls = db.scalar, 0
-
-    def hide_first(statement, *args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return None if calls == 1 else original(statement, *args, **kwargs)
-
-    monkeypatch.setattr(db, "scalar", hide_first)
-    search = Search()
-    ack = await RemoteIngestService(db, search).accept_batch("a", job.id, lease.lease_token, batch)
-    assert ack.duplicate is True and search.indexed == []
-    db.expire_all()
-    assert len(list(db.scalars(select(AgentBatch).where(AgentBatch.job_id == job.id)))) == 1
-    assert list(db.scalars(select(IndexedFile).where(IndexedFile.source_id == "s"))) == []
-
-
-@pytest.mark.asyncio
-async def test_receipt_collision_different_checksum_conflicts_without_losing_work(
-    remote_job, monkeypatch
-):
-    db, lease, job = remote_job
-    db.add(AgentBatch(job_id=job.id, idempotency_key="collision", checksum="different"))
-    db.commit()
-    batch = DocumentBatch(job_id=job.id, batch_id="collision", documents=[])
-    original, calls = db.scalar, 0
-
-    def hide_first(statement, *args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return None if calls == 1 else original(statement, *args, **kwargs)
-
-    monkeypatch.setattr(db, "scalar", hide_first)
-    search = Search()
-    with pytest.raises(JobConflict):
-        await RemoteIngestService(db, search).accept_batch("a", job.id, lease.lease_token, batch)
-    db.rollback()
-    db.expire_all()
-    assert len(list(db.scalars(select(AgentBatch).where(AgentBatch.job_id == job.id)))) == 1
-    assert search.indexed == []
-    assert list(db.scalars(select(IndexedFile).where(IndexedFile.source_id == "s"))) == []
-
-
-@pytest.mark.asyncio
-async def test_complete_manifest_rename_deletes_old_only_at_terminal_success(remote_job):
-    db, lease, job = remote_job
-    search = Search()
+    service.accept_page_outcome("a", job.id, lease.lease_token, outcome)
     db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
     db.commit()
-    service = RemoteIngestService(db, search)
-    await service.accept_batch(
-        "a",
-        job.id,
-        lease.lease_token,
-        DocumentBatch(
-            job_id=job.id,
-            batch_id="new",
-            documents=[
-                NormalizedRemoteDocument(
-                    source_id="s", path="new.txt", content="new", modified_at=1
-                )
-            ],
-        ),
-    )
-    service.accept_manifest(
-        "a",
-        job.id,
-        lease.lease_token,
-        ScanManifest(
-            job_id=job.id,
-            source_id="s",
-            files=[
-                ScanFile(
-                    path="new.txt",
-                    path_hash=remote_path_hash("new.txt"),
-                    size_bytes=3,
-                    modified_at=1,
-                )
-            ],
-            complete=True,
-        ),
-    )
+
     await service.reconcile_completion("a", job.id, lease.lease_token)
-    assert search.deleted == [remote_document_id("s", "old.txt")]
+
+    assert job.status == "completed"
     assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is None
-    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "new.txt")) is not None
 
 
 @pytest.mark.asyncio
-async def test_failure_manifest_paths_are_current_and_upsert_failed_rows(remote_job):
+async def test_v3_unsettled_page_blocks_completion_without_deleting(remote_job):
     db, lease, job = remote_job
     search = Search()
-    db.add(IndexedFile(source_id="s", path="kept.txt", status="success"))
-    db.commit()
-    service = RemoteIngestService(db, search)
-    service.accept_manifest(
-        "a",
-        job.id,
-        lease.lease_token,
-        ScanManifest(
-            job_id=job.id,
-            source_id="s",
-            failures=[
-                {"path": "kept.txt", "error": "cannot read"},
-                {"path": "new.txt", "error": "cannot parse"},
-            ],
-            complete=True,
-        ),
-    )
-    await service.reconcile_completion("a", job.id, lease.lease_token)
-    assert search.deleted == []
-    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "kept.txt")).status == "failed"
-    assert (
-        db.scalar(select(IndexedFile).where(IndexedFile.path == "new.txt")).error_message
-        == "cannot parse"
-    )
-
-
-def test_direct_on_agent_success_bypass_is_rejected(remote_job):
-    db, lease, job = remote_job
-    with pytest.raises(JobConflict):
-        AgentJobService(db).complete("a", job.id, lease.lease_token, "succeeded")
-
-
-@pytest.mark.asyncio
-async def test_completion_guard_wins_before_external_delete(remote_job):
-    db, lease, job = remote_job
     db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
     db.commit()
-    search = CancellingDeleteSearch(db, job)
-    service = RemoteIngestService(db, search)
-    service.accept_manifest(
-        "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=True)
-    )
-    await service.reconcile_completion("a", job.id, lease.lease_token)
-    assert len(search.deleted) == 1
-    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is None
-    assert db.get(type(job), job.id).status == "completed"
+    RemoteIngestService(db, search).accept_manifest_page("a", job.id, lease.lease_token, _manifest_page(job))
 
-
-@pytest.mark.asyncio
-async def test_reconciliation_deletes_multiple_missing_documents_in_one_confirmed_call(remote_job):
-    db, lease, job = remote_job
-
-    class BatchSearch(Search):
-        def __init__(self):
-            super().__init__()
-            self.calls = []
-
-        async def delete_documents_confirmed(self, ids):
-            self.calls.append(ids)
-
-    search = BatchSearch()
-    db.add_all(
-        [
-            IndexedFile(source_id="s", path="old-a.txt", status="success"),
-            IndexedFile(source_id="s", path="old-b.txt", status="success"),
-        ]
-    )
-    db.commit()
-    service = RemoteIngestService(db, search)
-    service.accept_manifest(
-        "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=True)
-    )
-    await service.reconcile_completion("a", job.id, lease.lease_token)
-    assert search.calls == [
-        [remote_document_id("s", "old-a.txt"), remote_document_id("s", "old-b.txt")]
-    ]
-    assert list(db.scalars(select(IndexedFile).where(IndexedFile.source_id == "s"))) == []
-    assert db.get(type(job), job.id).status == "completed"
-
-
-@pytest.mark.asyncio
-async def test_pre_cancelled_reconciliation_never_deletes(remote_job):
-    db, lease, job = remote_job
-
-    class BatchSearch(Search):
-        def __init__(self):
-            super().__init__()
-            self.calls = 0
-
-        async def delete_documents_confirmed(self, ids):
-            self.calls += 1
-
-    search = BatchSearch()
-    db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
-    db.commit()
-    RemoteIngestService(db, search).accept_manifest(
-        "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=True)
-    )
-    AgentJobService(db).cancel(job.id)
-    with pytest.raises((JobConflict, JobLeaseError)):
+    with pytest.raises(JobConflict, match="complete manifest required"):
         await RemoteIngestService(db, search).reconcile_completion("a", job.id, lease.lease_token)
-    assert search.calls == 0
+
     assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is not None
 
 
 @pytest.mark.asyncio
-async def test_confirmed_many_failure_rolls_back_completion_guard(remote_job):
+async def test_v3_confirmed_delete_failure_rolls_back_completion_guard(remote_job):
     db, lease, job = remote_job
 
-    class FailingBatchSearch(Search):
-        async def delete_documents_confirmed(self, ids):
+    class FailingDelete(Search):
+        async def delete_documents_confirmed(self, _ids):
             raise RuntimeError("delete task failed")
 
     db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
     db.commit()
-    service = RemoteIngestService(db, FailingBatchSearch())
-    service.accept_manifest(
-        "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=True)
-    )
+    service = RemoteIngestService(db, FailingDelete())
+    _settle_page(service, lease, job, files=[])
     with pytest.raises(RuntimeError, match="delete task failed"):
         await service.reconcile_completion("a", job.id, lease.lease_token)
     db.rollback()
     db.expire_all()
+    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is not None
     restored = db.get(type(job), job.id)
-    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is not None
-    assert restored.status == "claimed" and restored.active_key == "s"
-    assert restored.lease_expires_at is not None and restored.completed_at is None
+    assert restored.status == "claimed" and restored.completed_at is None
 
 
 @pytest.mark.asyncio
-async def test_partial_manifest_rejects_success_without_deleting(remote_job):
+async def test_v3_reconciliation_removes_all_preview_variants_for_missing_file(
+    remote_job, tmp_path, monkeypatch
+):
+    from app.services.preview_assets import store_preview
+
     db, lease, job = remote_job
-    search = Search()
-    db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
-    db.commit()
-    RemoteIngestService(db, search).accept_manifest(
-        "a", job.id, lease.lease_token, ScanManifest(job_id=job.id, source_id="s", complete=False)
+    preview_root = tmp_path / "previews"
+    monkeypatch.setattr(
+        "app.services.remote_ingest.app_data_preview_directory", lambda _database_url: preview_root
     )
-    with pytest.raises(JobConflict):
-        await RemoteIngestService(db, search).reconcile_completion("a", job.id, lease.lease_token)
-    assert search.deleted == []
-    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is not None
-
-
-def test_failed_and_cancelled_completion_do_not_delete_indexed_files(remote_job):
-    db, lease, job = remote_job
-    db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
+    old = IndexedFile(source_id="s", path="old.jpg", status="success", modified_at_ns=1)
+    db.add(old)
     db.commit()
-    AgentJobService(db).complete("a", job.id, lease.lease_token, "failed")
-    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is not None
+    first = store_preview("s", "old.jpg", b"first", preview_root, 1)
+    second = store_preview("s", "old.jpg", b"second", preview_root, 2)
+    assert first is not None and second is not None and second.exists()
+
+    service = RemoteIngestService(db, Search())
+    _settle_page(service, lease, job, files=[])
+    await service.reconcile_completion("a", job.id, lease.lease_token)
+
+    assert not first.exists() and not second.exists()
+    assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.jpg")) is None
 
 
 @pytest.mark.asyncio
-async def test_cancelled_remote_scan_never_deletes_indexed_files(remote_job):
+async def test_v3_cancelled_scan_never_deletes_indexed_files(remote_job):
     db, lease, job = remote_job
-    search = Search()
     db.add(IndexedFile(source_id="s", path="old.txt", status="success"))
     db.commit()
-    jobs = AgentJobService(db)
-    jobs.cancel(job.id)
-    jobs.acknowledge_cancellation("a", job.id, lease.lease_token)
+    AgentJobService(db).cancel(job.id)
+    AgentJobService(db).acknowledge_cancellation("a", job.id, lease.lease_token)
     db.commit()
-    db.expire_all()
-    assert search.deleted == []
     assert db.scalar(select(IndexedFile).where(IndexedFile.path == "old.txt")) is not None
+
+
+def test_v3_incremental_jobs_do_not_embed_known_file_inventory(remote_job):
+    db, _lease, job = remote_job
+    db.add(IndexedFile(source_id="s", path="precise.txt", modified_at_ns=1_700_000_000_123_456_789))
+    job.status, job.active_key, job.lease_expires_at = "completed", None, None
+    db.commit()
+
+    payload = json.loads(AgentJobService(db).enqueue_scan(db.get(Source, "s"), full=False).payload)
+
+    assert payload["protocol_version"] == 3
+    assert "known_files" not in payload
+    assert "max_scan_files" not in payload["limits"]

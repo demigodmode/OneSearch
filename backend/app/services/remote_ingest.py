@@ -8,12 +8,10 @@ from datetime import datetime, timezone
 
 from onesearch_shared import (
     REMOTE_MAX_BATCH_BYTES,
-    REMOTE_MAX_MANIFEST_BYTES,
     REMOTE_MAX_MANIFEST_PAGE_BYTES,
     BatchAck,
     DocumentBatch,
     ScanCheckpoint,
-    ScanManifest,
     ScanManifestPage,
     ScanManifestPageAck,
     ScanPageOutcome,
@@ -25,6 +23,7 @@ from onesearch_shared import (
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
+from ..config import settings
 from ..models import (
     Agent,
     AgentBatch,
@@ -36,6 +35,7 @@ from ..models import (
 )
 from ..schemas import Document
 from .agent_jobs import AgentJobService, JobConflict
+from .preview_assets import app_data_preview_directory, delete_preview
 
 
 def canonical_remote_path(path: str) -> str:
@@ -70,9 +70,9 @@ class RemoteIngestService:
             or job.source_id is None
             or job.processing_mode not in {"on_agent", "on_server"}
             or agent is None
-            or agent.protocol_version < 3
+            or agent.protocol_version != 3
             or type(protocol_version) is not int
-            or protocol_version < 3
+            or protocol_version != 3
         ):
             raise JobConflict("invalid paged scan job")
         return job
@@ -362,10 +362,11 @@ class RemoteIngestService:
     ):
         if len(canonical_wire_bytes(batch)) > REMOTE_MAX_BATCH_BYTES:
             raise JobConflict("batch exceeds wire size limit")
-        jobs = AgentJobService(self.db)
         if batch.job_id != job_id:
             raise JobConflict("batch job mismatch")
-        jobs.lock_active_lease(agent_id, job_id, lease_token)
+        job = self._paged_scan_job(agent_id, job_id, lease_token)
+        if job.processing_mode != "on_agent":
+            raise JobConflict("invalid remote job")
         canonical = json.dumps(
             batch.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False
         )
@@ -442,10 +443,13 @@ class RemoteIngestService:
                 )
             )
         # Search is intentionally first: a failed external write never creates a receipt.
-        confirmed = getattr(self.search_service, "index_documents_confirmed", None)
-        await (
-            confirmed(documents) if confirmed else self.search_service.index_documents(documents)
-        )
+        if documents:
+            confirmed = getattr(self.search_service, "index_documents_confirmed", None)
+            await (
+                confirmed(documents)
+                if confirmed
+                else self.search_service.index_documents(documents)
+            )
         for doc in documents:
             record = self.db.scalar(
                 select(IndexedFile).where(
@@ -551,25 +555,7 @@ class RemoteIngestService:
                 )
             )
         else:
-            checkpoint = json.loads(parent.checkpoint)
-            raw = checkpoint.get("remote_manifest") if checkpoint.get("version") == 1 else None
-            if raw is None:
-                raise JobConflict("complete manifest required")
-            manifest = ScanManifest.model_validate(raw)
-            if (
-                not manifest.complete
-                or manifest.job_id != parent.id
-                or manifest.source_id != parent.source_id
-            ):
-                parent.status, parent.error, parent.active_key, parent.completed_at = (
-                    "failed",
-                    "complete manifest required",
-                    None,
-                    datetime.now(timezone.utc).replace(tzinfo=None),
-                )
-                return "failed"
-            current = {canonical_remote_path(item.path) for item in manifest.files}
-            current.update(canonical_remote_path(item.path) for item in manifest.failures)
+            raise JobConflict("complete manifest required")
         rows = list(
             self.db.scalars(select(IndexedFile).where(IndexedFile.source_id == parent.source_id))
         )
@@ -606,6 +592,11 @@ class RemoteIngestService:
             self.db.rollback()
             raise
         for row in missing:
+            delete_preview(
+                parent.source_id,
+                row.path,
+                app_data_preview_directory(settings.database_url),
+            )
             self.db.delete(row)
         self.db.flush()
         return "completed"
@@ -643,66 +634,31 @@ class RemoteIngestService:
         ]
         AgentJobService(self.db).enqueue_extract_files(job, files)
 
-    def accept_manifest(
-        self, agent_id: str, job_id: str, lease_token: str, manifest: ScanManifest
-    ) -> None:
-        if len(canonical_wire_bytes(manifest)) > REMOTE_MAX_MANIFEST_BYTES:
-            raise JobConflict("manifest exceeds wire size limit")
-        AgentJobService(self.db).validate_lease(agent_id, job_id, lease_token)
-        job = self.db.get(AgentJob, job_id)
-        if (
-            job is None
-            or job.agent_id != agent_id
-            or job.source_id != manifest.source_id
-            or job.processing_mode != "on_agent"
-            or manifest.job_id != job_id
-        ):
-            raise JobConflict("invalid remote manifest")
-        paths = set()
-        for item in manifest.files:
-            path = canonical_remote_path(item.path)
-            if item.path_hash != remote_path_hash(path):
-                raise JobConflict("manifest path hash mismatch")
-            if path in paths:
-                raise JobConflict("duplicate manifest path")
-            paths.add(path)
-        deleted = [canonical_remote_path(path) for path in manifest.deleted_paths]
-        if len(deleted) != len(set(deleted)):
-            raise JobConflict("duplicate manifest deleted path")
-        failures = [canonical_remote_path(failure.path) for failure in manifest.failures]
-        if len(failures) != len(set(failures)):
-            raise JobConflict("duplicate manifest failure path")
-        for failure in manifest.failures:
-            canonical_remote_path(failure.path)
-        job.checkpoint = json.dumps(
-            {"version": 1, "remote_manifest": manifest.model_dump(mode="json")},
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-
     async def reconcile_completion(self, agent_id: str, job_id: str, lease_token: str) -> None:
-        jobs = AgentJobService(self.db)
-        job = jobs.validate_lease(agent_id, job_id, lease_token)
-        if job.kind != "scan" or job.processing_mode != "on_agent" or not job.source_id:
+        """Complete an on-agent scan after every durable v3 page has settled."""
+        job = self._paged_scan_job(agent_id, job_id, lease_token)
+        if job.processing_mode != "on_agent":
             raise JobConflict("invalid remote completion")
-        checkpoint = json.loads(job.checkpoint)
-        raw = checkpoint.get("remote_manifest") if checkpoint.get("version") == 1 else None
-        if raw is None:
+        final_page = self.db.scalar(
+            select(AgentScanPage.id).where(
+                AgentScanPage.job_id == job_id, AgentScanPage.is_final.is_(True)
+            )
+        )
+        unsettled_page = self.db.scalar(
+            select(AgentScanPage.id).where(
+                AgentScanPage.job_id == job_id, AgentScanPage.settled_at.is_(None)
+            )
+        )
+        if final_page is None or unsettled_page is not None:
             raise JobConflict("complete manifest required")
-        manifest = ScanManifest.model_validate(raw)
-        if (
-            not manifest.complete
-            or manifest.job_id != job_id
-            or manifest.source_id != job.source_id
-        ):
-            raise JobConflict("complete manifest required")
-        current = {canonical_remote_path(item.path) for item in manifest.files}
-        current.update(canonical_remote_path(item.path) for item in manifest.failures)
+        current = set(
+            self.db.scalars(select(AgentScanEntry.path).where(AgentScanEntry.job_id == job_id))
+        )
         rows = list(
             self.db.scalars(select(IndexedFile).where(IndexedFile.source_id == job.source_id))
         )
         missing = [row for row in rows if row.path not in current]
-        jobs.complete_reconciled_scan(agent_id, job_id, lease_token)
+        AgentJobService(self.db).complete_reconciled_scan(agent_id, job_id, lease_token)
         ids = [remote_document_id(job.source_id, row.path) for row in missing]
         confirmed_many = getattr(self.search_service, "delete_documents_confirmed", None)
         try:
@@ -719,22 +675,11 @@ class RemoteIngestService:
         except BaseException:
             self.db.rollback()
             raise
-        # Clean up previews for deleted documents
-        from ..config import settings as runtime_settings
-        from .preview_assets import app_data_preview_directory, delete_preview
-        preview_base = app_data_preview_directory(runtime_settings.database_url)
         for row in missing:
-            delete_preview(job.source_id, row.path, preview_base)
-            self.db.delete(row)
-        for failure in manifest.failures:
-            path = canonical_remote_path(failure.path)
-            row = self.db.scalar(
-                select(IndexedFile).where(
-                    IndexedFile.source_id == job.source_id, IndexedFile.path == path
-                )
+            delete_preview(
+                job.source_id,
+                row.path,
+                app_data_preview_directory(settings.database_url),
             )
-            if row is None:
-                row = IndexedFile(source_id=job.source_id, path=path)
-                self.db.add(row)
-            row.status, row.error_message = "failed", failure.error
+            self.db.delete(row)
         self.db.flush()

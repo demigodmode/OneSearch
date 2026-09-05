@@ -6,16 +6,16 @@ from collections.abc import Awaitable, Callable
 
 from onesearch_shared import (
     REMOTE_MAX_BATCH_BYTES,
-    REMOTE_MAX_MANIFEST_BYTES,
     REMOTE_MAX_MANIFEST_PAGE_BYTES,
 )
 
 REMOTE_AGENT_BODY_LIMITS = {
     "batches": REMOTE_MAX_BATCH_BYTES,
-    "manifest": REMOTE_MAX_MANIFEST_BYTES,
     "manifest-pages": REMOTE_MAX_MANIFEST_PAGE_BYTES,
     "page-outcomes": REMOTE_MAX_MANIFEST_PAGE_BYTES,
+    "complete": 1_048_576,
 }
+REMOTE_AGENT_COMPLETION_BODY_LIMIT = REMOTE_AGENT_BODY_LIMITS["complete"]
 
 
 class RemoteAgentBodyLimitMiddleware:

@@ -226,16 +226,6 @@ class AgentClient:
             ).json()
         )
 
-    async def submit_manifest(self, job_id, request, lease_token):
-        return await self._request(
-            "POST",
-            f"/api/agent/v1/jobs/{job_id}/manifest",
-            json=request.model_dump(mode="json"),
-            headers={"X-OneSearch-Lease-Token": lease_token},
-            retry=False,
-            mutation=True,
-        )
-
     async def submit_manifest_page(self, job_id, request, lease_token):
         return ScanManifestPageAck.model_validate(
             (

@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -10,9 +11,7 @@ from onesearch_shared import (
     REMOTE_MAX_ENTRIES_PER_DIRECTORY,
     REMOTE_MAX_MANIFEST_PAGE_BYTES,
     REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
-    REMOTE_MAX_SCAN_FILES,
     REMOTE_MAX_SNAPSHOT_BYTES,
-    remote_path_hash,
 )
 from sqlalchemy.orm import raiseload
 
@@ -34,7 +33,7 @@ def remote(db_session):
         name="Agent",
         platform="linux",
         version="1",
-        protocol_version=1,
+        protocol_version=3,
         allowed_roots='[{"root_id":"data","path":"/data"}]',
         status="online",
         approved_at=now(),
@@ -63,13 +62,15 @@ def test_enqueue_coalesces_one_active_scan_per_source(db_session, remote):
     payload = json.loads(first.payload)
     assert payload["full"] is True
     assert payload["root_path"] == source.root_path
-    assert payload["known_files"] == {}
+    assert payload["protocol_version"] == 3
+    assert "known_files" not in payload
     assert payload["limits"] == {
         "max_snapshot_bytes": REMOTE_MAX_SNAPSHOT_BYTES,
         "max_batch_documents": REMOTE_MAX_BATCH_DOCUMENTS,
         "max_batch_bytes": REMOTE_MAX_BATCH_BYTES,
-        "max_scan_files": REMOTE_MAX_SCAN_FILES,
         "max_entries_per_directory": REMOTE_MAX_ENTRIES_PER_DIRECTORY,
+        "max_manifest_page_entries": REMOTE_MAX_MANIFEST_PAGE_ENTRIES,
+        "max_manifest_page_bytes": REMOTE_MAX_MANIFEST_PAGE_BYTES,
     }
     assert {
         "source_name",
@@ -115,7 +116,7 @@ async def test_protocol_three_enqueued_payload_runs_in_agent_worker(db_session, 
 
     agent, source = remote
     agent.protocol_version = 3
-    agent.platform = "windows-x64"
+    agent.platform = "windows-x64" if os.name == "nt" else "linux-x64"
     agent.allowed_roots = json.dumps([{"root_id": "data", "path": str(tmp_path)}])
     source.root_path = str(tmp_path)
     (tmp_path / "report.txt").write_text("report")
@@ -178,7 +179,7 @@ async def test_protocol_three_on_server_enqueue_claim_runs_page_only_worker_and_
 
     agent, source = remote
     agent.protocol_version = 3
-    agent.platform = "windows-x64"
+    agent.platform = "windows-x64" if os.name == "nt" else "linux-x64"
     agent.allowed_roots = json.dumps([{"root_id": "data", "path": str(tmp_path)}])
     agent.default_processing_mode = "on_server"
     source.root_path = str(tmp_path)
@@ -366,17 +367,17 @@ def test_status_for_agent_limits_visibility_to_owner(db_session, remote):
         AgentJobService(db_session).status_for_agent("missing", agent.id)
 
 
-def test_enqueue_includes_index_status_in_incremental_known_files(db_session, remote):
+def test_enqueue_does_not_embed_incremental_inventory(db_session, remote):
     from app.models import IndexedFile
 
     _agent, source = remote
     db_session.add(IndexedFile(source_id=source.id, path="retry.txt", status="failed"))
     db_session.commit()
     payload = json.loads(AgentJobService(db_session).enqueue_scan(source, full=False).payload)
-    assert payload["known_files"]["retry.txt"]["status"] == "failed"
+    assert "known_files" not in payload
 
 
-def test_enqueue_uses_legacy_datetime_when_exact_nanoseconds_are_absent(db_session, remote):
+def test_enqueue_does_not_embed_legacy_incremental_timestamps(db_session, remote):
     from datetime import datetime, timezone
 
     from app.models import IndexedFile
@@ -388,7 +389,7 @@ def test_enqueue_uses_legacy_datetime_when_exact_nanoseconds_are_absent(db_sessi
     )
     db_session.commit()
     payload = json.loads(AgentJobService(db_session).enqueue_scan(source, full=False).payload)
-    assert payload["known_files"]["legacy.txt"]["modified_at"] == 1704164645123456000
+    assert "known_files" not in payload
 
 
 def test_claim_issues_hashed_lease_and_rejects_wrong_agent(db_session, remote):
@@ -498,9 +499,8 @@ def test_job_status_exposes_on_server_handoff_only_after_parent_lease_release(
     assert json.loads(db_session.get(AgentJob, job.id).checkpoint)["server_handoff"]["released"] is True
 
 
-def test_job_status_does_not_send_handoff_marker_to_legacy_agent(client, db_session, remote):
+def test_job_status_sends_handoff_marker_to_v3_agent(client, db_session, remote):
     agent, source = remote
-    agent.protocol_version = 2
     token = create_agent_token()
     agent.token_hash = hash_token(token)
     db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
@@ -509,7 +509,7 @@ def test_job_status_does_not_send_handoff_marker_to_legacy_agent(client, db_sess
 
     assert client.get(
         f"/api/agent/v1/jobs/{job.id}/status", headers={"Authorization": f"Bearer {token}"}
-    ).json() == {"job_id": job.id, "status": "pending"}
+    ).json() == {"job_id": job.id, "status": "pending", "handoff_released": False}
 
 
 def test_cancelling_job_rejects_batches_until_agent_acknowledges(db_session, remote):
@@ -765,6 +765,42 @@ async def test_claim_poll_waits_exactly_the_configured_deadline(monkeypatch, db_
     assert timeline[0] == 25
 
 
+@pytest.mark.asyncio
+async def test_claim_poll_accepts_session_local_timing_for_isolated_load_tests(
+    monkeypatch, db_session, remote
+):
+    from app.api import agent_protocol
+
+    agent, _ = remote
+    timeline = [0.0]
+    db_session.info["claim_timeout_seconds"] = 0.1
+    db_session.info["claim_poll_seconds"] = 0.01
+
+    async def advance(seconds):
+        timeline[0] += seconds
+
+    class EmptySession:
+        def close(self):
+            return None
+
+        def rollback(self):
+            return None
+
+    monkeypatch.setattr(agent_protocol, "claim_clock", lambda: timeline[0])
+    monkeypatch.setattr(agent_protocol, "claim_sleep", advance)
+    monkeypatch.setattr(agent_protocol, "make_claim_session", lambda _: EmptySession())
+    monkeypatch.setattr(
+        agent_protocol,
+        "AgentJobService",
+        lambda _: type("S", (), {"claim_next": lambda *_: None})(),
+    )
+
+    response = await agent_protocol.claim_job(agent, db_session)
+
+    assert response.status_code == 204
+    assert timeline[0] == pytest.approx(0.1)
+
+
 def test_job_endpoints_reject_user_pending_disabled_and_revoked_agents(
     client, db_session, remote, auth_headers
 ):
@@ -830,46 +866,6 @@ def test_other_agent_cannot_upload_to_owned_extract_job(
     assert response.status_code in {401, 403, 404}
     assert not registry._sessions
     assert list(tmp_path.iterdir()) == []
-
-
-@pytest.mark.parametrize(
-    ("changed_paths", "expected_paths"),
-    [(None, ["a.txt", "b.txt"]), ([], []), (["b.txt"], ["b.txt"])],
-)
-def test_on_server_manifest_selects_changed_files_only(
-    client, db_session, remote, changed_paths, expected_paths
-):
-    agent, source = remote
-    source.processing_mode = "on_server"
-    token = create_agent_token()
-    agent.token_hash = hash_token(token)
-    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
-    parent = AgentJobService(db_session).enqueue_scan(source, full=True)
-    db_session.commit()
-    lease = AgentJobService(db_session).claim_next(agent.id)
-    db_session.commit()
-    files = [
-        {"path": path, "path_hash": remote_path_hash(path), "size_bytes": 1, "modified_at": 1}
-        for path in ["a.txt", "b.txt"]
-    ]
-    manifest = {"job_id": parent.id, "source_id": source.id, "files": files, "complete": True}
-    if changed_paths is not None:
-        manifest["changed_paths"] = changed_paths
-    response = client.post(
-        f"/api/agent/v1/jobs/{parent.id}/manifest",
-        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
-        json=manifest,
-    )
-    assert response.status_code == 200, response.text
-    retry = client.post(
-        f"/api/agent/v1/jobs/{parent.id}/manifest",
-        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
-        json=manifest,
-    )
-    assert retry.status_code == 200, retry.text
-    children = db_session.query(AgentJob).filter_by(kind="extract_file").all()
-    assert [json.loads(child.payload)["path"] for child in children] == expected_paths
-    assert len(json.loads(parent.checkpoint)["remote_manifest"]["files"]) == 2
 
 
 def test_extract_final_parent_rejection_cleans_upload_session(

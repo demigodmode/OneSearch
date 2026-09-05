@@ -8,6 +8,7 @@ Pydantic schemas for request/response validation
 from datetime import datetime
 from typing import Any, Literal, Optional
 
+from onesearch_shared import BrowseDirectoryEntry, BrowseResult
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -70,11 +71,14 @@ class SourceCreate(SourceBase):
     """Schema for creating a new source"""
 
     id: str | None = None  # Auto-generated if not provided
+    # Remote creation binds this source to one recent successful browse validation.
+    path_validation_job_id: str | None = None
 
 
 class SourceUpdate(BaseModel):
     """Schema for updating a source"""
 
+    path_validation_job_id: str | None = None
     name: str | None = None
     root_path: str | None = None
     location_type: Literal["local", "agent"] | None = None
@@ -112,6 +116,32 @@ class SourcePathTestResponse(BaseModel):
     hint: str | None = None
     job_id: str | None = None
     status: str | None = None
+
+
+class SourceBrowseRequest(BaseModel):
+    """Queue a bounded directory listing from an approved remote agent."""
+
+    agent_id: str = Field(min_length=1)
+    root_id: str = Field(min_length=1)
+    path: str = ""
+
+
+class SourceBrowseResponse(BaseModel):
+    job_id: str
+    status: str
+    root_id: str
+    path: str
+    entries: list[BrowseDirectoryEntry] = Field(default_factory=list)
+    truncated: bool = False
+    error: str | None = None
+
+    @classmethod
+    def pending(cls, *, job_id: str, status: str, root_id: str, path: str):
+        return cls(job_id=job_id, status=status, root_id=root_id, path=path)
+
+    @classmethod
+    def completed(cls, *, job_id: str, result: BrowseResult):
+        return cls(job_id=job_id, status="completed", **result.model_dump(mode="json"))
 
 
 class SourceResponse(SourceBase):

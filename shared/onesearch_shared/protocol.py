@@ -9,21 +9,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import unicodedata
 from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 PROTOCOL_VERSION = 3
-MINIMUM_SUPPORTED_PROTOCOL_VERSION = 1
+MINIMUM_SUPPORTED_PROTOCOL_VERSION = PROTOCOL_VERSION
 REMOTE_MAX_SNAPSHOT_BYTES = 100 * 1024 * 1024
 REMOTE_MAX_BATCH_DOCUMENTS = 100
 REMOTE_MAX_BATCH_BYTES = 1_000_000
-REMOTE_MAX_MANIFEST_BYTES = 50 * 1024 * 1024
 REMOTE_MAX_MANIFEST_PAGE_ENTRIES = 1_000
 REMOTE_MAX_MANIFEST_PAGE_BYTES = 2 * 1024 * 1024
-REMOTE_MAX_SCAN_FILES = 100_000
 REMOTE_MAX_ENTRIES_PER_DIRECTORY = 100_000
+REMOTE_MAX_BROWSE_DIRECTORIES = 500
 REMOTE_JOB_HEARTBEAT_SECONDS = 20
 
 
@@ -200,6 +200,65 @@ class BrowseResponse(WireModel):
     entries: list[DirectoryEntry] = Field(default_factory=list)
 
 
+def _canonical_relative_path(value: object, *, allow_empty: bool) -> str:
+    if not isinstance(value, str):
+        raise ValueError("must be a string")
+    if value == "" and allow_empty:
+        return value
+    if not value or value != value.strip() or value.startswith(("/", "\\")) or "\\" in value:
+        raise ValueError("must be a canonical relative path")
+    if any(unicodedata.category(character) == "Cc" for character in value):
+        raise ValueError("must not contain control characters")
+    parts = value.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("must be a canonical relative path")
+    return value
+
+
+class BrowseDirectoryEntry(WireModel):
+    """A directory-only child returned by a bounded administrative browse."""
+
+    name: str = Field(min_length=1, max_length=255)
+    path: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, value: object) -> object:
+        if not isinstance(value, str) or value != value.strip() or value in {"", ".", ".."}:
+            raise ValueError("must be a directory name")
+        if "/" in value or "\\" in value:
+            raise ValueError("must be a directory name")
+        if any(unicodedata.category(character) == "Cc" for character in value):
+            raise ValueError("must not contain control characters")
+        return value
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def validate_path(cls, value: object) -> object:
+        return _canonical_relative_path(value, allow_empty=False)
+
+
+class BrowseResult(WireModel):
+    root_id: str = Field(min_length=1, max_length=120)
+    path: str = Field(default="", max_length=4096)
+    entries: list[BrowseDirectoryEntry] = Field(
+        default_factory=list, max_length=REMOTE_MAX_BROWSE_DIRECTORIES
+    )
+    truncated: bool
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def validate_path(cls, value: object) -> object:
+        return _canonical_relative_path(value, allow_empty=True)
+
+    @model_validator(mode="after")
+    def validate_entries(self) -> BrowseResult:
+        paths = [entry.path for entry in self.entries]
+        if len(paths) != len(set(paths)):
+            raise ValueError("browse entries must be unique")
+        return self
+
+
 class ScanFile(WireModel):
     path: str = Field(min_length=1)
     path_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -208,46 +267,9 @@ class ScanFile(WireModel):
     content_hash: str | None = None
 
 
-class ScanFailure(WireModel):
-    path: str = Field(min_length=1)
-    error: str = Field(min_length=1, max_length=500)
-
-    @field_validator("error", mode="before")
-    @classmethod
-    def normalize_error(cls, value: object) -> object:
-        return _strip_nonempty(value)
-
-
 class ScanCheckpoint(WireModel):
     cursor: str = Field(min_length=1)
     scanned_count: int = Field(ge=0)
-
-
-class ScanManifest(WireModel):
-    job_id: str = Field(min_length=1)
-    source_id: str = Field(min_length=1)
-    files: list[ScanFile] = Field(default_factory=list, max_length=REMOTE_MAX_SCAN_FILES)
-    changed_paths: list[str] | None = Field(default=None, max_length=REMOTE_MAX_SCAN_FILES)
-    failures: list[ScanFailure] = Field(default_factory=list, max_length=REMOTE_MAX_SCAN_FILES)
-    deleted_paths: list[str] = Field(default_factory=list, max_length=REMOTE_MAX_SCAN_FILES)
-    checkpoint: ScanCheckpoint | None = None
-    complete: bool = False
-
-    @model_validator(mode="after")
-    def validate_unique_paths(self) -> ScanManifest:
-        paths = [item.path for item in self.files]
-        if len(paths) != len(set(paths)):
-            raise ValueError("manifest file paths must be unique")
-        if self.changed_paths is not None:
-            if len(self.changed_paths) != len(set(self.changed_paths)):
-                raise ValueError("manifest changed paths must be unique")
-            if not set(self.changed_paths).issubset(paths):
-                raise ValueError("manifest changed paths must be file members")
-        if len({item.path for item in self.failures}) != len(self.failures):
-            raise ValueError("manifest failure paths must be unique")
-        if len(set(self.deleted_paths)) != len(self.deleted_paths):
-            raise ValueError("manifest deleted paths must be unique")
-        return self
 
 
 class ScanManifestPagePayload(WireModel):
@@ -406,6 +428,7 @@ class JobCompletion(WireModel):
     reason: JobFailureReason | None = None
     detail: str | None = Field(default=None, max_length=2048)
     checkpoint: ScanCheckpoint | None = None
+    browse_result: BrowseResult | None = None
 
     @field_validator("status", mode="before")
     @classmethod
@@ -416,6 +439,12 @@ class JobCompletion(WireModel):
     @classmethod
     def parse_reason(cls, value: object) -> object:
         return JobFailureReason(value) if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_browse_result(self) -> JobCompletion:
+        if self.browse_result is not None and self.status != JobStatus.SUCCEEDED:
+            raise ValueError("browse_result is only allowed for succeeded jobs")
+        return self
 
 
 class ProtocolVersionRange(WireModel):

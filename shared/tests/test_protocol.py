@@ -25,9 +25,7 @@ from onesearch_shared.protocol import (
     ProtocolCompatibilityResponse,
     ProtocolVersionRange,
     ScanCheckpoint,
-    ScanFailure,
     ScanFile,
-    ScanManifest,
     remote_path_hash,
 )
 from pydantic import ValidationError
@@ -61,10 +59,10 @@ def test_heartbeat_carries_only_a_bounded_local_update_report():
     assert_json_round_trip(heartbeat)
 
 
-def test_protocol_three_adds_bounded_manifest_pages_without_changing_legacy_limits():
+def test_protocol_version_three_is_the_only_supported_protocol():
+    assert protocol.MINIMUM_SUPPORTED_PROTOCOL_VERSION == protocol.PROTOCOL_VERSION == 3
     assert protocol.REMOTE_MAX_MANIFEST_PAGE_ENTRIES == 1_000
     assert protocol.REMOTE_MAX_MANIFEST_PAGE_BYTES == 2 * 1024 * 1024
-    assert protocol.REMOTE_MAX_SCAN_FILES == 100_000
 
 
 def test_remote_job_heartbeat_interval_is_shorter_than_the_server_lease():
@@ -308,26 +306,6 @@ def test_browse_round_trip_preserves_directory_entries():
     assert_json_round_trip(response)
 
 
-def test_scan_manifest_round_trip_preserves_checkpoint():
-    manifest = ScanManifest(
-        job_id="job-1",
-        source_id="remote-1",
-        files=[
-            ScanFile(
-                path="reports/annual.pdf",
-                path_hash=remote_path_hash("reports/annual.pdf"),
-                size_bytes=4096,
-                modified_at=1_721_234_567,
-                content_hash="sha256:abc123",
-            )
-        ],
-        checkpoint=ScanCheckpoint(cursor="page:1", scanned_count=1),
-        complete=False,
-    )
-
-    assert_json_round_trip(manifest)
-
-
 def _manifest_page(*, final=False, files=None, sequence=0):
     payload = protocol.ScanManifestPagePayload(
         job_id="job-1",
@@ -485,50 +463,6 @@ def test_page_acknowledgements_reject_duplicate_paths_and_non_sha256_checksums()
         protocol.ScanManifestPageAck(**data)
 
 
-def test_complete_manifest_carries_bounded_file_failures_and_rejects_duplicate_paths():
-    manifest = ScanManifest(
-        job_id="job-1",
-        source_id="remote-1",
-        files=[
-            ScanFile(path="a.txt", path_hash=remote_path_hash("a.txt"), size_bytes=1, modified_at=1)
-        ],
-        failures=[ScanFailure(path="a.txt", error="extract failed")],
-        complete=True,
-    )
-    assert_json_round_trip(manifest)
-    with pytest.raises(ValidationError):
-        ScanManifest(
-            job_id="job-1",
-            source_id="remote-1",
-            files=[
-                ScanFile(
-                    path="a.txt", path_hash=remote_path_hash("a.txt"), size_bytes=1, modified_at=1
-                ),
-                ScanFile(
-                    path="a.txt", path_hash=remote_path_hash("a.txt"), size_bytes=1, modified_at=1
-                ),
-            ],
-        )
-
-
-def test_manifest_changed_paths_must_be_unique_file_members():
-    file = ScanFile(path="a.txt", path_hash=remote_path_hash("a.txt"), size_bytes=1, modified_at=1)
-    assert (
-        ScanManifest(
-            job_id="job-1", source_id="remote-1", files=[file], changed_paths=[]
-        ).changed_paths
-        == []
-    )
-    with pytest.raises(ValidationError):
-        ScanManifest(
-            job_id="job-1", source_id="remote-1", files=[file], changed_paths=["a.txt", "a.txt"]
-        )
-    with pytest.raises(ValidationError):
-        ScanManifest(
-            job_id="job-1", source_id="remote-1", files=[file], changed_paths=["missing.txt"]
-        )
-
-
 def test_document_batch_and_ack_round_trip():
     batch = DocumentBatch(
         job_id="job-2",
@@ -552,12 +486,11 @@ def test_document_batch_and_ack_round_trip():
     assert_json_round_trip(acknowledgement)
 
 
-def test_remote_document_and_manifest_accept_string_source_ids_from_the_database():
+def test_remote_document_accepts_string_source_ids_from_the_database():
     document = NormalizedRemoteDocument(
         source_id="remote-1", path="a.txt", content="A", modified_at=1
     )
-    manifest = ScanManifest(job_id="job-1", source_id="remote-1")
-    assert document.source_id == manifest.source_id == "remote-1"
+    assert document.source_id == "remote-1"
 
 
 def test_batch_ack_reports_when_a_retry_was_already_accepted():

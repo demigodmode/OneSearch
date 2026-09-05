@@ -12,6 +12,9 @@ COPY shared /opt/onesearch/shared
 COPY backend /opt/onesearch/backend
 COPY agent /opt/onesearch/agent
 
+ARG AGENT_UPDATE_PUBLIC_KEY
+RUN if [ -n "${AGENT_UPDATE_PUBLIC_KEY:-}" ]; then AGENT_UPDATE_PUBLIC_KEY="$AGENT_UPDATE_PUBLIC_KEY" python -c 'import base64, os; key=base64.b64decode(os.environ["AGENT_UPDATE_PUBLIC_KEY"], validate=True); assert len(key) == 32, "public key must be raw 32 bytes"' && printf '%s\n' "$AGENT_UPDATE_PUBLIC_KEY" > /opt/onesearch/agent/onesearch_agent/release_public_key.txt; fi
+
 RUN pip install --no-cache-dir /opt/onesearch/shared /opt/onesearch/backend /opt/onesearch/agent
 
 COPY agent/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

@@ -18,6 +18,7 @@ import time
 import tracemalloc
 from collections import Counter
 from collections.abc import Callable
+from contextlib import contextmanager
 from ctypes import wintypes
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,13 +27,23 @@ from typing import Any
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from onesearch_shared import REMOTE_MAX_SCAN_FILES  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from onesearch_shared import PROTOCOL_VERSION  # noqa: E402
 from sqlalchemy import case, create_engine, func, select  # noqa: E402
 from sqlalchemy.exc import OperationalError  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
+from sqlalchemy.pool import NullPool  # noqa: E402
 
+from app.api import agent_protocol  # noqa: E402
+from app.api import agents as agents_api  # noqa: E402
+from app.api import auth as auth_api  # noqa: E402
+from app.api import settings as settings_api  # noqa: E402
+from app.api import sources as sources_api  # noqa: E402
+from app.db.database import get_db  # noqa: E402
 from app.models import Agent, AgentBatch, AgentJob, Base, IndexedFile, Source  # noqa: E402
-from app.services.agent_jobs import AgentJobService, JobLeaseError  # noqa: E402
+from app.request_body_limits import RemoteAgentBodyLimitMiddleware  # noqa: E402
+from app.services.agent_jobs import AgentJobService  # noqa: E402
 
 _DATABASE_SUFFIXES = ("", "-wal", "-shm", "-journal")
 
@@ -57,10 +68,15 @@ def _cleanup_database(database: Path) -> None:
 
 
 def _engine(database: Path, *, concurrent: bool = False):
-    engine = create_engine(
-        f"sqlite:///{database.as_posix()}",
-        connect_args={"timeout": 1, "check_same_thread": not concurrent},
-    )
+    options = {
+        "connect_args": {"timeout": 1, "check_same_thread": not concurrent},
+    }
+    if concurrent:
+        # A claim request authenticates with one session and polls with another.
+        # QueuePool can deadlock when every request holds its auth connection
+        # while waiting for a second connection from the same bounded pool.
+        options["poolclass"] = NullPool
+    engine = create_engine(f"sqlite:///{database.as_posix()}", **options)
     Base.metadata.create_all(engine)
     if concurrent:
         with engine.begin() as connection:
@@ -86,7 +102,7 @@ def _assert_capacity(database: Path, files: int) -> None:
 
 
 def _topology(*, files: int, agents: int) -> dict[str, int]:
-    source_count = max(agents, math.ceil(files / REMOTE_MAX_SCAN_FILES))
+    source_count = agents
     return {
         "source_count": source_count,
         "max_rows_per_source": math.ceil(files / source_count),
@@ -99,7 +115,7 @@ def _query_shapes(agents: int):
         "source_status": select(
             func.count(), func.sum(case((IndexedFile.status == "success", 1), else_=0))
         ).where(IndexedFile.source_id == "source-0"),
-        "known_files_projection": select(
+        "reconciliation_inventory_projection": select(
             IndexedFile.path,
             IndexedFile.size_bytes,
             IndexedFile.modified_at_ns,
@@ -279,8 +295,89 @@ def _race(sessions, count: int, operation: Callable, delays=None):
         return list(pool.map(run, range(count)))
 
 
+@contextmanager
+def _fleet_http_client(engine):
+    """Run the shipped API against the simulator's isolated SQLite database."""
+    sessions = sessionmaker(
+        bind=engine,
+        autocommit=False,
+        autoflush=False,
+        info={"claim_timeout_seconds": 0.1, "claim_poll_seconds": 0.01},
+    )
+
+    def override_get_db():
+        db = sessions()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    test_app = FastAPI()
+    test_app.add_middleware(RemoteAgentBodyLimitMiddleware)
+    test_app.include_router(auth_api.router)
+    test_app.include_router(settings_api.router)
+    test_app.include_router(agents_api.router)
+    test_app.include_router(sources_api.router)
+    test_app.include_router(agent_protocol.router)
+    test_app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        with TestClient(test_app) as client:
+            setup = client.post(
+                "/api/auth/setup",
+                json={"username": "fleet-admin", "password": "fleet-test"},
+            )
+            assert setup.status_code == 200, setup.text
+            headers = {"Authorization": f"Bearer {setup.json()['access_token']}"}
+            authenticated = client.get("/api/auth/me", headers=headers)
+            assert authenticated.status_code == 200, authenticated.text
+            yield (
+                client,
+                headers,
+                sessions,
+                {
+                    "setup": setup.status_code,
+                    "authenticated": authenticated.status_code,
+                },
+            )
+    finally:
+        test_app.dependency_overrides.clear()
+
+
+def _http_request(client, method: str, path: str, **kwargs):
+    """Retry SQLite's transient write contention while preserving HTTP execution."""
+    for attempt in range(30):
+        try:
+            response = getattr(client, method)(path, **kwargs)
+        except OperationalError as error:
+            if not _is_sqlite_busy(error) or attempt == 29:
+                raise
+            time.sleep(min(0.005 * (attempt + 1), 0.1))
+            continue
+        if response.status_code != 500:
+            return response
+        if "locked" not in response.text.lower() and "busy" not in response.text.lower():
+            return response
+        time.sleep(min(0.005 * (attempt + 1), 0.1))
+    return response
+
+
+def _http_race(client, count: int, operation: Callable, delays=None):
+    barrier = threading.Barrier(count)
+
+    def run(number: int):
+        barrier.wait()
+        if delays is not None:
+            time.sleep(delays[number])
+        started = time.perf_counter()
+        return started, operation(number)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=count) as pool:
+        return list(pool.map(run, range(count)))
+
+
 def simulate_agent_fleet(database: Path, agents: int = 25, jitter_seed: int = 1) -> dict[str, Any]:
-    """Exercise actual lease and idempotency paths with 25-way SQLite races."""
+    """Exercise the released HTTP protocol with 25-way SQLite races."""
     database = Path(database)
     _assert_fresh_database(database)
     owned = False
@@ -288,181 +385,302 @@ def simulate_agent_fleet(database: Path, agents: int = 25, jitter_seed: int = 1)
     try:
         owned = True
         engine = _engine(database, concurrent=True)
-        sessions = sessionmaker(bind=engine, expire_on_commit=False)
-        seed = sessions()
-        try:
-            records = [
-                Agent(
-                    id=f"agent-{number}",
-                    name=f"Agent {number}",
-                    platform="test",
-                    version="test",
-                    protocol_version=1,
-                    status="pending",
-                    allowed_roots=json.dumps(
-                        [{"root_id": f"root-{number}", "path": f"/fixture/{number}"}]
-                    ),
+        with _fleet_http_client(engine) as (client, admin_headers, sessions, admin_auth):
+            enabled = _http_request(
+                client,
+                "put",
+                "/api/settings",
+                headers=admin_headers,
+                json={"remote_agents_enabled": True},
+            )
+            assert enabled.status_code == 200, enabled.text
+            agent_headers = []
+            agent_ids = []
+            for number in range(agents):
+                code = _http_request(
+                    client, "post", "/api/agents/enrollments", headers=admin_headers
                 )
-                for number in range(agents)
-            ]
-            seed.add_all(records)
-            seed.commit()
-            pending_count = seed.query(Agent).filter_by(status="pending").count()
-            approved_at = _now()
-            for record in records:
-                record.status = "offline"
-                record.approved_at = approved_at
-            sources = [
-                Source(
-                    id=f"source-{number}",
-                    name=f"Source {number}",
-                    root_path=f"/fixture/{number}",
-                    location_type="agent",
-                    agent_id=f"agent-{number}",
-                    processing_mode="on_agent",
+                assert code.status_code == 201, code.text
+                enrolled = _http_request(
+                    client,
+                    "post",
+                    "/api/agent/v1/enroll",
+                    json={
+                        "protocol_version": PROTOCOL_VERSION,
+                        "enrollment_token": code.json()["code"],
+                        "agent_name": f"Agent {number}",
+                        "agent_version": "test",
+                        "platform": "test",
+                        "allowed_roots": [
+                            {"root_id": f"root-{number}", "path": f"/fixture/{number}"}
+                        ],
+                    },
                 )
-                for number in range(agents)
-            ]
-            seed.add_all(sources)
-            seed.commit()
-            for source in sources:
-                AgentJobService(seed).enqueue_scan(source, full=True, reason="scheduled")
-            seed.commit()
-        finally:
-            seed.close()
+                assert enrolled.status_code == 201, enrolled.text
+                body = enrolled.json()
+                agent_ids.append(body["agent_id"])
+                agent_headers.append({"Authorization": f"Bearer {body['agent_token']}"})
 
-        randomizer = random.Random(jitter_seed)
-        delays = [randomizer.random() / 100 for _ in range(agents)]
-
-        def poll_own_job(session, number):
-            lease = AgentJobService(session).claim_next(f"agent-{number}")
-            return (lease.id, lease.lease_token) if lease else None
-
-        fanout_results = _race(sessions, agents, poll_own_job, delays)
-        fanout_leases = [value for _, value in fanout_results if value is not None]
-        fanout_starts = [started for started, _ in fanout_results]
-        batch_job_id, batch_token = fanout_results[0][1]
-
-        setup = sessions()
-        try:
-            browse = AgentJobService(setup).enqueue_browse("agent-0", "/fixture/0")
-            browse_id = browse.id
-            setup.commit()
-        finally:
-            setup.close()
-
-        def poll_agent_zero(session, _number):
-            lease = AgentJobService(session).claim_next("agent-0")
-            return (lease.id, lease.lease_token) if lease else None
-
-        contested_results = _race(sessions, agents, poll_agent_zero)
-        contested_winners = [value for _, value in contested_results if value is not None]
-        old_job_id, old_token = contested_winners[0]
-
-        contested_check = sessions()
-        try:
-            first_claim = contested_check.get(AgentJob, browse_id)
-            first_claim_attempts = first_claim.attempts
-            first_claim_token_hashes = 1 if first_claim.lease_token_hash else 0
-        finally:
-            contested_check.close()
-
-        expire = sessions()
-        try:
-            expired = expire.get(AgentJob, old_job_id)
-            expired.lease_expires_at = _now() - timedelta(seconds=1)
-            expire.commit()
-            AgentJobService(expire).fail_expired_leases()
-            expire.commit()
-        finally:
-            expire.close()
-
-        reconnect_results = _race(sessions, agents, poll_agent_zero)
-        reconnect_winners = [value for _, value in reconnect_results if value is not None]
-        new_job_id, new_token = reconnect_winners[0]
-
-        receipt = sessions()
-        try:
-            service = AgentJobService(receipt)
+            check = sessions()
             try:
-                service.extend_lease("agent-0", old_job_id, old_token)
-            except JobLeaseError:
-                old_lease_rejected = True
-            else:
-                old_lease_rejected = False
-            service.accept_batch(
-                "agent-0", batch_job_id, batch_token, "tiny-manifest-0", {"documents": []}
-            )
-            service.accept_batch(
-                "agent-0", batch_job_id, batch_token, "tiny-manifest-0", {"documents": []}
-            )
-            receipt.commit()
-        finally:
-            receipt.close()
+                pending_count = check.query(Agent).filter_by(status="pending").count()
+            finally:
+                check.close()
+            for agent_id in agent_ids:
+                approved = _http_request(
+                    client, "post", f"/api/agents/{agent_id}/approve", headers=admin_headers
+                )
+                assert approved.status_code == 200, approved.text
+            for headers in agent_headers:
+                heartbeat = _http_request(
+                    client,
+                    "post",
+                    "/api/agent/v1/heartbeat",
+                    headers=headers,
+                    json={
+                        "protocol_version": PROTOCOL_VERSION,
+                        "agent_version": "test",
+                        "platform": "test",
+                    },
+                )
+                assert heartbeat.status_code == 200, heartbeat.text
 
-        def enqueue_catch_up(session, _number):
-            source = session.get(Source, "source-0")
-            return AgentJobService(session).enqueue_scan(source, full=True, reason="catch_up").id
-
-        catch_up_results = _race(sessions, agents, enqueue_catch_up)
-        catch_up_ids = [value for _, value in catch_up_results]
-
-        check = sessions()
-        try:
-            agents_by_status = Counter(row.status for row in check.scalars(select(Agent)))
-            fanout_ids = [job_id for job_id, _token in fanout_leases]
-            fanout_jobs = list(check.scalars(select(AgentJob).where(AgentJob.id.in_(fanout_ids))))
-            contested = check.get(AgentJob, browse_id)
-            batch_job = check.get(AgentJob, batch_job_id)
-            receipt_count = check.query(AgentBatch).filter_by(job_id=batch_job_id).count()
-            active_source_zero = check.query(AgentJob).filter_by(active_key="source-0").count()
-            return {
-                "setup_transitions": {
-                    "pending": pending_count,
-                    "approved_offline": sum(
-                        1
-                        for row in check.scalars(select(Agent))
-                        if row.status == "offline" and row.approved_at is not None
-                    ),
-                },
-                "agent_statuses": dict(agents_by_status),
-                "fanout": {
-                    "polls": agents,
-                    "leased_jobs": len(fanout_leases),
-                    "persisted_unique_job_ids": len({job.id for job in fanout_jobs}),
-                    "persisted_unique_token_hashes": len(
-                        {job.lease_token_hash for job in fanout_jobs}
-                    ),
-                    "attempts": dict(Counter(str(job.attempts) for job in fanout_jobs)),
-                    "measured_start_jitter_seconds": max(fanout_starts) - min(fanout_starts),
-                },
-                "contested_poll": {
-                    "polls": agents,
-                    "winners": len(contested_winners),
-                    "persisted_attempts": first_claim_attempts,
-                    "persisted_token_hashes": first_claim_token_hashes,
-                },
-                "reconnect_after_expiry": {
-                    "polls": agents,
-                    "winners": len(reconnect_winners),
-                    "same_job": new_job_id == old_job_id == browse_id,
-                    "persisted_attempts": contested.attempts,
-                    "persisted_token_hashes": 1 if contested.lease_token_hash else 0,
-                    "old_lease_rejected": old_lease_rejected,
-                },
-                "idempotent_batch": {
-                    "submissions": 2,
-                    "persisted_receipts": receipt_count,
-                    "job_kind": batch_job.kind,
-                },
-                "concurrent_catch_up": {
-                    "enqueues": agents,
-                    "returned_unique_job_ids": len(set(catch_up_ids)),
-                    "persisted_active_keys": active_source_zero,
-                },
+            validation_evidence = {
+                "queued": 0,
+                "claimed": 0,
+                "completed": 0,
+                "source_creates": 0,
             }
-        finally:
-            check.close()
+            for number, agent_id in enumerate(agent_ids):
+                root_path = f"/fixture/{number}"
+                validation = _http_request(
+                    client,
+                    "post",
+                    "/api/sources/test-path",
+                    headers=admin_headers,
+                    json={
+                        "location_type": "agent",
+                        "agent_id": agent_id,
+                        "root_path": root_path,
+                    },
+                )
+                assert validation.status_code == 200, validation.text
+                validation_job_id = validation.json()["job_id"]
+                validation_evidence["queued"] += 1
+
+                validation_claim = _http_request(
+                    client, "post", "/api/agent/v1/jobs/claim", headers=agent_headers[number]
+                )
+                assert validation_claim.status_code == 200, validation_claim.text
+                validation_lease = validation_claim.json()
+                assert validation_lease["id"] == validation_job_id
+                assert validation_lease["kind"] == "browse"
+                assert validation_lease["payload"] == {
+                    "operation": "validate",
+                    "root_path": root_path,
+                }
+                validation_evidence["claimed"] += 1
+
+                complete_validation = _http_request(
+                    client,
+                    "post",
+                    f"/api/agent/v1/jobs/{validation_job_id}/complete",
+                    headers={
+                        **agent_headers[number],
+                        "X-OneSearch-Lease-Token": validation_lease["lease_token"],
+                    },
+                    json={"job_id": validation_job_id, "status": "succeeded"},
+                )
+                assert complete_validation.status_code == 200, complete_validation.text
+                validation_evidence["completed"] += 1
+
+                validated = _http_request(
+                    client,
+                    "get",
+                    f"/api/sources/test-path/{validation_job_id}",
+                    headers=admin_headers,
+                )
+                assert validated.status_code == 200, validated.text
+                assert validated.json()["ok"] is True
+                assert validated.json()["status"] == "completed"
+
+                source = _http_request(
+                    client,
+                    "post",
+                    "/api/sources",
+                    headers=admin_headers,
+                    json={
+                        "id": f"source-{number}",
+                        "name": f"Source {number}",
+                        "root_path": root_path,
+                        "location_type": "agent",
+                        "agent_id": agent_id,
+                        "processing_mode": "on_agent",
+                        "path_validation_job_id": validation_job_id,
+                    },
+                )
+                assert source.status_code == 201, source.text
+                validation_evidence["source_creates"] += 1
+                queued = _http_request(
+                    client,
+                    "post",
+                    f"/api/sources/source-{number}/reindex?full=true",
+                    headers=admin_headers,
+                )
+                assert queued.status_code == 202, queued.text
+
+            randomizer = random.Random(jitter_seed)
+            delays = [randomizer.random() / 100 for _ in range(agents)]
+
+            def claim(headers):
+                response = _http_request(
+                    client, "post", "/api/agent/v1/jobs/claim", headers=headers
+                )
+                assert response.status_code in {200, 204}, response.text
+                return response.json() if response.status_code == 200 else None
+
+            fanout_results = _http_race(
+                client, agents, lambda number: (number, claim(agent_headers[number])), delays
+            )
+            fanout_leases = [value for _, value in fanout_results if value[1] is not None]
+            fanout_starts = [started for started, _ in fanout_results]
+            batch_number, batch_lease = fanout_leases[0]
+            batch_job_id = batch_lease["id"]
+            batch_headers = {
+                **agent_headers[batch_number],
+                "X-OneSearch-Lease-Token": batch_lease["lease_token"],
+            }
+            batch = {"job_id": batch_job_id, "batch_id": "tiny-manifest-0", "documents": []}
+            first_batch = _http_request(
+                client,
+                "post",
+                f"/api/agent/v1/jobs/{batch_job_id}/batches",
+                headers=batch_headers,
+                json=batch,
+            )
+            retry_batch = _http_request(
+                client,
+                "post",
+                f"/api/agent/v1/jobs/{batch_job_id}/batches",
+                headers=batch_headers,
+                json=batch,
+            )
+            assert first_batch.status_code == retry_batch.status_code == 200
+            assert (
+                first_batch.json()["duplicate"] is False and retry_batch.json()["duplicate"] is True
+            )
+
+            browse = _http_request(
+                client,
+                "post",
+                "/api/sources/test-path",
+                headers=admin_headers,
+                json={
+                    "location_type": "agent",
+                    "agent_id": agent_ids[0],
+                    "root_path": "/fixture/0",
+                },
+            )
+            assert browse.status_code == 200, browse.text
+            browse_id = browse.json()["job_id"]
+            contested_results = _http_race(client, agents, lambda _number: claim(agent_headers[0]))
+            contested_winners = [value for _, value in contested_results if value is not None]
+            old_lease = contested_winners[0]
+            old_job_id, old_token = old_lease["id"], old_lease["lease_token"]
+
+            check = sessions()
+            try:
+                first_claim = check.get(AgentJob, browse_id)
+                first_claim_attempts = first_claim.attempts
+                first_claim_token_hashes = 1 if first_claim.lease_token_hash else 0
+                first_claim.lease_expires_at = _now() - timedelta(seconds=1)
+                check.commit()
+            finally:
+                check.close()
+
+            reconnect_results = _http_race(client, agents, lambda _number: claim(agent_headers[0]))
+            reconnect_winners = [value for _, value in reconnect_results if value is not None]
+            new_job_id = reconnect_winners[0]["id"]
+            old_lease_response = _http_request(
+                client,
+                "post",
+                f"/api/agent/v1/jobs/{old_job_id}/heartbeat",
+                headers={**agent_headers[0], "X-OneSearch-Lease-Token": old_token},
+                json={"job_id": old_job_id, "completed_items": 0},
+            )
+            old_lease_rejected = old_lease_response.status_code == 401
+
+            catch_up_results = _http_race(
+                client,
+                agents,
+                lambda _number: _http_request(
+                    client, "post", "/api/sources/source-0/reindex?full=true", headers=admin_headers
+                ),
+            )
+            catch_up_responses = [response for _, response in catch_up_results]
+            assert all(response.status_code == 202 for response in catch_up_responses)
+            catch_up_ids = [response.json()["job_id"] for response in catch_up_responses]
+
+            check = sessions()
+            try:
+                agents_by_status = Counter(row.status for row in check.scalars(select(Agent)))
+                fanout_ids = [lease["id"] for _, lease in fanout_leases]
+                fanout_jobs = list(
+                    check.scalars(select(AgentJob).where(AgentJob.id.in_(fanout_ids)))
+                )
+                contested = check.get(AgentJob, browse_id)
+                batch_job = check.get(AgentJob, batch_job_id)
+                receipt_count = check.query(AgentBatch).filter_by(job_id=batch_job_id).count()
+                active_source_zero = check.query(AgentJob).filter_by(active_key="source-0").count()
+                return {
+                    "admin_auth": admin_auth,
+                    "setup_transitions": {
+                        "pending": pending_count,
+                        "approved_offline": sum(
+                            1
+                            for row in check.scalars(select(Agent))
+                            if row.status in {"offline", "online"} and row.approved_at is not None
+                        ),
+                    },
+                    "agent_statuses": dict(agents_by_status),
+                    "remote_path_validation": validation_evidence,
+                    "fanout": {
+                        "polls": agents,
+                        "leased_jobs": len(fanout_leases),
+                        "persisted_unique_job_ids": len({job.id for job in fanout_jobs}),
+                        "persisted_unique_token_hashes": len(
+                            {job.lease_token_hash for job in fanout_jobs}
+                        ),
+                        "attempts": dict(Counter(str(job.attempts) for job in fanout_jobs)),
+                        "measured_start_jitter_seconds": max(fanout_starts) - min(fanout_starts),
+                    },
+                    "contested_poll": {
+                        "polls": agents,
+                        "winners": len(contested_winners),
+                        "persisted_attempts": first_claim_attempts,
+                        "persisted_token_hashes": first_claim_token_hashes,
+                    },
+                    "reconnect_after_expiry": {
+                        "polls": agents,
+                        "winners": len(reconnect_winners),
+                        "same_job": new_job_id == old_job_id == browse_id,
+                        "persisted_attempts": contested.attempts,
+                        "persisted_token_hashes": 1 if contested.lease_token_hash else 0,
+                        "old_lease_rejected": old_lease_rejected,
+                    },
+                    "idempotent_batch": {
+                        "submissions": 2,
+                        "persisted_receipts": receipt_count,
+                        "job_kind": batch_job.kind,
+                    },
+                    "concurrent_catch_up": {
+                        "enqueues": agents,
+                        "returned_unique_job_ids": len(set(catch_up_ids)),
+                        "persisted_active_keys": active_source_zero,
+                    },
+                }
+            finally:
+                check.close()
     finally:
         if engine is not None:
             engine.dispose()
@@ -486,8 +704,9 @@ def _measure_representative_enqueue(engine, source_id: str) -> dict[str, int | f
         payload = json.loads(payload_text)
         evidence = {
             "source_id": source_id,
-            "known_files_count": len(payload["known_files"]),
-            "payload_max_scan_files": payload["limits"]["max_scan_files"],
+            "protocol_version": payload["protocol_version"],
+            "manifest_page_entries": payload["limits"]["max_manifest_page_entries"],
+            "manifest_page_bytes": payload["limits"]["max_manifest_page_bytes"],
             "payload_bytes": len(payload_text.encode("utf-8")),
             "elapsed_seconds": elapsed,
             "python_heap_delta_bytes": max(0, after_current - before_current),
@@ -531,7 +750,7 @@ def run_scale(
                     "name": f"Agent {number}",
                     "platform": "scale",
                     "version": "scale",
-                    "protocol_version": 1,
+                    "protocol_version": 3,
                     "allowed_roots": json.dumps(
                         [{"root_id": f"root-{number}", "path": f"/fixture/{number}"}]
                     ),
@@ -566,6 +785,12 @@ def run_scale(
         )
         plans = _plans(connection, agents)
         queries = _run_queries(connection, agents)
+        largest_source_rows = connection.scalar(
+            select(func.count(IndexedFile.id))
+            .group_by(IndexedFile.source_id)
+            .order_by(func.count(IndexedFile.id).desc())
+            .limit(1)
+        )
         _insertion_heap_current, insertion_heap_peak = tracemalloc.get_traced_memory()
         connection.close()
         connection = None
@@ -577,6 +802,7 @@ def run_scale(
             "rows_inserted": files,
             "source_count": source_count,
             "max_rows_per_source": topology["max_rows_per_source"],
+            "largest_source_rows": largest_source_rows,
             "batch_size": batch_size,
             "capacity_estimate_bytes": capacity_estimate,
             "observed_peak_database_bytes": observed_peak_database,

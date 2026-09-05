@@ -13,6 +13,8 @@ import type {
   SourceUpdate,
   SourcePathTestRequest,
   SourcePathTestResponse,
+  SourceBrowseRequest,
+  SourceBrowseResponse,
   SearchQuery,
   SearchResponse,
   StatusResponse,
@@ -196,6 +198,7 @@ export interface SourcePathPollOptions {
 }
 
 const ACTIVE_PATH_TEST_STATUSES = new Set(['pending', 'claimed', 'running', 'cancelling'])
+const ACTIVE_BROWSE_STATUSES = new Set(['pending', 'claimed', 'running', 'cancelling'])
 
 function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -261,6 +264,40 @@ export async function testSourcePath(
     return result
   }
   return pollSourcePathTest(result.job_id, options)
+}
+
+export async function getSourceDirectoryBrowseResult(jobId: string, signal?: AbortSignal): Promise<SourceBrowseResponse> {
+  return apiFetch<SourceBrowseResponse>(`/sources/browse/${encodeURIComponent(jobId)}`, { signal })
+}
+
+export async function pollSourceDirectoryBrowse(jobId: string, options: SourcePathPollOptions = {}): Promise<SourceBrowseResponse> {
+  const timeoutMs = options.pollTimeoutMs ?? 20_000
+  let intervalMs = Math.max(options.pollIntervalMs ?? 300, 0)
+  const deadline = Date.now() + timeoutMs
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), Math.max(timeoutMs, 0))
+  try {
+    while (!controller.signal.aborted) {
+      const remainingMs = deadline - Date.now()
+      if (remainingMs <= 0) break
+      await wait(Math.min(intervalMs, remainingMs), controller.signal)
+      if (controller.signal.aborted || Date.now() >= deadline) break
+      const result = await getSourceDirectoryBrowseResult(jobId, controller.signal)
+      if (!ACTIVE_BROWSE_STATUSES.has(result.status)) return result
+      intervalMs = Math.min(Math.max(intervalMs * 1.5, 100), 1_500)
+    }
+  } catch (error) {
+    if (!controller.signal.aborted) throw error
+  } finally {
+    window.clearTimeout(timeout)
+  }
+  throw new ApiError('Remote directory browse timed out.', 408, 'remote_directory_browse_timeout')
+}
+
+export async function browseSourceDirectory(data: SourceBrowseRequest, options: SourcePathPollOptions = {}): Promise<SourceBrowseResponse> {
+  const result = await apiFetch<SourceBrowseResponse>('/sources/browse', { method: 'POST', body: JSON.stringify(data) })
+  if (!ACTIVE_BROWSE_STATUSES.has(result.status)) return result
+  return pollSourceDirectoryBrowse(result.job_id, options)
 }
 
 /**

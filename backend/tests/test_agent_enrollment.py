@@ -29,7 +29,7 @@ def _create_code(client):
     return response.json()
 
 
-def _enroll(client, code, *, protocol_version=1, name="office-pc", roots=None):
+def _enroll(client, code, *, protocol_version=3, name="office-pc", roots=None):
     return client.post(
         "/api/agent/v1/enroll",
         json={
@@ -71,19 +71,19 @@ def test_create_enrollment_requires_user_auth_even_when_feature_is_disabled(clie
 def test_enrollment_validates_before_atomically_consuming_code(client, db_session):
     _enable(client)
     rejected = _create_code(client)["code"]
-    assert _enroll(client, rejected, protocol_version=0).status_code in {409, 422}
-    assert _enroll(client, rejected, protocol_version=4).status_code == 409
+    for version in (0, 1, 2, 4):
+        assert _enroll(client, rejected, protocol_version=version).status_code in {409, 422}
     assert all(item.used_at is None for item in db_session.query(AgentEnrollment).all())
 
     code = _create_code(client)["code"]
-    enrolled = _enroll(client, code, protocol_version=1)
+    enrolled = _enroll(client, code, protocol_version=3)
     assert enrolled.status_code == 201
     token = enrolled.json()["agent_token"]
     agent = db_session.query(Agent).one()
     assert agent.status == "pending"
     assert agent.token_hash == hashlib.sha256(token.encode()).hexdigest()
     assert token != agent.token_hash
-    assert enrolled.json()["protocol_version"] == agent.protocol_version == 1
+    assert enrolled.json()["protocol_version"] == agent.protocol_version == 3
     assert json.loads(agent.allowed_roots) == [
         {
             "root_id": "documents",
@@ -92,15 +92,6 @@ def test_enrollment_validates_before_atomically_consuming_code(client, db_sessio
             "read_only": True,
         }
     ]
-    enrolled_v2 = _enroll(client, _create_code(client)["code"], protocol_version=2, name="v2")
-    assert enrolled_v2.status_code == 201
-    assert enrolled_v2.json()["protocol_version"] == 2
-    assert db_session.get(Agent, enrolled_v2.json()["agent_id"]).protocol_version == 2
-    enrolled_v3 = _enroll(client, _create_code(client)["code"], protocol_version=3, name="v3")
-    assert enrolled_v3.status_code == 201
-    assert enrolled_v3.json()["protocol_version"] == 3
-    assert db_session.get(Agent, enrolled_v3.json()["agent_id"]).protocol_version == 3
-
     reused = _enroll(client, code, name="second")
     assert reused.status_code == 409
 
@@ -590,7 +581,7 @@ def test_heartbeat_authenticates_pending_then_marks_approved_agent_online(
     _enable(client)
     enrolled = _enroll(client, _create_code(client)["code"]).json()
     headers = {"Authorization": f"Bearer {enrolled['agent_token']}"}
-    payload = {"protocol_version": 1, "agent_version": "1.4.1", "platform": "windows-amd64"}
+    payload = {"protocol_version": 3, "agent_version": "1.4.1", "platform": "windows-amd64"}
 
     client.headers.pop("Authorization", None)
     pending = client.post("/api/agent/v1/heartbeat", json=payload, headers=headers)
@@ -605,14 +596,10 @@ def test_heartbeat_authenticates_pending_then_marks_approved_agent_online(
     online = client.post("/api/agent/v1/heartbeat", json=payload, headers=headers)
     assert online.status_code == 200
     assert online.json()["status"] == "online"
-    payload["protocol_version"] = 2
-    assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 200
-    assert db_session.get(Agent, enrolled["agent_id"]).protocol_version == 2
-    payload["protocol_version"] = 3
-    assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 200
+    for version in (1, 2, 4):
+        payload["protocol_version"] = version
+        assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 409
     assert db_session.get(Agent, enrolled["agent_id"]).protocol_version == 3
-    payload["protocol_version"] = 4
-    assert client.post("/api/agent/v1/heartbeat", json=payload, headers=headers).status_code == 409
 
 
 def test_heartbeat_persists_sanitized_local_update_report_and_rejects_future_time(

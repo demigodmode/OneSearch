@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { testSourcePath } from './api'
+import { browseSourceDirectory, testSourcePath } from './api'
 
 const pending = {
   path: '/srv/docs', ok: false, exists: false, is_directory: false, readable: false,
@@ -48,5 +48,24 @@ describe('source path test API', () => {
       { root_path: '/srv/docs', location_type: 'agent', agent_id: 'agent-1' },
       { pollIntervalMs: 0, pollTimeoutMs: 0 },
     )).rejects.toEqual(expect.objectContaining({ message: 'Remote path validation timed out.' }))
+  })
+})
+
+describe('source directory browse API', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('polls a queued directory browse through completion', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => response({ job_id: 'browse-1', status: 'pending', root_id: 'docs', path: '', entries: [], truncated: false }))
+      .mockImplementationOnce(() => response({ job_id: 'browse-1', status: 'completed', root_id: 'docs', path: '', entries: [{ name: 'Team', path: 'Team' }], truncated: false }))
+
+    await expect(browseSourceDirectory({ agent_id: 'agent-1', root_id: 'docs', path: '' }, { pollIntervalMs: 0, pollTimeoutMs: 1_000 }))
+      .resolves.toMatchObject({ status: 'completed', entries: [{ name: 'Team', path: 'Team' }] })
+  })
+
+  it('reports a bounded browse timeout', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => response({ job_id: 'browse-1', status: 'pending', root_id: 'docs', path: '', entries: [], truncated: false }))
+    await expect(browseSourceDirectory({ agent_id: 'agent-1', root_id: 'docs', path: '' }, { pollIntervalMs: 0, pollTimeoutMs: 0 }))
+      .rejects.toEqual(expect.objectContaining({ message: 'Remote directory browse timed out.' }))
   })
 })

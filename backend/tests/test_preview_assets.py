@@ -4,6 +4,10 @@
 """Tests for preview asset storage and cleanup."""
 
 import json
+import threading
+import time
+import warnings
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from io import BytesIO
 
@@ -19,8 +23,12 @@ from app.db.database import get_db
 from app.main import app
 from app.models import Agent, AppSetting, Base, IndexedFile, Source, User
 from app.services.preview_assets import (
+    PreviewKeyLockRegistry,
     delete_preview,
+    is_valid_derived_jpeg,
+    load_preview,
     store_preview,
+    store_preview_if_absent_or_identical,
 )
 
 engine = create_engine(
@@ -29,6 +37,104 @@ engine = create_engine(
     poolclass=StaticPool,
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def test_is_valid_derived_jpeg_requires_a_decodable_jpeg():
+    image = Image.new("RGB", (8, 6), color="blue")
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG")
+
+    assert is_valid_derived_jpeg(buffer.getvalue())
+    assert not is_valid_derived_jpeg(b"not a jpeg")
+
+    png = BytesIO()
+    image.save(png, format="PNG")
+    assert not is_valid_derived_jpeg(png.getvalue())
+
+
+def test_concurrent_preview_store_keeps_first_content_and_rejects_conflict(tmp_path):
+    barrier = threading.Barrier(2)
+    source_id, path, mtime = "source", "photo.jpg", 123
+    first, conflicting = b"first jpeg", b"conflicting jpeg"
+
+    def store(body):
+        barrier.wait()
+        return store_preview_if_absent_or_identical(source_id, path, body, tmp_path, mtime)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(store, (first, conflicting)))
+
+    stored = load_preview(source_id, path, tmp_path, mtime)
+    assert results.count(True) == 1
+    assert results.count(False) == 1
+    assert stored in {first, conflicting}
+
+
+def test_preview_key_lock_registry_keeps_entry_until_holder_and_waiter_exit():
+    registry = PreviewKeyLockRegistry()
+    holder_entered, release_holder, waiter_entered = threading.Event(), threading.Event(), threading.Event()
+
+    def holder():
+        with registry.hold("preview-key"):
+            holder_entered.set()
+            release_holder.wait(timeout=2)
+
+    def waiter():
+        with registry.hold("preview-key"):
+            waiter_entered.set()
+
+    first = threading.Thread(target=holder)
+    second = threading.Thread(target=waiter)
+    first.start()
+    assert holder_entered.wait(timeout=1)
+    second.start()
+    deadline = time.monotonic() + 1
+    while registry.references_for("preview-key") != 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert registry.active_key_count == 1
+    assert registry.references_for("preview-key") == 2
+    assert not waiter_entered.is_set()
+    release_holder.set()
+    first.join(timeout=1)
+    second.join(timeout=1)
+    assert waiter_entered.is_set()
+    assert registry.active_key_count == 0
+    assert registry.references_for("preview-key") == 0
+
+
+def test_preview_key_lock_registry_releases_after_exception():
+    registry = PreviewKeyLockRegistry()
+
+    with pytest.raises(RuntimeError), registry.hold("preview-key"):
+        raise RuntimeError("boom")
+
+    assert registry.active_key_count == 0
+
+
+def test_preview_key_lock_registry_does_not_serialize_different_keys():
+    registry = PreviewKeyLockRegistry()
+    first_entered, second_entered, release = threading.Event(), threading.Event(), threading.Event()
+
+    def hold_first():
+        with registry.hold("first"):
+            first_entered.set()
+            release.wait(timeout=2)
+
+    def hold_second():
+        with registry.hold("second"):
+            second_entered.set()
+
+    first = threading.Thread(target=hold_first)
+    second = threading.Thread(target=hold_second)
+    first.start()
+    assert first_entered.wait(timeout=1)
+    second.start()
+    assert second_entered.wait(timeout=1)
+    release.set()
+    first.join(timeout=1)
+    second.join(timeout=1)
+    assert registry.active_key_count == 0
 
 
 @pytest.fixture
@@ -297,6 +403,90 @@ def test_generate_preview_produces_valid_jpeg_from_real_image(tmp_path):
     assert len(preview_bytes) <= 2 * 1024 * 1024
     # Should be smaller than original (due to downscaling and compression)
     assert len(preview_bytes) < test_image.size[0] * test_image.size[1] * 3
+
+
+def test_generate_preview_rejects_oversized_image_before_conversion(monkeypatch):
+    """Pixel-limit rejection must happen before Pillow decodes or transforms the image."""
+    from app.services import preview_assets
+
+    class OversizedImage:
+        size = (4097, 4097)
+        width = 4097
+        height = 4097
+        mode = "L"
+
+        def __init__(self):
+            self.converted = self.thumbnail_called = self.loaded = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def convert(self, _mode):
+            self.converted = True
+            return self
+
+        def load(self):
+            self.loaded = True
+
+        def thumbnail(self, *_args):
+            self.thumbnail_called = True
+
+    image = OversizedImage()
+    monkeypatch.setattr(preview_assets.Image, "open", lambda _path: image)
+
+    assert preview_assets.generate_derived_jpeg_preview("oversized.jpg") is None
+    assert not image.converted
+    assert not image.thumbnail_called
+    assert not image.loaded
+
+
+def test_generate_preview_thumbnails_large_image_below_pixel_cap(tmp_path):
+    from app.services.preview_assets import generate_derived_jpeg_preview
+
+    source = tmp_path / "large.jpg"
+    Image.new("RGB", (2048, 1536), color="orange").save(source, "JPEG")
+
+    preview_bytes = generate_derived_jpeg_preview(source)
+
+    assert preview_bytes is not None
+    with Image.open(BytesIO(preview_bytes)) as preview:
+        preview.load()
+        assert preview.size == (1024, 768)
+
+
+def test_generate_preview_rejects_pillow_decompression_bomb_warning(monkeypatch):
+    from app.services import preview_assets
+
+    class ImageAfterWarning:
+        size = (1, 1)
+        mode = "L"
+
+        def __init__(self):
+            self.converted = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def convert(self, _mode):
+            self.converted = True
+            return self
+
+    image = ImageAfterWarning()
+
+    def emit_bomb_warning(_path):
+        warnings.warn("decompression bomb", Image.DecompressionBombWarning, stacklevel=2)
+        return image
+
+    monkeypatch.setattr(preview_assets.Image, "open", emit_bomb_warning)
+
+    assert preview_assets.generate_derived_jpeg_preview("bomb.jpg") is None
+    assert not image.converted
 
 
 def test_generate_preview_handles_various_image_formats(tmp_path):

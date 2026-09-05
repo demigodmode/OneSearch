@@ -19,8 +19,7 @@ on:
         default: false
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   meta:
@@ -28,7 +27,6 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
-      publish_images: ${{ steps.version.outputs.publish_images }}
     steps:
       - id: version
         shell: bash
@@ -36,18 +34,78 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           INPUT_VERSION: ${{ inputs.version }}
-          INPUT_PUBLISH: ${{ inputs.publish }}
         run: |
-          tag="$RELEASE_TAG"
-          if [ "$EVENT_NAME" = workflow_dispatch ]; then tag="v$INPUT_VERSION"; fi
-          version="${tag#v}"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "strict X.Y.Z version required" >&2; exit 1; }
+          if [ "$EVENT_NAME" = release ]; then
+            tag="$RELEASE_TAG"
+            [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || { echo "release tag must be vX.Y.Z" >&2; exit 1; }
+            version="${BASH_REMATCH[1]}"
+          else
+            version="$INPUT_VERSION"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "strict X.Y.Z version required" >&2; exit 1; }
+            tag="v$version"
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          if [ "$EVENT_NAME" = release ] || [ "$INPUT_PUBLISH" = true ]; then echo "publish_images=true" >> "$GITHUB_OUTPUT"; else echo "publish_images=false" >> "$GITHUB_OUTPUT"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-  native:
+  validate:
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-amd64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: windows-latest
+            target: win32-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v7
+      - name: Verify checked-out validation sources
+        shell: bash
+        run: uv run python scripts/verify_release_version.py "${{ inputs.version }}"
+      - run: uv run --with pyinstaller pyinstaller agent/packaging/onesearch-agent.spec
+      - name: Stage collision-free native assets
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir -p release-assets
+          ext=""; [ "$TARGET" = win32-x64 ] && ext=.exe
+          label="$TARGET"; [ "$TARGET" = win32-x64 ] && label=windows-x64
+          mv "dist/onesearch-agent$ext" "release-assets/onesearch-agent-$VERSION-$label$ext"
+          mv "dist/onesearch-agent-updater$ext" "release-assets/onesearch-agent-updater-$VERSION-$label$ext"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.target }}
+          path: release-assets/*
+      - name: Summarize validation-only build
+        shell: bash
+        env:
+          REQUESTED_PUBLISH: ${{ inputs.publish }}
+        run: |
+          echo "### Validation-only agent build" >> "$GITHUB_STEP_SUMMARY"
+          echo "No registry or release publication occurred." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$REQUESTED_PUBLISH" = true ]; then
+            echo "The requested publish option was ignored." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  release-native:
     needs: meta
+    if: github.event_name == 'release'
+    permissions:
+      contents: read
+    environment: release
     strategy:
       fail-fast: false
       matrix:
@@ -61,27 +119,33 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       AGENT_UPDATE_PUBLIC_KEY: ${{ secrets.AGENT_UPDATE_PUBLIC_KEY }}
+      TAG: ${{ needs.meta.outputs.tag }}
+      VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
+          fetch-depth: 1
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@v7
-      - name: Verify checked-out release sources
+      - name: Verify immutable release tag and source versions
         shell: bash
-        run: uv run python scripts/verify_release_version.py "${{ needs.meta.outputs.version }}"
+        run: |
+          git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+          tag_commit="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          [ "$tag_commit" = "$GITHUB_SHA" ] || { echo "release tag does not resolve to the release event SHA" >&2; exit 1; }
+          uv run python scripts/verify_release_version.py "$VERSION"
       - name: Validate and embed release public key
         shell: bash
         run: |
-          uv run --package onesearch-agent python -c 'import base64, os; key=base64.b64decode(os.environ["AGENT_UPDATE_PUBLIC_KEY"], validate=True); assert len(key) == 32, "public key must be raw 32 bytes"'
+          uv run --package onesearch-agent python -c 'from onesearch_agent.packaging import validate_public_key; import os; validate_public_key(os.environ["AGENT_UPDATE_PUBLIC_KEY"])'
           printf '%s\n' "$AGENT_UPDATE_PUBLIC_KEY" > agent/onesearch_agent/release_public_key.txt
       - run: uv run --with pyinstaller pyinstaller agent/packaging/onesearch-agent.spec
       - name: Stage collision-free native assets
         shell: bash
         env:
-          VERSION: ${{ needs.meta.outputs.version }}
           TARGET: ${{ matrix.target }}
         run: |
           mkdir -p release-assets
@@ -94,21 +158,37 @@ jobs:
           name: native-${{ matrix.target }}
           path: release-assets/*
 
-  publish:
-    needs: [meta, native]
+  release-publish:
+    needs: [meta, release-native]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      packages: write
     env:
       AGENT_UPDATE_PRIVATE_KEY: ${{ secrets.AGENT_UPDATE_PRIVATE_KEY }}
       AGENT_UPDATE_PUBLIC_KEY: ${{ secrets.AGENT_UPDATE_PUBLIC_KEY }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       VERSION: ${{ needs.meta.outputs.version }}
       TAG: ${{ needs.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - uses: astral-sh/setup-uv@v7
+      - name: Verify immutable release tag and source versions
+        shell: bash
+        run: |
+          git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+          tag_commit="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          [ "$tag_commit" = "$GITHUB_SHA" ] || { echo "release tag does not resolve to the release event SHA" >&2; exit 1; }
+          uv run python scripts/verify_release_version.py "$VERSION"
       - uses: actions/download-artifact@v8
         with:
           path: release-assets
@@ -126,51 +206,40 @@ jobs:
           uv run --package onesearch-agent python -c 'from pathlib import Path; from onesearch_agent.packaging import checksum_lines; path=Path("release-assets/SHA256SUMS"); path.write_text("\n".join(checksum_lines(path.parent))+"\n")'
           uv run --package onesearch-agent python agent/packaging/sign_checksums.py --input release-assets/SHA256SUMS --private-key "$AGENT_UPDATE_PRIVATE_KEY" --output release-assets/SHA256SUMS.sig
       - uses: softprops/action-gh-release@v2
-        if: github.event_name == 'release'
         with:
           files: release-assets/*
-
-  image:
-    needs: meta
-    runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.meta.outputs.version }}
-      PUBLISH: ${{ needs.meta.outputs.publish_images }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
-      - name: Verify checked-out release sources
-        shell: bash
-        run: python scripts/verify_release_version.py "${{ needs.meta.outputs.version }}"
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
-        if: env.PUBLISH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
       - uses: docker/login-action@v4
-        if: env.PUBLISH == 'true' && secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - uses: docker/build-push-action@v7
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+      - name: Publish agent image to GHCR
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: agent/Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: ${{ needs.meta.outputs.publish_images == 'true' }}
+          build-args: |
+            AGENT_UPDATE_PUBLIC_KEY=${{ env.AGENT_UPDATE_PUBLIC_KEY }}
+          push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/onesearch-agent:${{ needs.meta.outputs.version }}
             ghcr.io/${{ github.repository_owner }}/onesearch-agent:latest
       - uses: docker/build-push-action@v7
-        if: env.PUBLISH == 'true' && secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         with:
           context: .
           file: agent/Dockerfile
           platforms: linux/amd64,linux/arm64
+          build-args: |
+            AGENT_UPDATE_PUBLIC_KEY=${{ env.AGENT_UPDATE_PUBLIC_KEY }}
           push: true
           tags: |
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/onesearch-agent:${{ needs.meta.outputs.version }}
-            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/onesearch-agent:latest
+            docker.io/${{ env.DOCKERHUB_USERNAME }}/onesearch-agent:${{ needs.meta.outputs.version }}
+            docker.io/${{ env.DOCKERHUB_USERNAME }}/onesearch-agent:latest
