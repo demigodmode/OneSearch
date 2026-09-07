@@ -8,7 +8,6 @@ from click.testing import CliRunner
 from onesearch_agent.cli import _update_platform, main
 from onesearch_agent.client import (
     AgentAmbiguousResultError,
-    AgentDisabled,
     AgentIncompatible,
     AgentRevoked,
 )
@@ -350,7 +349,9 @@ def test_run_continues_after_native_update_launcher_failure(monkeypatch, tmp_pat
     assert seen == ["install_unavailable"] and "agent revoked" in result.output
 
 
-@pytest.mark.parametrize("error", [AgentDisabled("disabled"), AgentIncompatible("incompatible")])
+# AgentDisabled is intentionally NOT here: it's now a reversible state the runtime keeps
+# retrying (see test_runtime_service), so it never reaches the CLI as a terminal error.
+@pytest.mark.parametrize("error", [AgentIncompatible("incompatible")])
 def test_run_preserves_other_terminal_agent_errors(tmp_path: Path, monkeypatch, error):
     root = tmp_path / "root"
     root.mkdir()

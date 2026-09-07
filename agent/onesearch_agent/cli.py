@@ -13,7 +13,7 @@ from pathlib import Path
 import click
 
 from . import __version__
-from .client import AgentClient, AgentDisabled, AgentIncompatible, AgentRevoked
+from .client import AgentClient, AgentIncompatible, AgentRevoked
 from .config import config_path, load_config
 from .credentials import (
     CredentialError,
@@ -194,7 +194,7 @@ def run(ctx):
         pass
     except CredentialError as error:
         raise click.ClickException(str(error)) from error
-    except (AgentRevoked, AgentIncompatible, AgentDisabled) as error:
+    except (AgentRevoked, AgentIncompatible) as error:
         raise click.ClickException(str(error)) from error
     except UpdateError as error:
         raise click.ClickException(str(error)) from error

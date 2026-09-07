@@ -59,16 +59,6 @@ async def test_runtime_claims_only_with_worker():
 
 
 @pytest.mark.asyncio
-async def test_runtime_treats_disabled_as_terminal():
-    class Client:
-        async def heartbeat(self, *args):
-            raise AgentDisabled()
-
-    with pytest.raises(AgentDisabled):
-        await run_runtime(Client())
-
-
-@pytest.mark.asyncio
 async def test_runtime_caps_backoff_after_jitter():
     delays = []
 
@@ -320,6 +310,68 @@ async def test_runtime_stop_interrupts_the_idle_floor_wait():
     await started.wait()
     stopped.set()
     await asyncio.wait_for(task, 1)
+
+
+@pytest.mark.asyncio
+async def test_runtime_disabled_agent_stays_alive_and_paces_without_claiming():
+    # A disabled agent is reversible; it must not exit (which would hot-loop under a
+    # container restart policy) and must not claim work while disabled.
+    slept = []
+
+    class Client:
+        def __init__(self):
+            self.claims = 0
+
+        async def heartbeat(self, *args):
+            raise AgentDisabled()
+
+        async def claim(self):
+            self.claims += 1
+            return None
+
+    async def worker(*args):
+        pass
+
+    async def sleep(seconds):
+        slept.append(seconds)
+        raise AgentRevoked()  # break out after the first paced retry
+
+    client = Client()
+    with pytest.raises(AgentRevoked):
+        await run_runtime(client, worker=worker, sleep=sleep, interval=30)
+    assert slept == [30]  # paced like pending, not a hot loop
+    assert client.claims == 0  # never claimed while disabled
+
+
+@pytest.mark.asyncio
+async def test_runtime_resumes_after_reenable():
+    # Once re-enabled, the same process picks up and claims again — no restart needed.
+    events = []
+
+    class Client:
+        def __init__(self):
+            self.beats = 0
+
+        async def heartbeat(self, *args):
+            self.beats += 1
+            if self.beats == 1:
+                events.append("disabled")
+                raise AgentDisabled()
+            events.append("online")
+
+        async def claim(self):
+            events.append("claim")
+            raise AgentRevoked()  # stop once we've proven it resumed
+
+    async def worker(*args):
+        pass
+
+    async def sleep(seconds):
+        pass
+
+    with pytest.raises(AgentRevoked):
+        await run_runtime(Client(), worker=worker, sleep=sleep, interval=0)
+    assert events == ["disabled", "online", "claim"]
 
 
 @pytest.mark.parametrize(

@@ -76,9 +76,13 @@ async def run_runtime(
                 else:
                     # Time only the claim so a long-poll's own wait paces us.
                     empty_claim_seconds = monotonic() - started
-        except AgentPending:
+        except (AgentPending, AgentDisabled):
+            # Pending-approval and admin-disabled are reversible states: stay alive and
+            # retry on the interval (the heartbeat raises before any claim, so we also
+            # never claim while disabled). Exiting here would, under a container restart
+            # policy, hot-loop and stretch Docker's restart backoff so re-enable is slow.
             pass
-        except (AgentRevoked, AgentIncompatible, AgentDisabled):
+        except (AgentRevoked, AgentIncompatible):
             raise
         except AgentError:
             failures += 1
