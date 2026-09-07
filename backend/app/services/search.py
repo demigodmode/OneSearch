@@ -326,6 +326,7 @@ class MeilisearchService:
                 "highlightPreTag": "<mark>",
                 "highlightPostTag": "</mark>",
                 "cropLength": crop_length,
+                "showRankingScore": True,
             }
             if sort:
                 opts["sort"] = [sort]

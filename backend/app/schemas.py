@@ -227,6 +227,8 @@ class SearchResult(BaseModel):
     modified_at: int
     snippet: str  # Content snippet with highlighting
     score: float  # Relevance score
+    source_id: str
+    agent_status: str | None = None  # None for local sources; live status for agent-backed ones
 
 
 class SearchResponse(BaseModel):
