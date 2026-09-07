@@ -477,18 +477,25 @@ class SmokeRunner:
         return {"agent": self.poll_agent("online")["id"]}
 
     def _sources(self):
-        tested = self.http(
-            "POST",
-            "/api/sources/test-path",
-            {
-                "root_path": self.config.fixture_agent_path,
-                "location_type": "agent",
-                "agent_id": self.agent_id,
-            },
-        ).body
-        if not tested.get("job_id"):
-            raise RuntimeError("remote path test did not return a browse job")
-        self.poll_job(tested["job_id"])
+        # Validate each remote path on its own and keep the completed validation job
+        # id, ordered to match the source payloads below. Source creation requires a
+        # recent successful validation for that exact path, so both the on_agent and
+        # on_server paths must be validated (not just the first).
+        validation_ids = []
+        for root_path in (self.config.fixture_agent_path, self.config.fixture_server_path):
+            tested = self.http(
+                "POST",
+                "/api/sources/test-path",
+                {
+                    "root_path": root_path,
+                    "location_type": "agent",
+                    "agent_id": self.agent_id,
+                },
+            ).body
+            if not tested.get("job_id"):
+                raise RuntimeError("remote path test did not return a browse job")
+            self.poll_job(tested["job_id"])
+            validation_ids.append(tested["job_id"])
         payloads = [
             {
                 "name": "smoke-on-agent",
@@ -497,6 +504,7 @@ class SmokeRunner:
                 "agent_id": self.agent_id,
                 "processing_mode": "on_agent",
                 "use_default_schedule": True,
+                "path_validation_job_id": validation_ids[0],
             },
             {
                 "name": "smoke-on-server",
@@ -508,6 +516,7 @@ class SmokeRunner:
                 "schedule_type": "interval",
                 "interval_value": 1,
                 "interval_unit": "minutes",
+                "path_validation_job_id": validation_ids[1],
             },
         ]
         responses = [

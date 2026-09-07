@@ -91,6 +91,7 @@ class Scenario:
         self.cleanup_started = False
         self.clock = 0.0
         self.source_reads = 0
+        self.validation_jobs: dict[str, str] = {}
 
     def _agent(self):
         return {
@@ -143,16 +144,18 @@ class Scenario:
             return reply(200, agent)
         if (method, path) == ("POST", "/api/sources/test-path"):
             assert self.status == "online" and not self.source_ids
-            assert body == {
-                "root_path": "/fixtures/agent",
-                "location_type": "agent",
-                "agent_id": "agent-1",
-            }
+            assert body["location_type"] == "agent" and body["agent_id"] == "agent-1"
+            assert body["root_path"] in {"/fixtures/agent", "/fixtures/server"}
             self.phases_seen.add("remote_browse")
-            return reply(200, {"job_id": self._job("browse")["id"], "status": "pending"})
+            job_id = self._job("browse", reason="validate")["id"]
+            self.validation_jobs[body["root_path"]] = job_id
+            return reply(200, {"job_id": job_id, "status": "pending"})
         if (method, path) == ("POST", "/api/sources"):
             assert "remote_browse" in self.phases_seen
             assert body["location_type"] == "agent" and body["agent_id"] == "agent-1"
+            expected_root = "/fixtures/agent" if body["processing_mode"] == "on_agent" else "/fixtures/server"
+            assert body["root_path"] == expected_root
+            assert body["path_validation_job_id"] == self.validation_jobs[expected_root]
             source_id = "source-agent" if body["processing_mode"] == "on_agent" else "source-server"
             assert source_id not in self.source_ids
             self.source_ids.append(source_id)
