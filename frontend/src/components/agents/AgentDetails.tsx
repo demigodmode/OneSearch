@@ -140,14 +140,41 @@ function UpdateStatus({ agent }: { agent: AgentDetailsModel }) {
   if (!report) {
     return <p className="text-sm text-muted-foreground">Update status has not been reported by this agent.</p>
   }
+  // A build with no signing key can't check for updates at all. Say so plainly and do
+  // not imply that notifications or self-updates are happening.
+  if (report.status === 'not_configured') {
+    return <p className="text-sm text-muted-foreground">Update checks aren't configured for this build.</p>
+  }
   const historical = agent.status === 'offline'
-  const disclosure = <><p className="text-xs text-muted-foreground">{historical ? 'Historical update status — ' : ''}Last checked: {new Date(report.checked_at).toLocaleString()}</p><p className="text-xs text-muted-foreground">Startup and daily GitHub release-host metadata checks occur; only native automatic updates download signed artifacts.</p></>
-  if (report.runtime_kind === 'docker') {
-    const status = report.status === 'available' ? `Image update ${report.available_version} is available.` : `Docker update status: ${report.status}.`
-    return <div className="space-y-1 text-sm text-muted-foreground"><p>{status} Run: docker compose pull onesearch-agent && docker compose up -d onesearch-agent</p>{disclosure}</div>
+  const isDocker = report.runtime_kind === 'docker'
+
+  let line: string
+  if (report.status === 'available') {
+    line = isDocker
+      ? `Image update ${report.available_version} is available. Docker agents never update themselves — pull the new image: docker compose pull onesearch-agent && docker compose up -d onesearch-agent`
+      : report.auto_update
+        ? `Update ${report.available_version} is available and will be installed automatically.`
+        : `Update ${report.available_version} is available. Automatic install is off — run: onesearch-agent --config <config.toml> update check`
+  } else if (report.status === 'current') {
+    line = 'Up to date.'
+  } else if (report.status === 'error') {
+    line = `Update check failed (${report.error_code}).`
+  } else {
+    line = 'Not checked yet.'
   }
-  if (report.status === 'available' && !report.auto_update) {
-    return <div className="space-y-1 text-sm text-muted-foreground"><p>Automatic install is off. Run: onesearch-agent --config {'<config.toml>'} update check</p>{disclosure}</div>
-  }
-  return <div className="space-y-1 text-sm text-muted-foreground"><p>Native update status: {report.status}{report.available_version ? ` (${report.available_version})` : ''}.</p>{disclosure}</div>
+
+  // Install-type note: the docker-vs-native update path is the thing that confuses people.
+  const note = isDocker
+    ? 'Docker agents check for updates at startup and about daily, but never download or replace their own image — you pull the new image to update.'
+    : report.auto_update
+      ? 'Native agents check at startup and about daily and install signed updates automatically.'
+      : 'Native agents check at startup and about daily; automatic install is off, so updates are notify-only.'
+
+  return (
+    <div className="space-y-1 text-sm text-muted-foreground">
+      <p>{line}</p>
+      <p className="text-xs text-muted-foreground">{note}</p>
+      <p className="text-xs text-muted-foreground">{historical ? 'Historical update status — ' : ''}Last checked: {new Date(report.checked_at).toLocaleString()}</p>
+    </div>
+  )
 }

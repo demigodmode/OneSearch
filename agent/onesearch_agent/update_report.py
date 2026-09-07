@@ -8,7 +8,7 @@ from urllib.error import URLError
 
 from onesearch_shared import AgentUpdateReport
 
-from .update import UpdateError, UpdateManager
+from .update import UpdateError, UpdateManager, UpdateNotConfigured
 
 _DAILY_SECONDS = 24 * 60 * 60
 _RETRY_SECONDS = 60 * 60
@@ -82,6 +82,13 @@ class UpdateReporter:
                 auto_update=self.auto_update, runtime_kind=self._report.runtime_kind,
                 status=result.action, available_version=result.version if result.action == "available" else None,
                 checked_at=now,
+            )
+        except UpdateNotConfigured:
+            # No signing key embedded: this build simply can't check for updates.
+            # Report it as its own state, not an error.
+            self._report = AgentUpdateReport(
+                auto_update=self.auto_update, runtime_kind=self._report.runtime_kind,
+                status="not_configured", checked_at=now,
             )
         except (UpdateError, OSError) as error:
             message = str(error).lower()

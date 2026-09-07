@@ -7,8 +7,21 @@ const agent = { id: 'agent-1', name: 'Studio Mac', platform: 'macOS', version: '
 describe('AgentDetails', () => {
   it('shows local native update guidance without an editable toggle', () => {
     render(<AgentDetails agent={{ ...agent, auto_update: false, update_report: { auto_update: false, runtime_kind: 'native', status: 'available', available_version: '1.5.0', checked_at: 1700000000, error_code: null } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
-    expect(screen.getByText('Automatic install is off. Run: onesearch-agent --config <config.toml> update check')).toBeInTheDocument()
-    expect(screen.getByText(/Startup and daily GitHub release-host metadata checks/)).toBeInTheDocument()
+    expect(screen.getByText(/Update 1\.5\.0 is available\. Automatic install is off — run: onesearch-agent --config <config\.toml> update check/)).toBeInTheDocument()
+    expect(screen.getByText(/automatic install is off, so updates are notify-only/)).toBeInTheDocument()
+  })
+
+  it('tells docker agents to pull a new image and never implies self-update', () => {
+    render(<AgentDetails agent={{ ...agent, update_report: { auto_update: false, runtime_kind: 'docker', status: 'available', available_version: '1.5.0', checked_at: 1700000000, error_code: null } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    expect(screen.getByText(/Image update 1\.5\.0 is available\. Docker agents never update themselves/)).toBeInTheDocument()
+    expect(screen.getByText(/docker compose pull onesearch-agent/)).toBeInTheDocument()
+  })
+
+  it('shows a calm "not configured" message for a keyless build, without error or a pull command', () => {
+    render(<AgentDetails agent={{ ...agent, update_report: { auto_update: false, runtime_kind: 'docker', status: 'not_configured', available_version: null, checked_at: 1700000000, error_code: null } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    expect(screen.getByText("Update checks aren't configured for this build.")).toBeInTheDocument()
+    expect(screen.queryByText(/docker compose pull/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/error/i)).not.toBeInTheDocument()
   })
 
   it('labels the last update report as historical while the agent is offline', () => {

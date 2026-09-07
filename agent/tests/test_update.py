@@ -83,6 +83,51 @@ def test_update_reporter_reconciles_changed_local_auto_update_and_checks_again(t
     assert reporter.check_if_due() is True and updates.calls == 1
 
 
+def test_embedded_public_key_treats_placeholder_as_not_configured(monkeypatch):
+    from onesearch_agent.update import UpdateNotConfigured, _embedded_public_key
+
+    monkeypatch.delenv("ONESEARCH_AGENT_UPDATE_PUBLIC_KEY", raising=False)
+    # The committed release_public_key.txt is the "# Replaced by …" placeholder.
+    with pytest.raises(UpdateNotConfigured):
+        _embedded_public_key()
+
+
+def test_embedded_public_key_treats_empty_env_as_not_configured(monkeypatch):
+    from onesearch_agent.update import UpdateNotConfigured, _embedded_public_key
+
+    monkeypatch.setenv("ONESEARCH_AGENT_UPDATE_PUBLIC_KEY", "   ")
+    with pytest.raises(UpdateNotConfigured):
+        _embedded_public_key()
+
+
+def test_embedded_public_key_invalid_supplied_key_stays_an_error(monkeypatch):
+    from onesearch_agent.update import UpdateError, UpdateNotConfigured, _embedded_public_key
+
+    # A key WAS supplied but is malformed: that's a genuine error, not "not configured".
+    monkeypatch.setenv("ONESEARCH_AGENT_UPDATE_PUBLIC_KEY", "AAAA")
+    with pytest.raises(UpdateError) as exc:
+        _embedded_public_key()
+    assert not isinstance(exc.value, UpdateNotConfigured)
+
+
+def test_update_reporter_marks_unconfigured_build_as_not_configured(tmp_path):
+    from onesearch_agent.update import UpdateNotConfigured
+    from onesearch_agent.update_report import UpdateReporter
+
+    class Updates:
+        def check(self, *, auto_update):
+            raise UpdateNotConfigured("update checks are not configured for this build")
+
+    reporter = UpdateReporter(
+        auto_update=False, platform="linux-amd64", version="1.4.0", state_dir=tmp_path,
+        update_manager=Updates(), clock=lambda: 1_700_000_000,
+    )
+    assert reporter.check_if_due() is True
+    report = reporter.report()
+    assert report.status == "not_configured"
+    assert report.error_code is None and report.available_version is None
+
+
 def test_update_reporter_marks_local_permission_failure_as_install_unavailable(tmp_path):
     from onesearch_agent.update_report import UpdateReporter
 

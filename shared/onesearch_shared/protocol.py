@@ -106,7 +106,7 @@ class AgentUpdateReport(WireModel):
 
     auto_update: bool
     runtime_kind: Literal["native", "docker"]
-    status: Literal["not_checked", "current", "available", "error"]
+    status: Literal["not_checked", "current", "available", "error", "not_configured"]
     available_version: str | None = Field(default=None, max_length=40, pattern=r"^\d+\.\d+\.\d+$")
     checked_at: int = Field(ge=0)
     error_code: Literal[

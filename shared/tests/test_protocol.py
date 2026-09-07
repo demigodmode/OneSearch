@@ -59,6 +59,15 @@ def test_heartbeat_carries_only_a_bounded_local_update_report():
     assert_json_round_trip(heartbeat)
 
 
+def test_update_report_accepts_not_configured_without_version_or_error():
+    report = protocol.AgentUpdateReport(
+        auto_update=False, runtime_kind="docker", status="not_configured", checked_at=0
+    )
+    assert report.status == "not_configured"
+    assert report.available_version is None and report.error_code is None
+    assert_json_round_trip(report)
+
+
 def test_protocol_version_three_is_the_only_supported_protocol():
     assert protocol.MINIMUM_SUPPORTED_PROTOCOL_VERSION == protocol.PROTOCOL_VERSION == 3
     assert protocol.REMOTE_MAX_MANIFEST_PAGE_ENTRIES == 1_000

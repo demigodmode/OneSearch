@@ -159,7 +159,7 @@ export interface DirectoryEntry {
 }
 export interface AgentAdminSummary { attached_sources: number; indexed_documents: number; pending_jobs: number; active_jobs: number; failed_jobs: number; earliest_next_scan_at: string | null }
 export interface AgentAdminHealth { code: 'recent_indexing_failures'; affected_sources: number; truncated: boolean; observed_at: string }
-export interface AgentUpdateReport { auto_update: boolean; runtime_kind: 'native' | 'docker'; status: 'not_checked' | 'current' | 'available' | 'error'; available_version: string | null; checked_at: string | number; error_code: 'network' | 'invalid_manifest' | 'incompatible' | 'install_unavailable' | 'install_failed' | null }
+export interface AgentUpdateReport { auto_update: boolean; runtime_kind: 'native' | 'docker'; status: 'not_checked' | 'current' | 'available' | 'error' | 'not_configured'; available_version: string | null; checked_at: string | number; error_code: 'network' | 'invalid_manifest' | 'incompatible' | 'install_unavailable' | 'install_failed' | null }
 export interface AgentSourceSummary { id: string; name: string; root_path: string; next_scan_at: string | null }
 export interface AgentJobSummary { id: string; kind: string; reason: string | null; status: string; source_id: string | null; created_at: string; completed_at: string | null; error: string | null }
 export interface Agent {

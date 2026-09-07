@@ -23,6 +23,14 @@ class UpdateError(RuntimeError):
     """A release artifact was absent, malformed, or unsafe to install."""
 
 
+class UpdateNotConfigured(UpdateError):  # noqa: N818 - a state, mirrors client.py exceptions
+    """No release signing key is embedded, so update checks are not configured.
+
+    Distinct from a configured-but-invalid key: this means the build was never set
+    up to check for updates (a local/dev image), not that something is broken.
+    """
+
+
 MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_ARTIFACT_BYTES = 512 * 1024 * 1024
 
@@ -151,9 +159,13 @@ class UpdateManager:
 def _embedded_public_key() -> bytes:
     value = os.environ.get("ONESEARCH_AGENT_UPDATE_PUBLIC_KEY")
     if value is None:
-        value = files("onesearch_agent").joinpath("release_public_key.txt").read_text().strip()
-    if not value:
-        raise UpdateError("native updates are unavailable: no release public key was embedded")
+        value = files("onesearch_agent").joinpath("release_public_key.txt").read_text()
+    value = value.strip()
+    # Decide "not configured" from the key itself, not a downstream error message: an
+    # empty or placeholder key (the committed "# Replaced by …" comment) means this
+    # build was never wired for updates. A real key is base64 and never starts with #.
+    if not value or value.startswith("#"):
+        raise UpdateNotConfigured("update checks are not configured for this build")
     try:
         return validate_public_key(value)
     except ValueError as error:

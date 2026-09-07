@@ -349,7 +349,7 @@ class AgentAdminHealth(BaseModel):
 class AgentAdminUpdateReport(BaseModel):
     auto_update: bool
     runtime_kind: Literal["native", "docker"]
-    status: Literal["not_checked", "current", "available", "error"]
+    status: Literal["not_checked", "current", "available", "error", "not_configured"]
     available_version: str | None
     checked_at: datetime
     error_code: Literal["network", "invalid_manifest", "incompatible", "install_unavailable", "install_failed"] | None
