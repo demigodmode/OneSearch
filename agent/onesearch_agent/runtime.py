@@ -15,8 +15,10 @@ async def run_runtime(
     *,
     worker=None,
     interval=30,
+    claim_idle_floor=2.0,
     sleep=asyncio.sleep,
     random=lambda: 0,
+    monotonic=time.monotonic,
     stopped=lambda: False,
     wait_stopped=None,
     on_healthy_heartbeat=None,
@@ -60,13 +62,20 @@ async def run_runtime(
     while True:
         if stopped():
             return
+        handled = False
+        empty_claim_seconds = None
         try:
             if await heartbeat():
                 return
             if worker is not None:
+                started = monotonic()
                 lease = await client.claim()
                 if lease is not None:
                     await worker(lease, client)
+                    handled = True
+                else:
+                    # Time only the claim so a long-poll's own wait paces us.
+                    empty_claim_seconds = monotonic() - started
         except AgentPending:
             pass
         except (AgentRevoked, AgentIncompatible, AgentDisabled):
@@ -79,5 +88,19 @@ async def run_runtime(
                 return
             continue
         failures = 0
+        if handled:
+            # A job ran; re-claim immediately so queued work drains without the
+            # idle interval delaying pickup. Stop is honored at the loop top and
+            # by the next heartbeat's stop race.
+            continue
+        if empty_claim_seconds is not None:
+            # The claim long-poll already provided the idle wait. Only sleep if it
+            # returned faster than the floor (a server that isn't long-polling), to
+            # avoid a hot claim loop.
+            if await pause(max(0.0, claim_idle_floor - empty_claim_seconds)):
+                return
+            continue
+        # No worker (heartbeat-only) or an unapproved agent (AgentPending): hold the
+        # steady interval so neither path spins.
         if await pause(interval):
             return

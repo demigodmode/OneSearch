@@ -140,6 +140,188 @@ async def test_stop_interrupts_started_normal_sleep_without_second_heartbeat():
     assert calls == [True]
 
 
+@pytest.mark.asyncio
+async def test_runtime_reclaims_immediately_after_handling_a_job():
+    # A handled job must not wait the idle interval before the next claim, so a
+    # queue drains without the 30s dead window that stalled browse/validation.
+    slept = []
+
+    class Client:
+        def __init__(self):
+            self.claims = 0
+
+        async def heartbeat(self, *args):
+            pass
+
+        async def claim(self):
+            self.claims += 1
+            return "lease"
+
+    handled = []
+
+    async def worker(lease, client):
+        handled.append(lease)
+        if len(handled) == 2:
+            raise AgentRevoked()
+
+    async def sleep(seconds):
+        slept.append(seconds)
+
+    with pytest.raises(AgentRevoked):
+        await run_runtime(Client(), worker=worker, sleep=sleep)
+    assert handled == ["lease", "lease"]
+    assert slept == []  # drained back-to-back with no interval pause
+
+
+@pytest.mark.asyncio
+async def test_runtime_empty_claim_does_not_add_sleep_after_a_longpoll():
+    slept = []
+    ticks = iter([100.0, 130.0])  # the claim itself took 30s (>= floor)
+
+    class Client:
+        async def heartbeat(self, *args):
+            pass
+
+        async def claim(self):
+            return None
+
+    async def worker(*args):
+        pass
+
+    async def sleep(seconds):
+        slept.append(seconds)
+        raise AgentRevoked()
+
+    with pytest.raises(AgentRevoked):
+        await run_runtime(
+            Client(),
+            worker=worker,
+            sleep=sleep,
+            monotonic=lambda: next(ticks),
+            claim_idle_floor=2.0,
+        )
+    assert slept == [0.0]  # long-poll was the wait; nothing extra added
+
+
+@pytest.mark.asyncio
+async def test_runtime_floors_a_fast_empty_claim_to_avoid_hot_loop():
+    slept = []
+    ticks = iter([100.0, 100.5])  # claim returned in 0.5s (server not long-polling)
+
+    class Client:
+        async def heartbeat(self, *args):
+            pass
+
+        async def claim(self):
+            return None
+
+    async def worker(*args):
+        pass
+
+    async def sleep(seconds):
+        slept.append(seconds)
+        raise AgentRevoked()
+
+    with pytest.raises(AgentRevoked):
+        await run_runtime(
+            Client(),
+            worker=worker,
+            sleep=sleep,
+            monotonic=lambda: next(ticks),
+            claim_idle_floor=2.0,
+        )
+    assert slept == [1.5]  # floor - elapsed
+
+
+@pytest.mark.asyncio
+async def test_runtime_unapproved_agent_paces_with_interval():
+    # AgentPending (approval pending) must keep the steady interval, never spin.
+    slept = []
+
+    class Client:
+        def __init__(self):
+            self.claims = 0
+
+        async def heartbeat(self, *args):
+            raise AgentPending()
+
+        async def claim(self):
+            self.claims += 1
+            return None
+
+    async def worker(*args):
+        pass
+
+    async def sleep(seconds):
+        slept.append(seconds)
+        raise AgentRevoked()
+
+    client = Client()
+    with pytest.raises(AgentRevoked):
+        await run_runtime(client, worker=worker, sleep=sleep, interval=30)
+    assert slept == [30]
+    assert client.claims == 0  # heartbeat raised before any claim
+
+
+@pytest.mark.asyncio
+async def test_runtime_stops_after_handling_a_job_without_reclaiming():
+    handled = {"n": 0}
+
+    class Client:
+        def __init__(self):
+            self.claims = 0
+
+        async def heartbeat(self, *args):
+            pass
+
+        async def claim(self):
+            self.claims += 1
+            return "lease"
+
+    async def worker(lease, client):
+        handled["n"] += 1
+
+    client = Client()
+    await run_runtime(client, worker=worker, stopped=lambda: handled["n"] >= 1)
+    assert handled["n"] == 1
+    assert client.claims == 1  # stop honored on the immediate re-claim path
+
+
+@pytest.mark.asyncio
+async def test_runtime_stop_interrupts_the_idle_floor_wait():
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+    ticks = iter([0.0, 0.1])  # fast empty claim -> a floor wait we then interrupt
+
+    class Client:
+        async def heartbeat(self, *args):
+            pass
+
+        async def claim(self):
+            return None
+
+    async def worker(*args):
+        pass
+
+    async def sleep(seconds):
+        started.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.create_task(
+        run_runtime(
+            Client(),
+            worker=worker,
+            sleep=sleep,
+            monotonic=lambda: next(ticks),
+            wait_stopped=stopped.wait,
+            claim_idle_floor=2.0,
+        )
+    )
+    await started.wait()
+    stopped.set()
+    await asyncio.wait_for(task, 1)
+
+
 @pytest.mark.parametrize(
     "value", ["bad\tpath", "bad\x01path", "bad\x7fpath", "bad\npath", "bad\x00path"]
 )
