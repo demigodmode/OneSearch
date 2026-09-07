@@ -200,6 +200,8 @@ export interface SearchResult {
   path: string
   basename: string
   source_name: string
+  source_id: string
+  agent_status?: string | null
   type: string
   size_bytes: number
   modified_at: number // Unix timestamp

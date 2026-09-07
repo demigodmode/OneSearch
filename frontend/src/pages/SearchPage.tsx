@@ -10,6 +10,7 @@ import { SNIPPET_LENGTH_MAP } from '@/contexts/searchSettings'
 import { useSearchSettings } from '@/contexts/useSearchSettings'
 import type { SearchResult } from '@/types/api'
 import { cn, sanitizeSnippet, formatSize, formatTimestamp } from '@/lib/utils'
+import { agentAvailability } from '@/lib/agentAvailability'
 
 const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform)
 
@@ -83,6 +84,17 @@ function ResultCard({
           {showSize && <span>{formatSize(result.size_bytes)}</span>}
           {showDate && <span>{formatTimestamp(result.modified_at)}</span>}
           <span className="text-brand text-xs">{result.source_name}</span>
+          {(() => {
+            const a = agentAvailability(result.agent_status)
+            return a.unavailable ? (
+              <span
+                className={`text-xs ${a.tone === 'danger' ? 'text-destructive' : 'text-amber-600'}`}
+                title="Backing agent is unavailable — the original file can't be downloaded right now."
+              >
+                {a.label}
+              </span>
+            ) : null
+          })()}
         </div>
       </div>
     </div>
