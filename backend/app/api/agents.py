@@ -391,12 +391,12 @@ async def revoke_agent(
         for source in list(agent.sources):
             try:
                 await purge_source(source, db, scheduler=scheduler)
-            except Exception:
+            except Exception as error:
                 logger.exception(f"Failed to purge source {source.id} during agent revoke")
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail="Failed to delete the agent's sources; try again.",
-                )
+                ) from error
     db.refresh(agent)
     return _response(
         agent,

@@ -941,12 +941,12 @@ async def delete_source(
     scheduler = request.app.state.scheduler if hasattr(request.app.state, "scheduler") else None
     try:
         await purge_source(source, db, scheduler=scheduler)
-    except Exception:
+    except Exception as error:
         logger.exception(f"Failed to purge source {source_id}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to remove source data; try again.",
-        )
+        ) from error
 
     logger.info(f"Deleted source: {source_id} ({indexed_files_count} indexed files removed)")
 
