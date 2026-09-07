@@ -117,6 +117,26 @@ def agent_is_fresh(agent: Agent, *, now: datetime | None = None) -> bool:
     return agent.last_seen_at is not None and agent.last_seen_at >= now - AGENT_ONLINE_MAX_AGE
 
 
+def effective_agent_status(agent: Agent | None, *, remote_agents_enabled: bool, now: datetime | None = None) -> str:
+    """Live display status for a backing agent: 'online' only when connected & fresh.
+
+    A None agent means an agent-backed source whose agent row is missing — that is UNAVAILABLE
+    ('offline'), never None (None is reserved by callers for local sources). 'degraded' (recent
+    indexing failures) folds into 'online' — still connected, still serves originals. Terminal
+    states are checked BEFORE the global switch, so a revoked agent still reads 'revoked' even
+    when remote agents are globally disabled. Reuses agent_is_fresh so a stale 'online' row reads
+    as 'offline'."""
+    if agent is None:
+        return "offline"
+    if agent.status in ("revoked", "disabled"):
+        return agent.status
+    if not remote_agents_enabled:
+        return "disabled"
+    if agent.status == "online" and agent_is_fresh(agent, now=now):
+        return "online"
+    return "offline"
+
+
 def mark_stale_agent_offline(db: Session, agent: Agent, *, now: datetime | None = None) -> bool:
     """Persist an offline transition only for a stale agent still marked online."""
     now = now or datetime.now(timezone.utc).replace(tzinfo=None)

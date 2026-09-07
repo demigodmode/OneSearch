@@ -155,9 +155,18 @@ class SourceResponse(SourceBase):
     last_scan_at: datetime | None = None
     next_scan_at: datetime | None = None
     effective_schedule: Optional["ScheduleConfig"] = None
+    agent_name: str | None = None
+    agent_status: str | None = None
 
     @classmethod
-    def from_orm_model(cls, source, effective_schedule: Optional["ScheduleConfig"] = None):
+    def from_orm_model(
+        cls,
+        source,
+        effective_schedule: Optional["ScheduleConfig"] = None,
+        *,
+        agent_name=None,
+        agent_status=None,
+    ):
         """Create SourceResponse from ORM model, deserializing JSON fields"""
         import json
 
@@ -184,6 +193,8 @@ class SourceResponse(SourceBase):
             last_scan_at=source.last_scan_at,
             next_scan_at=source.next_scan_at,
             effective_schedule=effective_schedule,
+            agent_name=agent_name,
+            agent_status=agent_status,
         )
 
 

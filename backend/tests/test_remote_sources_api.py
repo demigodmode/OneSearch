@@ -1,5 +1,7 @@
 """Remote source and dispatcher boundaries."""
 
+import datetime as dt
+import itertools
 import json
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock
@@ -9,9 +11,20 @@ from onesearch_shared import PROTOCOL_VERSION
 
 from app.api.sources import _remote_path_authorized, _remote_path_result
 from app.models import Agent, AgentJob, AppSetting, Source
-from app.services.agent_auth import hash_token
+from app.services.agent_auth import AGENT_ONLINE_MAX_AGE, effective_agent_status, hash_token
 from app.services.scan_dispatcher import ScanDispatcher, SourceNotFoundError
 from app.services.scheduler import SchedulerService
+
+_agent_id_counter = itertools.count()
+_source_id_counter = itertools.count()
+
+
+def _fresh():
+    return dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
+
+
+def _stale():
+    return _fresh() - AGENT_ONLINE_MAX_AGE - dt.timedelta(seconds=5)
 
 
 def _now():
@@ -69,6 +82,77 @@ def approved_agent(db_session):
     db_session.add_all([agent, AppSetting(key="remote_agents_enabled", value="true")])
     db_session.commit()
     return agent
+
+
+@pytest.fixture
+def make_agent(db_session):
+    """Build (and persist) an Agent row with sensible defaults, overridable per test."""
+
+    def _make(**overrides):
+        n = next(_agent_id_counter)
+        defaults = {
+            "id": f"agent-{n}",
+            "name": f"Agent {n}",
+            "platform": "linux",
+            "version": "1",
+            "protocol_version": PROTOCOL_VERSION,
+            "token_hash": hash_token(f"credential-{n}"),
+            "allowed_roots": json.dumps([{"root_id": "docs", "path": "/srv/docs"}]),
+            "default_processing_mode": "on_server",
+            "status": "offline",
+            "approved_at": _now(),
+        }
+        defaults.update(overrides)
+        agent = Agent(**defaults)
+        db_session.add(agent)
+        db_session.commit()
+        return agent
+
+    return _make
+
+
+@pytest.fixture
+def agent_source_factory(db_session, make_agent):
+    """Build a persisted (Agent, Source) pair, along with a global remote_agents_enabled setting."""
+
+    def _make(*, agent=None, remote_agents_enabled=True, **agent_overrides):
+        if agent is None:
+            agent = make_agent(**agent_overrides)
+        if db_session.get(AppSetting, "remote_agents_enabled") is None:
+            db_session.add(
+                AppSetting(
+                    key="remote_agents_enabled",
+                    value="true" if remote_agents_enabled else "false",
+                )
+            )
+            db_session.commit()
+        n = next(_source_id_counter)
+        source = Source(
+            id=f"agent-source-{n}",
+            name=f"Agent source {n}",
+            root_path="/srv/docs/team",
+            location_type="agent",
+            agent_id=agent.id,
+            processing_mode="on_server",
+        )
+        db_session.add(source)
+        db_session.commit()
+        return agent, source
+
+    return _make
+
+
+@pytest.fixture
+def local_source(db_session):
+    source = Source(
+        id="local-source",
+        name="Local source",
+        root_path="/srv/local",
+        location_type="local",
+    )
+    db_session.add(source)
+    db_session.commit()
+    return source
 
 
 def test_remote_source_create_preserves_authorized_path_and_inherits_mode(
@@ -919,3 +1003,35 @@ def test_offline_scheduled_job_is_claimed_after_heartbeat(client, db_session, ap
     claimed = client.post("/api/agent/v1/jobs/claim", headers=headers)
     assert claimed.status_code == 200
     assert claimed.json()["id"] == job.id and claimed.json()["processing_mode"] == "on_server"
+
+
+def test_effective_status_uses_freshness_not_stored_column(make_agent):
+    online_fresh = make_agent(status="online", last_seen_at=_fresh())
+    online_stale = make_agent(status="online", last_seen_at=_stale())
+    assert effective_agent_status(online_fresh, remote_agents_enabled=True) == "online"
+    assert effective_agent_status(online_stale, remote_agents_enabled=True) == "offline"
+
+
+def test_effective_status_terminal_and_global(make_agent):
+    assert effective_agent_status(make_agent(status="revoked"), remote_agents_enabled=True) == "revoked"
+    assert effective_agent_status(make_agent(status="disabled"), remote_agents_enabled=True) == "disabled"
+    assert (
+        effective_agent_status(make_agent(status="online", last_seen_at=_fresh()), remote_agents_enabled=False)
+        == "disabled"
+    )
+    assert effective_agent_status(make_agent(status="revoked"), remote_agents_enabled=False) == "revoked"
+
+
+def test_effective_status_missing_agent_is_unavailable_not_none():
+    assert effective_agent_status(None, remote_agents_enabled=True) == "offline"
+
+
+def test_source_list_reports_effective_status_and_name(client, agent_source_factory):
+    agent, source = agent_source_factory(status="online", last_seen_at=_fresh())
+    row = next(s for s in client.get("/api/sources").json() if s["id"] == source.id)
+    assert row["agent_name"] == agent.name and row["agent_status"] == "online"
+
+
+def test_local_source_has_null_agent_fields(client, local_source):
+    row = next(s for s in client.get("/api/sources").json() if s["id"] == local_source.id)
+    assert row["agent_name"] is None and row["agent_status"] is None

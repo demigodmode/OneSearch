@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from onesearch_shared import BrowseResult
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..config import settings
 from ..db.database import get_db
@@ -33,6 +33,7 @@ from ..schemas import (
     SourceResponse,
     SourceUpdate,
 )
+from ..services.agent_auth import effective_agent_status
 from ..services.agent_jobs import AgentJobService, JobConflict
 from ..services.app_settings import AppSettingsService
 from ..services.indexer import IndexingService
@@ -503,19 +504,29 @@ async def list_sources(
 
     Returns list of sources with configuration details
     """
-    stmt = select(Source).order_by(Source.created_at.desc())
+    stmt = select(Source).options(selectinload(Source.agent)).order_by(Source.created_at.desc())
     sources = db.execute(stmt).scalars().all()
-    default = AppSettingsService(db).get_settings().default_scan_schedule
+    app_settings = AppSettingsService(db).get_settings()
+    default = app_settings.default_scan_schedule
     default_schedule = default.model_dump() if default else None
-    return [
-        SourceResponse.from_orm_model(
-            s,
-            effective_schedule=ScheduleConfig(
-                **resolve_effective_schedule(s, db, default_schedule)
-            ),
+    remote_enabled = app_settings.remote_agents_enabled
+    out = []
+    for s in sources:
+        agent = s.agent
+        is_agent = s.location_type == "agent"
+        out.append(
+            SourceResponse.from_orm_model(
+                s,
+                effective_schedule=ScheduleConfig(
+                    **resolve_effective_schedule(s, db, default_schedule)
+                ),
+                agent_name=agent.name if agent is not None else None,
+                agent_status=effective_agent_status(agent, remote_agents_enabled=remote_enabled)
+                if is_agent
+                else None,
+            )
         )
-        for s in sources
-    ]
+    return out
 
 
 @router.post("/test-path", response_model=SourcePathTestResponse)
