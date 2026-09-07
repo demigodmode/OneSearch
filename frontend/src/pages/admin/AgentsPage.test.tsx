@@ -74,7 +74,7 @@ describe('AgentsPage user flows', () => {
     expect(screen.getByText('/srv/docs')).toBeInTheDocument()
     expect(screen.getByText(/Remote docs: \/srv\/docs/)).toBeInTheDocument()
     expect(screen.getByText(/scan · failed — disk full/)).toBeInTheDocument()
-    expect(screen.getByText('Native update status: current.')).toBeInTheDocument()
+    expect(screen.getByText('Up to date.')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Default processing mode'), { target: { value: 'on_server' } })
     expect(hooks.mode).toHaveBeenCalledWith({ id: 'online', mode: 'on_server' }, expect.anything())
     const options = hooks.mode.mock.calls[0][1]
