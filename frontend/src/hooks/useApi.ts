@@ -95,7 +95,17 @@ export function useCreateAgentEnrollment() {
 }
 export function useApproveAgent() { return useAgentAction(approveAgent) }
 export function useDisableAgent() { return useAgentAction(disableAgent) }
-export function useRevokeAgent() { return useAgentAction(revokeAgent) }
+export function useRevokeAgent() {
+  return useAgentAction(({ id, deleteSources }: { id: string; deleteSources?: boolean }) => revokeAgent(id, deleteSources))
+}
+export function useInvalidateAgentCaches() {
+  const queryClient = useQueryClient()
+  return () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.agents })
+    queryClient.invalidateQueries({ queryKey: queryKeys.sources })
+    queryClient.invalidateQueries({ queryKey: ['search'] })
+  }
+}
 export function useUpdateAgentProcessingMode() { return useAgentAction(({ id, mode }: { id: string; mode: ProcessingMode }) => updateAgentProcessingMode(id, mode)) }
 
 // ============================================================================

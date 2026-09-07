@@ -351,7 +351,10 @@ export async function getAgent(id: string): Promise<AgentDetails> { return apiFe
 export async function createAgentEnrollment(): Promise<AgentEnrollment> { return apiFetch<AgentEnrollment>('/agents/enrollments', { method: 'POST' }) }
 export async function approveAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/approve`, { method: 'POST' }) }
 export async function disableAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/disable`, { method: 'POST' }) }
-export async function revokeAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/revoke`, { method: 'POST' }) }
+export async function revokeAgent(id: string, deleteSources?: boolean): Promise<Agent> {
+  const suffix = deleteSources ? '?delete_sources=true' : ''
+  return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/revoke${suffix}`, { method: 'POST' })
+}
 export async function updateAgentProcessingMode(id: string, default_processing_mode: ProcessingMode): Promise<Agent> {
   return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ default_processing_mode }) })
 }

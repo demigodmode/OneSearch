@@ -11,6 +11,7 @@ import {
   useAppSettings,
   useCreateAgentEnrollment,
   useDisableAgent,
+  useInvalidateAgentCaches,
   useRevokeAgent,
   useUpdateAgentProcessingMode,
   useUpdateAppSettings,
@@ -28,6 +29,7 @@ const statusText: Record<AgentStatus, string> = {
 }
 
 export default function AgentsPage() {
+  const refreshAll = useInvalidateAgentCaches()
   const settings = useAppSettings()
   const updateSettings = useUpdateAppSettings()
   const agents = useAgents()
@@ -241,7 +243,23 @@ export default function AgentsPage() {
           actionPending={disable.isPending || revoke.isPending}
           modePending={mode.isPending}
           onDisable={() => disable.mutate(selectedId, { onSuccess: () => detail.refetch() })}
-          onRevoke={() => revoke.mutate(selectedId, { onSuccess: () => setSelectedId(null) })}
+          onRevoke={({ deleteSources }) =>
+            revoke.mutate(
+              { id: selectedId, deleteSources },
+              {
+                onSuccess: () => {
+                  refreshAll()
+                  setSelectedId(null)
+                },
+                onError: () => refreshAll(),
+              },
+            )
+          }
+          actionError={
+            revoke.isError
+              ? 'Revoke/cleanup failed — some sources may remain. Retry "Delete remaining sources".'
+              : null
+          }
           onMode={(selectedMode) =>
             mode.mutate(
               { id: selectedId, mode: selectedMode },

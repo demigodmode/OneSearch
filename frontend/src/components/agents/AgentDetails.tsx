@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { agentHealthText } from './health'
 import type {
@@ -12,6 +13,7 @@ export function AgentDetails({
   approvalPending = false,
   actionPending = false,
   modePending = false,
+  actionError = null,
   onDisable,
   onRevoke,
   onMode,
@@ -22,10 +24,42 @@ export function AgentDetails({
   approvalPending?: boolean
   actionPending?: boolean
   modePending?: boolean
+  actionError?: string | null
   onDisable: () => void
-  onRevoke: () => void
+  onRevoke: (opts: { deleteSources: boolean }) => void
   onMode: (mode: ProcessingMode) => void
 }) {
+  const [dialogVariant, setDialogVariant] = useState<'revoke' | 'cleanup' | null>(null)
+  const [deleteSources, setDeleteSources] = useState(false)
+  const triggerRef = useRef<HTMLElement | null>(null)
+  const [lastAgentId, setLastAgentId] = useState(agent.id)
+
+  if (agent.id !== lastAgentId) {
+    setLastAgentId(agent.id)
+    setDialogVariant(null)
+    setDeleteSources(false)
+  }
+
+  function openDialog(variant: 'revoke' | 'cleanup', trigger: HTMLElement) {
+    triggerRef.current = trigger
+    setDeleteSources(false)
+    setDialogVariant(variant)
+  }
+
+  function closeDialog() {
+    setDialogVariant(null)
+    setDeleteSources(false)
+    triggerRef.current?.focus()
+  }
+
+  function confirmDialog() {
+    const variant = dialogVariant
+    onRevoke({ deleteSources: variant === 'cleanup' ? true : deleteSources })
+    setDialogVariant(null)
+    setDeleteSources(false)
+    triggerRef.current?.focus()
+  }
+
   return (
     <section
       className="rounded-lg border border-border bg-card p-4 space-y-4"
@@ -126,12 +160,132 @@ export function AgentDetails({
           <Button size="sm" variant="secondary" onClick={onDisable} disabled={actionPending || modePending}>
             Disable credential
           </Button>
-          <Button size="sm" variant="destructive" onClick={onRevoke} disabled={actionPending || modePending}>
+          <Button size="sm" variant="destructive" onClick={(event) => openDialog('revoke', event.currentTarget)} disabled={actionPending || modePending}>
             Revoke credential
           </Button>
         </div>
       )}
+      {agent.status === 'revoked' && agent.summary.attached_sources > 0 && (
+        <div className="flex gap-2">
+          <Button size="sm" variant="destructive" onClick={(event) => openDialog('cleanup', event.currentTarget)} disabled={actionPending}>
+            Delete remaining sources
+          </Button>
+        </div>
+      )}
+      {dialogVariant && (
+        <RevokeDialog
+          variant={dialogVariant}
+          deleteSources={deleteSources}
+          onDeleteSourcesChange={setDeleteSources}
+          onCancel={closeDialog}
+          onConfirm={confirmDialog}
+          actionPending={actionPending}
+          actionError={actionError}
+        />
+      )}
     </section>
+  )
+}
+
+function RevokeDialog({
+  variant,
+  deleteSources,
+  onDeleteSourcesChange,
+  onCancel,
+  onConfirm,
+  actionPending,
+  actionError,
+}: {
+  variant: 'revoke' | 'cleanup'
+  deleteSources: boolean
+  onDeleteSourcesChange: (value: boolean) => void
+  onCancel: () => void
+  onConfirm: () => void
+  actionPending: boolean
+  actionError: string | null
+}) {
+  const headingId = 'agent-revoke-dialog-heading'
+  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const firstRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    firstRef.current?.focus()
+  }, [])
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onCancel()
+      return
+    }
+    if (event.key !== 'Tab') return
+    const dialog = dialogRef.current
+    if (!dialog) return
+    const focusables = Array.from(
+      dialog.querySelectorAll<HTMLElement>('button, input, [tabindex]'),
+    ).filter((el) => !el.hasAttribute('disabled'))
+    if (focusables.length === 0) return
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+    if (event.shiftKey) {
+      if (document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      }
+    } else if (document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  return (
+    <div
+      ref={dialogRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={headingId}
+      onKeyDown={handleKeyDown}
+      className="rounded-lg border border-border bg-card p-4 space-y-3"
+    >
+      <h3 id={headingId} className="font-semibold">
+        {variant === 'cleanup' ? 'Delete remaining sources' : 'Revoke credential'}
+      </h3>
+      <p className="text-sm text-muted-foreground">
+        {variant === 'cleanup'
+          ? 'This agent is already revoked. Retry cleanup to remove its remaining sources.'
+          : 'The agent will lose access immediately. This cannot be undone.'}
+      </p>
+      {variant === 'revoke' && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            ref={(el) => {
+              firstRef.current = el
+            }}
+            type="checkbox"
+            checked={deleteSources}
+            onChange={(event) => onDeleteSourcesChange(event.target.checked)}
+          />
+          Also delete this agent's sources
+        </label>
+      )}
+      {actionError && (
+        <p className="text-sm text-destructive">{actionError}</p>
+      )}
+      <div className="flex gap-2 justify-end">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onCancel}
+          disabled={actionPending}
+          ref={variant === 'cleanup' ? (el) => { firstRef.current = el } : undefined}
+        >
+          Cancel
+        </Button>
+        <Button size="sm" variant="destructive" onClick={onConfirm} disabled={actionPending}>
+          {variant === 'cleanup' ? 'Confirm' : 'Confirm revoke'}
+        </Button>
+      </div>
+    </div>
   )
 }
 

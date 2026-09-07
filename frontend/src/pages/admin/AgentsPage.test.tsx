@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentsPage from './AgentsPage'
 import type { Agent } from '@/types/api'
 
-const hooks = vi.hoisted(() => ({ updateSettings: vi.fn(), approve: vi.fn(), enrollment: vi.fn(), mode: vi.fn() }))
+const hooks = vi.hoisted(() => ({ updateSettings: vi.fn(), approve: vi.fn(), enrollment: vi.fn(), mode: vi.fn(), revoke: vi.fn(), refreshAll: vi.fn() }))
 const detailRefetch = vi.fn()
 const online = { id: 'online', name: 'Online agent', platform: 'linux', version: '1', protocol_version: 2, allowed_roots: [], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'online' as const, approved_at: null, last_seen_at: null, disabled_at: null, created_at: '', updated_at: '', health: null, summary: { attached_sources: 1, indexed_documents: 3, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null } }
 const offline = { ...online, id: 'offline', name: 'Offline agent', status: 'offline' as const, summary: { ...online.summary, indexed_documents: 7 } }
@@ -20,8 +20,9 @@ vi.mock('@/hooks/useApi', () => ({
   useAgents: () => agentsState,
   useCreateAgentEnrollment: () => ({ mutate: hooks.enrollment, isPending: false, ...enrollmentState }),
   useApproveAgent: () => ({ mutate: hooks.approve, isPending: false, error: null }),
-  useDisableAgent: () => ({ mutate: vi.fn(), error: null }), useRevokeAgent: () => ({ mutate: vi.fn(), error: null }),
+  useDisableAgent: () => ({ mutate: vi.fn(), error: null }), useRevokeAgent: () => ({ mutate: hooks.revoke, isPending: false, isError: false, error: null }),
   useUpdateAgentProcessingMode: () => ({ mutate: hooks.mode, error: null }), useAgent: () => ({ ...detailState, refetch: detailRefetch }),
+  useInvalidateAgentCaches: () => hooks.refreshAll,
 }))
 
 describe('AgentsPage user flows', () => {
@@ -99,5 +100,28 @@ describe('AgentsPage user flows', () => {
     expect(hooks.approve).toHaveBeenLastCalledWith('disabled', expect.anything())
     hooks.approve.mock.calls[hooks.approve.mock.calls.length - 1][1].onSuccess()
     expect(detailRefetch).toHaveBeenCalled()
+  })
+  it('revokes an agent, refreshes related caches, and closes the panel on success', () => {
+    detailState = { data: { ...online, sources: [], recent_jobs: [] }, isLoading: false, error: null }
+    render(<AgentsPage />)
+    fireEvent.click(screen.getAllByText('Online agent')[0])
+    fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Confirm revoke/i }))
+    expect(hooks.revoke).toHaveBeenCalledWith(
+      { id: 'online', deleteSources: false },
+      expect.anything(),
+    )
+    expect(() => hooks.revoke.mock.calls[hooks.revoke.mock.calls.length - 1][1].onSuccess()).not.toThrow()
+    expect(hooks.refreshAll).toHaveBeenCalled()
+  })
+  it('keeps the panel open and refreshes caches when revoke fails', () => {
+    detailState = { data: { ...online, sources: [], recent_jobs: [] }, isLoading: false, error: null }
+    render(<AgentsPage />)
+    fireEvent.click(screen.getAllByText('Online agent')[0])
+    fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Confirm revoke/i }))
+    hooks.revoke.mock.calls[hooks.revoke.mock.calls.length - 1][1].onError()
+    expect(hooks.refreshAll).toHaveBeenCalled()
+    expect(screen.getByText('Allowed roots')).toBeInTheDocument()
   })
 })
