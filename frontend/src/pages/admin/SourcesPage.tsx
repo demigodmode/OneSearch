@@ -8,6 +8,7 @@ import type { Agent, ProcessingMode, Source, SourceCreate, SourceUpdate, SourceP
 import { RemotePathPicker } from '@/components/agents/RemotePathPicker'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { browseSourceDirectory } from '@/lib/api'
+import { agentAvailability } from '@/lib/agentAvailability'
 import {
   Dialog,
   DialogContent,
@@ -515,7 +516,9 @@ export default function SourcesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {sources?.map((source, index) => (
+              {sources?.map((source, index) => {
+                const availability = agentAvailability(source.agent_status)
+                return (
                 <tr
                   key={source.id}
                   className="hover:bg-secondary/30 transition-colors animate-fade-in-up animate-initial"
@@ -527,7 +530,21 @@ export default function SourcesPage() {
                         <FolderOpen className="h-4 w-4 text-brand" />
                       </div>
                       <div>
-                        <p className="font-medium text-foreground">{source.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-foreground">{source.name}</p>
+                          {availability.unavailable && (
+                            <span
+                              className={cn(
+                                "text-xs font-medium px-1.5 py-0.5 rounded-full",
+                                availability.tone === 'danger'
+                                  ? "bg-destructive/10 text-destructive"
+                                  : "bg-amber-500/10 text-amber-600"
+                              )}
+                            >
+                              {availability.label}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground font-mono @[560px]:hidden truncate max-w-[200px]">
                           {source.root_path}
                         </p>
@@ -600,7 +617,8 @@ export default function SourcesPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>

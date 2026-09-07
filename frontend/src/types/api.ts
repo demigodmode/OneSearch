@@ -98,6 +98,8 @@ export interface Source extends SourceBase {
   last_scan_at?: string | null
   next_scan_at?: string | null
   effective_schedule?: ScheduleConfig | null
+  agent_name?: string | null
+  agent_status?: string | null
 }
 
 export interface SourcePathTestRequest {

@@ -1,13 +1,25 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { SourceForm } from './SourcesPage'
+import SourcesPage, { SourceForm } from './SourcesPage'
 import { ApiError } from '@/lib/api'
+import type { Source } from '@/types/api'
 
 const testPath = vi.fn()
 let mutationPending = false
+let mockSources: Source[] = []
 vi.mock('@/hooks/useApi', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useApi')>('@/hooks/useApi')
-  return { ...actual, useTestSourcePath: () => ({ mutate: testPath, isPending: mutationPending }) }
+  return {
+    ...actual,
+    useTestSourcePath: () => ({ mutate: testPath, isPending: mutationPending }),
+    useSources: () => ({ data: mockSources, isLoading: false, error: null }),
+    useAppSettings: () => ({ data: undefined }),
+    useAgents: () => ({ data: [] }),
+    useCreateSource: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false }),
+    useUpdateSource: () => ({ mutate: vi.fn(), isPending: false }),
+    useDeleteSource: () => ({ mutate: vi.fn(), isPending: false }),
+    useReindexSource: () => ({ mutate: vi.fn(), isPending: false }),
+  }
 })
 
 const agent = { id: 'agent-1', name: 'Online agent', platform: 'linux', version: '1', protocol_version: 1, allowed_roots: [{ root_id: 'docs', path: '/srv/docs' }], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'online' as const, approved_at: '2026-01-01T00:00:00Z', last_seen_at: null, disabled_at: null, created_at: '', updated_at: '', health: null, summary: { attached_sources: 0, indexed_documents: 0, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null } }
@@ -264,5 +276,25 @@ describe('SourceForm remote source flow', () => {
     expect(submit.mock.calls[0][0]).not.toHaveProperty('agent_id')
     expect(submit.mock.calls[0][0]).not.toHaveProperty('root_path')
     expect(submit.mock.calls[0][0]).not.toHaveProperty('processing_mode')
+  })
+})
+
+describe('SourcesPage list', () => {
+  beforeEach(() => { mockSources = [] })
+
+  it('shows an agent offline badge for a source whose agent is unavailable', async () => {
+    mockSources = [{
+      id: 'remote-source',
+      name: 'Remote docs',
+      root_path: '/srv/docs',
+      location_type: 'agent',
+      agent_id: 'agent-1',
+      agent_status: 'offline',
+      processing_mode: null,
+      created_at: '',
+      updated_at: '',
+    }]
+    render(<SourcesPage />)
+    expect(await screen.findByText('Agent offline')).toBeInTheDocument()
   })
 })
