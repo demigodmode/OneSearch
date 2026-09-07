@@ -128,9 +128,12 @@ class AgentUpdateReport(WireModel):
 
 class AgentJobLease(WireModel):
     id: str = Field(min_length=1)
-    kind: JobKind
+    # WireModel is strict, which disables enum coercion from the JSON string the
+    # server sends over the wire. The client validates a parsed dict (json()), so
+    # strict=False is required here or every claimed lease fails to deserialize.
+    kind: JobKind = Field(strict=False)
     source_id: str | None = Field(default=None, min_length=1)
-    processing_mode: ProcessingMode | None = None
+    processing_mode: ProcessingMode | None = Field(default=None, strict=False)
     payload: dict[str, JsonValue] = Field(default_factory=dict)
     lease_token: str = Field(min_length=1)
 

@@ -199,7 +199,11 @@ def run(ctx):
     except UpdateError as error:
         raise click.ClickException(str(error)) from error
     except Exception as error:
-        raise click.ClickException("agent configuration is unavailable") from error
+        # Surface the exception type only — it names the failure (e.g. ValidationError)
+        # without echoing values or a server response that could carry a token.
+        raise click.ClickException(
+            f"agent configuration is unavailable ({type(error).__name__})"
+        ) from error
 
 
 @main.group()

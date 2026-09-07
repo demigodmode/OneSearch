@@ -10,6 +10,37 @@ from onesearch_agent.client import (
     retry_delay,
 )
 from onesearch_shared import PROTOCOL_VERSION
+from onesearch_shared.protocol import JobKind, ProcessingMode
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind,processing_mode",
+    [("scan", "on_agent"), ("browse", None)],
+)
+async def test_claim_deserializes_lease_from_wire_json(kind, processing_mode):
+    # Regression: the server sends enum fields as JSON strings and claim() validates
+    # the parsed dict (response.json()). WireModel's strict config disables enum
+    # coercion for a dict, so before the strict=False fix every claim failed with
+    # "Input should be an instance of JobKind" and the run loop crashed. A
+    # model_validate_json test would NOT catch this (JSON mode coerces regardless).
+    payload = {"id": "job-1", "kind": kind, "lease_token": "lease"}
+    if processing_mode is not None:
+        payload["processing_mode"] = processing_mode
+
+    async def handler(request):
+        return httpx.Response(200, json=payload)
+
+    async with AgentClient(
+        "http://server.test", "token", transport=httpx.MockTransport(handler)
+    ) as client:
+        lease = await client.claim()
+
+    assert lease is not None
+    assert lease.kind is JobKind(kind)
+    assert lease.processing_mode is (
+        None if processing_mode is None else ProcessingMode(processing_mode)
+    )
 
 
 @pytest.mark.asyncio
