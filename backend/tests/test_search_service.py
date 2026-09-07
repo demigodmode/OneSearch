@@ -660,3 +660,37 @@ def test_apply_relevance_tiebreak_relevance_dominates():
     results = [_result("tie-offline-2", 0.5001, "offline"), _result("tie-local", 0.5004, None)]
     _apply_relevance_tiebreak(results)
     assert [r.id for r in results] == ["tie-local", "tie-offline-2"]
+
+
+class TestDeleteDocumentsByFilterConfirmed:
+    """Unit tests for delete_documents_by_filter_confirmed, using fakes (no real Meili)."""
+
+    def _make_service(self, task_uid, wait_result):
+        service = MeilisearchService()
+        service.index = Mock()
+        service.index.delete_documents = Mock(return_value=SimpleNamespace(task_uid=task_uid))
+        service.client = Mock()
+        service.client.wait_for_task = Mock(return_value=wait_result)
+        return service
+
+    @pytest.mark.asyncio
+    async def test_preserves_falsy_task_uid_zero(self):
+        service = self._make_service(
+            task_uid=0, wait_result=SimpleNamespace(status="succeeded")
+        )
+
+        result = await service.delete_documents_by_filter_confirmed("source_id = 'x'")
+
+        assert result["status"] == "succeeded"
+        service.client.wait_for_task.assert_called_once()
+        called_task_id = service.client.wait_for_task.call_args[0][0]
+        assert called_task_id == 0
+
+    @pytest.mark.asyncio
+    async def test_raises_when_task_fails(self):
+        service = self._make_service(
+            task_uid=0, wait_result=SimpleNamespace(status="failed")
+        )
+
+        with pytest.raises(RuntimeError):
+            await service.delete_documents_by_filter_confirmed("source_id = 'x'")

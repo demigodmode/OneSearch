@@ -876,3 +876,114 @@ def test_stale_agent_transition_is_compare_and_set_against_heartbeat(tmp_path):
     finally:
         stale.close()
         heartbeat.close()
+
+
+def _approved_agent(db_session, *, agent_id="revoke-agent", num_sources=1):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    agent = Agent(
+        id=agent_id,
+        name="Revoke agent",
+        platform="linux",
+        version="1",
+        protocol_version=1,
+        token_hash=hashlib.sha256(agent_id.encode()).hexdigest(),
+        allowed_roots="[]",
+        status="online",
+        approved_at=now,
+        last_seen_at=now,
+    )
+    sources = [
+        Source(
+            id=f"{agent_id}-source-{index}",
+            name=f"Revoke source {index}",
+            root_path=f"/docs/{index}",
+            location_type="agent",
+            agent_id=agent.id,
+        )
+        for index in range(num_sources)
+    ]
+    db_session.add(agent)
+    db_session.add_all(sources)
+    db_session.commit()
+    return agent, sources
+
+
+@pytest.fixture
+def approved_online_agent_with_source(db_session):
+    agent, sources = _approved_agent(db_session, agent_id="revoke-one-source", num_sources=1)
+    return agent, sources[0]
+
+
+@pytest.fixture
+def approved_online_agent_with_two_sources(db_session):
+    agent, sources = _approved_agent(db_session, agent_id="revoke-two-sources", num_sources=2)
+    return agent, sources
+
+
+def test_revoke_keeps_sources_by_default(client, approved_online_agent_with_source):
+    agent, source = approved_online_agent_with_source
+
+    response = client.post(f"/api/agents/{agent.id}/revoke")
+
+    assert response.status_code == 200
+    assert client.get(f"/api/sources/{source.id}").status_code == 200
+
+
+def test_revoke_deletes_and_confirms_meili(
+    client, approved_online_agent_with_two_sources, meili_spy
+):
+    agent, sources = approved_online_agent_with_two_sources
+
+    response = client.post(f"/api/agents/{agent.id}/revoke", params={"delete_sources": True})
+
+    assert response.status_code == 200
+    for source in sources:
+        assert client.get(f"/api/sources/{source.id}").status_code == 404
+    assert meili_spy.waited_for_tasks
+
+
+def test_revoke_cleanup_retryable_when_first_delete_fails(
+    client, approved_online_agent_with_two_sources, meili_spy
+):
+    agent, sources = approved_online_agent_with_two_sources
+    meili_spy.fail_next_filter_delete()
+
+    first = client.post(f"/api/agents/{agent.id}/revoke", params={"delete_sources": True})
+    assert first.status_code >= 500
+
+    second = client.post(f"/api/agents/{agent.id}/revoke", params={"delete_sources": True})
+    assert second.status_code == 200
+
+    for source in sources:
+        assert client.get(f"/api/sources/{source.id}").status_code == 404
+
+
+def test_revoke_cleanup_retryable_when_second_delete_fails(
+    client, approved_online_agent_with_two_sources, meili_spy
+):
+    agent, sources = approved_online_agent_with_two_sources
+    meili_spy.fail_filter_delete_on_call(2)
+
+    first = client.post(f"/api/agents/{agent.id}/revoke", params={"delete_sources": True})
+    assert first.status_code >= 500
+
+    remaining = [
+        source for source in sources if client.get(f"/api/sources/{source.id}").status_code == 200
+    ]
+    assert len(remaining) == 1
+
+    second = client.post(f"/api/agents/{agent.id}/revoke", params={"delete_sources": True})
+    assert second.status_code == 200
+
+    for source in sources:
+        assert client.get(f"/api/sources/{source.id}").status_code == 404
+
+
+def test_revoke_already_revoked_without_cleanup_conflicts(client, approved_online_agent_with_source):
+    agent, source = approved_online_agent_with_source
+
+    first = client.post(f"/api/agents/{agent.id}/revoke")
+    assert first.status_code == 200
+
+    second = client.post(f"/api/agents/{agent.id}/revoke")
+    assert second.status_code == 409

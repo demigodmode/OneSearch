@@ -934,31 +934,19 @@ async def delete_source(
     stmt = select(func.count()).where(IndexedFile.source_id == source_id)
     indexed_files_count = db.execute(stmt).scalar() or 0
 
-    # Delete all documents for this source from Meilisearch using filter
-    # This handles any document ID format (old or new) for seamless migration
-    # Use json.dumps to escape source_id and prevent filter injection
+    # Delete Meilisearch documents, previews, and the source row. Strict: raises if the
+    # Meilisearch delete doesn't confirm, leaving the source intact so a retry can finish it.
+    from ..services.source_cleanup import purge_source
+
+    scheduler = request.app.state.scheduler if hasattr(request.app.state, "scheduler") else None
     try:
-        escaped_id = json.dumps(source_id)
-        await meili_service.delete_documents_by_filter(f"source_id = {escaped_id}")
-    except Exception as e:
-        logger.warning(f"Failed to delete documents from Meilisearch for source {source_id}: {e}")
-
-    # Remove scheduled job if any
-    if hasattr(request.app.state, "scheduler"):
-        request.app.state.scheduler.remove_source(source_id)
-
-    # Clean up stored previews for this source
-    try:
-        from app.config import settings as runtime_settings
-        from app.services.preview_assets import app_data_preview_directory, delete_source_previews
-        preview_base = app_data_preview_directory(runtime_settings.database_url)
-        delete_source_previews(source_id, preview_base)
-    except Exception as e:
-        logger.warning(f"Failed to clean up previews for source {source_id}: {e}")
-
-    # Delete source (cascade will delete indexed_files)
-    db.delete(source)
-    db.commit()
+        await purge_source(source, db, scheduler=scheduler)
+    except Exception:
+        logger.exception(f"Failed to purge source {source_id}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to remove source data; try again.",
+        )
 
     logger.info(f"Deleted source: {source_id} ({indexed_files_count} indexed files removed)")
 

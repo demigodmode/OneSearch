@@ -266,6 +266,23 @@ class MeilisearchService:
             logger.error(f"Failed to delete documents: {e}")
             raise
 
+    async def delete_documents_by_filter_confirmed(self, filter_str: str) -> dict[str, Any]:
+        """Submit a filtered delete and WAIT for the task to succeed. Raises on failure."""
+        if not self.index:
+            raise RuntimeError("Index not initialized")
+        task = await asyncio.to_thread(self.index.delete_documents, filter=filter_str)
+        if isinstance(task, dict):
+            task_id = task.get("task_uid")
+        else:
+            task_id = getattr(task, "task_uid", None)
+        result = await asyncio.to_thread(self.client.wait_for_task, task_id, timeout_in_ms=30000)
+        status_val = getattr(result, "status", None) or (
+            result.get("status") if isinstance(result, dict) else None
+        )
+        if status_val != "succeeded":
+            raise RuntimeError(f"Meilisearch delete task did not succeed: {status_val}")
+        return result.__dict__ if hasattr(result, "__dict__") else dict(result)
+
     async def get_document(self, document_id: str) -> dict[str, Any] | None:
         """
         Get a single document by ID (runs in thread pool)

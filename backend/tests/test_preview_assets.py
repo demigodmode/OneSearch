@@ -228,6 +228,13 @@ def test_source_deletion_removes_preview_directory(db_session, tmp_path, monkeyp
     preview_dir.mkdir()
     monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: preview_dir)
 
+    from app.services.search import meili_service
+
+    async def fake_delete_confirmed(filter_str):
+        return {"status": "succeeded"}
+
+    monkeypatch.setattr(meili_service, "delete_documents_by_filter_confirmed", fake_delete_confirmed)
+
     source_preview_dir = preview_dir / source.id
     source_preview_dir.mkdir(parents=True)
     (source_preview_dir / "preview1.jpg").write_bytes(b"preview data")

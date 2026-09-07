@@ -4,11 +4,12 @@
 """Administrator APIs for remote indexing agents."""
 
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
@@ -32,6 +33,8 @@ from ..services.agent_auth import (
     require_remote_agents_enabled,
 )
 from .auth import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 Database = Annotated[Session, Depends(get_db)]
@@ -367,17 +370,33 @@ async def disable_agent(
 @router.post("/{agent_id}/revoke", response_model=AgentAdminResponse)
 async def revoke_agent(
     agent_id: str,
+    request: Request,
     db: Database,
     current_user: CurrentUser,
+    delete_sources: bool = False,
 ):
     del current_user
+    from ..services.source_cleanup import purge_source  # lazy: avoid api<->api import cycle
+
     agent = _get_agent(agent_id, db)
-    if agent.status == "revoked":
+    if agent.status == "revoked" and not delete_sources:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent is already revoked")
-    agent.status = "revoked"
-    agent.token_hash = None
-    agent.disabled_at = _utcnow()
-    db.commit()
+    if agent.status != "revoked":
+        agent.status = "revoked"
+        agent.token_hash = None
+        agent.disabled_at = _utcnow()
+        db.commit()
+    if delete_sources:
+        scheduler = request.app.state.scheduler if hasattr(request.app.state, "scheduler") else None
+        for source in list(agent.sources):
+            try:
+                await purge_source(source, db, scheduler=scheduler)
+            except Exception:
+                logger.exception(f"Failed to purge source {source.id} during agent revoke")
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Failed to delete the agent's sources; try again.",
+                )
     db.refresh(agent)
     return _response(
         agent,
