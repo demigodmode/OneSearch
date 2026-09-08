@@ -29,12 +29,15 @@ const statusText: Record<AgentStatus, string> = {
   revoked: 'Revoked',
 }
 
-// After Enable/Disable, refetch a few times over this window instead of a
-// permanent poll — enough chances to catch the agent's next heartbeat.
-const REFRESH_DELAYS_MS = [2000, 5000, 10000, 20000, 30000]
 // How long a just-enabled agent gets the calm "waiting for contact" treatment
 // before a genuine outage is shown as a real offline state.
 const ENABLE_GRACE_MS = 60000
+// After Enable/Disable, refetch a few times over this window instead of a
+// permanent poll — enough chances to catch the agent's next heartbeat. The
+// schedule must span the whole grace window: the last tick lands just after
+// ENABLE_GRACE_MS so a contact arriving late in the window is reflected before
+// grace expires and the UI would otherwise show a false "offline".
+const REFRESH_DELAYS_MS = [2000, 5000, 10000, 20000, 30000, 45000, ENABLE_GRACE_MS + 1000]
 
 export default function AgentsPage() {
   const refreshAll = useInvalidateAgentCaches()

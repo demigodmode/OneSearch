@@ -15,6 +15,7 @@ let enabled = true
 let agentsState: { data: Agent[]; isLoading: boolean; error: Error | null } = { data: [online, offline, pending], isLoading: false, error: null }
 let enrollmentState: { data: { code: string; expires_at: string } | null; error: Error | null } = { data: null, error: null }
 let detailState: { data: Record<string, unknown> | null; isLoading: boolean; error: Error | null } = { data: null, isLoading: false, error: null }
+let revokeState: { isPending: boolean; isError: boolean } = { isPending: false, isError: false }
 vi.mock('@/hooks/useApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/hooks/useApi')>()
   return {
@@ -23,7 +24,7 @@ vi.mock('@/hooks/useApi', async (importOriginal) => {
     useAgents: () => ({ ...agentsState, refetch: agentsRefetch }),
     useCreateAgentEnrollment: () => ({ mutate: hooks.enrollment, isPending: false, ...enrollmentState }),
     useApproveAgent: () => ({ mutate: hooks.approve, isPending: false, error: null }),
-    useDisableAgent: () => ({ mutate: vi.fn(), error: null }), useRevokeAgent: () => ({ mutate: hooks.revoke, isPending: false, isError: false, error: null }),
+    useDisableAgent: () => ({ mutate: vi.fn(), error: null }), useRevokeAgent: () => ({ mutate: hooks.revoke, isPending: revokeState.isPending, isError: revokeState.isError, error: null }),
     useUpdateAgentProcessingMode: () => ({ mutate: hooks.mode, error: null }), useAgent: () => ({ ...detailState, refetch: detailRefetch }),
     useInvalidateAgentCaches: () => hooks.refreshAll,
     // Real bounded-refresh timer logic — the polling/grace-window tests need it to behave.
@@ -32,7 +33,7 @@ vi.mock('@/hooks/useApi', async (importOriginal) => {
 })
 
 describe('AgentsPage user flows', () => {
-  beforeEach(() => { enabled = true; agentsState = { data: [online, offline, pending, disabled, degraded], isLoading: false, error: null }; enrollmentState = { data: null, error: null }; detailState = { data: null, isLoading: false, error: null }; vi.clearAllMocks(); detailRefetch.mockClear(); agentsRefetch.mockClear() })
+  beforeEach(() => { enabled = true; agentsState = { data: [online, offline, pending, disabled, degraded], isLoading: false, error: null }; enrollmentState = { data: null, error: null }; detailState = { data: null, isLoading: false, error: null }; revokeState = { isPending: false, isError: false }; vi.clearAllMocks(); detailRefetch.mockClear(); agentsRefetch.mockClear() })
   it('filters attention to pending and offline agents while showing retained documents', () => {
     render(<AgentsPage />)
     expect(screen.getByText('Remote documents')).toBeInTheDocument()
@@ -128,28 +129,41 @@ describe('AgentsPage user flows', () => {
     fireEvent.click(screen.getAllByText('Online agent')[0])
     fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
     fireEvent.click(screen.getByRole('button', { name: /Confirm revoke/i }))
-    await act(async () => {
+    // The dialog stays open on confirm (FIX 1). Success resolves asynchronously:
+    // flush the panel unmount in its own act first (mirrors react-query's
+    // onSuccess microtask, which commits the unmount before our rAF runs), then
+    // let the rAF land focus on the surviving heading — otherwise the still-
+    // mounted dialog's focus trap would yank focus back inside itself.
+    act(() => {
       hooks.revoke.mock.calls[hooks.revoke.mock.calls.length - 1][1].onSuccess()
+    })
+    await act(async () => {
       await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
     })
     expect(screen.getByRole('heading', { name: 'Agents' })).toHaveFocus()
   })
-  it('keeps the panel open and refreshes caches when revoke fails', () => {
+  it('keeps the dialog and its error visible in-context when revoke fails', () => {
     detailState = { data: { ...online, sources: [], recent_jobs: [] }, isLoading: false, error: null }
-    render(<AgentsPage />)
+    const view = render(<AgentsPage />)
     fireEvent.click(screen.getAllByText('Online agent')[0])
     fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
     fireEvent.click(screen.getByRole('button', { name: /Confirm revoke/i }))
+    // Mutation fails: caches refresh, but the panel AND the still-open dialog must
+    // remain so the error is shown where the user acted (locks in FIX 1).
+    revokeState = { isPending: false, isError: true }
     hooks.revoke.mock.calls[hooks.revoke.mock.calls.length - 1][1].onError()
+    view.rerender(<AgentsPage />)
     expect(hooks.refreshAll).toHaveBeenCalled()
     expect(screen.getByText('Allowed roots')).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/Revoke\/cleanup failed/)).toBeInTheDocument()
   })
 
   describe('bounded refresh + grace window after enable', () => {
     beforeEach(() => { vi.useFakeTimers() })
     afterEach(() => { vi.useRealTimers() })
 
-    it('refetches agents and agent detail multiple times over the window after enabling, then stops', () => {
+    it('refetches across the whole grace window after enabling — including a late contact past the 60s grace end — then stops', () => {
       detailState = { data: { ...disabled, sources: [], recent_jobs: [] }, isLoading: false, error: null }
       render(<AgentsPage />)
       fireEvent.click(screen.getAllByText('Disabled agent')[0])
@@ -160,12 +174,19 @@ describe('AgentsPage user flows', () => {
       act(() => { vi.advanceTimersByTime(2000) })
       const afterFirstTick = agentsRefetch.mock.calls.length
       expect(afterFirstTick).toBeGreaterThanOrEqual(1)
-      act(() => { vi.advanceTimersByTime(30000) })
-      const afterAllTicks = agentsRefetch.mock.calls.length
-      expect(afterAllTicks).toBeGreaterThan(afterFirstTick)
-      // scheduled window (2s,5s,10s,20s,30s) has fully elapsed — no more refetches should fire
+      // Advance just past 30s — the previous schedule's final tick. A contact
+      // arriving right after here used to be missed entirely.
+      act(() => { vi.advanceTimersByTime(29000) }) // t = 31s
+      const after31s = agentsRefetch.mock.calls.length
+      expect(after31s).toBeGreaterThan(afterFirstTick)
+      // Advance past the 60s grace end: the 45s and 61s ticks must still fire so a
+      // contact arriving late in the grace window is reflected at/after grace end.
+      act(() => { vi.advanceTimersByTime(31000) }) // t = 62s (past ENABLE_GRACE_MS)
+      const afterGraceEnd = agentsRefetch.mock.calls.length
+      expect(afterGraceEnd).toBeGreaterThan(after31s)
+      // Bounded — the last scheduled tick (61s) has fired, so nothing more runs.
       act(() => { vi.advanceTimersByTime(60000) })
-      expect(agentsRefetch.mock.calls.length).toBe(afterAllTicks)
+      expect(agentsRefetch.mock.calls.length).toBe(afterGraceEnd)
     })
 
     it('clears pending refetch timers on unmount so nothing fires after unmount', () => {

@@ -21,14 +21,14 @@ import type {
 // Statuses the agent job API is known to send. Anything else falls back to a
 // neutral badge so an unrecognized status never disappears silently.
 const JOB_STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  completed: { label: 'Completed', className: 'border-transparent bg-success/15 text-success' },
-  succeeded: { label: 'Succeeded', className: 'border-transparent bg-success/15 text-success' },
-  running: { label: 'Running', className: 'border-transparent bg-warning/15 text-warning' },
-  in_progress: { label: 'In progress', className: 'border-transparent bg-warning/15 text-warning' },
+  completed: { label: 'Completed', className: 'border-transparent bg-success/15 text-success-strong' },
+  succeeded: { label: 'Succeeded', className: 'border-transparent bg-success/15 text-success-strong' },
+  running: { label: 'Running', className: 'border-transparent bg-warning/15 text-warning-strong' },
+  in_progress: { label: 'In progress', className: 'border-transparent bg-warning/15 text-warning-strong' },
   pending: { label: 'Pending', className: 'border-transparent bg-muted text-muted-foreground' },
   queued: { label: 'Queued', className: 'border-transparent bg-muted text-muted-foreground' },
-  failed: { label: 'Failed', className: 'border-transparent bg-destructive/15 text-destructive' },
-  error: { label: 'Error', className: 'border-transparent bg-destructive/15 text-destructive' },
+  failed: { label: 'Failed', className: 'border-transparent bg-destructive/15 text-destructive-strong' },
+  error: { label: 'Error', className: 'border-transparent bg-destructive/15 text-destructive-strong' },
 }
 
 function jobStatusBadge(status: string) {
@@ -96,9 +96,6 @@ export function AgentDetails({
   const [deleteSources, setDeleteSources] = useState(false)
   const triggerRef = useRef<HTMLElement | null>(null)
   const sectionRef = useRef<HTMLElement | null>(null)
-  // Tracks whether the dialog closed because the user confirmed a revoke/cleanup
-  // (panel controls change/disappear) vs. cancelled (trigger still mounted).
-  const revokedRef = useRef(false)
   const [lastAgentId, setLastAgentId] = useState(agent.id)
 
   if (agent.id !== lastAgentId) {
@@ -109,7 +106,6 @@ export function AgentDetails({
 
   function openDialog(variant: 'revoke' | 'cleanup', trigger: HTMLElement) {
     triggerRef.current = trigger
-    revokedRef.current = false
     setDeleteSources(false)
     setDialogVariant(variant)
   }
@@ -122,24 +118,24 @@ export function AgentDetails({
   }
 
   function confirmDialog() {
-    revokedRef.current = true
+    // Fire the mutation but KEEP the dialog open. It's async: on success the
+    // parent unmounts this whole panel (setSelectedId(null)), so the dialog
+    // disappears with it and AgentsPage moves focus to its heading. On failure
+    // the dialog stays open with actionError visible so the user sees the error
+    // in context and can retry — and the delete-sources checkbox is preserved.
+    // Buttons are disabled while actionPending, which also blocks double submit.
     onRevoke({ deleteSources: dialogVariant === 'cleanup' ? true : deleteSources })
-    setDialogVariant(null)
-    setDeleteSources(false)
   }
 
-  // Radix restores focus to the trigger on close by default. On a confirmed
-  // revoke/cleanup the trigger unmounts (status flips to revoked / sources hit
-  // 0), which would drop focus onto <body>. Move it to the surviving details
-  // container instead. On cancel, keep the normal restore-to-trigger behavior.
+  // Radix fires this on the dialog's close AND on its unmount. On cancel/escape
+  // the agent is untouched so the trigger is still mounted — restore focus to it.
+  // On a *successful* revoke/cleanup the parent unmounts this whole panel, so the
+  // trigger is detached by the time this runs; skip it (focusing a detached node
+  // would only blur AgentsPage's heading, which it just focused via rAF).
   function handleCloseAutoFocus(event: Event) {
     event.preventDefault()
-    if (revokedRef.current) {
-      revokedRef.current = false
-      sectionRef.current?.focus()
-    } else {
-      triggerRef.current?.focus()
-    }
+    const trigger = triggerRef.current
+    if (trigger?.isConnected) trigger.focus()
   }
 
   return (

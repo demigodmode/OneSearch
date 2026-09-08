@@ -160,18 +160,51 @@ describe('AgentDetails', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     await waitFor(() => expect(document.activeElement).toBe(trigger))
   })
-  it('moves focus to the surviving details container after a successful revoke', async () => {
-    // Covers the in-component branch: on confirm, focus must not be restored to
-    // the trigger (which the parent unmounts on success) and dropped on <body> —
-    // AgentDetails hands focus to its own surviving section. The full
-    // panel-unmount case is exercised end-to-end in AgentsPage.test.tsx.
-    const { container } = render(<AgentDetails agent={{ ...agent, status: 'online', summary: { ...agent.summary, attached_sources: 1 } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+  it('keeps the dialog open on confirm instead of closing it synchronously', () => {
+    // The mutation is async. Closing on confirm would race a later failure, so
+    // the error would land on an already-closed dialog. The dialog must stay
+    // open until the parent resolves it (unmounts on success; shows error on
+    // failure). Panel-unmount-on-success is exercised in AgentsPage.test.tsx.
+    const onRevoke = vi.fn()
+    render(<AgentDetails agent={{ ...agent, status: 'online', summary: { ...agent.summary, attached_sources: 1 } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={onRevoke} onMode={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
     fireEvent.click(screen.getByRole('button', { name: /Confirm revoke/i }))
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    const section = container.querySelector('section[aria-label="Studio Mac details"]')
-    await waitFor(() => expect(document.activeElement).toBe(section))
-    expect(document.activeElement).not.toBe(document.body)
+    expect(onRevoke).toHaveBeenCalledWith({ deleteSources: false })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+  it('disables the dialog buttons while pending, then surfaces the failure inside the dialog and preserves the checkbox', () => {
+    const shared = { agent: { ...agent, status: 'online' as const, summary: { ...agent.summary, attached_sources: 2 } }, onClose: vi.fn(), onDisable: vi.fn(), onRevoke: vi.fn(), onMode: vi.fn() }
+    const { rerender } = render(<AgentDetails {...shared} actionPending={false} actionError={null} />)
+    fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
+    fireEvent.click(screen.getByLabelText(/also delete .*sources/i))
+    fireEvent.click(screen.getByRole('button', { name: /Confirm revoke/i }))
+    // Mutation in flight: dialog stays open, both actions locked (double-submit guard).
+    rerender(<AgentDetails {...shared} actionPending actionError={null} />)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Confirm revoke/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Cancel/i })).toBeDisabled()
+    // Failure resolves: dialog is still open, the error shows in context, and the
+    // "also delete sources" choice survives so a retry keeps the user's intent.
+    rerender(<AgentDetails {...shared} actionPending={false} actionError="Revoke/cleanup failed — retry." />)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText('Revoke/cleanup failed — retry.')).toBeInTheDocument()
+    expect((screen.getByLabelText(/also delete .*sources/i) as HTMLInputElement).checked).toBe(true)
+  })
+  it('traps focus inside the open revoke dialog', () => {
+    // Radix's FocusScope owns the actual Tab/Shift-Tab trap. jsdom does not
+    // implement native Tab focus movement and Radix's FocusScope does not react
+    // to synthetic fireEvent.keyDown, so we cannot exercise a real Tab-wrap here.
+    // What we CAN assert is the contract the trap is built on: the dialog is a
+    // modal (role="dialog"), initial focus lands inside it on open, and a
+    // synthetic Tab does not move focus out of it.
+    render(<AgentDetails agent={{ ...agent, status: 'online', summary: { ...agent.summary, attached_sources: 1 } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(dialog, { key: 'Tab' })
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })
+    expect(dialog.contains(document.activeElement)).toBe(true)
   })
   it('offers "Delete remaining sources" for a revoked agent that still has sources', () => {
     const onRevoke = vi.fn()
