@@ -46,6 +46,13 @@ describe('AgentDetails', () => {
     expect(await screen.findByText('Copy failed')).toBeInTheDocument()
   })
 
+  it('handles a non-secure context with no clipboard API without throwing', async () => {
+    Object.assign(navigator, { clipboard: undefined })
+    render(<AgentDetails agent={{ ...agent, update_report: { auto_update: false, runtime_kind: 'docker', status: 'available', available_version: '1.5.0', checked_at: 1700000000, error_code: null } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    expect(() => fireEvent.click(screen.getByRole('button', { name: /copy command/i }))).not.toThrow()
+    expect(await screen.findByText('Copy failed')).toBeInTheDocument()
+  })
+
   it('shows a calm "not configured" message for a keyless build, without error or a pull command', () => {
     render(<AgentDetails agent={{ ...agent, update_report: { auto_update: false, runtime_kind: 'docker', status: 'not_configured', available_version: null, checked_at: 1700000000, error_code: null } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
     expect(screen.getByText("Update checks aren't configured for this build.")).toBeInTheDocument()
@@ -85,10 +92,42 @@ describe('AgentDetails', () => {
   })
 
   it('shows bounded degraded detail and the catch-up reason for recent jobs', () => {
-    render(<AgentDetails agent={{ ...agent, status: 'degraded', health: { code: 'recent_indexing_failures', affected_sources: 99, truncated: true, observed_at: '2026-01-01T00:00:00Z' }, recent_jobs: [{ id: 'job-1', kind: 'scan', reason: 'catch_up', status: 'pending', source_id: 'source-1', created_at: '', completed_at: null, error: null }] }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    render(<AgentDetails agent={{ ...agent, status: 'degraded', health: { code: 'recent_indexing_failures', affected_sources: 99, truncated: true, observed_at: '2026-01-01T00:00:00Z' }, recent_jobs: [{ id: 'job-1', kind: 'scan', reason: 'catch_up', status: 'pending', source_id: 'source-1', created_at: '2026-01-02T00:00:00Z', completed_at: null, error: null }] }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
 
     expect(screen.getByText('99+ sources had indexing failures in the last 24 hours.')).toBeInTheDocument()
-    expect(screen.getByText('scan · catch-up · pending')).toBeInTheDocument()
+    expect(screen.getByText('scan · catch-up')).toBeInTheDocument()
+    expect(screen.getByText('Pending')).toBeInTheDocument()
+  })
+
+  it('shows a status label and timestamp for each recent job row', () => {
+    render(<AgentDetails agent={{ ...agent, recent_jobs: [
+      { id: 'job-2', kind: 'extract_file', reason: null, status: 'completed', source_id: 'source-1', created_at: '2026-01-02T00:00:00Z', completed_at: '2026-01-02T00:05:00Z', error: null },
+    ] }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+
+    expect(screen.getByText('extract_file')).toBeInTheDocument()
+    expect(screen.getByText('Completed')).toBeInTheDocument()
+    expect(screen.getByText(new Date('2026-01-02T00:05:00Z').toLocaleString())).toBeInTheDocument()
+  })
+
+  it('renders a failed job row with the destructive status and its error', () => {
+    render(<AgentDetails agent={{ ...agent, recent_jobs: [
+      { id: 'job-3', kind: 'stream_file', reason: null, status: 'failed', source_id: 'source-1', created_at: '2026-01-02T00:00:00Z', completed_at: '2026-01-02T00:01:00Z', error: 'connection reset' },
+    ] }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+
+    const failedBadge = screen.getByText('Failed')
+    expect(failedBadge).toBeInTheDocument()
+    expect(failedBadge.className).toMatch(/text-destructive/)
+    expect(screen.getByText('connection reset')).toBeInTheDocument()
+  })
+
+  it('renders a running job row with the warning status', () => {
+    render(<AgentDetails agent={{ ...agent, recent_jobs: [
+      { id: 'job-4', kind: 'scan', reason: null, status: 'running', source_id: 'source-1', created_at: '2026-01-02T00:00:00Z', completed_at: null, error: null },
+    ] }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+
+    const runningBadge = screen.getByText('Running')
+    expect(runningBadge).toBeInTheDocument()
+    expect(runningBadge.className).toMatch(/text-warning/)
   })
 
   it('confirms revoke, can request source deletion, and moves focus into the dialog', () => {

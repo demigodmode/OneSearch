@@ -1,12 +1,56 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Check, Copy } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { agentHealthText } from './health'
 import type {
   AgentDetails as AgentDetailsModel,
+  AgentJobSummary,
   ProcessingMode,
 } from '@/types/api'
+
+// Statuses the agent job API is known to send. Anything else falls back to a
+// neutral badge so an unrecognized status never disappears silently.
+const JOB_STATUS_BADGE: Record<string, { label: string; className: string }> = {
+  completed: { label: 'Completed', className: 'border-transparent bg-success/15 text-success' },
+  succeeded: { label: 'Succeeded', className: 'border-transparent bg-success/15 text-success' },
+  running: { label: 'Running', className: 'border-transparent bg-warning/15 text-warning' },
+  in_progress: { label: 'In progress', className: 'border-transparent bg-warning/15 text-warning' },
+  pending: { label: 'Pending', className: 'border-transparent bg-muted text-muted-foreground' },
+  queued: { label: 'Queued', className: 'border-transparent bg-muted text-muted-foreground' },
+  failed: { label: 'Failed', className: 'border-transparent bg-destructive/15 text-destructive' },
+  error: { label: 'Error', className: 'border-transparent bg-destructive/15 text-destructive' },
+}
+
+function jobStatusBadge(status: string) {
+  return (
+    JOB_STATUS_BADGE[status] ?? {
+      label: status.charAt(0).toUpperCase() + status.slice(1),
+      className: 'border-transparent bg-muted text-muted-foreground',
+    }
+  )
+}
+
+function JobRow({ job }: { job: AgentJobSummary }) {
+  const badge = jobStatusBadge(job.status)
+  const timestamp = job.completed_at ?? job.created_at
+  return (
+    <li className="flex flex-wrap items-center gap-x-2 gap-y-1 py-0.5">
+      <span className="text-foreground">
+        {job.kind}
+        {job.reason ? ` · ${job.reason.split('_').join('-')}` : ''}
+      </span>
+      <Badge variant="outline" className={badge.className}>
+        {badge.label}
+      </Badge>
+      <span className="text-xs text-muted-foreground">
+        {timestamp ? new Date(timestamp).toLocaleString() : ''}
+      </span>
+      {job.error && <span className="w-full text-xs text-destructive">{job.error}</span>}
+    </li>
+  )
+}
 
 function MetaChip({ label, value }: { label: string; value: string }) {
   return (
@@ -147,13 +191,9 @@ export function AgentDetails({
       <div>
         <h3 className="text-sm font-medium">Recent jobs</h3>
         {agent.recent_jobs.length ? (
-          <ul className="mt-1 space-y-1 text-sm text-muted-foreground">
+          <ul className="mt-1 space-y-1 text-sm">
             {agent.recent_jobs.map((job) => (
-              <li key={job.id}>
-                {job.kind}
-                {job.reason ? ` · ${job.reason.split('_').join('-')}` : ''} · {job.status}
-                {job.error ? ` — ${job.error}` : ''}
-              </li>
+              <JobRow key={job.id} job={job} />
             ))}
           </ul>
         ) : (
@@ -344,19 +384,21 @@ function CopyCommand({ command }: { command: string }) {
         aria-label="Copy command"
         className="shrink-0"
       >
-        {state === 'copied' ? (
-          <>
-            <Check className="h-3.5 w-3.5" aria-hidden />
-            Copied
-          </>
-        ) : state === 'failed' ? (
-          'Copy failed'
-        ) : (
-          <>
-            <Copy className="h-3.5 w-3.5" aria-hidden />
-            Copy
-          </>
-        )}
+        <span aria-live="polite" className="inline-flex items-center gap-1.5">
+          {state === 'copied' ? (
+            <>
+              <Check className="h-3.5 w-3.5" aria-hidden />
+              Copied
+            </>
+          ) : state === 'failed' ? (
+            'Copy failed'
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" aria-hidden />
+              Copy
+            </>
+          )}
+        </span>
       </Button>
     </div>
   )
