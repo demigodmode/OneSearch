@@ -48,6 +48,10 @@ export default function AgentsPage() {
   const mode = useUpdateAgentProcessingMode()
   const [filter, setFilter] = useState<'all' | 'online' | 'attention'>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // On a successful revoke the whole details panel unmounts, so Radix can't
+  // restore focus to the (now-gone) trigger. Move it to the page heading, a
+  // surviving element, so keyboard focus doesn't fall to <body>.
+  const headingRef = useRef<HTMLHeadingElement>(null)
   const detail = useAgent(selectedId ?? '')
   // Client-side record of which agents were just enabled — deliberately NOT
   // derived from approved_at, which the server preserves from the original
@@ -148,7 +152,9 @@ export default function AgentsPage() {
     <div className="space-y-5 animate-fade-in">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Agents</h1>
+          <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold outline-none">
+            Agents
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Connected machines provide remote sources; sources keep their own
             schedules.
@@ -343,6 +349,8 @@ export default function AgentsPage() {
                 onSuccess: () => {
                   refreshAll()
                   setSelectedId(null)
+                  // Panel just unmounted — land focus on a surviving element.
+                  requestAnimationFrame(() => headingRef.current?.focus())
                 },
                 onError: () => refreshAll(),
               },

@@ -122,6 +122,18 @@ describe('AgentsPage user flows', () => {
     expect(() => hooks.revoke.mock.calls[hooks.revoke.mock.calls.length - 1][1].onSuccess()).not.toThrow()
     expect(hooks.refreshAll).toHaveBeenCalled()
   })
+  it('moves focus to the Agents heading after a successful revoke unmounts the panel', async () => {
+    detailState = { data: { ...online, sources: [], recent_jobs: [] }, isLoading: false, error: null }
+    render(<AgentsPage />)
+    fireEvent.click(screen.getAllByText('Online agent')[0])
+    fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Confirm revoke/i }))
+    await act(async () => {
+      hooks.revoke.mock.calls[hooks.revoke.mock.calls.length - 1][1].onSuccess()
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
+    })
+    expect(screen.getByRole('heading', { name: 'Agents' })).toHaveFocus()
+  })
   it('keeps the panel open and refreshes caches when revoke fails', () => {
     detailState = { data: { ...online, sources: [], recent_jobs: [] }, isLoading: false, error: null }
     render(<AgentsPage />)
