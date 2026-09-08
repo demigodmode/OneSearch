@@ -5,13 +5,47 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [1.4.0] - 2026-09-08
+
+### Remote indexing agents (the big one)
+
+Until now, OneSearch could only index what you mounted into the server. Files on a laptop that isn't always on, a NAS you'd rather not NFS-mount, or the Windows box across the house needed a mount before you could search them.
+
+Now you can run an agent on that machine, connect it to your OneSearch server, and choose which directories to add as sources. Nothing to expose on the remote machine, no mounting its disks on the server.
+
+This one's been a long time coming. It started as a comment on the v1.0 launch post, went into planning back in March, and the branch has been cooking since July. Easily the biggest thing we've shipped since launch.
 
 ### Added
 
-- Added optional remote indexing agents for machines whose directories are not mounted on the OneSearch server. Agents use one-time enrollment and administrator approval, stay within configured roots, and support extraction on the agent or in temporary server storage.
-- Added agent health and job details to the admin console, along with disable and revoke controls. Remote sources use the existing global or per-source schedules, and local read-only mounts remain the default.
-- Added native Linux amd64, Linux arm64, and Windows x64 packaging plus a Docker agent image workflow. Update checks are off by default, native artifacts use signed release manifests, and Docker agents never replace their own image.
+- Remote indexing agents for directories on other machines. Enroll an agent with a one-time code, approve it from the admin console, and add its directories as sources. Connections are outbound from the agent to your server.
+
+- Per-agent allowed roots limit which directories OneSearch can access. Agents need admin approval before processing jobs, and you can disable or permanently revoke them from the console.
+
+- Per-source extraction settings. Extract on the agent and send the results to the server, or stream files into temporary server-side storage for extraction there.
+
+- Scheduled scans for remote sources using the existing global default or per-source schedule. If an agent misses a scan while offline, OneSearch keeps one pending catch-up scan for when it reconnects.
+
+- Agent administration with connection status, last contact, version information, and recent jobs with status labels and timestamps.
+
+- Availability labels on remote sources and search results when their agent is offline, disabled, or revoked. In relevance sorting, available sources get preference among near-equal results on the current page. Explicit sorts, such as date or name, are unchanged.
+
+- Stored image previews for remote files. Indexed content and stored previews remain available when the agent is unavailable; downloading an original still requires a connected, approved agent.
+
+- Optional source deletion when revoking an agent. By default, sources and their indexed content stay in OneSearch. You can choose to remove them, or retry any remaining cleanup later. Neither option deletes files from the remote machine.
+
+- Native agent packages for Linux amd64, Linux arm64, and Windows x64, plus a Docker image for Linux amd64 and arm64.
+
+- Signed release manifests and agent update checks. Automatic installation is off by default. Native agents can self-update when configured with the updater service and auto-update enabled; Docker agents only notify you and never replace their own image.
+
+- Setup and API documentation covering enrollment, allowed roots, extraction modes, scheduling, updates, and remote-file availability.
+
+### Before enabling remote agents
+
+Remote agents are optional and disabled by default. Existing server-mounted sources continue to work as before.
+
+For native agents, automatic updates require the documented service setup. For Docker agents, update the image through your normal pull-and-recreate workflow.
+
+Remote embedded RAW previews are not supported in this release.
 
 ---
 
