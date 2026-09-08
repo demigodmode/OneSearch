@@ -765,6 +765,7 @@ Milestone 1 complete. All core features are in — search, indexing, auth, sched
 
 ---
 
+[1.4.0]: https://github.com/demigodmode/OneSearch/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/demigodmode/OneSearch/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/demigodmode/OneSearch/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/demigodmode/OneSearch/compare/v1.2.0...v1.2.1
