@@ -161,9 +161,10 @@ describe('AgentDetails', () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger))
   })
   it('moves focus to the surviving details container after a successful revoke', async () => {
-    // On confirm the whole revoke affordance disappears, so focus must not be
-    // restored to the (now-gone) trigger and dropped on <body>. It lands on the
-    // details container that survives the status change instead.
+    // Covers the in-component branch: on confirm, focus must not be restored to
+    // the trigger (which the parent unmounts on success) and dropped on <body> —
+    // AgentDetails hands focus to its own surviving section. The full
+    // panel-unmount case is exercised end-to-end in AgentsPage.test.tsx.
     const { container } = render(<AgentDetails agent={{ ...agent, status: 'online', summary: { ...agent.summary, attached_sources: 1 } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
     fireEvent.click(screen.getByRole('button', { name: /Confirm revoke/i }))
