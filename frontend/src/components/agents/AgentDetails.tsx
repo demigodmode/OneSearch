@@ -1,11 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Check, Copy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 import { agentHealthText } from './health'
 import type {
   AgentDetails as AgentDetailsModel,
   ProcessingMode,
 } from '@/types/api'
+
+function MetaChip({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-0.5 text-xs">
+      <span className="font-medium text-muted-foreground">{label}</span>
+      <span className="text-foreground">{value}</span>
+    </span>
+  )
+}
 
 export function AgentDetails({
   agent,
@@ -69,13 +79,19 @@ export function AgentDetails({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="font-semibold">{agent.name}</h2>
-          <p className="text-sm text-muted-foreground">
-            {agent.platform} · v{agent.version} · protocol{' '}
-            {agent.protocol_version} · last contact{' '}
-            {agent.last_seen_at
-              ? new Date(agent.last_seen_at).toLocaleString()
-              : 'never'}
-          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <MetaChip label="OS" value={agent.platform} />
+            <MetaChip label="Version" value={`v${agent.version}`} />
+            <MetaChip label="Protocol" value={String(agent.protocol_version)} />
+            <MetaChip
+              label="Last contact"
+              value={
+                agent.last_seen_at
+                  ? new Date(agent.last_seen_at).toLocaleString()
+                  : 'never'
+              }
+            />
+          </div>
         </div>
         <Button size="sm" variant="ghost" onClick={onClose}>
           Close
@@ -112,6 +128,7 @@ export function AgentDetails({
           )}
         </div>
       </div>
+      <Separator />
       <label className="block text-sm">
         Default processing mode
         <select
@@ -124,7 +141,9 @@ export function AgentDetails({
           <option value="on_server">On server</option>
         </select>
       </label>
+      <Separator />
       <UpdateStatus agent={agent} />
+      <Separator />
       <div>
         <h3 className="text-sm font-medium">Recent jobs</h3>
         {agent.recent_jobs.length ? (
@@ -290,6 +309,59 @@ function RevokeDialog({
   )
 }
 
+const DOCKER_UPDATE_COMMAND = 'docker compose pull onesearch-agent && docker compose up -d onesearch-agent'
+
+function CopyCommand({ command }: { command: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
+
+  useEffect(() => {
+    if (state === 'idle') return
+    const timer = setTimeout(() => setState('idle'), 2000)
+    return () => clearTimeout(timer)
+  }, [state])
+
+  async function handleCopy() {
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('Clipboard API unavailable')
+      }
+      await navigator.clipboard.writeText(command)
+      setState('copied')
+    } catch {
+      setState('failed')
+    }
+  }
+
+  return (
+    <div className="mt-1.5 flex items-start gap-2">
+      <pre className="min-w-0 flex-1 overflow-x-auto rounded-md border border-border bg-muted/40 p-2 text-xs">
+        <code>{command}</code>
+      </pre>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={handleCopy}
+        aria-label="Copy command"
+        className="shrink-0"
+      >
+        {state === 'copied' ? (
+          <>
+            <Check className="h-3.5 w-3.5" aria-hidden />
+            Copied
+          </>
+        ) : state === 'failed' ? (
+          'Copy failed'
+        ) : (
+          <>
+            <Copy className="h-3.5 w-3.5" aria-hidden />
+            Copy
+          </>
+        )}
+      </Button>
+    </div>
+  )
+}
+
 function UpdateStatus({ agent }: { agent: AgentDetailsModel }) {
   const report = agent.update_report
   if (!report) {
@@ -302,11 +374,12 @@ function UpdateStatus({ agent }: { agent: AgentDetailsModel }) {
   }
   const historical = agent.status === 'offline'
   const isDocker = report.runtime_kind === 'docker'
+  const showDockerCommand = isDocker && report.status === 'available'
 
   let line: string
   if (report.status === 'available') {
     line = isDocker
-      ? `Image update ${report.available_version} is available. Docker agents never update themselves — pull the new image: docker compose pull onesearch-agent && docker compose up -d onesearch-agent`
+      ? `Image update ${report.available_version} is available. Docker agents never update themselves — pull the new image below.`
       : report.auto_update
         ? `Update ${report.available_version} is available and will be installed automatically.`
         : `Update ${report.available_version} is available. Automatic install is off — run: onesearch-agent --config <config.toml> update check`
@@ -341,6 +414,7 @@ function UpdateStatus({ agent }: { agent: AgentDetailsModel }) {
         )}
         <span>{line}</span>
       </p>
+      {showDockerCommand && <CopyCommand command={DOCKER_UPDATE_COMMAND} />}
       <p className="text-xs text-muted-foreground">{note}</p>
       <p className="text-xs text-muted-foreground">{historical ? 'Historical update status — ' : ''}Last checked: {new Date(report.checked_at).toLocaleString()}</p>
     </div>

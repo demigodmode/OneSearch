@@ -17,6 +17,35 @@ describe('AgentDetails', () => {
     expect(screen.getByText(/docker compose pull onesearch-agent/)).toBeInTheDocument()
   })
 
+  it('shows header metadata as labeled chips', () => {
+    render(<AgentDetails agent={{ ...agent, platform: 'macOS', version: '1.0', protocol_version: 2 }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    expect(screen.getByText('OS')).toBeInTheDocument()
+    expect(screen.getByText('macOS')).toBeInTheDocument()
+    expect(screen.getByText('Version')).toBeInTheDocument()
+    expect(screen.getByText('v1.0')).toBeInTheDocument()
+    expect(screen.getByText('Protocol')).toBeInTheDocument()
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByText('Last contact')).toBeInTheDocument()
+    expect(screen.getByText('never')).toBeInTheDocument()
+  })
+
+  it('copies the docker update command to the clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { writeText } })
+    render(<AgentDetails agent={{ ...agent, update_report: { auto_update: false, runtime_kind: 'docker', status: 'available', available_version: '1.5.0', checked_at: 1700000000, error_code: null } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /copy command/i }))
+    expect(writeText).toHaveBeenCalledWith('docker compose pull onesearch-agent && docker compose up -d onesearch-agent')
+    expect(await screen.findByText('Copied')).toBeInTheDocument()
+  })
+
+  it('handles a rejected clipboard write without throwing', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('nope'))
+    Object.assign(navigator, { clipboard: { writeText } })
+    render(<AgentDetails agent={{ ...agent, update_report: { auto_update: false, runtime_kind: 'docker', status: 'available', available_version: '1.5.0', checked_at: 1700000000, error_code: null } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /copy command/i }))
+    expect(await screen.findByText('Copy failed')).toBeInTheDocument()
+  })
+
   it('shows a calm "not configured" message for a keyless build, without error or a pull command', () => {
     render(<AgentDetails agent={{ ...agent, update_report: { auto_update: false, runtime_kind: 'docker', status: 'not_configured', available_version: null, checked_at: 1700000000, error_code: null } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
     expect(screen.getByText("Update checks aren't configured for this build.")).toBeInTheDocument()
