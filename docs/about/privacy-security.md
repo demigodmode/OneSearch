@@ -8,7 +8,9 @@ OneSearch is self-hosted and does not include telemetry or analytics.
 
 OneSearch server components do not contact external services by default. An optional remote agent connects outbound to the OneSearch server configured by its administrator. Source data travels only between that agent and the server.
 
-Automatic installation is off by default, but every agent contacts the OneSearch GitHub release host for signed release metadata at startup and about every 24 hours. The request does not include indexed content, source paths, search queries, or the agent credential. Only native agents with `auto_update = true` download signed artifacts; Docker agents only report an available update and never replace their own image.
+Automatic installation is off by default, but agents with a configured release signing key contact the OneSearch GitHub release host for signed release metadata at startup and about every 24 hours. The request does not include indexed content, source paths, search queries, or the agent credential. Only native agents with `auto_update = true` download signed artifacts; Docker agents only report an available update and never replace their own image.
+
+A local or development build without an embedded release signing key skips these checks and reports **Update checks aren't configured for this build**. This is expected and does not stop indexing. Official release builds include the key. See [Agent updates](../administration/remote-agents.md#updates).
 
 OneSearch does not send telemetry, analytics, search queries, or indexed content to a hosted OneSearch service.
 

@@ -52,7 +52,7 @@ The source belongs to the OneSearch server, not the agent. An agent is a connect
 
 Remote sources use the central scheduler. **Use global default** follows the schedule configured in Settings. Otherwise, the source can use its own interval, cron schedule, or manual-only setting. Agents have no schedule of their own. If the agent is offline when a scan is due, OneSearch keeps one pending catch-up scan for that source instead of queueing every missed occurrence. Agent details show the job reason as `catch_up`.
 
-Search, indexed document details, and stored image previews remain available from the server while the agent is offline. Downloading an original remote file, or generating a preview that was not stored during indexing, requires the agent to reconnect.
+The Sources page shows **Agent offline**, **Agent disabled**, or **Agent revoked** when a remote source's agent is unavailable. Search, indexed document details, and stored image previews remain available from the server as long as the source is kept. Downloading an original remote file, or generating a preview that was not stored during indexing, requires an available agent. Reconnect an offline agent or enable a disabled one; revocation cannot be undone.
 
 See [Remote agents](../administration/remote-agents.md) for enrollment, service, privacy, updates, and removal.
 

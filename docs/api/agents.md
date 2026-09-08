@@ -21,7 +21,7 @@ Send a user token in `Authorization: Bearer <USER_TOKEN>`.
 | `PATCH` | `/api/agents/{agent_id}` | Change the default processing mode inherited by sources without an override. |
 | `POST` | `/api/agents/{agent_id}/approve` | Approve a pending agent or enable a disabled agent. |
 | `POST` | `/api/agents/{agent_id}/disable` | Stop an agent from authenticating until it is enabled again. |
-| `POST` | `/api/agents/{agent_id}/revoke` | Permanently invalidate the agent token. |
+| `POST` | `/api/agents/{agent_id}/revoke` | Permanently invalidate the agent token; optionally delete its sources with `?delete_sources=true`. |
 
 Create an enrollment code:
 
@@ -52,6 +52,10 @@ Content-Type: application/json
 ```
 
 The allowed values are `on_agent` and `on_server`. This default is resolved when a scan job is created. A source with its own processing-mode override does not inherit it.
+
+Revocation keeps sources and indexed data by default. Set the query parameter `delete_sources=true` to delete the agent's sources and indexed documents as well. Original files on the remote machine are never deleted. Stored-preview cleanup is best-effort; the server logs failures to remove preview files.
+
+The server revokes the token before deleting sources and confirms each search-index deletion before removing its source record. A cleanup failure returns `502`; the agent remains revoked, and earlier source deletions remain in effect. Retry with `delete_sources=true` to remove the remaining sources. Revoking an already-revoked agent without that parameter returns `409`. See [Backup, restore, and removal](../administration/remote-agents.md#backup-restore-and-removal) before deleting data.
 
 An agent response contains administrative data, not its bearer token:
 
@@ -93,6 +97,8 @@ An agent response contains administrative data, not its bearer token:
 The administrative `status` is an effective health state. `degraded` means the agent is connected but at least one source has recent indexing failures. The stored credential state and agent protocol remain active. When degraded, `health` contains `code`, a source count capped at 99, a `truncated` flag, and the most recent affected scan time. A stale heartbeat is reported as `offline` with `health: null`.
 
 `update_report`, when present, is a sanitized local snapshot: the local `auto_update` preference, `runtime_kind`, status, optional available semantic version, check time, and a bounded error code. Older agents omit it. Administrators cannot change this preference remotely.
+
+An `update_report.status` of `not_configured` means the build has no embedded release signing key and cannot check for updates. It is not an indexing failure. The UI displays **Update checks aren't configured for this build**. Docker reports are notify-only regardless of `auto_update`; native automatic installation requires `auto_update=true` and the installed service/updater setup described in [Agent updates](../administration/remote-agents.md#updates).
 
 Agent details include the 10 most recent jobs. Each job has its stored `reason`, such as `manual`, `schedule`, `catch_up`, or `reindex`. Scheduled work first queued while an agent is offline uses `catch_up`. Coalescing never changes the reason of an existing active scan.
 

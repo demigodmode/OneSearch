@@ -42,7 +42,15 @@ The endpoint supports:
 - browser-viewable images: JPG, PNG, WebP, GIF, TIFF
 - RAW photos when an embedded JPEG preview is available
 
-RAW previews do not decode sensor data. OneSearch scans for embedded JPEG previews and returns the best one it can find.
+RAW previews do not decode sensor data. For local sources, OneSearch scans for embedded JPEG previews and returns the best one it can find. Remote RAW embedded previews are not supported and return `415` with `raw_preview_unavailable`.
+
+## Remote files
+
+Stored remote image previews can be served while the agent is offline, disabled, or revoked, provided the source and indexed file record remain valid and previews are enabled. Indexed text and metadata also remain available from the document endpoint.
+
+Original downloads and previews that need to stream the remote file require an approved, online agent and the Remote agents setting to be enabled. If the agent is unavailable, the API returns `409` with `detail.code: "agent_offline"`. This also applies when creating a download link. A valid download token does not bypass the availability check.
+
+Reconnect an offline agent or enable a disabled one before retrying. A revoked credential cannot reconnect. If the indexed file changed, reindex the source before requesting it again. See [Remote file previews](../user-guide/document-preview.md#remote-files).
 
 ## Common errors
 
@@ -66,6 +74,9 @@ Common codes:
 | `source_not_found` | The document's source no longer exists. |
 | `path_outside_source` | The indexed path is outside its configured source root. |
 | `file_not_found` | The source file moved or was deleted after indexing. |
+| `agent_offline` | `409`: the remote agent cannot serve the original file, or remote agents are disabled. |
+| `remote_file_missing` | `404`: the remote file has no indexed file record for this source and path. |
+| `remote_file_changed` | `409`: the remote file record is not ready for streaming, or the file changed after indexing. Reindex before retrying. |
 | `preview_too_large` | The source file is larger than the configured preview limit. |
 | `download_token_missing` | The download URL is missing its short-lived token. |
 | `download_token_expired` | The download URL has expired. Create a new link. |

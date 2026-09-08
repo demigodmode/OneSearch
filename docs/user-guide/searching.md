@@ -32,6 +32,12 @@ Each result shows the filename, path, snippet, source, type, size, and modified 
 
 Snippets use highlighted `<em>` matches from the search engine. For long documents, the snippet is just context. Open the result for the full preview.
 
+## Results from remote agents
+
+Remote results show **Agent offline**, **Agent disabled**, or **Agent revoked** when the backing agent is unavailable. You can still search the indexed content and open stored previews, but you cannot download the original file until an agent can serve it. See [Remote file previews](document-preview.md#remote-files) for what remains available.
+
+With relevance sorting, local results and results from available agents take priority within near-equal relevance groups on the current page. Unavailable results are not hidden. Choosing a date, name, or size sort leaves that order unchanged.
+
 ## Search settings
 
 Go to **Admin → Settings → Search** to tune the search page:

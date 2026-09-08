@@ -138,11 +138,11 @@ Processing mode controls where OneSearch reads file contents. It does not change
 
 ### On agent
 
-The agent reads and extracts each file locally. It sends normalized text, metadata, and reconciliation data to the server. This reduces original-file transfer, but extraction uses CPU and memory on the agent machine.
+The agent reads and extracts each file locally. It sends normalized text, metadata, and reconciliation data to the server. This reduces original-file transfer, but extraction uses CPU and memory on the agent machine. The extractors ship with the agent, so update the agent binary or image to get extraction changes.
 
 ### On server
 
-The agent scans metadata first. For changed files, it streams bounded file data to the server for extraction. The server uses temporary storage while processing and does not retain the original file after extraction. This moves extraction work to the server at the cost of more network traffic.
+The agent scans metadata first. For changed files, it streams bounded file data to the server for extraction. The server uses temporary storage while processing and does not retain the original file after extraction. This moves extraction work to the server at the cost of more network traffic. The extractors run on the server and receive extraction changes when you update the server.
 
 In both modes, the server stores indexed text and metadata in its search index and database. Original files stay on the agent machine. Search results, indexed document details, and stored image previews remain available while an agent is offline. An original download, or a preview that was not stored during indexing, requires the agent to be online. Remote RAW embedded previews are not available.
 
@@ -161,9 +161,15 @@ The Agents page shows last contact, attached sources, indexed document count, re
 
 Disable an agent for a reversible stop. Revoke it if the credential or machine is lost, compromised, or retired. Revocation cannot be undone.
 
+The Sources page and search results show **Agent offline**, **Agent disabled**, or **Agent revoked** beside affected sources and results. Their indexed content and stored previews remain available unless you delete the sources. Original downloads require an available agent; reconnect an offline agent or enable a disabled one. A revoked credential cannot reconnect.
+
+Turning off **Remote agents** in Settings also marks remote sources and results as **Agent disabled**; revoked agents still read **Agent revoked**. A degraded agent remains connected and can serve originals, so its sources do not get an unavailable badge.
+
 Degraded health is based on each source's most recent completed or failed scan. A failed scan marks the source as affected. A completed scan also counts when the source still has failed file records. A later successful scan with no remaining file failures clears the warning. The warning also expires when the source has no qualifying scan in the last 24 hours. Offline, disabled, and revoked states take priority over degraded health.
 
 ## Updates
+
+The Agents page reports update availability; there is no self-update button in the UI. A native agent is installed directly on Linux or Windows. It can install updates automatically when it runs as a service with `auto_update = true` and the packaged updater. Otherwise, update the native files manually. A Docker agent runs in a container; pull its new image and recreate the container to update it.
 
 `auto_update` controls installation, not availability checks. At startup and about every 24 hours, agents check the signed OneSearch GitHub release manifest for a compatible update. A failed availability check retries about hourly and is reported to the administrator; it never stops indexing. Run a manual signed-manifest check with:
 
@@ -175,6 +181,8 @@ This contacts the OneSearch GitHub release host for signed release metadata and 
 
 Docker agents are always notify-only: they check for availability but never download an artifact or replace their own image. Pin the image tag and update it through your normal container deployment process.
 
+If the page says **Update checks aren't configured for this build**, the agent has no embedded release signing key. This is expected for a local or development build without that key and does not stop indexing. Official release builds include the key used to verify update manifests.
+
 For a manual native update, download the matching agent and updater pair from the same release. Follow the release checksum instructions, uninstall the service, replace both files, and install the service again with the same absolute configuration path. Agent and server protocol ranges must overlap. An incompatible agent stops instead of continuing to claim work.
 
 ## Backup, restore, and removal
@@ -183,11 +191,13 @@ Remote-source records and indexed data live in the OneSearch database and search
 
 Agent state contains credentials and update recovery files. Treat a Docker state-volume backup as a secret. Native credentials may live in the operating-system credential store and should not be copied casually to another machine. Re-enrollment is safer than cloning an agent identity. Back up the non-secret configuration separately, then verify allowed-root permissions after restore.
 
-To retire an agent cleanly:
+To retire an agent:
 
-1. Delete or move its remote sources in OneSearch. This removes their indexed data but never deletes originals.
-2. Revoke the agent in **Admin > Agents**.
+1. Open its details in **Admin > Agents** and choose **Revoke credential**.
+2. Leave **Also delete this agent's sources** unchecked to keep their indexed content and stored previews, or select it to remove the sources and indexed documents. Choose **Confirm revoke**.
 3. Uninstall the native service or stop and remove the container.
 4. Remove the local state and configuration only after confirming that the credential was revoked.
 
-If the machine is unavailable, revoke its credential first, then remove its sources.
+Source deletion also cleans up stored previews; failures to remove preview files are logged on the server. Original files on the agent machine are never deleted. Revocation and source deletion cannot be undone in the UI. Back up data you need before deleting sources.
+
+The credential is revoked before source cleanup starts. If cleanup fails, the agent stays revoked and some sources may already be deleted. A revoked agent with sources shows **Delete remaining sources** in its details. Use it to retry cleanup or to remove sources you chose to keep when revoking. The remote machine does not need to be online for this cleanup.

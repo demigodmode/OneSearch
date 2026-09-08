@@ -73,6 +73,8 @@ The agent runs the image's default `run` command. Do not add an enrollment comma
 
 ## Updates
 
+The Agents page reports available updates but has no self-update button. Updating a Docker agent means pulling the new image and recreating the container, not replacing a binary inside it.
+
 With `auto_update = false`, the container still checks signed GitHub release-host metadata at startup and about every 24 hours so the administrator can be notified. It never downloads an artifact, launches an updater, or replaces its image. You can run a manual signed-manifest check:
 
 ```bash
@@ -80,6 +82,8 @@ docker compose run --rm onesearch-agent update check
 ```
 
 With `auto_update = true`, the container uses the same notify-only checks. It does not download a replacement binary or replace its image.
+
+An image built without an embedded release signing key reports **Update checks aren't configured for this build**. This is expected for a keyless development image; indexing still works. See [Agent updates](../administration/remote-agents.md#updates) for native update behavior and signing requirements.
 
 To update, change the pinned image tag, pull it, and recreate the service:
 
@@ -92,7 +96,7 @@ Keep the state volume and configuration mount in place. Review the release notes
 
 ## Remove the container
 
-Delete or move the agent's sources in OneSearch, then revoke its credential from **Admin > Agents**. Stop the container after revocation:
+Revoke its credential from **Admin > Agents**. The confirmation dialog lets you keep its sources or select **Also delete this agent's sources** to remove their indexed data without deleting original files. If cleanup fails, use **Delete remaining sources** on the revoked agent to retry. See [Agent removal](../administration/remote-agents.md#backup-restore-and-removal) for backup and preview-cleanup details. Stop the container after revocation:
 
 ```bash
 docker compose down
