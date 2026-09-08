@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Check, Copy } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import { agentHealthText } from './health'
 import type {
@@ -87,6 +95,10 @@ export function AgentDetails({
   const [dialogVariant, setDialogVariant] = useState<'revoke' | 'cleanup' | null>(null)
   const [deleteSources, setDeleteSources] = useState(false)
   const triggerRef = useRef<HTMLElement | null>(null)
+  const sectionRef = useRef<HTMLElement | null>(null)
+  // Tracks whether the dialog closed because the user confirmed a revoke/cleanup
+  // (panel controls change/disappear) vs. cancelled (trigger still mounted).
+  const revokedRef = useRef(false)
   const [lastAgentId, setLastAgentId] = useState(agent.id)
 
   if (agent.id !== lastAgentId) {
@@ -97,27 +109,44 @@ export function AgentDetails({
 
   function openDialog(variant: 'revoke' | 'cleanup', trigger: HTMLElement) {
     triggerRef.current = trigger
+    revokedRef.current = false
     setDeleteSources(false)
     setDialogVariant(variant)
   }
 
-  function closeDialog() {
+  function cancelDialog() {
+    // Cancel / Escape / overlay: the agent is untouched, so the trigger is still
+    // mounted. Radix will restore focus to it (see handleCloseAutoFocus).
     setDialogVariant(null)
     setDeleteSources(false)
-    triggerRef.current?.focus()
   }
 
   function confirmDialog() {
-    const variant = dialogVariant
-    onRevoke({ deleteSources: variant === 'cleanup' ? true : deleteSources })
+    revokedRef.current = true
+    onRevoke({ deleteSources: dialogVariant === 'cleanup' ? true : deleteSources })
     setDialogVariant(null)
     setDeleteSources(false)
-    triggerRef.current?.focus()
+  }
+
+  // Radix restores focus to the trigger on close by default. On a confirmed
+  // revoke/cleanup the trigger unmounts (status flips to revoked / sources hit
+  // 0), which would drop focus onto <body>. Move it to the surviving details
+  // container instead. On cancel, keep the normal restore-to-trigger behavior.
+  function handleCloseAutoFocus(event: Event) {
+    event.preventDefault()
+    if (revokedRef.current) {
+      revokedRef.current = false
+      sectionRef.current?.focus()
+    } else {
+      triggerRef.current?.focus()
+    }
   }
 
   return (
     <section
-      className="rounded-lg border border-border bg-card p-4 space-y-4"
+      ref={sectionRef}
+      tabIndex={-1}
+      className="rounded-lg border border-border bg-card p-4 space-y-4 outline-none"
       aria-label={`${agent.name} details`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -232,120 +261,85 @@ export function AgentDetails({
           </Button>
         </div>
       )}
-      {dialogVariant && (
-        <RevokeDialog
-          variant={dialogVariant}
-          deleteSources={deleteSources}
-          onDeleteSourcesChange={setDeleteSources}
-          onCancel={closeDialog}
-          onConfirm={confirmDialog}
-          actionPending={actionPending}
-          actionError={actionError}
-        />
-      )}
+      <RevokeDialog
+        open={dialogVariant !== null}
+        variant={dialogVariant ?? 'revoke'}
+        deleteSources={deleteSources}
+        onDeleteSourcesChange={setDeleteSources}
+        onOpenChange={(open) => {
+          if (!open) cancelDialog()
+        }}
+        onConfirm={confirmDialog}
+        onCloseAutoFocus={handleCloseAutoFocus}
+        actionPending={actionPending}
+        actionError={actionError}
+      />
     </section>
   )
 }
 
 function RevokeDialog({
+  open,
   variant,
   deleteSources,
   onDeleteSourcesChange,
-  onCancel,
+  onOpenChange,
   onConfirm,
+  onCloseAutoFocus,
   actionPending,
   actionError,
 }: {
+  open: boolean
   variant: 'revoke' | 'cleanup'
   deleteSources: boolean
   onDeleteSourcesChange: (value: boolean) => void
-  onCancel: () => void
+  onOpenChange: (open: boolean) => void
   onConfirm: () => void
+  onCloseAutoFocus: (event: Event) => void
   actionPending: boolean
   actionError: string | null
 }) {
-  const headingId = 'agent-revoke-dialog-heading'
-  const dialogRef = useRef<HTMLDivElement | null>(null)
-  const firstRef = useRef<HTMLElement | null>(null)
-
-  useEffect(() => {
-    firstRef.current?.focus()
-  }, [])
-
-  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      onCancel()
-      return
-    }
-    if (event.key !== 'Tab') return
-    const dialog = dialogRef.current
-    if (!dialog) return
-    const focusables = Array.from(
-      dialog.querySelectorAll<HTMLElement>('button, input, [tabindex]'),
-    ).filter((el) => !el.hasAttribute('disabled'))
-    if (focusables.length === 0) return
-    const first = focusables[0]
-    const last = focusables[focusables.length - 1]
-    if (event.shiftKey) {
-      if (document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      }
-    } else if (document.activeElement === last) {
-      event.preventDefault()
-      first.focus()
-    }
-  }
-
   return (
-    <div
-      ref={dialogRef}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={headingId}
-      onKeyDown={handleKeyDown}
-      className="rounded-lg border border-border bg-card p-4 space-y-3"
-    >
-      <h3 id={headingId} className="font-semibold">
-        {variant === 'cleanup' ? 'Delete remaining sources' : 'Revoke credential'}
-      </h3>
-      <p className="text-sm text-muted-foreground">
-        {variant === 'cleanup'
-          ? 'This agent is already revoked. Retry cleanup to remove its remaining sources.'
-          : 'The agent will lose access immediately. This cannot be undone.'}
-      </p>
-      {variant === 'revoke' && (
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            ref={(el) => {
-              firstRef.current = el
-            }}
-            type="checkbox"
-            checked={deleteSources}
-            onChange={(event) => onDeleteSourcesChange(event.target.checked)}
-          />
-          Also delete this agent's sources
-        </label>
-      )}
-      {actionError && (
-        <p className="text-sm text-destructive">{actionError}</p>
-      )}
-      <div className="flex gap-2 justify-end">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onCancel}
-          disabled={actionPending}
-          ref={variant === 'cleanup' ? (el) => { firstRef.current = el } : undefined}
-        >
-          Cancel
-        </Button>
-        <Button size="sm" variant="destructive" onClick={onConfirm} disabled={actionPending}>
-          {variant === 'cleanup' ? 'Confirm' : 'Confirm revoke'}
-        </Button>
-      </div>
-    </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
+        <DialogHeader>
+          <DialogTitle>
+            {variant === 'cleanup' ? 'Delete remaining sources' : 'Revoke credential'}
+          </DialogTitle>
+          <DialogDescription>
+            {variant === 'cleanup'
+              ? 'This agent is already revoked. Retry cleanup to remove its remaining sources.'
+              : 'The agent will lose access immediately. This cannot be undone.'}
+          </DialogDescription>
+        </DialogHeader>
+        {variant === 'revoke' && (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={deleteSources}
+              onChange={(event) => onDeleteSourcesChange(event.target.checked)}
+            />
+            Also delete this agent's sources
+          </label>
+        )}
+        {actionError && (
+          <p className="text-sm text-destructive">{actionError}</p>
+        )}
+        <DialogFooter>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={actionPending}
+          >
+            Cancel
+          </Button>
+          <Button size="sm" variant="destructive" onClick={onConfirm} disabled={actionPending}>
+            {variant === 'cleanup' ? 'Confirm' : 'Confirm revoke'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

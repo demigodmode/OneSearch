@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { AgentDetails } from './AgentDetails'
 
@@ -142,25 +142,35 @@ describe('AgentDetails', () => {
     fireEvent.click(screen.getByRole('button', { name: /Confirm revoke/i }))
     expect(onRevoke).toHaveBeenCalledWith({ deleteSources: true })
   })
-  it('restores focus to the trigger when the dialog is cancelled', () => {
+  it('restores focus to the trigger when the dialog is cancelled', async () => {
     render(<AgentDetails agent={{ ...agent, status: 'online', summary: { ...agent.summary, attached_sources: 1 } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
     const trigger = screen.getByRole('button', { name: /Revoke credential/ })
     fireEvent.click(trigger)
     fireEvent.click(screen.getByRole('button', { name: /Cancel/i }))
-    expect(document.activeElement).toBe(trigger)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // Agent untouched, so the trigger survives — focus is handed back to it.
+    // Radix restores focus in a queued microtask, so wait for it to settle.
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
   })
-  it('contains Tab focus within the dialog (wraps at both edges)', () => {
+  it('closes on Escape and returns focus to the trigger', async () => {
     render(<AgentDetails agent={{ ...agent, status: 'online', summary: { ...agent.summary, attached_sources: 1 } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
+    const trigger = screen.getByRole('button', { name: /Revoke credential/ })
+    fireEvent.click(trigger)
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+  })
+  it('moves focus to the surviving details container after a successful revoke', async () => {
+    // On confirm the whole revoke affordance disappears, so focus must not be
+    // restored to the (now-gone) trigger and dropped on <body>. It lands on the
+    // details container that survives the status change instead.
+    const { container } = render(<AgentDetails agent={{ ...agent, status: 'online', summary: { ...agent.summary, attached_sources: 1 } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
-    const dialog = screen.getByRole('dialog')
-    const focusables = Array.from(dialog.querySelectorAll<HTMLElement>('button, input, [tabindex]'))
-    const first = focusables[0], last = focusables[focusables.length - 1]
-    first.focus()
-    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })
-    expect(document.activeElement).toBe(last)
-    last.focus()
-    fireEvent.keyDown(dialog, { key: 'Tab' })
-    expect(document.activeElement).toBe(first)
+    fireEvent.click(screen.getByRole('button', { name: /Confirm revoke/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    const section = container.querySelector('section[aria-label="Studio Mac details"]')
+    await waitFor(() => expect(document.activeElement).toBe(section))
+    expect(document.activeElement).not.toBe(document.body)
   })
   it('offers "Delete remaining sources" for a revoked agent that still has sources', () => {
     const onRevoke = vi.fn()
