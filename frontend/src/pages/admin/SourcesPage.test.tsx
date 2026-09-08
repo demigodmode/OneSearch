@@ -265,6 +265,34 @@ describe('SourceForm remote source flow', () => {
     expect(submit).toHaveBeenCalledWith(expect.objectContaining({ name: 'Renamed docs', root_path: '/srv/docs' }))
   })
 
+  it('blocks saving an existing remote source whose agent was revoked until a new one is chosen', () => {
+    const submit = vi.fn()
+    const revokedAgent = { ...agent, status: 'revoked' as const }
+    const onlineAgent = { ...agent, id: 'agent-2', name: 'Backup agent' }
+    const source = { id: 'remote-source', name: 'Remote docs', root_path: '/srv/docs', location_type: 'agent' as const, agent_id: 'agent-1', processing_mode: null, created_at: '', updated_at: '' }
+    render(<SourceForm source={source} remoteAgentsEnabled agents={[revokedAgent, onlineAgent]} defaultSchedule={null} onSubmit={submit} onCancel={vi.fn()} isLoading={false} />)
+
+    expect(screen.getByLabelText('Approved agent')).toHaveValue('')
+    expect(screen.getByText(/Select an approved agent before saving/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Approved agent'), { target: { value: 'agent-2' } })
+    expect(screen.queryByText(/Select an approved agent before saving/)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Remote path'), { target: { value: '/srv/docs' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Test path' }))
+    act(() => testPath.mock.calls[testPath.mock.calls.length - 1][1].onSuccess({ ok: true, status: 'completed', job_id: 'revoked-agent-validation', message: 'Ready', path: '/srv/docs', exists: true, is_directory: true, readable: true, inside_allowed_roots: true, allowed_roots: ['/srv/docs'], looks_like_host_path: false }))
+    expect(screen.getByRole('button', { name: 'Save Changes' })).not.toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({ agent_id: 'agent-2' }))
+  })
+
+  it('does not apply the agent-selection guard to a local source', () => {
+    const source = { id: 'local-source', name: 'Local docs', root_path: '/data/docs', location_type: 'local' as const, agent_id: null, processing_mode: null, created_at: '', updated_at: '' }
+    render(<SourceForm source={source} remoteAgentsEnabled agents={[{ ...agent, status: 'revoked' as const }]} defaultSchedule={null} onSubmit={vi.fn()} onCancel={vi.fn()} isLoading={false} />)
+    expect(screen.queryByText(/Select an approved agent before saving/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save Changes' })).not.toBeDisabled()
+  })
+
   it('preserves a disabled remote binding while submitting a maintenance-only edit', () => {
     const submit = vi.fn()
     render(<SourceForm source={{ id: 'remote-source', name: 'Remote docs', root_path: '/srv/docs', location_type: 'agent', agent_id: 'agent-1', processing_mode: null, created_at: '', updated_at: '' }} remoteAgentsEnabled={false} agents={[agent]} defaultSchedule={null} onSubmit={submit} onCancel={vi.fn()} isLoading={false} />)
