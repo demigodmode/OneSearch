@@ -8,7 +8,7 @@ import type { Agent, ProcessingMode, Source, SourceCreate, SourceUpdate, SourceP
 import { RemotePathPicker } from '@/components/agents/RemotePathPicker'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { browseSourceDirectory } from '@/lib/api'
-import { agentAvailability } from '@/lib/agentAvailability'
+import { AgentUnavailableBadge } from '@/components/agents/AgentUnavailableBadge'
 import {
   Dialog,
   DialogContent,
@@ -517,7 +517,6 @@ export default function SourcesPage() {
             </thead>
             <tbody className="divide-y divide-border">
               {sources?.map((source, index) => {
-                const availability = agentAvailability(source.agent_status)
                 return (
                 <tr
                   key={source.id}
@@ -529,21 +528,10 @@ export default function SourcesPage() {
                       <div className="p-2 rounded-lg bg-brand/10">
                         <FolderOpen className="h-4 w-4 text-brand" />
                       </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-foreground">{source.name}</p>
-                          {availability.unavailable && (
-                            <span
-                              className={cn(
-                                "text-xs font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap shrink-0",
-                                availability.tone === 'danger'
-                                  ? "bg-destructive/10 text-destructive"
-                                  : "bg-amber-500/10 text-amber-600"
-                              )}
-                            >
-                              {availability.label}
-                            </span>
-                          )}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <p className="font-medium text-foreground truncate" title={source.name}>{source.name}</p>
+                          <AgentUnavailableBadge status={source.agent_status} className="shrink-0" />
                         </div>
                         <p className="text-xs text-muted-foreground font-mono @[560px]:hidden truncate max-w-[200px]">
                           {source.root_path}

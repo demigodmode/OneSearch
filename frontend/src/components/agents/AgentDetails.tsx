@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { agentHealthText } from './health'
 import type {
@@ -326,7 +327,20 @@ function UpdateStatus({ agent }: { agent: AgentDetailsModel }) {
 
   return (
     <div className="space-y-1 text-sm text-muted-foreground">
-      <p>{line}</p>
+      <p
+        className={`flex items-start gap-1.5 ${
+          report.status === 'error'
+            ? 'text-destructive'
+            : report.status === 'available'
+              ? 'text-foreground'
+              : ''
+        }`}
+      >
+        {report.status === 'error' && (
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+        )}
+        <span>{line}</span>
+      </p>
       <p className="text-xs text-muted-foreground">{note}</p>
       <p className="text-xs text-muted-foreground">{historical ? 'Historical update status — ' : ''}Last checked: {new Date(report.checked_at).toLocaleString()}</p>
     </div>
