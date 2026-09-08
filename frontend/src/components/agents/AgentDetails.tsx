@@ -263,6 +263,9 @@ export function AgentDetails({
         deleteSources={deleteSources}
         onDeleteSourcesChange={setDeleteSources}
         onOpenChange={(open) => {
+          // Don't let escape / outside-click / the X dismiss a revoke that's
+          // in flight — dismissing would hide a later in-dialog failure.
+          if (actionPending) return
           if (!open) cancelDialog()
         }}
         onConfirm={confirmDialog}
@@ -297,7 +300,16 @@ function RevokeDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
+      <DialogContent
+        className="sm:max-w-md"
+        onCloseAutoFocus={onCloseAutoFocus}
+        onEscapeKeyDown={(event) => {
+          if (actionPending) event.preventDefault()
+        }}
+        onInteractOutside={(event) => {
+          if (actionPending) event.preventDefault()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>
             {variant === 'cleanup' ? 'Delete remaining sources' : 'Revoke credential'}

@@ -190,21 +190,37 @@ describe('AgentDetails', () => {
     expect(screen.getByText('Revoke/cleanup failed — retry.')).toBeInTheDocument()
     expect((screen.getByLabelText(/also delete .*sources/i) as HTMLInputElement).checked).toBe(true)
   })
-  it('traps focus inside the open revoke dialog', () => {
-    // Radix's FocusScope owns the actual Tab/Shift-Tab trap. jsdom does not
-    // implement native Tab focus movement and Radix's FocusScope does not react
-    // to synthetic fireEvent.keyDown, so we cannot exercise a real Tab-wrap here.
-    // What we CAN assert is the contract the trap is built on: the dialog is a
-    // modal (role="dialog"), initial focus lands inside it on open, and a
-    // synthetic Tab does not move focus out of it.
+  it('traps focus inside the open revoke dialog and wraps at both edges', () => {
     render(<AgentDetails agent={{ ...agent, status: 'online', summary: { ...agent.summary, attached_sources: 1 } }} onClose={vi.fn()} onDisable={vi.fn()} onRevoke={vi.fn()} onMode={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
     const dialog = screen.getByRole('dialog')
+    // Initial focus lands inside the modal on open.
     expect(dialog.contains(document.activeElement)).toBe(true)
-    fireEvent.keyDown(dialog, { key: 'Tab' })
-    expect(dialog.contains(document.activeElement)).toBe(true)
-    fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true })
-    expect(dialog.contains(document.activeElement)).toBe(true)
+    const focusables = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'button, input, [href], [tabindex]:not([tabindex="-1"])',
+      ),
+    )
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+    // Tab from the last control wraps back to the first (Radix FocusScope trap).
+    last.focus()
+    fireEvent.keyDown(last, { key: 'Tab' })
+    expect(document.activeElement).toBe(first)
+    // Shift-Tab from the first control wraps to the last.
+    first.focus()
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(last)
+  })
+  it('keeps the dialog open when escape is pressed during a pending revoke', () => {
+    const shared = { agent: { ...agent, status: 'online' as const, summary: { ...agent.summary, attached_sources: 1 } }, onClose: vi.fn(), onDisable: vi.fn(), onRevoke: vi.fn(), onMode: vi.fn() }
+    const { rerender } = render(<AgentDetails {...shared} />)
+    fireEvent.click(screen.getByRole('button', { name: /Revoke credential/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Confirm revoke/i }))
+    rerender(<AgentDetails {...shared} actionPending />)
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    // Dismissal is blocked while the mutation is in flight.
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
   it('offers "Delete remaining sources" for a revoked agent that still has sources', () => {
     const onRevoke = vi.fn()
