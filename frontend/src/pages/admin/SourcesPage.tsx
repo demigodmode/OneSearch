@@ -535,7 +535,7 @@ export default function SourcesPage() {
                           {availability.unavailable && (
                             <span
                               className={cn(
-                                "text-xs font-medium px-1.5 py-0.5 rounded-full",
+                                "text-xs font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap shrink-0",
                                 availability.tone === 'danger'
                                   ? "bg-destructive/10 text-destructive"
                                   : "bg-amber-500/10 text-amber-600"
