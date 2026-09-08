@@ -1477,11 +1477,17 @@ def test_upload_preview_verifies_checksum(db_session, monkeypatch):
     assert "checksum" in response.json()["detail"]["message"].lower()
 
 
-def test_upload_preview_idempotent_on_same_path_mtime(db_session, monkeypatch):
+def test_upload_preview_idempotent_on_same_path_mtime(db_session, tmp_path, monkeypatch):
     """Test re-uploading preview for same path+mtime is idempotent."""
     from fastapi.testclient import TestClient
 
     from app.services.agent_auth import create_agent_token, hash_token
+
+    # Keep previews off the shared real data dir so another test's on-disk
+    # preview for the same source/path can't turn the retry into a 409 conflict.
+    monkeypatch.setattr(
+        "app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path
+    )
 
     agent = Agent(
         id="preview-test-agent",
