@@ -2,14 +2,19 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 
 """Tests for authenticated image/RAW preview API."""
+
+import asyncio
+import hashlib
 import json
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+from fastapi.responses import Response
 from fastapi.testclient import TestClient
-from io import BytesIO
-
+from meilisearch.models.document import Document as MeiliDocument
 from PIL import Image
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -18,9 +23,18 @@ from sqlalchemy.pool import StaticPool
 from app.api.auth import create_access_token, hash_password
 from app.db.database import get_db
 from app.main import app
-from app.models import AppSetting, Base, Source, User
-from meilisearch.models.document import Document as MeiliDocument
-
+from app.models import (
+    Agent,
+    AgentJob,
+    AgentScanEntry,
+    AgentScanPage,
+    AppSetting,
+    Base,
+    IndexedFile,
+    Source,
+    User,
+)
+from app.services.agent_jobs import AgentJobService
 
 engine = create_engine(
     "sqlite:///:memory:",
@@ -28,6 +42,79 @@ engine = create_engine(
     poolclass=StaticPool,
 )
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def preview_jpeg_bytes(color="blue") -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (8, 6), color=color).save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+def stage_preview_entry(db_session, job, *, path="test.jpg", modified_at_ns=123):
+    """Create the v3 scan receipt that authorizes one on-agent preview upload."""
+    from onesearch_shared import remote_path_hash
+
+    page = AgentScanPage(
+        job_id=job.id,
+        sequence=0,
+        checksum="a" * 64,
+        cursor="",
+        scanned_count=1,
+        is_final=False,
+        entry_count=1,
+    )
+    entry = AgentScanEntry(
+        job_id=job.id,
+        page_sequence=0,
+        path=path,
+        path_hash=remote_path_hash(path),
+        size_bytes=1,
+        modified_at_ns=modified_at_ns,
+        needs_processing=True,
+    )
+    db_session.add_all([page, entry])
+    db_session.commit()
+
+
+@pytest.fixture
+def active_preview_upload(db_session, monkeypatch):
+    from app.services.agent_auth import create_agent_token, hash_token
+
+    agent = Agent(
+        id="preview-test-agent",
+        name="Preview Test Agent",
+        platform="linux",
+        version="1",
+        protocol_version=3,
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    source = Source(
+        id="preview-test-source",
+        name="Preview Test",
+        root_path="/data",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_agent",
+    )
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
+    db_session.commit()
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    stage_preview_entry(db_session, job)
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client, job, lease, source, token
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -121,6 +208,128 @@ def raw_doc(source, raw_path):
     doc = image_doc(source, raw_path)
     doc.update({"id": "photos--raw123", "extension": "cr3", "type": "raw_image"})
     return doc
+
+
+@pytest.fixture
+def remote_download(db_session, monkeypatch):
+    agent = Agent(
+        id="remote-download-agent",
+        name="Remote download agent",
+        platform="linux",
+        version="1",
+        protocol_version=1,
+        allowed_roots=json.dumps([{"root_id": "photos", "path": "/remote/photos"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    source = Source(
+        id="remote-download-source",
+        name="Remote photos",
+        root_path="/remote/photos",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_server",
+    )
+    indexed = IndexedFile(
+        source_id=source.id,
+        path="albums/precise.jpg",
+        size_bytes=987_654,
+        modified_at_ns=1_700_000_000_123_456_789,
+        status="success",
+    )
+    db_session.add_all(
+        [agent, source, indexed, AppSetting(key="remote_agents_enabled", value="true")]
+    )
+    db_session.commit()
+    document = {
+        "id": "remote-download-source--precise",
+        "source_id": source.id,
+        "path": indexed.path,
+        "basename": "precise.jpg",
+        "size_bytes": 1,
+        "modified_at": 1_700_000_000,
+    }
+
+    async def get_document(document_id):
+        assert document_id == document["id"]
+        return document
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+    return agent, source, indexed, document
+
+
+@pytest.fixture
+def capture_remote_download_response(monkeypatch):
+    from app.services.remote_files import remote_streams
+
+    def no_stream(*_args, **_kwargs):
+        return Response(status_code=204)
+
+    original_open = remote_streams.open
+
+    def open_and_feed(job_id, **kwargs):
+        queue = original_open(job_id, **kwargs)
+
+        async def feed():
+            await queue.put(0, b"x", hashlib.sha256(b"x").hexdigest())
+            await queue.finish(1, hashlib.sha256(b"x").hexdigest())
+
+        asyncio.get_running_loop().create_task(feed())
+        return queue
+
+    monkeypatch.setattr(remote_streams, "open", open_and_feed)
+    monkeypatch.setattr("app.api.preview.StreamingResponse", no_stream)
+
+    existing_jobs = set(remote_streams._streams)
+    yield
+    for job_id in set(remote_streams._streams) - existing_jobs:
+        asyncio.run(remote_streams.close(job_id))
+
+
+def _remote_download_link(client, document):
+    response = client.post(f"/api/documents/{document['id']}/download-link")
+    assert response.status_code == 200
+    return response.json()["url"]
+
+
+@pytest.fixture
+def streaming_client(db_session, auth_headers):
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app, raise_server_exceptions=False) as test_client:
+        test_client.headers.update(auth_headers)
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def remote_queue_feeder(monkeypatch):
+    from app.api import preview
+
+    original_open = preview.remote_streams.open
+
+    def install(feed):
+        def open_and_feed(job_id, **kwargs):
+            queue = original_open(job_id, **kwargs)
+            asyncio.get_running_loop().create_task(feed(queue))
+            return queue
+
+        monkeypatch.setattr(preview.remote_streams, "open", open_and_feed)
+
+    return install
+
+
+@pytest.fixture
+def clean_remote_streams():
+    from app.services.remote_files import remote_streams
+
+    existing_jobs = set(remote_streams._streams)
+    yield
+    for job_id in set(remote_streams._streams) - existing_jobs:
+        asyncio.run(remote_streams.close(job_id))
 
 
 @pytest.mark.asyncio
@@ -241,6 +450,517 @@ def test_download_streams_original_file_from_signed_link(client, source, temp_so
     assert 'filename="photo.jpg"' in response.headers["content-disposition"]
 
 
+@pytest.mark.parametrize("agent_state", ["offline", "pending", "disabled", "revoked", "missing"])
+def test_remote_download_link_rejects_unavailable_agent_without_enqueuing(
+    client, db_session, remote_download, agent_state
+):
+    agent, source, _indexed, document = remote_download
+    if agent_state == "missing":
+        source.agent_id = "missing-agent"
+    else:
+        agent.status = agent_state
+    db_session.commit()
+
+    response = client.post(f"/api/documents/{document['id']}/download-link")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "agent_offline"
+
+
+def test_remote_agent_freshness_boundary_and_stale_download_gate(
+    client, db_session, remote_download
+):
+    from app.services.agent_auth import agent_is_fresh
+
+    agent, source, _indexed, document = remote_download
+    now = datetime(2026, 7, 25, 12, 0, 0)
+    agent.last_seen_at = now - timedelta(seconds=120)
+    assert agent_is_fresh(agent, now=now)
+    agent.last_seen_at = now - timedelta(seconds=121)
+    assert not agent_is_fresh(agent, now=now)
+    agent.last_seen_at = None
+    assert not agent_is_fresh(agent, now=now)
+    agent.last_seen_at = now - timedelta(seconds=121)
+    db_session.commit()
+    response = client.post(f"/api/documents/{document['id']}/download-link")
+    assert response.status_code == 409 and response.json()["detail"]["code"] == "agent_offline"
+    db_session.refresh(agent)
+    assert agent.status == "offline"
+    assert (
+        db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").count() == 0
+    )
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_remote_download_link_rejects_global_opt_out_without_enqueuing(
+    client, db_session, remote_download
+):
+    _agent, source, _indexed, document = remote_download
+    db_session.query(AppSetting).filter_by(key="remote_agents_enabled").update({"value": "false"})
+    db_session.commit()
+
+    response = client.post(f"/api/documents/{document['id']}/download-link")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "agent_offline"
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_remote_download_link_mints_existing_signed_contract_without_enqueuing(
+    client, db_session, remote_download
+):
+    _agent, source, _indexed, document = remote_download
+
+    response = client.post(f"/api/documents/{document['id']}/download-link")
+
+    assert response.status_code == 200
+    assert response.json()["expires_in"] == 60
+    assert response.json()["url"].startswith(f"/api/documents/{document['id']}/download?token=")
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_remote_download_rechecks_availability_after_link_creation(
+    client, db_session, remote_download, capture_remote_download_response
+):
+    agent, source, _indexed, document = remote_download
+    url = _remote_download_link(client, document)
+    agent.status = "offline"
+    db_session.commit()
+
+    response = client.get(url)
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "agent_offline"
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_remote_download_job_uses_exact_indexed_file_metadata(
+    client, db_session, remote_download, capture_remote_download_response
+):
+    _agent, source, indexed, document = remote_download
+    url = _remote_download_link(client, document)
+
+    response = client.get(url)
+
+    assert response.status_code == 204
+    jobs = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").all()
+    assert len(jobs) == 1
+    payload = json.loads(jobs[0].payload)
+    assert payload["path"] == indexed.path
+    assert payload["size_bytes"] == indexed.size_bytes
+    assert payload["modified_at"] == indexed.modified_at_ns
+
+
+@pytest.mark.parametrize(
+    ("indexed_status", "expected_status", "expected_code"),
+    [
+        (None, 404, "remote_file_missing"),
+        ("failed", 409, "remote_file_changed"),
+        ("skipped", 409, "remote_file_changed"),
+    ],
+)
+def test_remote_download_refuses_missing_or_non_success_indexed_file(
+    client,
+    db_session,
+    remote_download,
+    capture_remote_download_response,
+    indexed_status,
+    expected_status,
+    expected_code,
+):
+    _agent, source, indexed, document = remote_download
+    if indexed_status is None:
+        db_session.delete(indexed)
+    else:
+        indexed.status = indexed_status
+    db_session.commit()
+    url = _remote_download_link(client, document)
+
+    response = client.get(url)
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"]["code"] == expected_code
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_independent_remote_downloads_use_distinct_stream_jobs(
+    client, db_session, remote_download, capture_remote_download_response
+):
+    _agent, source, _indexed, document = remote_download
+    first = _remote_download_link(client, document)
+    second = _remote_download_link(client, document)
+
+    assert client.get(first).status_code == 204
+    assert client.get(second).status_code == 204
+    jobs = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").all()
+    assert len(jobs) == 2
+    assert len({job.id for job in jobs}) == 2
+
+
+def test_remote_download_streams_chunks_with_queue_shim(
+    streaming_client, db_session, remote_download, remote_queue_feeder, tmp_path
+):
+    _agent, source, indexed, document = remote_download
+    payload = b"first bounded chunk" + b"second bounded chunk"
+    indexed.size_bytes = len(payload)
+    db_session.commit()
+
+    async def feed(queue):
+        await queue.put(0, payload[:19], hashlib.sha256(payload[:19]).hexdigest())
+        await queue.put(1, payload[19:], hashlib.sha256(payload[19:]).hexdigest())
+        await queue.finish(2, hashlib.sha256(payload).hexdigest())
+
+    remote_queue_feeder(feed)
+    url = _remote_download_link(streaming_client, document)
+    response = streaming_client.get(url)
+
+    assert response.status_code == 200 and response.content == payload
+    assert response.headers["content-disposition"].startswith("attachment;")
+    job = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").one()
+    assert job.status == "pending"
+    from app.services.remote_files import remote_streams
+
+    assert remote_streams.get(job.id) is None and list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_status", "expected_code"),
+    [
+        ("missing", 404, "remote_file_missing"),
+        ("changed", 409, "remote_file_changed"),
+    ],
+)
+def test_remote_download_first_terminal_error_is_structured(
+    streaming_client,
+    db_session,
+    remote_download,
+    remote_queue_feeder,
+    error,
+    expected_status,
+    expected_code,
+):
+    from app.services.remote_files import RemoteFileChanged, RemoteFileMissing, remote_streams
+
+    _agent, source, _indexed, document = remote_download
+
+    async def feed(queue):
+        await queue.fail(
+            RemoteFileMissing("missing") if error == "missing" else RemoteFileChanged("changed")
+        )
+
+    remote_queue_feeder(feed)
+    response = streaming_client.get(_remote_download_link(streaming_client, document))
+
+    assert response.status_code == expected_status
+    assert response.json()["detail"]["code"] == expected_code
+    job = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").one()
+    assert job.status in {"failed", "cancelled"} and remote_streams.get(job.id) is None
+
+
+@pytest.mark.asyncio
+async def test_remote_stream_body_timeout_cancels_job_and_releases_queue(
+    db_session, remote_download, monkeypatch, tmp_path, clean_remote_streams
+):
+    from app.api import preview
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_files import remote_streams
+
+    _agent, source, _indexed, document = remote_download
+    job = AgentJobService(db_session).enqueue_stream_file(
+        source, path=document["path"], size_bytes=1, modified_at=1
+    )
+    queue = remote_streams.open(job.id, expected_size=1)
+    db_session.commit()
+    monkeypatch.setattr(preview, "REMOTE_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS", 0.01, raising=False)
+
+    class WaitingRequest:
+        async def is_disconnected(self):
+            return False
+
+    stream = preview._stream_remote_body(WaitingRequest(), db_session, job, queue)
+    with pytest.raises(preview.RemoteStreamTimeout):
+        await anext(stream)
+
+    assert (
+        job.status == "cancelled" and job.active_key is None and remote_streams.get(job.id) is None
+    )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_leased_stream_endpoint_feeds_browser_body_and_completes_durably(
+    client, db_session, remote_download
+):
+    from app.api import preview
+    from app.services.agent_auth import create_agent_token, hash_token
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_files import remote_streams
+
+    agent, source, _indexed, document = remote_download
+    payload = b"browser-stream"
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    job = AgentJobService(db_session).enqueue_stream_file(
+        source, path=document["path"], size_bytes=len(payload), modified_at=1
+    )
+    db_session.commit()
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    queue = remote_streams.open(job.id, expected_size=len(payload))
+
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    body = preview._stream_remote_body(ConnectedRequest(), db_session, job, queue)
+    headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
+    try:
+        chunk = await asyncio.to_thread(
+            client.put,
+            f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=0&checksum={hashlib.sha256(payload).hexdigest()}",
+            content=payload,
+            headers=headers,
+        )
+        terminal = await asyncio.to_thread(
+            client.put,
+            f"/api/agent/v1/jobs/{job.id}/file-chunks?sequence=1&complete=true&stream_checksum={hashlib.sha256(payload).hexdigest()}",
+            headers=headers,
+        )
+        assert chunk.status_code == terminal.status_code == 200
+        assert await anext(body) == payload
+        with pytest.raises(StopAsyncIteration):
+            await anext(body)
+        db_session.refresh(job)
+        assert job.status == "completed" and job.active_key is None and job.lease_token_hash is None
+        assert remote_streams.get(job.id) is None
+    finally:
+        await body.aclose()
+        await remote_streams.close(job.id)
+
+
+def test_remote_preview_streams_standard_image_without_attachment(
+    streaming_client, db_session, remote_download, remote_queue_feeder
+):
+    _agent, source, _indexed, document = remote_download
+    document.update({"type": "image", "extension": "jpg"})
+    payload = b"remote jpeg bytes"
+
+    async def feed(queue):
+        await queue.put(0, payload, hashlib.sha256(payload).hexdigest())
+        await queue.finish(1, hashlib.sha256(payload).hexdigest())
+
+    remote_queue_feeder(feed)
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+
+    assert response.status_code == 200 and response.content == payload
+    assert response.headers["content-type"] == "image/jpeg"
+    assert "content-disposition" not in response.headers
+    job = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").one()
+    from app.services.remote_files import remote_streams
+
+    assert remote_streams.get(job.id) is None
+
+
+@pytest.mark.parametrize("unavailable", ["offline", "disabled", "global_opt_out"])
+def test_remote_preview_rejects_unavailable_agent_without_job(
+    streaming_client, db_session, remote_download, unavailable
+):
+    agent, source, _indexed, document = remote_download
+    document.update({"type": "image", "extension": "jpg"})
+    if unavailable == "global_opt_out":
+        db_session.query(AppSetting).filter_by(key="remote_agents_enabled").update(
+            {"value": "false"}
+        )
+    else:
+        agent.status = unavailable
+    db_session.commit()
+
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "agent_offline"
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_remote_preview_enforces_exact_indexed_file_size_before_job(
+    streaming_client, db_session, remote_download
+):
+    _agent, source, indexed, document = remote_download
+    document.update({"type": "image", "extension": "jpg", "size_bytes": 1})
+    indexed.size_bytes = 26 * 1024 * 1024
+    db_session.add(AppSetting(key="max_preview_size_mb", value="25"))
+    db_session.commit()
+
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+
+    assert response.status_code == 413
+    assert response.json()["detail"]["code"] == "preview_too_large"
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_remote_stream_body_disconnect_cancels_and_unblocks_producer(
+    db_session, remote_download, tmp_path, clean_remote_streams
+):
+    from app.api import preview
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_files import RemoteStreamTimeout, remote_streams
+
+    _agent, source, _indexed, document = remote_download
+    job = AgentJobService(db_session).enqueue_stream_file(
+        source, path=document["path"], size_bytes=1, modified_at=1
+    )
+    queue = remote_streams.open(job.id, expected_size=2, max_bytes=1)
+    await queue.put(0, b"x", hashlib.sha256(b"x").hexdigest())
+    blocked_producer = asyncio.create_task(queue.put(1, b"y", hashlib.sha256(b"y").hexdigest()))
+    db_session.commit()
+
+    class DisconnectedRequest:
+        async def is_disconnected(self):
+            return True
+
+    stream = preview._stream_remote_body(DisconnectedRequest(), db_session, job, queue)
+    with pytest.raises(StopAsyncIteration):
+        await anext(stream)
+    with pytest.raises(RemoteStreamTimeout):
+        await blocked_producer
+    assert (
+        job.status == "cancelled" and job.active_key is None and remote_streams.get(job.id) is None
+    )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_remote_stream_body_task_cancellation_closes_registered_queue(
+    db_session, remote_download, tmp_path, clean_remote_streams
+):
+    from app.api import preview
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_files import remote_streams
+
+    _agent, source, _indexed, document = remote_download
+    job = AgentJobService(db_session).enqueue_stream_file(
+        source, path=document["path"], size_bytes=1, modified_at=1
+    )
+    queue = remote_streams.open(job.id, expected_size=1)
+    db_session.commit()
+
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    stream = preview._stream_remote_body(ConnectedRequest(), db_session, job, queue)
+    next_chunk = asyncio.create_task(anext(stream))
+    await asyncio.sleep(0)
+    next_chunk.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await next_chunk
+    assert (
+        job.status == "cancelled" and job.active_key is None and remote_streams.get(job.id) is None
+    )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_remote_stream_body_preserves_typed_error_after_durable_failure(
+    db_session, remote_download, clean_remote_streams
+):
+    from app.api import preview
+    from app.services.agent_jobs import AgentJobService
+    from app.services.remote_files import RemoteFileMissing, remote_streams
+
+    agent, source, _indexed, document = remote_download
+    jobs = AgentJobService(db_session)
+    job = jobs.enqueue_stream_file(source, path=document["path"], size_bytes=1, modified_at=1)
+    db_session.commit()
+    lease = jobs.claim_next(agent.id)
+    db_session.commit()
+    jobs.complete(agent.id, job.id, lease.lease_token, "failed", error="remote_file_missing")
+    db_session.commit()
+    queue = remote_streams.open(job.id, expected_size=1)
+    await queue.fail(RemoteFileMissing("remote file missing"))
+
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    stream = preview._stream_remote_body(ConnectedRequest(), db_session, job, queue)
+    with pytest.raises(RemoteFileMissing):
+        await anext(stream)
+    db_session.refresh(job)
+    assert job.status == "failed" and remote_streams.get(job.id) is None
+
+
+def test_remote_preview_infers_extension_from_relative_path(
+    streaming_client, db_session, remote_download, remote_queue_feeder
+):
+    _agent, _source, _indexed, document = remote_download
+    document.update({"type": "image"})
+    document.pop("extension", None)
+
+    async def feed(queue):
+        await queue.put(0, b"jpg", hashlib.sha256(b"jpg").hexdigest())
+        await queue.finish(1, hashlib.sha256(b"jpg").hexdigest())
+
+    remote_queue_feeder(feed)
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+    assert response.status_code == 200 and response.headers["content-type"] == "image/jpeg"
+
+
+@pytest.mark.asyncio
+async def test_remote_response_wrapper_closes_body_after_prefetched_chunk(
+    db_session, remote_download, remote_queue_feeder, clean_remote_streams
+):
+    from app.api import preview
+    from app.services.remote_files import remote_streams
+
+    _agent, source, indexed, document = remote_download
+
+    async def feed(queue):
+        await queue.put(0, b"first", hashlib.sha256(b"first").hexdigest())
+
+    remote_queue_feeder(feed)
+
+    class ConnectedRequest:
+        async def is_disconnected(self):
+            return False
+
+    response = await preview._remote_file_response(
+        request=ConnectedRequest(),
+        source=source,
+        document=document,
+        size_bytes=indexed.size_bytes,
+        modified_at=indexed.modified_at_ns,
+        media_type="application/octet-stream",
+        filename="x.txt",
+        db=db_session,
+    )
+    assert await anext(response.body_iterator) == b"first"
+    await response.body_iterator.aclose()
+    job = db_session.query(AgentJob).filter_by(source_id=source.id, kind="stream_file").one()
+    assert (
+        job.status == "cancelled" and job.active_key is None and remote_streams.get(job.id) is None
+    )
+
+
+def test_remote_download_content_disposition_encodes_malicious_basename(
+    streaming_client, remote_download, remote_queue_feeder
+):
+    _agent, _source, _indexed, document = remote_download
+    document["basename"] = 'evil"\r\nX-Injected: yes.jpg'
+
+    async def feed(queue):
+        await queue.put(0, b"x", hashlib.sha256(b"x").hexdigest())
+        await queue.finish(1, hashlib.sha256(b"x").hexdigest())
+
+    remote_queue_feeder(feed)
+    response = streaming_client.get(_remote_download_link(streaming_client, document))
+
+    assert response.status_code == 200
+    assert "\r" not in response.headers["content-disposition"]
+    assert "\n" not in response.headers["content-disposition"]
+
+
 def test_download_rejects_token_for_different_document(client, source, temp_source, monkeypatch):
     _, image_path, _ = temp_source
 
@@ -353,7 +1073,9 @@ def test_raw_preview_uses_largest_embedded_jpeg(client, source, temp_source, mon
     assert len(large_jpeg) > len(small_jpeg)
 
 
-def test_raw_preview_returns_unavailable_without_embedded_jpeg(client, source, temp_source, monkeypatch):
+def test_raw_preview_returns_unavailable_without_embedded_jpeg(
+    client, source, temp_source, monkeypatch
+):
     _, _, raw_path = temp_source
 
     async def get_document(document_id):
@@ -400,3 +1122,640 @@ def test_raw_preview_scans_in_chunks_until_embedded_jpeg(client, source, temp_so
     assert response.content == jpeg_bytes
     assert read_sizes
     assert all(0 < size <= 65536 for size in read_sizes)
+
+
+def test_stored_preview_is_served_for_remote_image_when_agent_offline(
+    streaming_client, db_session, remote_download, tmp_path, monkeypatch
+):
+    """Test that stored derived preview is served even when agent is offline."""
+
+    agent, source, indexed, document = remote_download
+    document.update({"type": "image", "extension": "jpg"})
+
+    # Mock preview directory to use tmp_path
+    preview_dir = tmp_path / "previews"
+    monkeypatch.setattr(
+        "app.api.preview.app_data_preview_directory",
+        lambda *_: preview_dir
+    )
+
+    # Create stored preview
+    source_dir = preview_dir / source.id
+    source_dir.mkdir(parents=True, exist_ok=True)
+
+    preview_jpeg = Image.new("RGB", (100, 80), color="blue")
+    preview_buffer = BytesIO()
+    preview_jpeg.save(preview_buffer, format="JPEG", quality=80)
+    stored_preview = preview_buffer.getvalue()
+
+    from onesearch_shared import remote_path_hash
+    path_hash = remote_path_hash(document["path"])
+    preview_file = source_dir / f"{path_hash}-{indexed.modified_at_ns}.jpg"
+    preview_file.write_bytes(stored_preview)
+
+    # Make agent offline
+    agent.status = "offline"
+    db_session.commit()
+
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+
+    assert response.status_code == 200
+    assert response.content == stored_preview
+    assert response.headers["content-type"] == "image/jpeg"
+    # No job should be created
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_stored_preview_served_even_if_original_exceeds_size_limit(
+    streaming_client, db_session, remote_download, tmp_path, monkeypatch
+):
+    """Test that stored preview is served even when original file exceeds size limit."""
+
+    agent, source, indexed, document = remote_download
+    document.update({"type": "image", "extension": "jpg"})
+
+    # Set a low size limit (25MB)
+    db_session.add(AppSetting(key="max_preview_size_mb", value="25"))
+
+    # Make original file size exceed limit
+    indexed.size_bytes = 26 * 1024 * 1024
+    db_session.commit()
+
+    # Mock preview directory to use tmp_path
+    preview_dir = tmp_path / "previews"
+    monkeypatch.setattr(
+        "app.api.preview.app_data_preview_directory",
+        lambda *_: preview_dir
+    )
+
+    # Create stored preview (small, under limit)
+    source_dir = preview_dir / source.id
+    source_dir.mkdir(parents=True, exist_ok=True)
+
+    preview_jpeg = Image.new("RGB", (100, 80), color="red")
+    preview_buffer = BytesIO()
+    preview_jpeg.save(preview_buffer, format="JPEG", quality=80)
+    stored_preview = preview_buffer.getvalue()
+
+    from onesearch_shared import remote_path_hash
+    path_hash = remote_path_hash(document["path"])
+    preview_file = source_dir / f"{path_hash}-{indexed.modified_at_ns}.jpg"
+    preview_file.write_bytes(stored_preview)
+
+    # Keep agent online
+    assert agent.status == "online"
+
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+
+    # Should serve the stored preview instead of rejecting with 413
+    assert response.status_code == 200
+    assert response.content == stored_preview
+    assert response.headers["content-type"] == "image/jpeg"
+    # No job should be created - served from cache
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_stale_preview_not_served_when_file_mtime_changes(
+    streaming_client, db_session, remote_download, tmp_path, monkeypatch
+):
+    """Test that stale preview is NOT served when indexed file mtime differs from stored preview."""
+
+    agent, source, indexed, document = remote_download
+    document.update({"type": "image", "extension": "jpg"})
+
+    # Mock preview directory to use tmp_path
+    preview_dir = tmp_path / "previews"
+    monkeypatch.setattr(
+        "app.api.preview.app_data_preview_directory",
+        lambda *_: preview_dir
+    )
+
+    # Create a stored preview for mtime A
+    source_dir = preview_dir / source.id
+    source_dir.mkdir(parents=True, exist_ok=True)
+
+    preview_jpeg = Image.new("RGB", (100, 80), color="green")
+    preview_buffer = BytesIO()
+    preview_jpeg.save(preview_buffer, format="JPEG", quality=80)
+    stale_preview = preview_buffer.getvalue()
+
+    from onesearch_shared import remote_path_hash
+    path_hash = remote_path_hash(document["path"])
+    old_mtime = 1_000_000_000_000_000_000
+    preview_file = source_dir / f"{path_hash}-{old_mtime}.jpg"
+    preview_file.write_bytes(stale_preview)
+
+    # But the indexed file has a different mtime (file was updated)
+    indexed.modified_at_ns = 2_000_000_000_000_000_000
+    db_session.commit()
+
+    # Make agent offline so we can't fall back to streaming
+    agent.status = "offline"
+    db_session.commit()
+
+    response = streaming_client.get(f"/api/documents/{document['id']}/preview")
+
+    # Should return 409 agent_offline (NOT serve the stale preview)
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "agent_offline"
+    # No job should have been created
+    assert db_session.query(AgentJob).filter_by(source_id=source.id).count() == 0
+
+
+def test_upload_preview_endpoint_requires_lease_token(db_session, monkeypatch):
+    """Test preview upload endpoint rejects request without lease token."""
+    from fastapi.testclient import TestClient
+
+    from app.services.agent_auth import create_agent_token, hash_token
+
+    agent = Agent(
+        id="preview-test-agent",
+        name="Preview Test Agent",
+        platform="linux",
+        version="1",
+        protocol_version=3,
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    source = Source(
+        id="preview-test-source",
+        name="Preview Test",
+        root_path="/data",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_agent",
+    )
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
+    db_session.commit()
+
+    # Create a job and get a lease
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    db_session.commit()
+
+    def override_get_db():
+        yield db_session
+
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        # Missing lease token - should get 401
+        response = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+            content=b"test jpeg",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 401
+
+
+def test_upload_preview_endpoint_validates_job_lease(db_session, monkeypatch):
+    """Test preview upload endpoint validates job lease token."""
+    from fastapi.testclient import TestClient
+
+    from app.services.agent_auth import create_agent_token, hash_token
+
+    agent = Agent(
+        id="preview-test-agent",
+        name="Preview Test Agent",
+        platform="linux",
+        version="1",
+        protocol_version=3,
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    source = Source(
+        id="preview-test-source",
+        name="Preview Test",
+        root_path="/data",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_agent",
+    )
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
+    db_session.commit()
+
+    # Create a job
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    db_session.commit()
+
+    def override_get_db():
+        yield db_session
+
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        # Invalid lease token - should get 401
+        response = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+            content=b"test jpeg",
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": "invalid-token"},
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 401
+
+
+def test_upload_preview_endpoint_rejects_oversized_preview(db_session, monkeypatch):
+    """Test preview upload endpoint rejects previews exceeding 2MB."""
+    from fastapi.testclient import TestClient
+
+    from app.services.agent_auth import create_agent_token, hash_token
+
+    agent = Agent(
+        id="preview-test-agent",
+        name="Preview Test Agent",
+        platform="linux",
+        version="1",
+        protocol_version=3,
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    source = Source(
+        id="preview-test-source",
+        name="Preview Test",
+        root_path="/data",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_agent",
+    )
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
+    db_session.commit()
+
+    # Create a job and get a lease
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    stage_preview_entry(db_session, job)
+
+    def override_get_db():
+        yield db_session
+
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        # Send 2MB+ of data - should be rejected
+        oversized = b"x" * (2 * 1024 * 1024 + 1)
+        response = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+            content=oversized,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 409
+
+
+def test_upload_preview_verifies_checksum(db_session, monkeypatch):
+    """Test preview upload endpoint verifies checksum when provided."""
+    from fastapi.testclient import TestClient
+
+    from app.services.agent_auth import create_agent_token, hash_token
+
+    agent = Agent(
+        id="preview-test-agent",
+        name="Preview Test Agent",
+        platform="linux",
+        version="1",
+        protocol_version=3,
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    source = Source(
+        id="preview-test-source",
+        name="Preview Test",
+        root_path="/data",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_agent",
+    )
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
+    db_session.commit()
+
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    stage_preview_entry(db_session, job)
+
+    def override_get_db():
+        yield db_session
+
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        preview_data = preview_jpeg_bytes()
+        wrong_checksum = hashlib.sha256(b"wrong data").hexdigest()
+
+        response = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123&checksum={wrong_checksum}",
+            content=preview_data,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+
+    app.dependency_overrides.clear()
+    assert response.status_code == 409
+    assert "checksum" in response.json()["detail"]["message"].lower()
+
+
+def test_upload_preview_idempotent_on_same_path_mtime(db_session, tmp_path, monkeypatch):
+    """Test re-uploading preview for same path+mtime is idempotent."""
+    from fastapi.testclient import TestClient
+
+    from app.services.agent_auth import create_agent_token, hash_token
+
+    # Keep previews off the shared real data dir so another test's on-disk
+    # preview for the same source/path can't turn the retry into a 409 conflict.
+    monkeypatch.setattr(
+        "app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path
+    )
+
+    agent = Agent(
+        id="preview-test-agent",
+        name="Preview Test Agent",
+        platform="linux",
+        version="1",
+        protocol_version=3,
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    source = Source(
+        id="preview-test-source",
+        name="Preview Test",
+        root_path="/data",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_agent",
+    )
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
+    db_session.commit()
+
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+    stage_preview_entry(db_session, job)
+
+    def override_get_db():
+        yield db_session
+
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        preview_data = preview_jpeg_bytes()
+        checksum = hashlib.sha256(preview_data).hexdigest()
+
+        # First upload should succeed
+        response1 = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123&checksum={checksum}",
+            content=preview_data,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+        assert response1.status_code == 200
+
+        # Second upload with same path/mtime should also succeed (idempotent)
+        response2 = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123&checksum={checksum}",
+            content=preview_data,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+        assert response2.status_code == 200
+
+    app.dependency_overrides.clear()
+
+
+def test_upload_preview_rejects_unknown_staged_path(active_preview_upload, tmp_path, monkeypatch):
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=unknown.jpg&modified_at_ns=123",
+        content=preview_jpeg_bytes(),
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
+
+
+def test_upload_preview_rejects_stale_staged_mtime(active_preview_upload, tmp_path, monkeypatch):
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=122",
+        content=preview_jpeg_bytes(),
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
+
+
+def test_upload_preview_rejects_non_jpeg_body(active_preview_upload, tmp_path, monkeypatch):
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+        content=b"not a jpeg",
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
+
+
+def test_upload_preview_accepts_exact_staged_jpeg(active_preview_upload, tmp_path, monkeypatch):
+    from app.services.preview_assets import load_preview
+
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+    body = preview_jpeg_bytes()
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+        content=body,
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 200
+    assert load_preview(source.id, "test.jpg", tmp_path, 123) == body
+
+
+def test_upload_preview_rejects_conflicting_retry_without_replacing_stored_preview(
+    active_preview_upload, tmp_path, monkeypatch
+):
+    from app.services.preview_assets import load_preview
+
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+    original = preview_jpeg_bytes()
+    headers = {"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token}
+    url = f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123"
+    assert client.put(url, content=original, headers=headers).status_code == 200
+
+    response = client.put(url, content=preview_jpeg_bytes("red"), headers=headers)
+
+    assert response.status_code == 409
+    assert load_preview(source.id, "test.jpg", tmp_path, 123) == original
+
+    assert client.put(url, content=b"invalid replacement", headers=headers).status_code == 409
+    assert load_preview(source.id, "test.jpg", tmp_path, 123) == original
+
+
+@pytest.mark.parametrize("wrong_version", ["agent", "job"])
+def test_upload_preview_rejects_non_v3_agent_or_job_without_creating_file(
+    active_preview_upload, db_session, tmp_path, monkeypatch, wrong_version
+):
+    client, job, lease, source, token = active_preview_upload
+    if wrong_version == "agent":
+        db_session.get(Agent, "preview-test-agent").protocol_version = 2
+    else:
+        payload = json.loads(job.payload)
+        payload["protocol_version"] = 2
+        job.payload = json.dumps(payload)
+    db_session.commit()
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+        content=preview_jpeg_bytes(),
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
+
+
+def test_upload_preview_rejects_on_server_scan_without_creating_file(
+    active_preview_upload, db_session, tmp_path, monkeypatch
+):
+    client, job, lease, source, token = active_preview_upload
+    job.processing_mode = "on_server"
+    db_session.commit()
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+        content=preview_jpeg_bytes(),
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
+
+
+def test_upload_preview_rejects_decompression_bomb_jpeg_without_creating_file(
+    active_preview_upload, tmp_path, monkeypatch
+):
+    from app.services import preview_assets
+
+    class OversizedJpeg:
+        format, width, height = "JPEG", 4_001, 4_000
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    client, job, lease, source, token = active_preview_upload
+    monkeypatch.setattr("app.services.preview_assets.app_data_preview_directory", lambda _: tmp_path)
+    monkeypatch.setattr(preview_assets.Image, "open", lambda *_args: OversizedJpeg())
+
+    response = client.put(
+        f"/api/agent/v1/jobs/{job.id}/previews?path=test.jpg&modified_at_ns=123",
+        content=preview_jpeg_bytes(),
+        headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+    )
+
+    assert response.status_code == 409
+    assert not (tmp_path / source.id).exists()
+
+
+def test_upload_preview_rejects_path_traversal(db_session, monkeypatch):
+    """Test preview upload rejects relative paths like ../evil and absolute paths."""
+    from fastapi.testclient import TestClient
+
+    from app.services.agent_auth import create_agent_token, hash_token
+
+    agent = Agent(
+        id="preview-test-agent",
+        name="Preview Test Agent",
+        platform="linux",
+        version="1",
+        protocol_version=3,
+        allowed_roots=json.dumps([{"root_id": "data", "path": "/data"}]),
+        status="online",
+        approved_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None),
+    )
+    source = Source(
+        id="preview-test-source",
+        name="Preview Test",
+        root_path="/data",
+        location_type="agent",
+        agent_id=agent.id,
+        processing_mode="on_agent",
+    )
+    token = create_agent_token()
+    agent.token_hash = hash_token(token)
+    db_session.add_all([agent, source, AppSetting(key="remote_agents_enabled", value="true")])
+    db_session.commit()
+
+    job = AgentJobService(db_session).enqueue_scan(source, full=True)
+    lease = AgentJobService(db_session).claim_next(agent.id)
+    db_session.commit()
+
+    def override_get_db():
+        yield db_session
+
+    monkeypatch.setattr("app.db.database.get_db", override_get_db)
+    app.dependency_overrides[get_db] = override_get_db
+
+    with TestClient(app) as test_client:
+        preview_data = b"test jpeg"
+
+        # Test relative path with traversal
+        response1 = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=../evil/file.jpg&modified_at_ns=123",
+            content=preview_data,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+        # Should be rejected (409 for invalid path or similar)
+        assert response1.status_code in {400, 409}
+
+        # Test absolute path
+        response2 = test_client.put(
+            f"/api/agent/v1/jobs/{job.id}/previews?path=/etc/passwd&modified_at_ns=123",
+            content=preview_data,
+            headers={"Authorization": f"Bearer {token}", "X-OneSearch-Lease-Token": lease.lease_token},
+        )
+        # Should be rejected
+        assert response2.status_code in {400, 409}
+
+    app.dependency_overrides.clear()

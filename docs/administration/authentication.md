@@ -1,14 +1,14 @@
 # Authentication
 
-OneSearch uses JWT-based authentication. Every request to the API (except the setup and login endpoints) requires a valid token.
+OneSearch uses JWT-based authentication for users. User-facing API requests require a valid user token except for setup, login, and health checks. The remote-agent enrollment endpoint uses a single-use enrollment code instead, and the rest of the agent protocol uses a separate agent token.
 
-## Setup Wizard
+## Setup wizard
 
 The first time you open OneSearch, you'll see a setup wizard asking you to create an admin account. Pick a username and password, and you're the admin.
 
 This only works once. After the initial account is created, the setup endpoint is disabled. If you need to reset your credentials, you'll need to clear the `users` table in the database.
 
-## Logging In
+## Logging in
 
 ### Web UI
 
@@ -53,15 +53,23 @@ openssl rand -base64 32
 
 **AUTH_RATE_LIMIT**: Max failed login attempts per minute. Default is 5. After that, login requests get rejected with a 429 status until the window resets.
 
-## Rate Limiting
+## Rate limiting
 
 The login endpoint is rate-limited to prevent brute force attacks. If someone (or something) hammers the login endpoint with bad credentials, they'll get locked out temporarily.
 
 This is a simple in-memory rate limiter. It resets when the server restarts. Good enough for a homelab, but if you're exposing OneSearch to the internet you should put it behind a reverse proxy with its own rate limiting too.
 
-## Security Notes
+## Security notes
 
 - Passwords are hashed with bcrypt (not stored in plain text)
 - Tokens are signed with HS256 (HMAC-SHA256)
 - The `/api/auth/setup` endpoint only works when no users exist
-- All API endpoints except `/api/auth/setup`, `/api/auth/login`, and `/api/health` require authentication
+- The remote-agent protocol uses agent credentials and cannot be called with a user JWT
+
+## Remote-agent credentials
+
+Remote agents enroll with a 15-minute, single-use code. The server returns a separate agent token during enrollment, and the agent saves it before it enters the pending approval state. The token is not a user JWT and cannot log in to the web UI. Store it in the native credential store or the protected Docker state volume.
+
+Disabling an agent temporarily blocks its token. Revoking an agent permanently invalidates the token and requires a new enrollment code. Do not copy an agent token into a user client or put it in a URL, compose file, or shell history.
+
+OneSearch does not provide built-in OAuth login. A reverse proxy can use OAuth or SSO as an additional access layer, but OneSearch still uses its own user authentication behind that proxy.

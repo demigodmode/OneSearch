@@ -5,11 +5,11 @@
 File system scanner with glob pattern filtering
 Walks directory trees and yields files matching include/exclude patterns
 """
+
 import fnmatch
 import logging
-import os
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +28,9 @@ class FileScanner:
     def __init__(
         self,
         root_path: str,
-        include_patterns: Optional[List[str]] = None,
-        exclude_patterns: Optional[List[str]] = None,
-        follow_symlinks: bool = False
+        include_patterns: list[str] | None = None,
+        exclude_patterns: list[str] | None = None,
+        follow_symlinks: bool = False,
     ):
         """
         Initialize file scanner
@@ -90,7 +90,9 @@ class FileScanner:
                 return False
 
             candidates = [relative_path.as_posix()]
-            candidates.extend(parent.as_posix() for parent in relative_path.parents if str(parent) != ".")
+            candidates.extend(
+                parent.as_posix() for parent in relative_path.parents if str(parent) != "."
+            )
 
             for pattern in self.exclude_patterns:
                 for candidate in candidates:
@@ -112,7 +114,7 @@ class FileScanner:
         for file_path in sorted(final_files):
             yield file_path
 
-    def scan_with_stats(self) -> tuple[List[str], dict]:
+    def scan_with_stats(self) -> tuple[list[str], dict]:
         """
         Scan directory and return files with statistics
 
@@ -174,7 +176,35 @@ def _match_exclude_pattern(candidate: str, pattern: str) -> bool:
     return any(fnmatch.fnmatchcase(candidate, p) for p in patterns)
 
 
-def validate_glob_patterns(patterns: List[str]) -> tuple[bool, Optional[str]]:
+def matches_include_pattern(path: str, patterns: list[str] | None) -> bool:
+    """Match a canonical relative path with the scanner's glob semantics."""
+    active = patterns or ["**/*"]
+    return any(
+        fnmatch.fnmatchcase(path, pattern)
+        or (pattern.startswith("**/") and fnmatch.fnmatchcase(path, pattern[3:]))
+        for pattern in active
+    )
+
+
+def matches_exclude_pattern(path: str, patterns: list[str] | None) -> bool:
+    """Match a file or any ancestor against the shared exclusion semantics."""
+    active = get_default_exclude_patterns() if patterns is None else patterns
+    parts = path.split("/")
+    candidates = ["/".join(parts[:index]) for index in range(len(parts), 0, -1)]
+    return any(
+        _match_exclude_pattern(candidate, pattern) for candidate in candidates for pattern in active
+    )
+
+
+def path_is_included(
+    path: str, include_patterns: list[str] | None, exclude_patterns: list[str] | None
+) -> bool:
+    return matches_include_pattern(path, include_patterns) and not matches_exclude_pattern(
+        path, exclude_patterns
+    )
+
+
+def validate_glob_patterns(patterns: list[str]) -> tuple[bool, str | None]:
     """
     Validate glob patterns for common issues
 
@@ -193,17 +223,17 @@ def validate_glob_patterns(patterns: List[str]) -> tuple[bool, Optional[str]]:
             return False, "Empty pattern found"
 
         # Check for absolute paths (glob patterns should be relative)
-        if pattern.startswith('/') or (len(pattern) > 1 and pattern[1] == ':'):
+        if pattern.startswith("/") or (len(pattern) > 1 and pattern[1] == ":"):
             return False, f"Pattern should not be absolute path: {pattern}"
 
         # Warn about patterns without wildcards (inefficient)
-        if '*' not in pattern and '?' not in pattern and '[' not in pattern:
+        if "*" not in pattern and "?" not in pattern and "[" not in pattern:
             logger.warning(f"Pattern '{pattern}' has no wildcards - may be inefficient")
 
     return True, None
 
 
-def get_default_exclude_patterns() -> List[str]:
+def get_default_exclude_patterns() -> list[str]:
     """
     Get recommended default exclude patterns for common directories to skip
 
@@ -215,7 +245,6 @@ def get_default_exclude_patterns() -> List[str]:
         "**/.git/**",
         "**/.svn/**",
         "**/.hg/**",
-
         # Dependencies
         "**/node_modules/**",
         "**/venv/**",
@@ -224,24 +253,20 @@ def get_default_exclude_patterns() -> List[str]:
         "**/virtualenv/**",
         "**/__pycache__/**",
         "**/vendor/**",
-
         # Build outputs
         "**/dist/**",
         "**/build/**",
         "**/target/**",
         "**/.next/**",
         "**/.nuxt/**",
-
         # IDE
         "**/.vscode/**",
         "**/.idea/**",
         "**/.vs/**",
-
         # OS
         "**/.DS_Store",
         "**/Thumbs.db",
         "**/desktop.ini",
-
         # Temporary files
         "**/*.tmp",
         "**/*.temp",

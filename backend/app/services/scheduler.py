@@ -5,6 +5,7 @@
 Scheduled indexing service using APScheduler.
 Runs indexing jobs in a background thread on cron schedules.
 """
+
 import asyncio
 import logging
 import threading
@@ -14,11 +15,16 @@ from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import settings
 from ..models import Source
-from ..services.indexer import IndexingService
+from ..services.indexer import IndexingService  # noqa: F401 - legacy patch target
+from ..services.scan_dispatcher import (
+    AgentUnavailableError,
+    RemoteAgentsDisabledError,
+    ScanDispatcher,
+)
 from ..services.search import meili_service
 
 logger = logging.getLogger(__name__)
@@ -26,8 +32,8 @@ logger = logging.getLogger(__name__)
 # Preset aliases → cron expressions
 SCHEDULE_PRESETS = {
     "@hourly": "0 * * * *",
-    "@daily": "0 2 * * *",       # 2 AM
-    "@weekly": "0 2 * * 0",      # Sunday 2 AM
+    "@daily": "0 2 * * *",  # 2 AM
+    "@weekly": "0 2 * * 0",  # Sunday 2 AM
 }
 
 # Per-source locks to prevent concurrent indexing
@@ -75,11 +81,7 @@ VALID_INTERVAL_UNITS = ("minutes", "hours", "days")
 
 def validate_interval(value: Optional[int], unit: Optional[str]) -> bool:
     """Check if an interval value/unit pair is valid."""
-    return (
-        isinstance(value, int)
-        and value > 0
-        and unit in VALID_INTERVAL_UNITS
-    )
+    return isinstance(value, int) and value > 0 and unit in VALID_INTERVAL_UNITS
 
 
 def build_interval_trigger(value: int, unit: str) -> IntervalTrigger:
@@ -112,7 +114,9 @@ def calculate_next_run_time_for_schedule(
     return calculate_next_run_time(scan_schedule)
 
 
-def resolve_effective_schedule(source: Source, db: Session, default_schedule: Optional[dict] = None) -> dict:
+def resolve_effective_schedule(
+    source: Source, db: Session, default_schedule: Optional[dict] = None
+) -> dict:
     """
     Resolve the schedule that actually drives a source's next run: its own
     schedule, or the global default when use_default_schedule is set.
@@ -128,10 +132,16 @@ def resolve_effective_schedule(source: Source, db: Session, default_schedule: Op
     if source.use_default_schedule:
         if default_schedule is None:
             from ..services.app_settings import AppSettingsService
+
             default = AppSettingsService(db).get_settings().default_scan_schedule
             default_schedule = default.model_dump() if default else None
         if default_schedule is None:
-            return {"schedule_type": "cron", "scan_schedule": None, "interval_value": None, "interval_unit": None}
+            return {
+                "schedule_type": "cron",
+                "scan_schedule": None,
+                "interval_value": None,
+                "interval_unit": None,
+            }
         return default_schedule
 
     return {
@@ -187,6 +197,7 @@ class SchedulerService:
         db = self._session_factory()
         try:
             from ..services.app_settings import AppSettingsService
+
             default = AppSettingsService(db).get_settings().default_scan_schedule
             default_schedule = default.model_dump() if default else None
 
@@ -249,6 +260,7 @@ class SchedulerService:
         db = self._session_factory()
         try:
             from ..services.app_settings import AppSettingsService
+
             default = AppSettingsService(db).get_settings().default_scan_schedule
             default_schedule = default.model_dump() if default else None
 
@@ -304,48 +316,56 @@ class SchedulerService:
             if source:
                 source.next_scan_at = job.next_run_time.replace(tzinfo=None)
                 db.commit()
-            logger.info(f"Scheduled indexing for '{source_id}': {schedule_label} (next: {job.next_run_time})")
+            logger.info(
+                f"Scheduled indexing for '{source_id}': {schedule_label} (next: {job.next_run_time})"
+            )
         else:
-            logger.warning(f"Scheduled indexing for '{source_id}': {schedule_label} (next run time unknown)")
+            logger.warning(
+                f"Scheduled indexing for '{source_id}': {schedule_label} (next run time unknown)"
+            )
 
     def _run_indexing_job(self, source_id: str):
         """Job function called by APScheduler in a background thread."""
-        lock = get_source_lock(source_id)
-        if not lock.acquire(blocking=False):
-            logger.warning(f"Skipping scheduled index for '{source_id}' - already running")
-            return
-
+        # Source location is authoritative: a source may have switched from
+        # local to agent while an obsolete local lock remains in this process.
+        # Remote work must never inspect that lock.
+        lock = None
+        lock_acquired = False
+        db = self._session_factory()
         try:
-            db = self._session_factory()
-            try:
-                source = db.get(Source, source_id)
-                if not source:
-                    logger.warning(f"Scheduled job: source '{source_id}' not found, skipping")
+            source = db.get(Source, source_id)
+            if not source:
+                logger.warning("Scheduled job source not found, skipping")
+                return
+            if getattr(source, "location_type", "local") != "agent":
+                lock = get_source_lock(source_id)
+                lock_acquired = lock.acquire(blocking=False)
+                if not lock_acquired:
+                    logger.warning(f"Skipping scheduled index for '{source_id}' - already running")
                     return
-
-                logger.info(f"Scheduled indexing starting for '{source.name}'")
-
-                loop = asyncio.new_event_loop()
-                try:
-                    indexing_service = IndexingService(db, meili_service)
-                    stats = loop.run_until_complete(indexing_service.index_source(source_id))
-                finally:
-                    loop.close()
-
-                source.last_scan_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                job = self.scheduler.get_job(f"index-{source_id}")
-                if job and job.next_run_time:
-                    source.next_scan_at = job.next_run_time.replace(tzinfo=None)
-                db.commit()
-
-                logger.info(
-                    f"Scheduled indexing complete for '{source.name}': "
-                    f"{stats.successful} indexed, {stats.failed} failed"
+            loop = asyncio.new_event_loop()
+            try:
+                result = loop.run_until_complete(
+                    ScanDispatcher(db, meili_service).dispatch(source_id, "schedule")
                 )
+            except (RemoteAgentsDisabledError, AgentUnavailableError):
+                logger.info("Scheduled remote dispatch unavailable for source '%s'", source_id)
+                return
             finally:
-                db.close()
+                loop.close()
+            job = self.scheduler.get_job(f"index-{source_id}")
+            if job and job.next_run_time:
+                source.next_scan_at = job.next_run_time.replace(tzinfo=None)
+            if getattr(source, "location_type", "local") != "agent":
+                source.last_scan_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                logger.info(
+                    f"Scheduled indexing complete for '{source.name}': {result.successful} indexed, {result.failed} failed"
+                )
+            db.commit()
         finally:
-            lock.release()
+            if lock is not None and lock_acquired:
+                lock.release()
+            db.close()
 
     def remove_source(self, source_id: str):
         """Clean up job when a source is deleted."""

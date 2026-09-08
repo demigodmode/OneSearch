@@ -95,6 +95,45 @@ def client(db_session, test_user):
 
 
 @pytest.fixture
+def meili_spy():
+    """Stub bound to app.services.search.meili_service so tests don't need a real
+    Meilisearch server. Records wait_for_task calls and can be told to fail the
+    next (or Nth) filtered delete, so retry-on-failure paths can be exercised.
+    """
+    from app.services.search import meili_service
+
+    class MeiliSpy:
+        def __init__(self):
+            self.waited_for_tasks = 0
+            self.filter_delete_calls = 0
+            self._fail_next = False
+            self._fail_on_call = None
+
+        def fail_next_filter_delete(self):
+            self._fail_next = True
+
+        def fail_filter_delete_on_call(self, n):
+            self._fail_on_call = n
+
+        async def delete_documents_by_filter_confirmed(self, filter_str):
+            self.filter_delete_calls += 1
+            should_fail = self._fail_next or self._fail_on_call == self.filter_delete_calls
+            self._fail_next = False
+            if should_fail:
+                raise RuntimeError("simulated Meilisearch delete failure")
+            self.waited_for_tasks += 1
+            return {"status": "succeeded"}
+
+    spy = MeiliSpy()
+    original = meili_service.delete_documents_by_filter_confirmed
+    meili_service.delete_documents_by_filter_confirmed = spy.delete_documents_by_filter_confirmed
+    try:
+        yield spy
+    finally:
+        meili_service.delete_documents_by_filter_confirmed = original
+
+
+@pytest.fixture
 def temp_source_dir():
     """Create temporary directory with sample test files"""
     with TemporaryDirectory() as tmp:

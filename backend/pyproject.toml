@@ -5,6 +5,7 @@ description = "OneSearch backend API server"
 license = {text = "AGPL-3.0-only"}
 requires-python = ">=3.10"
 dependencies = [
+    "onesearch-shared",
     "fastapi>=0.104.0,<0.200.0",
     "uvicorn[standard]>=0.24.0,<1.0.0",
     "python-dotenv>=1.0.0",

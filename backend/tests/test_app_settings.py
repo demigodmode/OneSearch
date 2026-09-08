@@ -29,6 +29,7 @@ def test_get_settings_returns_defaults(client):
         "readable_preview_page_chars": 6000,
         "long_text_pagination_threshold_chars": 20000,
         "default_scan_schedule": None,
+        "remote_agents_enabled": False,
     }
 
 
@@ -55,7 +56,11 @@ def test_update_settings_persists_values(client):
     response = client.put("/api/settings", json=update)
 
     assert response.status_code == 200
-    expected_response = {**update, "default_scan_schedule": None}
+    expected_response = {
+        **update,
+        "default_scan_schedule": None,
+        "remote_agents_enabled": False,
+    }
     assert response.json() == expected_response
 
     second_response = client.get("/api/settings")
@@ -97,6 +102,19 @@ def test_update_settings_accepts_partial_payload(client):
     assert body["comic_extraction_max_size_mb"] == 100
     assert body["readable_preview_page_chars"] == 6000
     assert body["long_text_pagination_threshold_chars"] == 20000
+    assert body["remote_agents_enabled"] is False
+
+
+def test_remote_agents_setting_persists_true_and_false(client):
+    enabled = client.put("/api/settings", json={"remote_agents_enabled": True})
+    assert enabled.status_code == 200
+    assert enabled.json()["remote_agents_enabled"] is True
+    assert client.get("/api/settings").json()["remote_agents_enabled"] is True
+
+    disabled = client.put("/api/settings", json={"remote_agents_enabled": False})
+    assert disabled.status_code == 200
+    assert disabled.json()["remote_agents_enabled"] is False
+    assert client.get("/api/settings").json()["remote_agents_enabled"] is False
 
 
 def test_update_settings_rejects_invalid_preview_size(client):

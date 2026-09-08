@@ -334,7 +334,7 @@ class TestSourceEndpoints:
         assert response.status_code == 400
         assert "does not exist" in response.json()["detail"].lower()
 
-    def test_delete_source_success(self, client, sample_source, db_session):
+    def test_delete_source_success(self, client, sample_source, db_session, meili_spy):
         """Test deleting a source"""
         response = client.delete(f"/api/sources/{sample_source.id}")
 
@@ -352,7 +352,7 @@ class TestSourceEndpoints:
 
         assert response.status_code == 404
 
-    def test_delete_source_cascades_indexed_files(self, client, sample_source, db_session):
+    def test_delete_source_cascades_indexed_files(self, client, sample_source, db_session, meili_spy):
         """Test deleting source also deletes indexed_files records"""
         # Add some indexed files
         indexed_file = IndexedFile(
@@ -374,6 +374,17 @@ class TestSourceEndpoints:
         stmt = select(IndexedFile).where(IndexedFile.source_id == sample_source.id)
         result = db_session.execute(stmt).scalars().all()
         assert len(result) == 0
+
+    def test_delete_source_purge_failure_is_retryable(
+        self, client, sample_source, db_session, meili_spy
+    ):
+        """A Meili delete failure should surface as an error, not orphan the source silently"""
+        meili_spy.fail_next_filter_delete()
+
+        response = client.delete(f"/api/sources/{sample_source.id}")
+
+        assert response.status_code >= 500
+        assert client.get(f"/api/sources/{sample_source.id}").status_code == 200
 
 
 class TestSourceScheduling:

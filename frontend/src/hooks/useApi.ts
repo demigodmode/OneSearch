@@ -6,6 +6,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef } from 'react'
 import {
   getSources,
   getSource,
@@ -21,12 +22,15 @@ import {
   getAppSettings,
   updateAppSettings,
   queryKeys,
+  getAgents, getAgent, createAgentEnrollment, approveAgent, disableAgent, revokeAgent, updateAgentProcessingMode,
 } from '@/lib/api'
 import type {
   SourceCreate,
   SourceUpdate,
   SearchQuery,
   AppSettingsUpdate,
+  ProcessingMode,
+  SourcePathTestRequest,
 } from '@/types/api'
 
 // ============================================================================
@@ -78,6 +82,59 @@ export function useUpdateAppSettings() {
       queryClient.invalidateQueries({ queryKey: queryKeys.sources })
     },
   })
+}
+
+export function useAgents() { return useQuery({ queryKey: queryKeys.agents, queryFn: getAgents }) }
+export function useAgent(id: string) { return useQuery({ queryKey: queryKeys.agent(id), queryFn: () => getAgent(id), enabled: !!id }) }
+function useAgentAction<T>(mutationFn: (value: T) => Promise<unknown>) {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn, onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.agents }) })
+}
+export function useCreateAgentEnrollment() {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: createAgentEnrollment, onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.agents }) })
+}
+export function useApproveAgent() { return useAgentAction(approveAgent) }
+export function useDisableAgent() { return useAgentAction(disableAgent) }
+export function useRevokeAgent() {
+  return useAgentAction(({ id, deleteSources }: { id: string; deleteSources?: boolean }) => revokeAgent(id, deleteSources))
+}
+export function useInvalidateAgentCaches() {
+  const queryClient = useQueryClient()
+  return () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.agents })
+    queryClient.invalidateQueries({ queryKey: queryKeys.sources })
+    queryClient.invalidateQueries({ queryKey: ['search'] })
+  }
+}
+export function useUpdateAgentProcessingMode() { return useAgentAction(({ id, mode }: { id: string; mode: ProcessingMode }) => updateAgentProcessingMode(id, mode)) }
+
+/**
+ * Runs `callback` a handful of times over a bounded window (instead of a
+ * permanent refetchInterval), so a just-enabled/disabled agent's row has a
+ * few chances to pick up its next heartbeat without polling forever.
+ * Each call to the returned function clears any timers from a previous call
+ * and starts a fresh schedule; timers are also cleared on unmount.
+ */
+export function useBoundedAgentRefresh() {
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
+
+  const clear = useCallback(() => {
+    timers.current.forEach((timer) => clearTimeout(timer))
+    timers.current = []
+  }, [])
+
+  const schedule = useCallback(
+    (callback: () => void, delaysMs: number[]) => {
+      clear()
+      timers.current = delaysMs.map((delay) => setTimeout(callback, delay))
+    },
+    [clear],
+  )
+
+  useEffect(() => clear, [clear])
+
+  return schedule
 }
 
 // ============================================================================
@@ -141,7 +198,7 @@ export function useUpdateSource() {
  */
 export function useTestSourcePath() {
   return useMutation({
-    mutationFn: (rootPath: string) => testSourcePath({ root_path: rootPath }),
+    mutationFn: (data: SourcePathTestRequest) => testSourcePath(data),
   })
 }
 

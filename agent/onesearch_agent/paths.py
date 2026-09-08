@@ -1,0 +1,857 @@
+"""Filesystem confinement helpers for future agent jobs."""
+
+from __future__ import annotations
+
+import errno
+import heapq
+import ntpath
+import os
+import stat
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import BinaryIO
+
+from onesearch_shared import (
+    AllowedRoot,
+    RemotePathError,
+    resolve_remote_source_root,
+)
+
+
+class PathOutsideAllowedRoots(ValueError):  # noqa: N818
+    pass
+
+
+class ConfinedFileMissing(PathOutsideAllowedRoots):
+    pass
+
+
+@dataclass(frozen=True)
+class SafeDirectoryEntry:
+    relative_path: str
+    name: str
+    is_dir: bool
+    size_bytes: int
+    modified_at_ns: int
+
+
+@dataclass(frozen=True)
+class SafeDirectoryFailure:
+    relative_path: str
+    error: str
+
+
+@dataclass(frozen=True)
+class SafeDirectoryPage:
+    entries: tuple[SafeDirectoryEntry, ...]
+    truncated: bool
+    failures: tuple[SafeDirectoryFailure, ...] = ()
+
+
+@dataclass(frozen=True)
+class _DescendingDirectoryName:
+    """Reverse heap ordering so a fixed heap retains lexicographically first names."""
+
+    value: str
+
+    def __lt__(self, other: _DescendingDirectoryName) -> bool:
+        return (self.value.casefold(), self.value) > (other.value.casefold(), other.value)
+
+
+def _bounded_browse_names(names, *, max_entries: int, scan_budget: int) -> tuple[list[str], bool, int]:
+    """Fixed-heap selection contract used to test hostile enumeration bounds."""
+    heap: list[tuple[_DescendingDirectoryName, str]] = []
+    truncated = False
+    scanned = 0
+    for scanned, name in enumerate(names, start=1):
+        if scanned > scan_budget:
+            truncated = True
+            break
+        item = (_DescendingDirectoryName(name), name)
+        if len(heap) < max_entries:
+            heapq.heappush(heap, item)
+        else:
+            truncated = True
+            if (name.casefold(), name) < (heap[0][1].casefold(), heap[0][1]):
+                heapq.heapreplace(heap, item)
+    return (
+        sorted((name for _key, name in heap), key=lambda name: (name.casefold(), name)),
+        truncated,
+        scanned,
+    )
+
+
+def confined_relative(prefix: str, relative: str) -> str:
+    """Join two protocol-relative paths after validating both components."""
+    prefix_parts = _relative_parts(prefix)
+    relative_parts = _relative_parts(relative)
+    return "/".join((*prefix_parts, *relative_parts))
+
+
+def resolve_source_prefix(root_id: str, root_path: str, roots: list[AllowedRoot]) -> str:
+    """Verify a server-selected root against local configuration and return its prefix."""
+    platform = "windows" if os.name == "nt" else "linux"
+    try:
+        selected_id, prefix = resolve_remote_source_root(platform, root_path, roots)
+    except RemotePathError as error:
+        raise PathOutsideAllowedRoots("source root is not allowed") from error
+    if selected_id != root_id:
+        raise PathOutsideAllowedRoots("source root id is not the most specific allowed root")
+    return prefix
+
+
+def list_confined_entries_page(
+    root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int = 200
+) -> SafeDirectoryPage:
+    if max_entries < 1:
+        raise ValueError("max_entries must be positive")
+    found, failures = _list_confined_entries_with_failures(
+        root_id, relative, roots, max_entries=max_entries + 1
+    )
+    return SafeDirectoryPage(tuple(found[:max_entries]), len(found) > max_entries, tuple(failures))
+
+
+def list_confined_browse_directories_page(
+    root_id: str,
+    relative: str,
+    roots: list[AllowedRoot],
+    *,
+    max_entries: int,
+    scan_budget: int = 10_000,
+) -> SafeDirectoryPage:
+    """Return a bounded, deterministic directory-only administrative listing.
+
+    Scanner traversal deliberately remains unbounded/paged. This browse-only primitive
+    streams names into a fixed-size heap and stops at a hard scan budget.
+    """
+    if max_entries < 1 or scan_budget < 1:
+        raise ValueError("browse limits must be positive")
+    if os.name == "nt":
+        return _windows_browse_directory_page(root_id, relative, roots, max_entries, scan_budget)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    directory_fd = -1
+    heap: list[tuple[_DescendingDirectoryName, str]] = []
+    scanned = 0
+    truncated = False
+    try:
+        directory_fd = os.open(_root(root_id, roots), flags)
+        for part in _relative_parts(relative):
+            child = os.open(part, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child
+        with os.scandir(directory_fd) as candidates:
+            for candidate in candidates:
+                scanned += 1
+                if scanned > scan_budget:
+                    truncated = True
+                    break
+                name = candidate.name
+                fd = -1
+                try:
+                    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd)
+                    if not stat.S_ISDIR(os.fstat(fd).st_mode):
+                        continue
+                    item = (_DescendingDirectoryName(name), name)
+                    if len(heap) < max_entries:
+                        heapq.heappush(heap, item)
+                    else:
+                        truncated = True
+                        if (name.casefold(), name) < (heap[0][1].casefold(), heap[0][1]):
+                            heapq.heapreplace(heap, item)
+                except OSError:
+                    # Symlinks and raced entries are omitted; no host path is exposed.
+                    continue
+                finally:
+                    if fd != -1:
+                        os.close(fd)
+        names = sorted((name for _key, name in heap), key=lambda name: (name.casefold(), name))
+        return SafeDirectoryPage(
+            tuple(
+                SafeDirectoryEntry(f"{relative}/{name}".strip("/"), name, True, 0, 0)
+                for name in names
+            ),
+            truncated,
+        )
+    except OSError as error:
+        raise PathOutsideAllowedRoots("path cannot be listed safely") from error
+    finally:
+        if directory_fd != -1:
+            os.close(directory_fd)
+
+
+def _windows_browse_directory_page(root_id, relative, roots, max_entries, scan_budget):
+    """Windows equivalent using the streaming native name iterator and fixed heap."""
+    root_handle = directory_handle = None
+    heap: list[tuple[_DescendingDirectoryName, str]] = []
+    truncated = False
+    try:
+        root_handle, root_path, directory_handle, directory_path = _windows_verified_directory(
+            root_id, relative, roots
+        )
+        for scanned, name in enumerate(_windows_directory_names(directory_handle), start=1):
+            if scanned > scan_budget:
+                truncated = True
+                break
+            child = None
+            try:
+                child = _windows_open_relative(directory_handle, name)
+                if _windows_is_reparse_point(child):
+                    continue
+                final = _windows_final_path(child)
+                is_dir, _size, _mtime = _windows_handle_metadata(child)
+                if not is_dir or not (
+                    _windows_is_within(final, root_path) and _windows_is_within(final, directory_path)
+                ):
+                    continue
+                item = (_DescendingDirectoryName(name), name)
+                if len(heap) < max_entries:
+                    heapq.heappush(heap, item)
+                else:
+                    truncated = True
+                    if (name.casefold(), name) < (heap[0][1].casefold(), heap[0][1]):
+                        heapq.heapreplace(heap, item)
+            except OSError:
+                continue
+            finally:
+                _windows_close(child)
+        names = sorted((name for _key, name in heap), key=lambda name: (name.casefold(), name))
+        return SafeDirectoryPage(
+            tuple(SafeDirectoryEntry(f"{relative}/{name}".strip("/"), name, True, 0, 0) for name in names),
+            truncated,
+        )
+    except OSError as error:
+        raise PathOutsideAllowedRoots("path cannot be listed safely") from error
+    finally:
+        _windows_close(directory_handle)
+        _windows_close(root_handle)
+
+
+def list_confined_entries(
+    root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int = 200
+) -> list[SafeDirectoryEntry]:
+    """Return metadata derived solely from no-follow handles, never host Paths."""
+    return _list_confined_entries_with_failures(root_id, relative, roots, max_entries)[0]
+
+
+def iter_confined_entries(
+    root_id: str, relative: str, roots: list[AllowedRoot]
+) -> Iterator[SafeDirectoryEntry]:
+    """Yield a directory one no-follow entry at a time for durable scan spooling."""
+    if os.name == "nt":
+        root_handle = directory_handle = None
+        try:
+            root_handle, root_path, directory_handle, directory_path = _windows_verified_directory(
+                root_id, relative, roots
+            )
+            for name in _windows_directory_names(directory_handle):
+                child = None
+                try:
+                    child = _windows_open_relative(directory_handle, name)
+                    if _windows_is_reparse_point(child):
+                        continue
+                    final = _windows_final_path(child)
+                    if not (
+                        _windows_is_within(final, root_path)
+                        and _windows_is_within(final, directory_path)
+                    ):
+                        raise OSError("entry escaped verified directory")
+                    is_dir, size, mtime = _windows_handle_metadata(child)
+                    yield SafeDirectoryEntry(
+                        f"{relative}/{name}".strip("/"), name, is_dir, size, mtime
+                    )
+                finally:
+                    _windows_close(child)
+            return
+        except OSError as error:
+            raise PathOutsideAllowedRoots("path cannot be listed safely") from error
+        finally:
+            _windows_close(directory_handle)
+            _windows_close(root_handle)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    directory_fd = -1
+    try:
+        directory_fd = os.open(_root(root_id, roots), flags)
+        for part in _relative_parts(relative):
+            child = os.open(part, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child
+        with os.scandir(directory_fd) as entries:
+            for entry in entries:
+                fd = -1
+                try:
+                    fd = os.open(
+                        entry.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd
+                    )
+                    info = os.fstat(fd)
+                    if not (stat.S_ISREG(info.st_mode) or stat.S_ISDIR(info.st_mode)):
+                        continue
+                    yield SafeDirectoryEntry(
+                        f"{relative}/{entry.name}".strip("/"),
+                        entry.name,
+                        stat.S_ISDIR(info.st_mode),
+                        info.st_size,
+                        info.st_mtime_ns,
+                    )
+                except OSError as error:
+                    try:
+                        mode = os.stat(
+                            entry.name, dir_fd=directory_fd, follow_symlinks=False
+                        ).st_mode
+                    except OSError:
+                        mode = 0
+                    if not stat.S_ISLNK(mode):
+                        raise PathOutsideAllowedRoots(
+                            "directory entry cannot be listed safely"
+                        ) from error
+                finally:
+                    if fd != -1:
+                        os.close(fd)
+    except OSError as error:
+        raise PathOutsideAllowedRoots("path cannot be listed safely") from error
+    finally:
+        if directory_fd != -1:
+            os.close(directory_fd)
+
+
+def _list_confined_entries_with_failures(
+    root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int
+) -> tuple[list[SafeDirectoryEntry], list[SafeDirectoryFailure]]:
+    if os.name == "nt":
+        root_handle = directory_handle = None
+        entries, failures = [], []
+        try:
+            root_handle, root_path, directory_handle, directory_path = _windows_verified_directory(
+                root_id, relative, roots
+            )
+            for name in sorted(_windows_directory_names(directory_handle), key=str.casefold):
+                child = None
+                try:
+                    child = _windows_open_relative(directory_handle, name)
+                    if _windows_is_reparse_point(child):
+                        continue
+                    final = _windows_final_path(child)
+                    if not (
+                        _windows_is_within(final, root_path)
+                        and _windows_is_within(final, directory_path)
+                    ):
+                        raise OSError("entry escaped verified directory")
+                    is_dir, size, mtime = _windows_handle_metadata(child)
+                    entries.append(
+                        SafeDirectoryEntry(
+                            f"{relative}/{name}".strip("/"), name, is_dir, size, mtime
+                        )
+                    )
+                    if len(entries) >= max_entries:
+                        break
+                except OSError as error:
+                    failures.append(
+                        SafeDirectoryFailure(f"{relative}/{name}".strip("/"), str(error)[:500])
+                    )
+                finally:
+                    _windows_close(child)
+            return entries, failures
+        finally:
+            _windows_close(directory_handle)
+            _windows_close(root_handle)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    directory_fd = -1
+    entries: list[SafeDirectoryEntry] = []
+    failures: list[SafeDirectoryFailure] = []
+    try:
+        directory_fd = os.open(_root(root_id, roots), flags)
+        for part in _relative_parts(relative):
+            child = os.open(part, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child
+        for name in sorted(os.listdir(directory_fd), key=str.casefold):
+            fd = -1
+            try:
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd)
+                info = os.fstat(fd)
+                mode = info.st_mode
+                if stat.S_ISLNK(mode) or not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+                    continue
+                path = f"{relative}/{name}".strip("/")
+                entries.append(
+                    SafeDirectoryEntry(
+                        path, name, stat.S_ISDIR(mode), info.st_size, info.st_mtime_ns
+                    )
+                )
+                if len(entries) >= max_entries:
+                    break
+            except OSError as error:
+                try:
+                    mode = os.stat(name, dir_fd=directory_fd, follow_symlinks=False).st_mode
+                except OSError:
+                    mode = 0
+                if not stat.S_ISLNK(mode):
+                    failures.append(
+                        SafeDirectoryFailure(f"{relative}/{name}".strip("/"), str(error)[:500])
+                    )
+            finally:
+                if fd != -1:
+                    os.close(fd)
+        return entries, failures
+    except OSError as error:
+        raise PathOutsideAllowedRoots("path cannot be listed safely") from error
+    finally:
+        if directory_fd != -1:
+            os.close(directory_fd)
+
+
+@contextmanager
+def open_confined_file(
+    root_id: str,
+    relative: str,
+    roots: list[AllowedRoot],
+    mode: str = "rb",
+) -> Iterator[BinaryIO]:
+    """Open an already-confined file; returned paths must not be reopened by callers."""
+    if os.name == "nt":
+        with _open_confined_file_windows(root_id, relative, roots, mode) as handle:
+            yield handle
+        return
+    if mode != "rb":
+        raise ValueError("only binary read mode is supported")
+    parts = Path(relative).parts
+    if (
+        not relative
+        or "\\" in relative
+        or Path(relative).is_absolute()
+        or any(part in {".", ".."} for part in parts)
+    ):
+        raise PathOutsideAllowedRoots("invalid relative path")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    fd = -1
+    file_fd = -1
+    try:
+        fd = os.open(_root(root_id, roots), flags)
+        for part in parts[:-1]:
+            child = os.open(part, flags, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        file_fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+        with os.fdopen(file_fd, "rb") as handle:
+            file_fd = -1
+            yield handle
+    except OSError as error:
+        if error.errno == errno.ENOENT:
+            raise ConfinedFileMissing("confined file is missing") from error
+        raise PathOutsideAllowedRoots("path cannot be opened safely") from error
+    finally:
+        if file_fd != -1:
+            os.close(file_fd)
+        if fd != -1:
+            os.close(fd)
+
+
+def _relative_parts(relative: str) -> tuple[str, ...]:
+    if relative == "":
+        return ()
+    parts = Path(relative).parts
+    if (
+        not relative
+        or "\\" in relative
+        or Path(relative).is_absolute()
+        or any(part in {".", ".."} for part in parts)
+    ):
+        raise PathOutsideAllowedRoots("invalid relative path")
+    return parts
+
+
+def _windows_kernel32():
+    """Load Win32 APIs lazily so non-Windows imports stay portable."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.GetFinalPathNameByHandleW.argtypes = [
+        wintypes.HANDLE,
+        wintypes.LPWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+    ]
+    kernel32.GetFinalPathNameByHandleW.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.GetFileInformationByHandle.argtypes = [wintypes.HANDLE, wintypes.LPVOID]
+    kernel32.GetFileInformationByHandle.restype = wintypes.BOOL
+    kernel32.GetFileInformationByHandleEx.restype = wintypes.BOOL
+    return ctypes, kernel32
+
+
+def _windows_handle_metadata(handle) -> tuple[bool, int, int]:
+    """Read directory, size and UTC nanoseconds from this exact native handle."""
+    ctypes, kernel32 = _windows_kernel32()
+    from ctypes import wintypes
+
+    class BY_HANDLE_FILE_INFORMATION(ctypes.Structure):  # noqa: N801
+        _fields_ = [
+            ("dwFileAttributes", wintypes.DWORD),
+            ("ftCreationTimeLowDateTime", wintypes.DWORD),
+            ("ftCreationTimeHighDateTime", wintypes.DWORD),
+            ("ftLastAccessTimeLowDateTime", wintypes.DWORD),
+            ("ftLastAccessTimeHighDateTime", wintypes.DWORD),
+            ("ftLastWriteTimeLowDateTime", wintypes.DWORD),
+            ("ftLastWriteTimeHighDateTime", wintypes.DWORD),
+            ("dwVolumeSerialNumber", wintypes.DWORD),
+            ("nFileSizeHigh", wintypes.DWORD),
+            ("nFileSizeLow", wintypes.DWORD),
+            ("nNumberOfLinks", wintypes.DWORD),
+            ("nFileIndexHigh", wintypes.DWORD),
+            ("nFileIndexLow", wintypes.DWORD),
+        ]
+
+    info = BY_HANDLE_FILE_INFORMATION()
+    if not kernel32.GetFileInformationByHandle(handle, ctypes.byref(info)):
+        raise OSError(ctypes.get_last_error(), "cannot inspect file handle")
+    ticks = int(info.ftLastWriteTimeLowDateTime) | (int(info.ftLastWriteTimeHighDateTime) << 32)
+    if ticks < 116444736000000000:
+        raise OSError("file timestamp predates Unix epoch")
+    return (
+        bool(info.dwFileAttributes & 0x10),
+        (int(info.nFileSizeHigh) << 32) | int(info.nFileSizeLow),
+        (ticks - 116444736000000000) * 100,
+    )
+
+
+def _windows_open(path: str):
+    ctypes, kernel32 = _windows_kernel32()
+    handle = kernel32.CreateFileW(
+        path,
+        0x80000000,  # GENERIC_READ
+        0x00000001 | 0x00000002 | 0x00000004,  # share read/write/delete
+        None,
+        3,  # OPEN_EXISTING
+        0x02000000,  # FILE_FLAG_BACKUP_SEMANTICS (also permits directories)
+        None,
+    )
+    if handle == ctypes.c_void_p(-1).value:
+        raise OSError(ctypes.get_last_error(), f"cannot open {path!r}")
+    return handle
+
+
+def _windows_ntdll():
+    """Return the small lazy ntdll surface needed for rooted directory access."""
+    import ctypes
+    from ctypes import wintypes
+
+    class IO_STATUS_BLOCK(ctypes.Structure):  # noqa: N801
+        _fields_ = [("Status", wintypes.LONG), ("Information", ctypes.c_size_t)]
+
+    class UNICODE_STRING(ctypes.Structure):  # noqa: N801
+        _fields_ = [
+            ("Length", wintypes.USHORT),
+            ("MaximumLength", wintypes.USHORT),
+            ("Buffer", wintypes.LPWSTR),
+        ]
+
+    class OBJECT_ATTRIBUTES(ctypes.Structure):  # noqa: N801
+        _fields_ = [
+            ("Length", wintypes.ULONG),
+            ("RootDirectory", wintypes.HANDLE),
+            ("ObjectName", ctypes.POINTER(UNICODE_STRING)),
+            ("Attributes", wintypes.ULONG),
+            ("SecurityDescriptor", wintypes.LPVOID),
+            ("SecurityQualityOfService", wintypes.LPVOID),
+        ]
+
+    ntdll = ctypes.WinDLL("ntdll")
+    ntdll.NtQueryDirectoryFile.restype = wintypes.LONG
+    ntdll.NtCreateFile.restype = wintypes.LONG
+    ntdll.RtlNtStatusToDosError.restype = wintypes.ULONG
+    return ctypes, ntdll, IO_STATUS_BLOCK, UNICODE_STRING, OBJECT_ATTRIBUTES
+
+
+def _windows_nt_error(ntdll, status: int) -> OSError:
+    return OSError(ntdll.RtlNtStatusToDosError(status), "native directory operation failed")
+
+
+def _windows_directory_names(handle) -> Iterator[str]:
+    ctypes, ntdll, io_status_block, _unicode, _attributes = _windows_ntdll()
+    buffer = ctypes.create_string_buffer(65536)
+    iosb = io_status_block()
+    restart = 1
+    while True:
+        status = ntdll.NtQueryDirectoryFile(
+            handle,
+            None,
+            None,
+            None,
+            ctypes.byref(iosb),
+            buffer,
+            len(buffer),
+            12,
+            False,
+            None,
+            restart,
+        )
+        restart = 0
+        if (status & 0xFFFFFFFF) == 0x80000006:  # STATUS_NO_MORE_FILES
+            return
+        if status < 0:
+            raise _windows_nt_error(ntdll, status)
+        offset = 0
+        while offset < iosb.Information:
+            next_offset = int.from_bytes(buffer[offset : offset + 4], "little")
+            name_length = int.from_bytes(buffer[offset + 8 : offset + 12], "little")
+            name = bytes(buffer[offset + 12 : offset + 12 + name_length]).decode("utf-16-le")
+            if name not in {".", ".."}:
+                yield name
+            if not next_offset:
+                break
+            offset += next_offset
+
+
+def _windows_open_relative(directory_handle, name: str):
+    ctypes, ntdll, io_status_block, unicode_string, object_attributes = _windows_ntdll()
+    text = ctypes.create_unicode_buffer(name)
+    unicode = unicode_string(
+        len(name.encode("utf-16-le")), (len(name) + 1) * 2, ctypes.cast(text, ctypes.c_wchar_p)
+    )
+    attributes = object_attributes(
+        ctypes.sizeof(object_attributes),
+        directory_handle,
+        ctypes.pointer(unicode),
+        0x40,
+        None,
+        None,
+    )
+    handle = ctypes.c_void_p()
+    iosb = io_status_block()
+    status = ntdll.NtCreateFile(
+        ctypes.byref(handle),
+        0x80 | 0x100000,
+        ctypes.byref(attributes),
+        ctypes.byref(iosb),
+        None,
+        0,
+        1 | 2 | 4,
+        1,
+        0x20 | 0x200000,
+        None,
+        0,
+    )
+    if status < 0:
+        raise _windows_nt_error(ntdll, status)
+    return handle.value
+
+
+def _windows_close(handle) -> None:
+    if handle is not None:
+        _ctypes, kernel32 = _windows_kernel32()
+        kernel32.CloseHandle(handle)
+
+
+def _windows_final_path(handle) -> str:
+    ctypes, kernel32 = _windows_kernel32()
+    size = 260
+    while True:
+        buffer = ctypes.create_unicode_buffer(size)
+        written = kernel32.GetFinalPathNameByHandleW(handle, buffer, size, 0)
+        if not written:
+            raise OSError(ctypes.get_last_error(), "cannot get final handle path")
+        if written < size:
+            return buffer.value
+        size = written + 1
+
+
+def _windows_is_reparse_point(handle) -> bool:
+    ctypes, kernel32 = _windows_kernel32()
+
+    class AttributeTagInfo(ctypes.Structure):
+        _fields_ = [("FileAttributes", ctypes.c_ulong), ("ReparseTag", ctypes.c_ulong)]
+
+    info = AttributeTagInfo()
+    if not kernel32.GetFileInformationByHandleEx(
+        handle, 9, ctypes.byref(info), ctypes.sizeof(info)
+    ):
+        raise OSError(ctypes.get_last_error(), "cannot inspect file attributes")
+    return bool(info.FileAttributes & 0x400)
+
+
+def _windows_normal_path(path: str) -> str:
+    if path.startswith("\\\\?\\"):
+        path = path[4:]
+    return ntpath.normcase(ntpath.normpath(path))
+
+
+def _windows_is_within(candidate: str, directory: str) -> bool:
+    candidate = _windows_normal_path(candidate)
+    directory = _windows_normal_path(directory)
+    try:
+        return ntpath.commonpath([candidate, directory]) == directory
+    except ValueError:
+        return False
+
+
+def _windows_verified_directory(root_id: str, relative: str, roots: list[AllowedRoot]):
+    root_handle = directory_handle = None
+    try:
+        root_handle = _windows_open(str(_root(root_id, roots)))
+        root_path = _windows_final_path(root_handle)
+        directory_handle = _windows_open(ntpath.join(root_path, *_relative_parts(relative)))
+        directory_path = _windows_final_path(directory_handle)
+        if not _windows_is_within(directory_path, root_path):
+            raise PathOutsideAllowedRoots("path is outside selected root")
+        return root_handle, root_path, directory_handle, directory_path
+    except Exception:
+        _windows_close(directory_handle)
+        _windows_close(root_handle)
+        raise
+
+
+@contextmanager
+def _open_confined_file_windows(
+    root_id: str, relative: str, roots: list[AllowedRoot], mode: str
+) -> Iterator[BinaryIO]:
+    if mode != "rb":
+        raise ValueError("only binary read mode is supported")
+    root_handle = file_handle = None
+    fd = -1
+    try:
+        root_handle = _windows_open(str(_root(root_id, roots)))
+        root_path = _windows_final_path(root_handle)
+        file_handle = _windows_open(ntpath.join(root_path, *_relative_parts(relative)))
+        file_path = _windows_final_path(file_handle)
+        if not _windows_is_within(file_path, root_path):
+            raise PathOutsideAllowedRoots("path is outside selected root")
+        import msvcrt
+
+        fd = msvcrt.open_osfhandle(file_handle, os.O_RDONLY | os.O_BINARY)
+        file_handle = None  # fd now owns the Win32 handle
+        with os.fdopen(fd, "rb") as handle:
+            fd = -1
+            yield handle
+    except OSError as error:
+        if error.errno == errno.ENOENT or getattr(error, "winerror", None) in {2, 3}:
+            raise ConfinedFileMissing("confined file is missing") from error
+        raise PathOutsideAllowedRoots("path cannot be opened safely") from error
+    finally:
+        if fd != -1:
+            os.close(fd)
+        _windows_close(file_handle)
+        _windows_close(root_handle)
+
+
+def _root(root_id: str, roots: list[AllowedRoot]) -> Path:
+    for root in roots:
+        if root.root_id == root_id:
+            return Path(root.path).resolve(strict=True)
+    raise PathOutsideAllowedRoots("unknown allowed root")
+
+
+def resolve_allowed_path(candidate: str | Path, roots: list[AllowedRoot]) -> Path:
+    raw = Path(candidate)
+    if ".." in raw.parts or not raw.exists():
+        raise PathOutsideAllowedRoots("path is not safe")
+    resolved = raw.resolve(strict=True)
+    for item in roots:
+        root = Path(item.path).resolve(strict=True)
+        try:
+            resolved.relative_to(root)
+            return resolved
+        except ValueError:
+            pass
+    raise PathOutsideAllowedRoots("path is outside allowed roots")
+
+
+def resolve_relative_path(root_id: str, relative: str, roots: list[AllowedRoot]) -> Path:
+    path = Path(relative)
+    if path.is_absolute() or ".." in path.parts or "\\" in relative:
+        raise PathOutsideAllowedRoots("invalid relative path")
+    root = _root(root_id, roots)
+    candidate = root / path
+    resolved = resolve_allowed_path(candidate, roots)
+    try:
+        resolved.relative_to(root)
+    except ValueError as error:
+        raise PathOutsideAllowedRoots("path is outside selected root") from error
+    return resolved
+
+
+def browse(root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int = 200):
+    if os.name == "nt":
+        return _browse_windows(root_id, relative, roots, max_entries)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    directory_fd = -1
+    try:
+        directory_fd = os.open(_root(root_id, roots), flags)
+        for part in _relative_parts(relative):
+            child_fd = os.open(part, flags, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = child_fd
+        names = sorted(os.listdir(directory_fd), key=str.casefold)
+        display_directory = _root(root_id, roots) / Path(relative)
+        safe: list[Path] = []
+        for name in names:
+            child_fd = -1
+            try:
+                child_fd = os.open(
+                    name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd
+                )
+                safe.append(display_directory / name)
+                if len(safe) >= max_entries:
+                    break
+            except OSError:
+                continue
+            finally:
+                if child_fd != -1:
+                    os.close(child_fd)
+        return safe
+    except OSError as error:
+        raise PathOutsideAllowedRoots("path cannot be browsed safely") from error
+    finally:
+        if directory_fd != -1:
+            os.close(directory_fd)
+
+
+def _browse_windows(
+    root_id: str, relative: str, roots: list[AllowedRoot], max_entries: int
+) -> list[Path]:
+    """Return display paths only after each entry has been verified by handle."""
+    root_handle = directory_handle = None
+    try:
+        root_handle, root_path, directory_handle, directory_path = _windows_verified_directory(
+            root_id, relative, roots
+        )
+        names = sorted(_windows_directory_names(directory_handle), key=str.casefold)
+        display_directory = _root(root_id, roots) / Path(relative)
+        safe: list[Path] = []
+        for name in names:
+            child_handle = None
+            try:
+                child_handle = _windows_open_relative(directory_handle, name)
+                if _windows_is_reparse_point(child_handle):
+                    continue
+                child_path = _windows_final_path(child_handle)
+                if not (
+                    _windows_is_within(child_path, root_path)
+                    and _windows_is_within(child_path, directory_path)
+                ):
+                    continue
+                safe.append(display_directory / name)
+                if len(safe) >= max_entries:
+                    break
+            except OSError:
+                continue
+            finally:
+                _windows_close(child_handle)
+        return safe
+    except OSError as error:
+        raise PathOutsideAllowedRoots("path cannot be browsed safely") from error
+    finally:
+        _windows_close(directory_handle)
+        _windows_close(root_handle)

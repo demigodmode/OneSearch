@@ -56,6 +56,9 @@ export interface SourceBase {
   interval_value?: number | null
   interval_unit?: IntervalUnit | null
   use_default_schedule?: boolean
+  location_type?: 'local' | 'agent'
+  agent_id?: string | null
+  processing_mode?: ProcessingMode | null
 }
 
 /**
@@ -63,12 +66,14 @@ export interface SourceBase {
  */
 export interface SourceCreate extends SourceBase {
   id?: string // Auto-generated if not provided
+  path_validation_job_id?: string | null
 }
 
 /**
  * Request body for updating a source (all fields optional)
  */
 export interface SourceUpdate {
+  path_validation_job_id?: string | null
   name?: string
   root_path?: string
   include_patterns?: string[] | null
@@ -78,6 +83,9 @@ export interface SourceUpdate {
   interval_value?: number | null
   interval_unit?: IntervalUnit | null
   use_default_schedule?: boolean
+  location_type?: 'local' | 'agent'
+  agent_id?: string | null
+  processing_mode?: ProcessingMode | null
 }
 
 /**
@@ -90,11 +98,17 @@ export interface Source extends SourceBase {
   last_scan_at?: string | null
   next_scan_at?: string | null
   effective_schedule?: ScheduleConfig | null
+  agent_name?: string | null
+  agent_status?: string | null
 }
 
 export interface SourcePathTestRequest {
   root_path: string
+  location_type?: 'local' | 'agent'
+  agent_id?: string | null
 }
+
+export type SourcePathTestStatus = 'pending' | 'claimed' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
 
 export interface SourcePathTestResponse {
   path: string
@@ -107,7 +121,59 @@ export interface SourcePathTestResponse {
   looks_like_host_path: boolean
   message: string
   hint?: string | null
+  job_id?: string | null
+  status?: SourcePathTestStatus | null
 }
+
+export interface SourceBrowseRequest {
+  agent_id: string
+  root_id: string
+  path: string
+}
+
+export interface SourceBrowseEntry {
+  name: string
+  path: string
+}
+
+export type SourceBrowseStatus = 'pending' | 'claimed' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
+
+export interface SourceBrowseResponse {
+  job_id: string
+  status: SourceBrowseStatus
+  root_id: string
+  path: string
+  entries: SourceBrowseEntry[]
+  truncated: boolean
+  error?: string | null
+}
+
+export type AgentStatus = 'pending' | 'online' | 'offline' | 'degraded' | 'disabled' | 'revoked'
+export type ProcessingMode = 'on_agent' | 'on_server'
+export interface AllowedRoot { root_id: string; path: string; label?: string }
+/** Shared agent-protocol directory entry; no completed browse-list endpoint exists yet. */
+export interface DirectoryEntry {
+  name: string
+  path: string
+  is_directory: boolean
+  size_bytes?: number | null
+  modified_at?: number | null
+}
+export interface AgentAdminSummary { attached_sources: number; indexed_documents: number; pending_jobs: number; active_jobs: number; failed_jobs: number; earliest_next_scan_at: string | null }
+export interface AgentAdminHealth { code: 'recent_indexing_failures'; affected_sources: number; truncated: boolean; observed_at: string }
+export interface AgentUpdateReport { auto_update: boolean; runtime_kind: 'native' | 'docker'; status: 'not_checked' | 'current' | 'available' | 'error' | 'not_configured'; available_version: string | null; checked_at: string | number; error_code: 'network' | 'invalid_manifest' | 'incompatible' | 'install_unavailable' | 'install_failed' | null }
+export interface AgentSourceSummary { id: string; name: string; root_path: string; next_scan_at: string | null }
+export interface AgentJobSummary { id: string; kind: string; reason: string | null; status: string; source_id: string | null; created_at: string; completed_at: string | null; error: string | null }
+export interface Agent {
+  id: string; name: string; platform: string; version: string; protocol_version: number
+  allowed_roots: AllowedRoot[]; default_processing_mode: ProcessingMode; auto_update: boolean | null; update_report?: AgentUpdateReport | null
+  status: AgentStatus; approved_at: string | null; last_seen_at: string | null
+  disabled_at: string | null; created_at: string; updated_at: string
+  health: AgentAdminHealth | null
+  summary: AgentAdminSummary
+}
+export interface AgentDetails extends Agent { sources: AgentSourceSummary[]; recent_jobs: AgentJobSummary[] }
+export interface AgentEnrollment { code: string; expires_at: string }
 
 // ============================================================================
 // Search Types
@@ -134,6 +200,8 @@ export interface SearchResult {
   path: string
   basename: string
   source_name: string
+  source_id: string
+  agent_status?: string | null
   type: string
   size_bytes: number
   modified_at: number // Unix timestamp
@@ -174,6 +242,7 @@ export interface AppSettings {
   readable_preview_page_chars: number
   long_text_pagination_threshold_chars: number
   default_scan_schedule?: ScheduleConfig | null
+  remote_agents_enabled: boolean
 }
 
 export type AppSettingsUpdate = Partial<AppSettings>

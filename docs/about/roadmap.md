@@ -22,6 +22,7 @@ Recent milestones that are already in the product:
 - Light, Dark, and System theme modes, accent settings, and search display settings
 - standalone CLI package
 - Podman deployment notes for rootless and SELinux setups
+- optional remote indexing agents with central scheduling, machine health, and on-agent or on-server extraction
 
 See the [changelog](changelog.md) for release-by-release details.
 
@@ -59,10 +60,6 @@ These are the kinds of improvements that fit the current product without changin
 ## Larger ideas
 
 These are useful, but they need more design before they should be treated as committed work.
-
-### Remote indexing agents
-
-The current model handles files on other machines through mounts: NFS/SMB, bind mounts, ZFS datasets. A lightweight agent that runs on a remote machine and indexes back to a central OneSearch instance would help setups where centralizing every mount onto one host isn't practical. This needs real design work before it's committed, particularly around authentication, restricting which paths an agent can index, handling deletes/renames correctly, and making agent failures visible in the UI rather than silent.
 
 ### Connectors
 

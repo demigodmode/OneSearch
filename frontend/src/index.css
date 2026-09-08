@@ -42,6 +42,12 @@
   --color-brand-foreground: hsl(var(--brand-foreground));
   --color-success: hsl(var(--success));
   --color-warning: hsl(var(--warning));
+  /* "on-tint" foregrounds: readable text on the /15 tinted status badges in
+     both themes (base success/warning/destructive are same-hue and too low
+     contrast over their own tint). */
+  --color-success-strong: hsl(var(--success-strong));
+  --color-warning-strong: hsl(var(--warning-strong));
+  --color-destructive-strong: hsl(var(--destructive-strong));
 
   --animate-fade-in: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   --animate-fade-in-up: fadeInUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -121,6 +127,10 @@
 
     --success: 142 60% 45%;
     --warning: 38 92% 58%;
+    /* Readable text on the /15 tint (dark theme) — measured ≥5:1 over card/bg */
+    --success-strong: 142 55% 55%;
+    --warning-strong: 38 92% 62%;
+    --destructive-strong: 0 78% 68%;
   }
 
   /* Light theme */
@@ -148,6 +158,10 @@
     --brand-foreground: 28 50% 8%;
     --success: 142 65% 38%;
     --warning: 38 92% 40%;
+    /* Readable text on the /15 tint (light theme) — measured ≥5:1 over card/bg */
+    --success-strong: 142 65% 26%;
+    --warning-strong: 38 95% 26%;
+    --destructive-strong: 0 75% 38%;
   }
 }
 

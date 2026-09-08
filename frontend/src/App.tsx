@@ -13,6 +13,7 @@ import SearchPage from './pages/SearchPage'
 import SourcesPage from './pages/admin/SourcesPage'
 import StatusPage from './pages/admin/StatusPage'
 import SettingsPage from './pages/admin/SettingsPage'
+import AgentsPage from './pages/admin/AgentsPage'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
 
@@ -54,6 +55,7 @@ function App() {
           <Route index element={<Navigate to="/admin/sources" replace />} />
           <Route path="sources" element={<SourcesPage />} />
           <Route path="status" element={<StatusPage />} />
+          <Route path="agents" element={<AgentsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
 

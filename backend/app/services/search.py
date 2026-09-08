@@ -4,9 +4,10 @@
 """
 Meilisearch client wrapper and document indexing
 """
+
 import asyncio
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 import meilisearch
 from meilisearch.client import Client
@@ -32,8 +33,8 @@ class MeilisearchService:
 
     def __init__(self):
         """Initialize Meilisearch client"""
-        self.client: Optional[Client] = None
-        self.index: Optional[Index] = None
+        self.client: Client | None = None
+        self.index: Index | None = None
 
     def connect(self) -> bool:
         """
@@ -87,21 +88,16 @@ class MeilisearchService:
             self.index.update_sortable_attributes(SORTABLE_FIELDS)
 
             # Configure ranking rules
-            self.index.update_ranking_rules([
-                "words",
-                "typo",
-                "proximity",
-                "attribute",
-                "sort",
-                "exactness"
-            ])
+            self.index.update_ranking_rules(
+                ["words", "typo", "proximity", "attribute", "sort", "exactness"]
+            )
 
             logger.info(f"Index '{INDEX_NAME}' configured successfully")
 
         except Exception as e:
             logger.warning(f"Failed to configure index: {e}")
 
-    def health_check(self) -> Dict[str, Any]:
+    def health_check(self) -> dict[str, Any]:
         """
         Check Meilisearch health and return status
 
@@ -116,13 +112,25 @@ class MeilisearchService:
             stats = self.index.get_stats() if self.index else None
 
             # Handle both dict and object responses from meilisearch client
-            health_status = health.get("status", "unknown") if isinstance(health, dict) else getattr(health, "status", "available")
+            health_status = (
+                health.get("status", "unknown")
+                if isinstance(health, dict)
+                else getattr(health, "status", "available")
+            )
 
             doc_count = 0
             is_indexing = False
             if stats:
-                doc_count = stats.get("numberOfDocuments", 0) if isinstance(stats, dict) else getattr(stats, "number_of_documents", 0)
-                is_indexing = stats.get("isIndexing", False) if isinstance(stats, dict) else getattr(stats, "is_indexing", False)
+                doc_count = (
+                    stats.get("numberOfDocuments", 0)
+                    if isinstance(stats, dict)
+                    else getattr(stats, "number_of_documents", 0)
+                )
+                is_indexing = (
+                    stats.get("isIndexing", False)
+                    if isinstance(stats, dict)
+                    else getattr(stats, "is_indexing", False)
+                )
 
             return {
                 "status": health_status,
@@ -135,7 +143,7 @@ class MeilisearchService:
             logger.exception("Meilisearch health check failed")
             return {"status": "error", "error": "Meilisearch health check failed"}
 
-    async def index_documents(self, documents: List[Any]) -> Dict[str, Any]:
+    async def index_documents(self, documents: list[Any]) -> dict[str, Any]:
         """
         Index multiple documents in Meilisearch (runs in thread pool)
 
@@ -152,7 +160,7 @@ class MeilisearchService:
             # Convert Document objects to dicts if needed
             doc_dicts = []
             for doc in documents:
-                if hasattr(doc, 'model_dump'):  # Pydantic model
+                if hasattr(doc, "model_dump"):  # Pydantic model
                     doc_dicts.append(doc.model_dump(mode="json"))
                 elif isinstance(doc, dict):
                     doc_dicts.append(doc)
@@ -168,7 +176,21 @@ class MeilisearchService:
             logger.error(f"Failed to index documents: {e}")
             raise
 
-    async def delete_document(self, document_id: str) -> Dict[str, Any]:
+    async def index_documents_confirmed(self, documents: list[Any]) -> dict[str, Any]:
+        """Remote-agent safety boundary: wait for the queued Meili task to succeed."""
+        task = await self.index_documents(documents)
+        task_id = task.get("task_uid") or task.get("taskUid")
+        if task_id is None or self.client is None:
+            raise RuntimeError("index task confirmation unavailable")
+        result = await asyncio.to_thread(self.client.wait_for_task, task_id, timeout_in_ms=30000)
+        status = (
+            result.get("status") if isinstance(result, dict) else getattr(result, "status", None)
+        )
+        if status != "succeeded":
+            raise RuntimeError("Meilisearch indexing task failed")
+        return task
+
+    async def delete_document(self, document_id: str) -> dict[str, Any]:
         """
         Delete a document from the index (runs in thread pool)
 
@@ -191,7 +213,37 @@ class MeilisearchService:
             logger.error(f"Failed to delete document {document_id}: {e}")
             raise
 
-    async def delete_documents_by_filter(self, filter_str: str) -> Dict[str, Any]:
+    async def delete_document_confirmed(self, document_id: str) -> dict[str, Any]:
+        task = await self.delete_document(document_id)
+        task_id = task.get("task_uid") or task.get("taskUid")
+        if task_id is None or self.client is None:
+            raise RuntimeError("delete task confirmation unavailable")
+        result = await asyncio.to_thread(self.client.wait_for_task, task_id, timeout_in_ms=30000)
+        status = (
+            result.get("status") if isinstance(result, dict) else getattr(result, "status", None)
+        )
+        if status != "succeeded":
+            raise RuntimeError("Meilisearch delete task failed")
+        return task
+
+    async def delete_documents_confirmed(self, document_ids: list[str]) -> dict[str, Any]:
+        if not self.index:
+            raise RuntimeError("Index not initialized")
+        task = await asyncio.to_thread(self.index.delete_documents, document_ids)
+        task_id = (
+            task.get("task_uid") if isinstance(task, dict) else getattr(task, "task_uid", None)
+        )
+        task_id = task_id or (task.get("taskUid") if isinstance(task, dict) else None)
+        if task_id is None or self.client is None:
+            raise RuntimeError("delete task confirmation unavailable")
+        result = await asyncio.to_thread(self.client.wait_for_task, task_id, timeout_in_ms=30000)
+        if (
+            result.get("status") if isinstance(result, dict) else getattr(result, "status", None)
+        ) != "succeeded":
+            raise RuntimeError("Meilisearch delete task failed")
+        return task
+
+    async def delete_documents_by_filter(self, filter_str: str) -> dict[str, Any]:
         """
         Delete documents matching a filter (runs in thread pool)
 
@@ -206,9 +258,7 @@ class MeilisearchService:
 
         try:
             # Run blocking HTTP call in thread pool
-            task = await asyncio.to_thread(
-                self.index.delete_documents, filter=filter_str
-            )
+            task = await asyncio.to_thread(self.index.delete_documents, filter=filter_str)
             logger.info(f"Deleted documents with filter: {filter_str}")
             return task.__dict__
 
@@ -216,7 +266,24 @@ class MeilisearchService:
             logger.error(f"Failed to delete documents: {e}")
             raise
 
-    async def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
+    async def delete_documents_by_filter_confirmed(self, filter_str: str) -> dict[str, Any]:
+        """Submit a filtered delete and WAIT for the task to succeed. Raises on failure."""
+        if not self.index:
+            raise RuntimeError("Index not initialized")
+        task = await asyncio.to_thread(self.index.delete_documents, filter=filter_str)
+        if isinstance(task, dict):
+            task_id = task.get("task_uid")
+        else:
+            task_id = getattr(task, "task_uid", None)
+        result = await asyncio.to_thread(self.client.wait_for_task, task_id, timeout_in_ms=30000)
+        status_val = getattr(result, "status", None) or (
+            result.get("status") if isinstance(result, dict) else None
+        )
+        if status_val != "succeeded":
+            raise RuntimeError(f"Meilisearch delete task did not succeed: {status_val}")
+        return result.__dict__ if hasattr(result, "__dict__") else dict(result)
+
+    async def get_document(self, document_id: str) -> dict[str, Any] | None:
         """
         Get a single document by ID (runs in thread pool)
 
@@ -244,12 +311,12 @@ class MeilisearchService:
     async def search(
         self,
         query: str,
-        filters: Optional[List[str]] = None,
+        filters: list[str] | None = None,
         limit: int = 20,
         offset: int = 0,
-        sort: Optional[str] = None,
+        sort: str | None = None,
         crop_length: int = 200,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Search documents (runs blocking Meilisearch HTTP call in thread pool)
 
@@ -268,7 +335,7 @@ class MeilisearchService:
             raise RuntimeError("Index not initialized")
 
         try:
-            opts: Dict[str, Any] = {
+            opts: dict[str, Any] = {
                 "filter": filters,
                 "limit": limit,
                 "offset": offset,
@@ -276,6 +343,7 @@ class MeilisearchService:
                 "highlightPreTag": "<mark>",
                 "highlightPostTag": "</mark>",
                 "cropLength": crop_length,
+                "showRankingScore": True,
             }
             if sort:
                 opts["sort"] = [sort]

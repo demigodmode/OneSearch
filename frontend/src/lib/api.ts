@@ -13,6 +13,8 @@ import type {
   SourceUpdate,
   SourcePathTestRequest,
   SourcePathTestResponse,
+  SourceBrowseRequest,
+  SourceBrowseResponse,
   SearchQuery,
   SearchResponse,
   StatusResponse,
@@ -26,6 +28,7 @@ import type {
   User,
   AppSettings,
   AppSettingsUpdate,
+  Agent, AgentDetails, AgentEnrollment, ProcessingMode,
 } from '@/types/api'
 
 // ============================================================================
@@ -189,14 +192,112 @@ export async function updateSource(
   })
 }
 
+export interface SourcePathPollOptions {
+  pollIntervalMs?: number
+  pollTimeoutMs?: number
+}
+
+const ACTIVE_PATH_TEST_STATUSES = new Set(['pending', 'claimed', 'running', 'cancelling'])
+const ACTIVE_BROWSE_STATUSES = new Set(['pending', 'claimed', 'running', 'cancelling'])
+
+function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const onAbort = () => {
+      window.clearTimeout(timer)
+      resolve()
+    }
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, milliseconds)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+export async function getSourcePathTestResult(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<SourcePathTestResponse> {
+  return apiFetch<SourcePathTestResponse>(`/sources/test-path/${encodeURIComponent(jobId)}`, { signal })
+}
+
+export async function pollSourcePathTest(
+  jobId: string,
+  options: SourcePathPollOptions = {},
+): Promise<SourcePathTestResponse> {
+  const timeoutMs = options.pollTimeoutMs ?? 20_000
+  let intervalMs = Math.max(options.pollIntervalMs ?? 300, 0)
+  const deadline = Date.now() + timeoutMs
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), Math.max(timeoutMs, 0))
+
+  try {
+    while (!controller.signal.aborted) {
+      const remainingMs = deadline - Date.now()
+      if (remainingMs <= 0) break
+      await wait(Math.min(intervalMs, remainingMs), controller.signal)
+      if (controller.signal.aborted || Date.now() >= deadline) break
+      const result = await getSourcePathTestResult(jobId, controller.signal)
+      if (!result.status || !ACTIVE_PATH_TEST_STATUSES.has(result.status)) return result
+      intervalMs = Math.min(Math.max(intervalMs * 1.5, 100), 1_500)
+    }
+  } catch (error) {
+    if (!controller.signal.aborted) throw error
+  } finally {
+    window.clearTimeout(timeout)
+  }
+  throw new ApiError('Remote path validation timed out.', 408, 'remote_path_validation_timeout')
+}
+
 /**
  * Test a candidate source path before saving
  */
-export async function testSourcePath(data: SourcePathTestRequest): Promise<SourcePathTestResponse> {
-  return apiFetch<SourcePathTestResponse>('/sources/test-path', {
+export async function testSourcePath(
+  data: SourcePathTestRequest,
+  options: SourcePathPollOptions = {},
+): Promise<SourcePathTestResponse> {
+  const result = await apiFetch<SourcePathTestResponse>('/sources/test-path', {
     method: 'POST',
     body: JSON.stringify(data),
   })
+  if (!result.job_id || !result.status || !ACTIVE_PATH_TEST_STATUSES.has(result.status)) {
+    return result
+  }
+  return pollSourcePathTest(result.job_id, options)
+}
+
+export async function getSourceDirectoryBrowseResult(jobId: string, signal?: AbortSignal): Promise<SourceBrowseResponse> {
+  return apiFetch<SourceBrowseResponse>(`/sources/browse/${encodeURIComponent(jobId)}`, { signal })
+}
+
+export async function pollSourceDirectoryBrowse(jobId: string, options: SourcePathPollOptions = {}): Promise<SourceBrowseResponse> {
+  const timeoutMs = options.pollTimeoutMs ?? 20_000
+  let intervalMs = Math.max(options.pollIntervalMs ?? 300, 0)
+  const deadline = Date.now() + timeoutMs
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), Math.max(timeoutMs, 0))
+  try {
+    while (!controller.signal.aborted) {
+      const remainingMs = deadline - Date.now()
+      if (remainingMs <= 0) break
+      await wait(Math.min(intervalMs, remainingMs), controller.signal)
+      if (controller.signal.aborted || Date.now() >= deadline) break
+      const result = await getSourceDirectoryBrowseResult(jobId, controller.signal)
+      if (!ACTIVE_BROWSE_STATUSES.has(result.status)) return result
+      intervalMs = Math.min(Math.max(intervalMs * 1.5, 100), 1_500)
+    }
+  } catch (error) {
+    if (!controller.signal.aborted) throw error
+  } finally {
+    window.clearTimeout(timeout)
+  }
+  throw new ApiError('Remote directory browse timed out.', 408, 'remote_directory_browse_timeout')
+}
+
+export async function browseSourceDirectory(data: SourceBrowseRequest, options: SourcePathPollOptions = {}): Promise<SourceBrowseResponse> {
+  const result = await apiFetch<SourceBrowseResponse>('/sources/browse', { method: 'POST', body: JSON.stringify(data) })
+  if (!ACTIVE_BROWSE_STATUSES.has(result.status)) return result
+  return pollSourceDirectoryBrowse(result.job_id, options)
 }
 
 /**
@@ -243,6 +344,19 @@ export async function updateAppSettings(data: AppSettingsUpdate): Promise<AppSet
     method: 'PUT',
     body: JSON.stringify(data),
   })
+}
+
+export async function getAgents(): Promise<Agent[]> { return apiFetch<Agent[]>('/agents') }
+export async function getAgent(id: string): Promise<AgentDetails> { return apiFetch<AgentDetails>(`/agents/${encodeURIComponent(id)}`) }
+export async function createAgentEnrollment(): Promise<AgentEnrollment> { return apiFetch<AgentEnrollment>('/agents/enrollments', { method: 'POST' }) }
+export async function approveAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/approve`, { method: 'POST' }) }
+export async function disableAgent(id: string): Promise<Agent> { return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/disable`, { method: 'POST' }) }
+export async function revokeAgent(id: string, deleteSources?: boolean): Promise<Agent> {
+  const suffix = deleteSources ? '?delete_sources=true' : ''
+  return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}/revoke${suffix}`, { method: 'POST' })
+}
+export async function updateAgentProcessingMode(id: string, default_processing_mode: ProcessingMode): Promise<Agent> {
+  return apiFetch<Agent>(`/agents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ default_processing_mode }) })
 }
 
 // ============================================================================
@@ -379,4 +493,6 @@ export const queryKeys = {
   appSettings: ['appSettings'] as const,
   authStatus: ['authStatus'] as const,
   currentUser: ['currentUser'] as const,
+  agents: ['agents'] as const,
+  agent: (id: string) => ['agents', id] as const,
 }

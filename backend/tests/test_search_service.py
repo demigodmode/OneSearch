@@ -4,20 +4,57 @@
 """
 Tests for MeilisearchService - mocked, no running instance needed
 """
+
+import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from types import SimpleNamespace
-from unittest.mock import Mock, patch
 
+from app.models import Agent, AppSetting, Source
 from app.schemas import Document
-from app.services.search import MeilisearchService, INDEX_NAME
+from app.services.agent_auth import AGENT_ONLINE_MAX_AGE
+from app.services.search import INDEX_NAME, MeilisearchService, meili_service
 
 
 def _fake_task(**kwargs):
     """Create a fake task result that behaves like meilisearch TaskInfo"""
     return SimpleNamespace(**kwargs)
+
+
+@pytest.mark.asyncio
+async def test_confirmed_index_and_delete_require_successful_tasks(connected_service):
+    connected_service.index_documents = AsyncMock(return_value={"task_uid": 7})
+    connected_service.delete_document = AsyncMock(return_value={"task_uid": 8})
+    connected_service.client.wait_for_task.return_value = {"status": "succeeded"}
+    await connected_service.index_documents_confirmed([{"id": "x"}])
+    await connected_service.delete_document_confirmed("x")
+    connected_service.client.wait_for_task.return_value = SimpleNamespace(status="failed")
+    with pytest.raises(RuntimeError, match="indexing task failed"):
+        await connected_service.index_documents_confirmed([{"id": "x"}])
+    with pytest.raises(RuntimeError, match="delete task failed"):
+        await connected_service.delete_document_confirmed("x")
+
+
+@pytest.mark.asyncio
+async def test_confirmed_batch_delete_waits_for_one_successful_task(connected_service):
+    connected_service.index.delete_documents.return_value = {"task_uid": 9}
+    connected_service.client.wait_for_task.return_value = {"status": "succeeded"}
+    await connected_service.delete_documents_confirmed(["a", "b"])
+    connected_service.index.delete_documents.assert_called_once_with(["a", "b"])
+    connected_service.client.wait_for_task.return_value = {"status": "failed"}
+    with pytest.raises(RuntimeError, match="delete task failed"):
+        await connected_service.delete_documents_confirmed(["a", "b"])
+
+
+@pytest.mark.asyncio
+async def test_confirmed_batch_delete_accepts_sdk_task_object(connected_service):
+    connected_service.index.delete_documents.return_value = SimpleNamespace(task_uid=10)
+    connected_service.client.wait_for_task.return_value = SimpleNamespace(status="succeeded")
+    await connected_service.delete_documents_confirmed(["a"])
+    connected_service.client.wait_for_task.assert_called_once_with(10, timeout_in_ms=30000)
 
 
 @pytest.fixture
@@ -35,7 +72,6 @@ def connected_service():
 
 
 class TestConnect:
-
     @patch("app.services.search.Client")
     def test_connect_success_existing_index(self, MockClient, service):
         mock_client = MockClient.return_value
@@ -76,7 +112,6 @@ class TestConnect:
 
 
 class TestHealthCheck:
-
     def test_health_check_connected(self, connected_service):
         connected_service.client.health.return_value = {"status": "available"}
         mock_stats = Mock()
@@ -119,7 +154,6 @@ class TestHealthCheck:
 
 
 class TestIndexDocuments:
-
     @pytest.mark.asyncio
     async def test_index_pydantic_models(self, connected_service):
         mock_doc = Mock()
@@ -146,7 +180,7 @@ class TestIndexDocuments:
             modified_at=1,
             indexed_at=2,
             content="note",
-            metadata={"frontmatter": {"published": datetime(2026, 6, 5, 12, 30)}}
+            metadata={"frontmatter": {"published": datetime(2026, 6, 5, 12, 30)}},
         )
         task = _fake_task(task_uid=7)
         connected_service.index.add_documents.return_value = task
@@ -172,7 +206,6 @@ class TestIndexDocuments:
 
 
 class TestDeleteDocument:
-
     @pytest.mark.asyncio
     async def test_delete_success(self, connected_service):
         task = _fake_task(task_uid=5)
@@ -190,7 +223,6 @@ class TestDeleteDocument:
 
 
 class TestDeleteDocumentsByFilter:
-
     @pytest.mark.asyncio
     async def test_delete_by_filter_uses_supported_client_method(self, service):
         class FakeIndex:
@@ -216,7 +248,6 @@ class TestDeleteDocumentsByFilter:
 
 
 class TestGetDocument:
-
     @pytest.mark.asyncio
     async def test_get_document_found(self, connected_service):
         connected_service.index.get_document.return_value = {"id": "doc1", "content": "hi"}
@@ -231,12 +262,14 @@ class TestGetDocument:
 
         # Build a proper mock response that MeilisearchApiError can parse
         mock_response = Mock()
-        mock_response.text = json.dumps({
-            "message": "Document not found",
-            "code": "document_not_found",
-            "type": "invalid_request",
-            "link": "",
-        })
+        mock_response.text = json.dumps(
+            {
+                "message": "Document not found",
+                "code": "document_not_found",
+                "type": "invalid_request",
+                "link": "",
+            }
+        )
         mock_response.status_code = 404
         err = meilisearch.errors.MeilisearchApiError("not found", mock_response)
 
@@ -253,7 +286,6 @@ class TestGetDocument:
 
 
 class TestSearch:
-
     @pytest.mark.asyncio
     async def test_search_success(self, connected_service):
         connected_service.index.search.return_value = {
@@ -277,7 +309,6 @@ class TestSearch:
 
 
 class TestConfigureIndex:
-
     @patch("app.services.search.Client")
     def test_configure_called_during_connect(self, MockClient, service):
         mock_client = MockClient.return_value
@@ -301,3 +332,365 @@ class TestConfigureIndex:
     def test_configure_no_index(self, service):
         # Should not raise when index is None
         service._configure_index()
+
+
+def _fresh(now=None):
+    return (now or datetime.now(timezone.utc).replace(tzinfo=None)) - timedelta(seconds=5)
+
+
+def _stale(now=None):
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    return now - AGENT_ONLINE_MAX_AGE - timedelta(seconds=5)
+
+
+@pytest.fixture
+def meili_available():
+    try:
+        return meili_service.index is not None
+    except Exception:
+        return False
+
+
+@pytest.fixture
+def enable_remote_agents(db_session):
+    """Turn on the global remote-agents switch for tests exercising agent status."""
+    db_session.add(AppSetting(key="remote_agents_enabled", value="true"))
+    db_session.commit()
+
+
+def _make_agent(db_session, agent_id, *, status="online", last_seen_at=None):
+    agent = Agent(
+        id=agent_id,
+        name=agent_id,
+        platform="linux",
+        version="1.0.0",
+        protocol_version=1,
+        status=status,
+        last_seen_at=last_seen_at,
+    )
+    db_session.add(agent)
+    return agent
+
+
+def _make_source(db_session, source_id, *, agent=None):
+    source = Source(
+        id=source_id,
+        name=source_id,
+        root_path=f"/tmp/{source_id}",
+        location_type="agent" if agent else "local",
+        agent_id=agent.id if agent else None,
+        processing_mode="on_agent" if agent else None,
+    )
+    db_session.add(source)
+    return source
+
+
+def _doc(doc_id, source_id, source_name, *, content, modified_at=1700000000):
+    return {
+        "id": doc_id,
+        "source_id": source_id,
+        "source_name": source_name,
+        "path": f"/tmp/{doc_id}.txt",
+        "basename": f"{doc_id}.txt",
+        "extension": "txt",
+        "type": "text",
+        "size_bytes": 100,
+        "modified_at": modified_at,
+        "indexed_at": modified_at,
+        "content": content,
+        "title": doc_id,
+        "metadata": {},
+    }
+
+
+@pytest.mark.asyncio
+class TestSearchAvailabilityTieBreak:
+    """Search results carry a live agent_status and use it as a relevance tie-breaker."""
+
+    async def test_availability_breaks_ties_in_relevance_mode(
+        self, client, db_session, meili_available, enable_remote_agents
+    ):
+        if not meili_available:
+            pytest.skip("Meilisearch not available")
+
+        online_agent = _make_agent(db_session, "agent-online-1", status="online", last_seen_at=_fresh())
+        offline_agent = _make_agent(db_session, "agent-offline-1", status="offline", last_seen_at=_stale())
+        db_session.commit()
+        _make_source(db_session, "src-online-1", agent=online_agent)
+        _make_source(db_session, "src-offline-1", agent=offline_agent)
+        db_session.commit()
+
+        await meili_service.index_documents_confirmed([
+            _doc("d-tie-online", "src-online-1", "Online Source", content="zephyrquokka document one"),
+            _doc("d-tie-offline", "src-offline-1", "Offline Source", content="zephyrquokka document two"),
+        ])
+
+        response = client.post("/api/search", json={"q": "zephyrquokka"})
+        assert response.status_code == 200
+        data = response.json()
+
+        results_by_id = {r["id"]: r for r in data["results"]}
+        assert results_by_id["d-tie-online"]["agent_status"] == "online"
+        assert results_by_id["d-tie-offline"]["agent_status"] == "offline"
+
+        ids = [r["id"] for r in data["results"]]
+        assert ids.index("d-tie-online") < ids.index("d-tie-offline")
+
+        await meili_service.delete_documents_confirmed(["d-tie-online", "d-tie-offline"])
+
+    async def test_relevance_still_beats_availability(
+        self, client, db_session, meili_available, enable_remote_agents
+    ):
+        if not meili_available:
+            pytest.skip("Meilisearch not available")
+
+        online_agent = _make_agent(db_session, "agent-online-2", status="online", last_seen_at=_fresh())
+        offline_agent = _make_agent(db_session, "agent-offline-2", status="offline", last_seen_at=_stale())
+        db_session.commit()
+        _make_source(db_session, "src-online-2", agent=online_agent)
+        _make_source(db_session, "src-offline-2", agent=offline_agent)
+        db_session.commit()
+
+        strong_content = "kraxelfinch " * 20
+        weak_content = "some other text that only mentions kraxelfinch once at the very end"
+
+        await meili_service.index_documents_confirmed([
+            _doc("d-strong-offline", "src-offline-2", "Offline Source", content=strong_content),
+            _doc("d-weak-online", "src-online-2", "Online Source", content=weak_content),
+        ])
+
+        response = client.post("/api/search", json={"q": "kraxelfinch"})
+        assert response.status_code == 200
+        data = response.json()
+
+        ids = [r["id"] for r in data["results"]]
+        assert ids.index("d-strong-offline") < ids.index("d-weak-online")
+
+        await meili_service.delete_documents_confirmed(["d-strong-offline", "d-weak-online"])
+
+    async def test_explicit_sort_is_not_reordered_by_availability(
+        self, client, db_session, meili_available, enable_remote_agents
+    ):
+        if not meili_available:
+            pytest.skip("Meilisearch not available")
+
+        online_agent = _make_agent(db_session, "agent-online-3", status="online", last_seen_at=_fresh())
+        offline_agent = _make_agent(db_session, "agent-offline-3", status="offline", last_seen_at=_stale())
+        db_session.commit()
+        _make_source(db_session, "src-online-3", agent=online_agent)
+        _make_source(db_session, "src-offline-3", agent=offline_agent)
+        db_session.commit()
+
+        await meili_service.index_documents_confirmed([
+            _doc("d-sort-older-online", "src-online-3", "Online Source",
+                 content="mimbletoad sort test", modified_at=1000),
+            _doc("d-sort-newer-offline", "src-offline-3", "Offline Source",
+                 content="mimbletoad sort test", modified_at=2000),
+        ])
+
+        response = client.post("/api/search", json={"q": "mimbletoad", "sort": "modified_at:desc"})
+        assert response.status_code == 200
+        data = response.json()
+
+        # Newest modified_at first, regardless of the offline agent behind it.
+        ids = [r["id"] for r in data["results"]]
+        assert ids.index("d-sort-newer-offline") < ids.index("d-sort-older-online")
+
+        await meili_service.delete_documents_confirmed(["d-sort-older-online", "d-sort-newer-offline"])
+
+    async def test_expired_heartbeat_source_reads_as_offline(
+        self, client, db_session, meili_available, enable_remote_agents
+    ):
+        if not meili_available:
+            pytest.skip("Meilisearch not available")
+
+        stale_online_agent = _make_agent(
+            db_session, "agent-stale-heartbeat", status="online", last_seen_at=_stale()
+        )
+        db_session.commit()
+        _make_source(db_session, "src-stale-heartbeat", agent=stale_online_agent)
+        db_session.commit()
+
+        await meili_service.index_documents_confirmed([
+            _doc("d-stale-heartbeat", "src-stale-heartbeat", "Source", content="wobblenectar heartbeat"),
+        ])
+
+        response = client.post("/api/search", json={"q": "wobblenectar"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["results"][0]["agent_status"] == "offline"
+
+        await meili_service.delete_documents_confirmed(["d-stale-heartbeat"])
+
+    async def test_local_source_agent_status_is_null(
+        self, client, db_session, meili_available, enable_remote_agents
+    ):
+        if not meili_available:
+            pytest.skip("Meilisearch not available")
+
+        _make_source(db_session, "src-local-1")
+        db_session.commit()
+
+        await meili_service.index_documents_confirmed([
+            _doc("d-local-1", "src-local-1", "Local Source", content="plumzinger local doc"),
+        ])
+
+        response = client.post("/api/search", json={"q": "plumzinger"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["results"][0]["agent_status"] is None
+
+        await meili_service.delete_documents_confirmed(["d-local-1"])
+
+    async def test_missing_agent_source_reads_offline_not_null(
+        self, client, db_session, meili_available, enable_remote_agents
+    ):
+        if not meili_available:
+            pytest.skip("Meilisearch not available")
+
+        agent = _make_agent(db_session, "agent-to-delete", status="online", last_seen_at=_fresh())
+        db_session.commit()
+        _make_source(db_session, "src-missing-agent", agent=agent)
+        db_session.commit()
+
+        # Delete the Agent row directly (not via API revoke/delete, which would
+        # cascade the Source away too) so the Source is left pointing at nothing.
+        db_session.query(Agent).filter(Agent.id == "agent-to-delete").delete()
+        db_session.commit()
+
+        await meili_service.index_documents_confirmed([
+            _doc("d-missing-agent", "src-missing-agent", "Source", content="glimmerpotato orphan doc"),
+        ])
+
+        response = client.post("/api/search", json={"q": "glimmerpotato"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["results"][0]["agent_status"] == "offline"
+
+        await meili_service.delete_documents_confirmed(["d-missing-agent"])
+
+    async def test_reconnected_agent_reads_online_again(
+        self, client, db_session, meili_available, enable_remote_agents
+    ):
+        if not meili_available:
+            pytest.skip("Meilisearch not available")
+
+        agent = _make_agent(db_session, "agent-reconnect", status="online", last_seen_at=_stale())
+        db_session.commit()
+        _make_source(db_session, "src-reconnect", agent=agent)
+        db_session.commit()
+
+        await meili_service.index_documents_confirmed([
+            _doc("d-reconnect", "src-reconnect", "Source", content="turnipwhistle reconnect doc"),
+        ])
+
+        response = client.post("/api/search", json={"q": "turnipwhistle"})
+        assert response.status_code == 200
+        assert response.json()["results"][0]["agent_status"] == "offline"
+
+        # Simulate a heartbeat: agent comes back online with a fresh last_seen_at.
+        agent.last_seen_at = _fresh()
+        db_session.add(agent)
+        db_session.commit()
+
+        response = client.post("/api/search", json={"q": "turnipwhistle"})
+        assert response.status_code == 200
+        assert response.json()["results"][0]["agent_status"] == "online"
+
+        await meili_service.delete_documents_confirmed(["d-reconnect"])
+
+    async def test_stale_source_row_reads_offline_not_null(
+        self, client, db_session, meili_available, enable_remote_agents
+    ):
+        if not meili_available:
+            pytest.skip("Meilisearch not available")
+
+        agent = _make_agent(db_session, "agent-for-stale-source", status="online", last_seen_at=_fresh())
+        db_session.commit()
+        _make_source(db_session, "src-to-delete", agent=agent)
+        db_session.commit()
+
+        await meili_service.index_documents_confirmed([
+            _doc("d-stale-source", "src-to-delete", "Source", content="brindlefox stale source doc"),
+        ])
+
+        # Delete the Source row directly, leaving the Meili doc behind as a stale
+        # index entry pointing at a source_id that no longer exists.
+        db_session.query(Source).filter(Source.id == "src-to-delete").delete()
+        db_session.commit()
+
+        response = client.post("/api/search", json={"q": "brindlefox"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["results"][0]["agent_status"] == "offline"
+
+        await meili_service.delete_documents_confirmed(["d-stale-source"])
+
+
+def test_apply_relevance_tiebreak_relevance_dominates():
+    from app.api.search import _apply_relevance_tiebreak
+    from app.schemas import SearchResult
+
+    def _result(rid, score, agent_status):
+        return SearchResult(
+            id=rid,
+            path=f"/tmp/{rid}.txt",
+            basename=f"{rid}.txt",
+            source_name="src",
+            type="text",
+            size_bytes=10,
+            modified_at=1700000000,
+            snippet="",
+            score=score,
+            source_id="src-1",
+            agent_status=agent_status,
+        )
+
+    # (a) higher score offline still beats lower score online: relevance dominates.
+    results = [_result("low-online", 0.10, "online"), _result("high-offline", 0.90, "offline")]
+    _apply_relevance_tiebreak(results)
+    assert [r.id for r in results] == ["high-offline", "low-online"]
+
+    # (b) near-equal scores: online-before-offline tie-break.
+    results = [_result("tie-offline", 0.5001, "offline"), _result("tie-online", 0.5004, "online")]
+    _apply_relevance_tiebreak(results)
+    assert [r.id for r in results] == ["tie-online", "tie-offline"]
+
+    # (c) agent_status=None (local) is treated as available, same as "online".
+    results = [_result("tie-offline-2", 0.5001, "offline"), _result("tie-local", 0.5004, None)]
+    _apply_relevance_tiebreak(results)
+    assert [r.id for r in results] == ["tie-local", "tie-offline-2"]
+
+
+class TestDeleteDocumentsByFilterConfirmed:
+    """Unit tests for delete_documents_by_filter_confirmed, using fakes (no real Meili)."""
+
+    def _make_service(self, task_uid, wait_result):
+        service = MeilisearchService()
+        service.index = Mock()
+        service.index.delete_documents = Mock(return_value=SimpleNamespace(task_uid=task_uid))
+        service.client = Mock()
+        service.client.wait_for_task = Mock(return_value=wait_result)
+        return service
+
+    @pytest.mark.asyncio
+    async def test_preserves_falsy_task_uid_zero(self):
+        service = self._make_service(
+            task_uid=0, wait_result=SimpleNamespace(status="succeeded")
+        )
+
+        result = await service.delete_documents_by_filter_confirmed("source_id = 'x'")
+
+        assert result["status"] == "succeeded"
+        service.client.wait_for_task.assert_called_once()
+        called_task_id = service.client.wait_for_task.call_args[0][0]
+        assert called_task_id == 0
+
+    @pytest.mark.asyncio
+    async def test_raises_when_task_fails(self):
+        service = self._make_service(
+            task_uid=0, wait_result=SimpleNamespace(status="failed")
+        )
+
+        with pytest.raises(RuntimeError):
+            await service.delete_documents_by_filter_confirmed("source_id = 'x'")

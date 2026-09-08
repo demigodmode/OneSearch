@@ -10,6 +10,7 @@ import { SNIPPET_LENGTH_MAP } from '@/contexts/searchSettings'
 import { useSearchSettings } from '@/contexts/useSearchSettings'
 import type { SearchResult } from '@/types/api'
 import { cn, sanitizeSnippet, formatSize, formatTimestamp } from '@/lib/utils'
+import { AgentUnavailableBadge } from '@/components/agents/AgentUnavailableBadge'
 
 const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform)
 
@@ -83,6 +84,7 @@ function ResultCard({
           {showSize && <span>{formatSize(result.size_bytes)}</span>}
           {showDate && <span>{formatTimestamp(result.modified_at)}</span>}
           <span className="text-brand text-xs">{result.source_name}</span>
+          <AgentUnavailableBadge status={result.agent_status} />
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@
 Base extractor interface for document extraction
 All extractors must inherit from BaseExtractor
 """
+
 import asyncio
 import hashlib
 from abc import ABC, abstractmethod
@@ -42,6 +43,12 @@ class BaseExtractor(ABC):
         """
         self.source_id = source_id
         self.source_name = source_name
+        self._extraction_timeout = self.TIMEOUT
+
+    def set_extraction_timeout(self, seconds: int) -> None:
+        if not isinstance(seconds, int) or isinstance(seconds, bool) or seconds < 1:
+            raise ValueError("extraction timeout must be positive")
+        self._extraction_timeout = seconds
 
     @abstractmethod
     def extract(self, file_path: str) -> Document:
@@ -83,12 +90,11 @@ class BaseExtractor(ABC):
         try:
             # Run extraction in a thread pool to ensure blocking I/O can be interrupted
             return await asyncio.wait_for(
-                asyncio.to_thread(self.extract, file_path),
-                timeout=self.TIMEOUT
+                asyncio.to_thread(self.extract, file_path), timeout=self._extraction_timeout
             )
         except asyncio.TimeoutError:
             raise TimeoutError(
-                f"Extraction timed out after {self.TIMEOUT}s for {file_path}"
+                f"Extraction timed out after {self._extraction_timeout}s for {file_path}"
             )
 
     def _check_file_size(self, file_path: str) -> int:
@@ -118,9 +124,7 @@ class BaseExtractor(ABC):
         if size > self.MAX_FILE_SIZE:
             max_mb = self.MAX_FILE_SIZE / (1024 * 1024)
             actual_mb = size / (1024 * 1024)
-            raise ValueError(
-                f"File too large: {actual_mb:.2f}MB (max: {max_mb:.2f}MB)"
-            )
+            raise ValueError(f"File too large: {actual_mb:.2f}MB (max: {max_mb:.2f}MB)")
 
         return size
 
@@ -157,7 +161,7 @@ class BaseExtractor(ABC):
             "size_bytes": stat.st_size,
             "modified_at": int(stat.st_mtime),
             "basename": path.name,
-            "extension": path.suffix.lower().lstrip('.'),
+            "extension": path.suffix.lower().lstrip("."),
             "path": str(path.absolute()),
         }
 
@@ -224,7 +228,7 @@ class BaseExtractor(ABC):
             indexed_at=int(datetime.now(timezone.utc).timestamp()),
             content=content,
             title=None,
-            metadata={}
+            metadata={},
         )
 
     def _get_document_type(self) -> str:
@@ -236,7 +240,7 @@ class BaseExtractor(ABC):
             Document type (e.g., 'text', 'pdf', 'markdown')
         """
         class_name = self.__class__.__name__
-        if class_name.endswith('Extractor'):
+        if class_name.endswith("Extractor"):
             class_name = class_name[:-9]  # Remove 'Extractor'
         return class_name.lower()
 
@@ -271,7 +275,9 @@ class ExtractorRegistry:
             raise TypeError(f"{extractor_class} must inherit from BaseExtractor")
         self._extractors.append(extractor_class)
 
-    def get_extractor(self, file_path: str, source_id: str, source_name: str) -> Optional[BaseExtractor]:
+    def get_extractor(
+        self, file_path: str, source_id: str, source_name: str
+    ) -> Optional[BaseExtractor]:
         """
         Get appropriate extractor for a file
 

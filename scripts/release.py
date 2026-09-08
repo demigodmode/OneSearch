@@ -9,10 +9,12 @@ Usage:
     python scripts/release.py 0.9.1     # explicit version
 
 What this does:
-  1. Bumps version in all 5 places:
+  1. Bumps version in all release packages:
        pyproject.toml (root workspace)
        backend/pyproject.toml
        cli/pyproject.toml
+       agent/pyproject.toml
+       shared/pyproject.toml
        cli/onesearch/__init__.py
        frontend/package.json + package-lock.json (via npm)
   2. Promotes [Unreleased] section in CHANGELOG.md to versioned entry
@@ -27,7 +29,6 @@ What this does:
        docker.io/demigodmode/onesearch:0.9.0  (same tags)
 """
 
-import json
 import os
 import re
 import subprocess
@@ -35,16 +36,45 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from stat import S_IMODE
 
 ROOT = Path(__file__).parent.parent
 
 # Version files
-ROOT_PYPROJECT   = ROOT / "pyproject.toml"
-BACKEND_PYPROJECT = ROOT / "backend" / "pyproject.toml"
-CLI_PYPROJECT    = ROOT / "cli" / "pyproject.toml"
-CLI_INIT         = ROOT / "cli" / "onesearch" / "__init__.py"
-FRONTEND_PKG     = ROOT / "frontend" / "package.json"
-CHANGELOG        = ROOT / "CHANGELOG.md"
+RELEASE_VERSION_SOURCES = {
+    "root": (Path("pyproject.toml"), "toml"),
+    "backend": (Path("backend/pyproject.toml"), "toml"),
+    "cli": (Path("cli/pyproject.toml"), "toml"),
+    "agent": (Path("agent/pyproject.toml"), "toml"),
+    "shared": (Path("shared/pyproject.toml"), "toml"),
+    "agent runtime": (Path("agent/onesearch_agent/__init__.py"), "runtime"),
+    "cli runtime": (Path("cli/onesearch/__init__.py"), "runtime"),
+    "frontend": (Path("frontend/package.json"), "json"),
+}
+
+
+def _source_path(name: str) -> Path:
+    return ROOT / RELEASE_VERSION_SOURCES[name][0]
+
+
+ROOT_PYPROJECT = _source_path("root")
+BACKEND_PYPROJECT = _source_path("backend")
+CLI_PYPROJECT = _source_path("cli")
+AGENT_PYPROJECT = _source_path("agent")
+SHARED_PYPROJECT = _source_path("shared")
+TOML_VERSION_FILES = (
+    ROOT_PYPROJECT,
+    BACKEND_PYPROJECT,
+    CLI_PYPROJECT,
+    AGENT_PYPROJECT,
+    SHARED_PYPROJECT,
+)
+AGENT_INIT = _source_path("agent runtime")
+CLI_INIT = _source_path("cli runtime")
+FRONTEND_PKG = _source_path("frontend")
+FRONTEND_LOCK = ROOT / "frontend" / "package-lock.json"
+VERSION_FILES = TOML_VERSION_FILES + (AGENT_INIT, CLI_INIT, FRONTEND_PKG, FRONTEND_LOCK)
+CHANGELOG = ROOT / "CHANGELOG.md"
 
 REPO = "demigodmode/OneSearch"
 
@@ -53,10 +83,14 @@ REPO = "demigodmode/OneSearch"
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def run(cmd, check=True, capture=False, cwd=None):
     return subprocess.run(
-        cmd, shell=True, check=check,
-        capture_output=capture, text=True,
+        cmd,
+        shell=True,
+        check=check,
+        capture_output=capture,
+        text=True,
         cwd=cwd or ROOT,
     )
 
@@ -74,6 +108,7 @@ def confirm(prompt: str) -> bool:
 # Version helpers
 # ---------------------------------------------------------------------------
 
+
 def get_current_version() -> str:
     content = ROOT_PYPROJECT.read_text(encoding="utf-8")
     m = re.search(r'^version = "([^"]+)"', content, re.MULTILINE)
@@ -83,7 +118,7 @@ def get_current_version() -> str:
 
 
 def bump_version(current: str, bump: str) -> str:
-    if re.match(r'^\d+\.\d+\.\d+$', bump):
+    if re.match(r"^\d+\.\d+\.\d+$", bump):
         return bump
     major, minor, patch = (int(x) for x in current.split("."))
     if bump == "major":
@@ -95,30 +130,54 @@ def bump_version(current: str, bump: str) -> str:
     die(f"Unknown bump type: {bump}")
 
 
-def bump_toml_version(path: Path, new_version: str):
-    content = path.read_text(encoding="utf-8")
+def _bumped_toml_content(path: Path, new_version: str) -> bytes:
+    content = path.read_bytes()
     new_content, count = re.subn(
-        r'^(version = ")[^"]+(")',
-        rf'\g<1>{new_version}\g<2>',
+        rb'^(version = ")[^"]+(")',
+        lambda match: match.group(1) + new_version.encode("utf-8") + match.group(2),
         content,
         flags=re.MULTILINE,
     )
     if count == 0:
         die(f"Could not find version field in {path}")
-    path.write_text(new_content, encoding="utf-8")
+    return new_content
 
 
-def bump_cli_init(new_version: str):
-    content = CLI_INIT.read_text(encoding="utf-8")
+def bump_toml_version(path: Path, new_version: str):
+    new_content = _bumped_toml_content(path, new_version)
+    path.write_bytes(new_content)
+
+
+def bump_toml_versions(new_version: str):
+    """Update every Python package after validating every source can be changed."""
+    updated_files = [
+        (path, _bumped_toml_content(path, new_version)) for path in TOML_VERSION_FILES
+    ]
+    for path, content in updated_files:
+        path.write_bytes(content)
+
+
+def _bumped_runtime_content(path: Path, new_version: str) -> bytes:
+    content = path.read_bytes()
     new_content, count = re.subn(
-        r'^(__version__ = ")[^"]+(")',
-        rf'\g<1>{new_version}\g<2>',
+        rb'^(__version__ = ")[^"]+(")',
+        lambda match: match.group(1) + new_version.encode("utf-8") + match.group(2),
         content,
         flags=re.MULTILINE,
     )
     if count == 0:
-        die(f"Could not find __version__ in {CLI_INIT}")
-    CLI_INIT.write_text(new_content, encoding="utf-8")
+        die(f"Could not find __version__ in {path}")
+    return new_content
+
+
+def bump_cli_init(new_version: str):
+    new_content = _bumped_runtime_content(CLI_INIT, new_version)
+    CLI_INIT.write_bytes(new_content)
+
+
+def bump_agent_init(new_version: str):
+    new_content = _bumped_runtime_content(AGENT_INIT, new_version)
+    AGENT_INIT.write_bytes(new_content)
 
 
 def bump_frontend(new_version: str):
@@ -132,6 +191,56 @@ def bump_frontend(new_version: str):
     )
     if result.returncode != 0:
         die(f"npm version failed:\n{result.stderr}")
+
+
+def _atomic_replace(path: Path, content: bytes, mode: int) -> None:
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", prefix=".release-version-", dir=path.parent, delete=False
+        ) as temporary:
+            temporary.write(content)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+            temporary_path = Path(temporary.name)
+        os.chmod(temporary_path, mode)
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _replace_staged(path: Path, content: bytes, mode: int) -> None:
+    _atomic_replace(path, content, mode)
+
+
+def _restore_versions(original: dict[Path, tuple[bytes, int]]) -> None:
+    for path, (content, mode) in original.items():
+        _atomic_replace(path, content, mode)
+
+
+def update_version(new_version: str) -> None:
+    """Atomically update release versions, restoring snapshots after any failure."""
+    original = {path: (path.read_bytes(), S_IMODE(path.stat().st_mode)) for path in VERSION_FILES}
+    staged = [
+        (path, _bumped_toml_content(path, new_version))
+        for path in TOML_VERSION_FILES
+    ]
+    staged.extend(
+        (
+            (AGENT_INIT, _bumped_runtime_content(AGENT_INIT, new_version)),
+            (CLI_INIT, _bumped_runtime_content(CLI_INIT, new_version)),
+        )
+    )
+    try:
+        for path, content in staged:
+            _replace_staged(path, content, original[path][1])
+        bump_frontend(new_version)
+        for path, (_, mode) in original.items():
+            os.chmod(path, mode)
+    except BaseException:
+        _restore_versions(original)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -160,15 +269,15 @@ def promote_unreleased(new_version: str, today: str) -> str:
     m = UNRELEASED_RE.search(content)
 
     if m:
-        body = re.sub(r'\s*^---\s*$', '', m.group(2).strip(), flags=re.MULTILINE).strip()
+        body = re.sub(r"\s*^---\s*$", "", m.group(2).strip(), flags=re.MULTILINE).strip()
         entry = f"## [{new_version}] - {today}\n\n{body}\n\n---\n\n"
-        new_content = content[: m.start()] + entry + content[m.end():]
+        new_content = content[: m.start()] + entry + content[m.end() :]
     else:
         body = "### Changed\n\n- See commit history for details."
         entry = f"## [{new_version}] - {today}\n\n{body}\n\n---\n\n"
         first = re.search(r"^## \[", content, re.MULTILINE)
         if first:
-            new_content = content[: first.start()] + entry + content[first.start():]
+            new_content = content[: first.start()] + entry + content[first.start() :]
         else:
             new_content = content.rstrip() + "\n\n" + entry
 
@@ -196,7 +305,9 @@ def append_changelog_link(new_version: str):
     # Insert before existing footer links, or append at end
     first_link = FOOTER_LINKS_RE.search(content)
     if first_link:
-        new_content = content[: first_link.start()] + new_link + "\n" + content[first_link.start():]
+        new_content = (
+            content[: first_link.start()] + new_link + "\n" + content[first_link.start() :]
+        )
     else:
         new_content = content.rstrip() + "\n\n" + new_link + "\n"
 
@@ -216,6 +327,7 @@ def get_version_notes(version: str) -> str:
 # ---------------------------------------------------------------------------
 # Git / gh helpers
 # ---------------------------------------------------------------------------
+
 
 def check_git_clean():
     result = run("git status --porcelain", capture=True)
@@ -261,13 +373,14 @@ def create_gh_release(tag: str, notes: str):
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
 
     bump = sys.argv[1]
-    if bump not in ("patch", "minor", "major") and not re.match(r'^\d+\.\d+\.\d+$', bump):
+    if bump not in ("patch", "minor", "major") and not re.match(r"^\d+\.\d+\.\d+$", bump):
         die(f"Invalid argument: {bump}\nUse: patch, minor, major, or X.Y.Z")
 
     check_gh()
@@ -297,10 +410,12 @@ def main():
             sys.exit(0)
 
     print(f"\nThis will:")
-    print(f"  1. Bump version in 5 files to {new_version}")
+    print(f"  1. Bump version in release packages to {new_version}")
     print(f"       pyproject.toml (root workspace)")
     print(f"       backend/pyproject.toml")
     print(f"       cli/pyproject.toml")
+    print(f"       agent/pyproject.toml")
+    print("       shared/pyproject.toml")
     print(f"       cli/onesearch/__init__.py")
     print(f"       frontend/package.json + package-lock.json")
     print(f"  2. Promote CHANGELOG.md [Unreleased] -> {new_version}")
@@ -320,15 +435,14 @@ def main():
 
     # --- Bump version files ---
     print("\nBumping version files...")
-    bump_toml_version(ROOT_PYPROJECT, new_version)
+    update_version(new_version)
     print(f"  ok pyproject.toml")
-    bump_toml_version(BACKEND_PYPROJECT, new_version)
     print(f"  ok backend/pyproject.toml")
-    bump_toml_version(CLI_PYPROJECT, new_version)
     print(f"  ok cli/pyproject.toml")
-    bump_cli_init(new_version)
+    print(f"  ok agent/pyproject.toml")
+    print("  ok shared/pyproject.toml")
+    print(f"  ok agent/onesearch_agent/__init__.py")
     print(f"  ok cli/onesearch/__init__.py")
-    bump_frontend(new_version)
     print(f"  ok frontend/package.json + package-lock.json")
 
     # --- CHANGELOG ---
@@ -345,6 +459,9 @@ def main():
         "pyproject.toml "
         "backend/pyproject.toml "
         "cli/pyproject.toml "
+        "agent/pyproject.toml "
+        "shared/pyproject.toml "
+        "agent/onesearch_agent/__init__.py "
         "cli/onesearch/__init__.py "
         "frontend/package.json "
         "frontend/package-lock.json "
@@ -368,7 +485,7 @@ def main():
     print(f"  ok GitHub release created")
 
     # --- Done ---
-    minor_tag = new_version.rsplit('.', 1)[0]
+    minor_tag = new_version.rsplit(".", 1)[0]
     print(f"""
 Done. {tag} is live.
 

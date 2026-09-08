@@ -36,9 +36,12 @@ Issues = "https://github.com/demigodmode/OneSearch/issues"
 all = [
     "onesearch-backend",
     "onesearch-cli",
+    "onesearch-agent",
+    "onesearch-shared",
 ]
 backend = ["onesearch-backend"]
 cli = ["onesearch-cli"]
+agent = ["onesearch-agent"]
 
 [build-system]
 requires = ["hatchling"]
@@ -46,12 +49,14 @@ build-backend = "hatchling.build"
 
 # UV Workspace configuration
 [tool.uv.workspace]
-members = ["backend", "cli"]
+members = ["agent", "backend", "cli", "shared"]
 
 # Source paths for workspace packages
 [tool.uv.sources]
 onesearch-backend = { workspace = true }
 onesearch-cli = { workspace = true }
+onesearch-shared = { workspace = true }
+onesearch-agent = { workspace = true }
 
 # Shared development dependencies (PEP 735)
 [dependency-groups]
@@ -102,6 +107,7 @@ known-first-party = ["app", "onesearch"]
 
 # Shared pytest configuration
 [tool.pytest.ini_options]
-testpaths = ["backend/tests", "cli/tests"]
+testpaths = ["agent/tests", "backend/tests", "cli/tests", "shared/tests"]
+pythonpath = ["agent", "shared"]
 asyncio_mode = "auto"
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --import-mode=importlib"

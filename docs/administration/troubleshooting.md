@@ -1,5 +1,79 @@
 # Troubleshooting
 
+## Remote agents
+
+Start with the state shown under **Admin > Agents**:
+
+- `pending`: enrollment saved a credential, but an administrator has not approved the agent. Approve it before expecting jobs to run.
+- `degraded`: the agent is connected, but a source had a recent indexing failure. Open the agent details, find the affected source in recent scan jobs, and run another scan after correcting the path, permissions, storage, or extraction problem.
+- `offline`: the approved agent has not contacted the server recently. Check the service or container, DNS, TLS, firewall rules, and the configured server URL.
+- `disabled`: enable the agent from its details before restarting it.
+- `revoked`: the credential cannot be restored. Remove the local credential or state volume and enroll again with a new code.
+
+An agent marked `online` has made a recent heartbeat and has no recent source-level indexing warning. Open its details to inspect recent job states and attached sources. Failed path tests and original-file requests do not mark the whole agent as degraded.
+
+### Check the configuration
+
+Use the same absolute configuration path used during enrollment and service installation:
+
+```bash
+onesearch-agent --config /etc/onesearch-agent/config.toml config check
+```
+
+This also validates that every allowed root exists, is an absolute directory, and is readable by the current process. The `--server` value passed to `enroll` must match `server_url` in the file.
+
+For Docker:
+
+```bash
+docker compose run --rm onesearch-agent config check
+docker compose ps onesearch-agent
+docker compose logs -f onesearch-agent
+```
+
+The config path and source paths are container paths. Confirm that the config mount is read-only, the state volume is writable, and each source mount is read-only but readable by `PUID` and `PGID`.
+
+### Check the native service
+
+Linux uses a per-user systemd service:
+
+```bash
+systemctl --user status onesearch-agent.service
+journalctl --user -u onesearch-agent.service -f
+```
+
+Run those commands as the user that installed the service. If it stops after logout, configure systemd user lingering for that account.
+
+On Windows, open an elevated PowerShell window:
+
+```powershell
+Get-Service OneSearchAgent
+& 'C:\Program Files\OneSearch Agent\onesearch-agent.exe' --config 'C:\ProgramData\OneSearch Agent\config.toml' config check
+```
+
+The Windows service requires its protected machine credential. Re-run `service install` from the same enrolled user only after confirming the user credential is still available.
+
+### Path rejected or still pending
+
+A remote source path must be at or below an allowed root advertised by the selected agent. Use the path syntax of the agent operating system, not the server. Paths with `..`, Windows paths sent to a Linux agent, Linux paths sent to a Windows agent, and paths outside allowed roots are rejected.
+
+The agent must be online to test a remote path. Start the test and wait for the completed result before saving the source. If it remains pending, inspect the agent's job list and connection. A successful test confirms that the path exists, is a directory, is readable by the agent process, and remains inside an allowed root.
+
+### Protocol version incompatible
+
+An incompatible agent stops polling instead of attempting work with a mismatched wire format. Check the server release notes and install an agent release whose supported protocol range overlaps the server. Update both sides if the release notes require it.
+
+### Update check fails
+
+Manual and automatic checks require outbound HTTPS access to the OneSearch GitHub release host. Check DNS, proxy, firewall, and TLS trust on the agent machine. OneSearch rejects an invalid signature, mismatched platform, incompatible protocol range, malformed version, or artifact whose size or SHA-256 digest does not match its signed manifest.
+
+Docker never self-updates. Change its pinned image tag, pull, and recreate the container. Native auto-update requires the packaged agent and updater files next to each other and an installed operating-system service.
+
+### Preview or download unavailable
+
+Indexed content and stored image previews remain available while an agent is offline, but the server needs an online agent to retrieve an original remote file or generate a preview that was not stored during indexing. Reconnect the agent and retry. A `remote_file_missing` error means the path no longer exists. A `remote_file_changed` error means its size or modification time changed after indexing; reindex the source before retrying. RAW embedded previews are not supported for remote files.
+
+If a machine or credential is lost, revoke the agent before enrolling a replacement.
+
 Most issues come down to mounts, secrets, or indexing failures. Start with logs and the status page.
 
 ## Check logs

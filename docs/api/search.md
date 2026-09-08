@@ -70,6 +70,10 @@ Response:
 }
 ```
 
+Each result also includes `source_id` and `agent_status`. Local sources have `agent_status: null`. For remote sources, the status is computed from the agent's current access state, heartbeat freshness, and the global Remote agents setting: `online`, `offline`, `disabled`, or `revoked`. A connected agent with degraded indexing health counts as `online` here. Results whose source or agent record is missing read as `offline`.
+
+When `sort` is omitted or set to `relevance`, scores rounded to three decimal places define near-equal relevance groups. Within each group on the returned page, local and online-agent results come before unavailable-agent results. This does not hide results or reorder across pages. Explicit date, size, and name sorts are unchanged.
+
 ## Get a document
 
 ```http
