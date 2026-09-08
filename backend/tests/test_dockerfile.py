@@ -5,10 +5,42 @@
 
 import base64
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+
+def _posix_bash_available() -> bool:
+    """True only if a real POSIX bash actually runs here.
+
+    A PATH lookup isn't enough: GitHub's windows-latest resolves `bash` to the
+    WSL launcher, which exits non-zero with "no installed distributions". So we
+    run it and check the exit code rather than trusting shutil.which alone.
+    """
+    if shutil.which("bash") is None:
+        return False
+    try:
+        proc = subprocess.run(
+            ["bash", "-c", "exit 0"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return proc.returncode == 0
+
+
+# The two tests below exercise the agent Dockerfile's POSIX-shell key snippet.
+# The agent image is Linux-only, so skip where no working bash exists rather
+# than fail on a runner that has none.
+requires_posix_bash = pytest.mark.skipif(
+    not _posix_bash_available(),
+    reason="requires a working POSIX bash (windows-latest resolves bash to the WSL stub)",
+)
 
 
 def test_runtime_image_installs_exiftool_for_raw_metadata():
@@ -49,6 +81,7 @@ def test_agent_image_is_non_root_without_network_ports_or_writable_roots():
     assert 'chown -R "$PUID:$PGID" /var/lib/onesearch-agent' in entrypoint
 
 
+@requires_posix_bash
 def test_agent_image_build_without_a_key_leaves_updates_disabled(tmp_path):
     dockerfile = Path("agent/Dockerfile").read_text(encoding="utf-8")
     command = (
@@ -77,6 +110,7 @@ def test_agent_image_build_without_a_key_leaves_updates_disabled(tmp_path):
     assert (tmp_path / "release_public_key.txt").read_text(encoding="utf-8") == placeholder
 
 
+@requires_posix_bash
 def test_agent_image_build_key_is_explicitly_passed_to_python_and_rejects_bad_values(tmp_path):
     dockerfile = Path("agent/Dockerfile").read_text(encoding="utf-8")
     command = (
