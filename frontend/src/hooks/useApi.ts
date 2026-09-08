@@ -6,6 +6,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef } from 'react'
 import {
   getSources,
   getSource,
@@ -107,6 +108,34 @@ export function useInvalidateAgentCaches() {
   }
 }
 export function useUpdateAgentProcessingMode() { return useAgentAction(({ id, mode }: { id: string; mode: ProcessingMode }) => updateAgentProcessingMode(id, mode)) }
+
+/**
+ * Runs `callback` a handful of times over a bounded window (instead of a
+ * permanent refetchInterval), so a just-enabled/disabled agent's row has a
+ * few chances to pick up its next heartbeat without polling forever.
+ * Each call to the returned function clears any timers from a previous call
+ * and starts a fresh schedule; timers are also cleared on unmount.
+ */
+export function useBoundedAgentRefresh() {
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([])
+
+  const clear = useCallback(() => {
+    timers.current.forEach((timer) => clearTimeout(timer))
+    timers.current = []
+  }, [])
+
+  const schedule = useCallback(
+    (callback: () => void, delaysMs: number[]) => {
+      clear()
+      timers.current = delaysMs.map((delay) => setTimeout(callback, delay))
+    },
+    [clear],
+  )
+
+  useEffect(() => clear, [clear])
+
+  return schedule
+}
 
 // ============================================================================
 // Sources Hooks

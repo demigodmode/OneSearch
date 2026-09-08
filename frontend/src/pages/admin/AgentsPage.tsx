@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertCircle, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AgentApproval } from '@/components/agents/AgentApproval'
@@ -9,6 +9,7 @@ import {
   useAgents,
   useApproveAgent,
   useAppSettings,
+  useBoundedAgentRefresh,
   useCreateAgentEnrollment,
   useDisableAgent,
   useInvalidateAgentCaches,
@@ -28,6 +29,13 @@ const statusText: Record<AgentStatus, string> = {
   revoked: 'Revoked',
 }
 
+// After Enable/Disable, refetch a few times over this window instead of a
+// permanent poll — enough chances to catch the agent's next heartbeat.
+const REFRESH_DELAYS_MS = [2000, 5000, 10000, 20000, 30000]
+// How long a just-enabled agent gets the calm "waiting for contact" treatment
+// before a genuine outage is shown as a real offline state.
+const ENABLE_GRACE_MS = 60000
+
 export default function AgentsPage() {
   const refreshAll = useInvalidateAgentCaches()
   const settings = useAppSettings()
@@ -41,6 +49,61 @@ export default function AgentsPage() {
   const [filter, setFilter] = useState<'all' | 'online' | 'attention'>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const detail = useAgent(selectedId ?? '')
+  // Client-side record of which agents were just enabled — deliberately NOT
+  // derived from approved_at, which the server preserves from the original
+  // approval and doesn't move on re-enable. Membership (rather than a
+  // stored timestamp compared against Date.now() during render) is what
+  // drives the "waiting for contact" presentation, so the grace state is
+  // set and cleared entirely from event handlers and timers.
+  const [recentlyEnabledIds, setRecentlyEnabledIds] = useState<Set<string>>(
+    new Set(),
+  )
+  const scheduleRefresh = useBoundedAgentRefresh()
+  // Per-agent-id grace-end timers, keyed so enabling one agent doesn't
+  // clobber another's still-pending grace window (unlike the bounded
+  // refresh timers above, which are fine to share since refetch is global).
+  const graceEndTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  )
+
+  useEffect(() => {
+    const timers = graceEndTimers.current
+    return () => {
+      timers.forEach((timer) => clearTimeout(timer))
+      timers.clear()
+    }
+  }, [])
+
+  function isEnabledRecently(id: string) {
+    return recentlyEnabledIds.has(id)
+  }
+
+  function afterAgentAction() {
+    scheduleRefresh(() => {
+      agents.refetch()
+      detail.refetch()
+    }, REFRESH_DELAYS_MS)
+  }
+
+  function afterEnable(id: string) {
+    setRecentlyEnabledIds((prev) => new Set(prev).add(id))
+    afterAgentAction()
+    // Drop the grace flag once this agent's own window elapses so a still-
+    // offline agent falls back to the real offline presentation, regardless
+    // of whether other agents were enabled in the meantime.
+    const existing = graceEndTimers.current.get(id)
+    if (existing) clearTimeout(existing)
+    const timer = setTimeout(() => {
+      graceEndTimers.current.delete(id)
+      setRecentlyEnabledIds((prev) => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }, ENABLE_GRACE_MS)
+    graceEndTimers.current.set(id, timer)
+  }
 
   if (settings.isLoading || agents.isLoading)
     return <p className="text-muted-foreground">Loading agents…</p>
@@ -124,17 +187,27 @@ export default function AgentsPage() {
       </div>
       {list
         .filter((agent) => agent.status === 'offline')
-        .map((agent) => (
-          <p
-            key={agent.id}
-            className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-foreground"
-          >
-            <strong>{agent.name}</strong> is offline; its{' '}
-            {agent.summary.indexed_documents} indexed documents remain
-            searchable. Last contact: {formatContact(agent.last_seen_at)}.
-            Original files need the agent to reconnect.
-          </p>
-        ))}
+        .map((agent) =>
+          isEnabledRecently(agent.id) ? (
+            <p
+              key={agent.id}
+              className="rounded-lg border border-border bg-secondary/40 p-3 text-sm text-foreground"
+            >
+              <strong>{agent.name}</strong>: Enabled — waiting for contact.
+              It was just re-enabled and should reconnect shortly.
+            </p>
+          ) : (
+            <p
+              key={agent.id}
+              className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-foreground"
+            >
+              <strong>{agent.name}</strong> is offline; its{' '}
+              {agent.summary.indexed_documents} indexed documents remain
+              searchable. Last contact: {formatContact(agent.last_seen_at)}.
+              Original files need the agent to reconnect.
+            </p>
+          ),
+        )}
       <div className="flex flex-wrap gap-2" aria-label="Agent filters">
         {(
           [
@@ -169,7 +242,9 @@ export default function AgentsPage() {
               key={agent.id}
               agent={agent}
               onSelect={() => setSelectedId(agent.id)}
-              onApprove={() => approve.mutate(agent.id)}
+              onApprove={() =>
+                approve.mutate(agent.id, { onSuccess: () => afterEnable(agent.id) })
+              }
               approving={approve.isPending}
             />
           ))}
@@ -217,7 +292,11 @@ export default function AgentsPage() {
                     <AgentApproval
                       agent={agent}
                       pending={approve.isPending}
-                      onApprove={() => approve.mutate(agent.id)}
+                      onApprove={() =>
+                        approve.mutate(agent.id, {
+                          onSuccess: () => afterEnable(agent.id),
+                        })
+                      }
                     />
                   </td>
                 </tr>
@@ -238,11 +317,25 @@ export default function AgentsPage() {
         <AgentDetails
           agent={detail.data}
           onClose={() => setSelectedId(null)}
-          onApprove={() => approve.mutate(selectedId, { onSuccess: () => detail.refetch() })}
+          onApprove={() =>
+            approve.mutate(selectedId, {
+              onSuccess: () => {
+                detail.refetch()
+                afterEnable(selectedId)
+              },
+            })
+          }
           approvalPending={approve.isPending}
           actionPending={disable.isPending || revoke.isPending}
           modePending={mode.isPending}
-          onDisable={() => disable.mutate(selectedId, { onSuccess: () => detail.refetch() })}
+          onDisable={() =>
+            disable.mutate(selectedId, {
+              onSuccess: () => {
+                detail.refetch()
+                afterAgentAction()
+              },
+            })
+          }
           onRevoke={({ deleteSources }) =>
             revoke.mutate(
               { id: selectedId, deleteSources },
