@@ -144,6 +144,31 @@ class SourceBrowseResponse(BaseModel):
         return cls(job_id=job_id, status="completed", **result.model_dump(mode="json"))
 
 
+class LocalSourceRoot(BaseModel):
+    root_id: str
+    path: str
+    label: str
+
+
+class LocalSourceRootsResponse(BaseModel):
+    browse_available: bool
+    roots: list[LocalSourceRoot] = Field(default_factory=list)
+
+
+class LocalBrowseRequest(BaseModel):
+    """Browse a folder under one of the configured local source roots."""
+
+    root_id: str = Field(min_length=1, max_length=120)
+    path: str = ""
+
+
+class LocalBrowseResponse(BaseModel):
+    root_id: str
+    path: str
+    entries: list[BrowseDirectoryEntry] = Field(default_factory=list)
+    truncated: bool = False
+
+
 class SourceResponse(SourceBase):
     """Schema for source response"""
 
