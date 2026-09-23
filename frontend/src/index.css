@@ -191,16 +191,6 @@
     @apply bg-brand/25 text-foreground;
   }
 
-  .prose {
-    --tw-prose-links: hsl(var(--brand));
-    --tw-prose-bold: hsl(var(--foreground));
-  }
-
-  .prose-invert {
-    --tw-prose-invert-links: hsl(var(--brand));
-    --tw-prose-invert-bold: hsl(var(--foreground));
-  }
-
   /* Focus visible */
   :focus-visible {
     @apply outline-none ring-2 ring-brand ring-offset-2 ring-offset-background;
@@ -340,4 +330,30 @@
       radial-gradient(at 0% 50%, hsl(var(--brand) / 0.04) 0px, transparent 50%),
       hsl(var(--background));
   }
+}
+
+/* Typography colors follow the theme tokens so previews work in light and dark.
+   Deliberately outside @layer: the typography plugin emits .prose/.prose-invert
+   in the components layer, which beats anything in base. prose-invert only
+   swaps these same vars, so overriding them here covers both classes. */
+.prose,
+.prose-invert {
+  --tw-prose-body: hsl(var(--foreground) / 0.85);
+  --tw-prose-headings: hsl(var(--foreground));
+  --tw-prose-lead: hsl(var(--muted-foreground));
+  --tw-prose-links: hsl(var(--brand));
+  --tw-prose-bold: hsl(var(--foreground));
+  --tw-prose-counters: hsl(var(--muted-foreground));
+  --tw-prose-bullets: hsl(var(--muted-foreground) / 0.7);
+  --tw-prose-hr: hsl(var(--border));
+  --tw-prose-quotes: hsl(var(--foreground) / 0.85);
+  --tw-prose-quote-borders: hsl(var(--border));
+  --tw-prose-captions: hsl(var(--muted-foreground));
+  --tw-prose-kbd: hsl(var(--foreground));
+  --tw-prose-kbd-shadows: hsl(var(--foreground) / 0.1);
+  --tw-prose-code: hsl(var(--foreground));
+  --tw-prose-pre-code: hsl(var(--foreground));
+  --tw-prose-pre-bg: hsl(var(--secondary));
+  --tw-prose-th-borders: hsl(var(--muted-foreground) / 0.5);
+  --tw-prose-td-borders: hsl(var(--border));
 }
