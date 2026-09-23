@@ -17,9 +17,15 @@ from pathlib import Path, PurePosixPath
 
 from onesearch_shared import REMOTE_MAX_BROWSE_DIRECTORIES, BrowseDirectoryEntry
 
-_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-# ancestors only need x, not r, so they aren't opened for reading
-_PATH_FLAGS = os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+# getattr so this still imports on Windows (the agent depends on this package);
+# browsing itself is refused there, see _SUPPORTED
+_O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+_O_CLOEXEC = getattr(os, "O_CLOEXEC", 0)
+_SUPPORTED = bool(_O_DIRECTORY and _O_NOFOLLOW) and os.open in os.supports_dir_fd
+_DIR_FLAGS = os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW | _O_CLOEXEC
+# ancestors only need x, not r, so they aren't opened for reading (no O_PATH on macOS)
+_PATH_FLAGS = getattr(os, "O_PATH", os.O_RDONLY) | _O_DIRECTORY | _O_NOFOLLOW | _O_CLOEXEC
 DEFAULT_SCAN_BUDGET = 10_000
 
 
@@ -65,8 +71,8 @@ def _open_confined(root: Path, relative: str) -> int:
     all_parts = (*resolved.parts[1:], *parts)
     if not all_parts:
         # The resolved root is "/" itself; it's also the directory we scan.
-        return os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
-    fd = os.open("/", os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC)
+        return os.open("/", os.O_RDONLY | _O_DIRECTORY | _O_CLOEXEC)
+    fd = os.open("/", (_PATH_FLAGS & ~_O_NOFOLLOW))
     try:
         last_index = len(all_parts) - 1
         for index, part in enumerate(all_parts):
@@ -99,6 +105,8 @@ def list_local_directories(
 ) -> LocalBrowsePage:
     if max_entries < 1 or scan_budget < 1:
         raise ValueError("browse limits must be positive")
+    if not _SUPPORTED:
+        raise LocalBrowseError()
 
     try:
         fd = _open_confined(Path(root), relative)

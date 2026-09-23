@@ -3,6 +3,7 @@
 
 """Tests for the local source folder picker's directory lister."""
 import os
+from pathlib import Path
 
 import pytest
 
@@ -213,3 +214,30 @@ def test_does_not_leak_file_descriptors(tmp_path):
     list_local_directories(root, "")
 
     assert open_fd_count() == baseline
+
+
+def test_imports_and_refuses_cleanly_without_posix_flags(tmp_path):
+    # Windows has neither flag and the agent imports this package there. Fresh
+    # interpreter so the module isn't reloaded under the rest of the suite.
+    import subprocess
+    import sys
+
+    script = (
+        "import os; del os.O_DIRECTORY; del os.O_NOFOLLOW\n"
+        "from app.services import local_browse as m\n"
+        "try:\n"
+        f"    m.list_local_directories({str(tmp_path)!r}, '')\n"
+        "except m.LocalBrowseError:\n"
+        "    print('refused')\n"
+    )
+    backend_dir = Path(local_browse.__file__).resolve().parents[2]
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=backend_dir,
+        env={**os.environ, "PYTHONPATH": str(backend_dir)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "refused"
