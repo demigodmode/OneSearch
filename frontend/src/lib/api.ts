@@ -483,6 +483,8 @@ export async function getDocumentRawText(id: string, maxBytes: number): Promise<
 
   const contentLength = response.headers.get('content-length')
   if (contentLength && Number(contentLength) > maxBytes) {
+    // otherwise the browser keeps pulling the body down after we've given up on it
+    await response.body?.cancel()
     throw new ApiError(RAW_TEXT_TOO_LARGE_MESSAGE, 413)
   }
 

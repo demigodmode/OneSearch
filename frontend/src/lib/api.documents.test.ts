@@ -44,12 +44,13 @@ describe('document API', () => {
     expect(error.message).toBe("Couldn't reach the server to load the original file")
   })
 
-  it('rejects with 413 when Content-Length says the file on disk outgrew the limit', async () => {
+  it('rejects with 413 and drops the body when Content-Length says the file on disk outgrew the limit', async () => {
+    const cancel = vi.fn()
     vi.spyOn(globalThis, 'fetch')
       .mockImplementationOnce(() => json(link))
       .mockImplementationOnce(() =>
         Promise.resolve(
-          new Response(new ReadableStream({ start: (controller) => controller.close() }), {
+          new Response(new ReadableStream({ cancel }), {
             status: 200,
             headers: { 'Content-Length': String(30 * 1024 * 1024) },
           }),
@@ -60,6 +61,7 @@ describe('document API', () => {
     expect(error).toBeInstanceOf(ApiError)
     expect(error.status).toBe(413)
     expect(error.message).toBe('This file is now over the preview size limit. Download it to see the original.')
+    expect(cancel).toHaveBeenCalled()
   })
 
   it('rejects with 413 and cancels the stream when a body without Content-Length exceeds the limit', async () => {
