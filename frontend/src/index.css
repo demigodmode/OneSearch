@@ -363,3 +363,10 @@
   --tw-prose-th-borders: hsl(var(--muted-foreground) / 0.5);
   --tw-prose-td-borders: hsl(var(--border));
 }
+
+/* Prism's markdown grammar tags table tokens with a bare "table" class, which
+   picks up Tailwind's display: table utility and breaks the rows out of the
+   highlighted block. */
+.token.table {
+  display: inline;
+}

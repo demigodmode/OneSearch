@@ -17,6 +17,7 @@ import {
   reindexSource,
   searchDocuments,
   getDocument,
+  getDocumentRawText,
   getStatus,
   getHealth,
   getAppSettings,
@@ -265,5 +266,15 @@ export function useDocument(id: string) {
     queryFn: () => getDocument(id),
     enabled: !!id,
     staleTime: 300000, // Cache document for 5 minutes
+  })
+}
+
+export function useDocumentRawText(id: string, modifiedAt: number, enabled: boolean, maxBytes: number) {
+  return useQuery({
+    queryKey: queryKeys.documentRaw(id, modifiedAt, maxBytes),
+    queryFn: () => getDocumentRawText(id, maxBytes),
+    enabled: enabled && !!id,
+    staleTime: 300000,
+    retry: false,
   })
 }

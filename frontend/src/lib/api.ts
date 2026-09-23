@@ -20,7 +20,6 @@ import type {
   StatusResponse,
   HealthResponse,
   ReindexResponse,
-  APIError,
   AuthStatusResponse,
   SetupRequest,
   LoginRequest,
@@ -59,6 +58,22 @@ export function setToken(token: string): void {
  */
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY)
+}
+
+// FastAPI details come in three shapes: a string, our {code, message} objects,
+// or a 422 validation array of {msg, ...}
+function errorDetailMessage(detail: unknown): string | undefined {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((item) => (item && typeof item === 'object' && 'msg' in item ? String(item.msg) : ''))
+      .filter(Boolean)
+    return msgs.length ? msgs.join('; ') : undefined
+  }
+  if (detail && typeof detail === 'object' && 'message' in detail) {
+    return String((detail as { message: unknown }).message)
+  }
+  return undefined
 }
 
 /**
@@ -113,8 +128,8 @@ async function apiFetch<T>(
 
     let detail: string | undefined
     try {
-      const errorData = (await response.json()) as APIError
-      detail = errorData.detail
+      const errorData = (await response.json()) as { detail?: unknown }
+      detail = errorDetailMessage(errorData.detail)
     } catch {
       // Response body not JSON
     }
@@ -402,11 +417,7 @@ export async function getDocumentPreviewBlob(id: string): Promise<Blob> {
     let detail = `Preview unavailable (${response.status})`
     try {
       const data = await response.json()
-      if (typeof data.detail === 'string') {
-        detail = data.detail
-      } else if (data.detail?.message) {
-        detail = data.detail.message
-      }
+      detail = errorDetailMessage(data.detail) ?? detail
     } catch {
       // Response body not JSON
     }
@@ -426,6 +437,90 @@ export async function getDocumentDownloadLink(id: string): Promise<DocumentDownl
   return apiFetch<DocumentDownloadLink>(`/documents/${encodeURIComponent(id)}/download-link`, {
     method: 'POST',
   })
+}
+
+// Same order as the backend markdown extractor: utf-8, then latin-1 (the browser's
+// "latin1" is really windows-1252; only differs for 0x80-0x9F)
+export function decodeText(buffer: ArrayBuffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+  } catch {
+    return new TextDecoder('latin1').decode(buffer)
+  }
+}
+
+const RAW_TEXT_TOO_LARGE_MESSAGE = 'This file is now over the preview size limit. Download it to see the original.'
+
+/**
+ * Original file contents, via a short-lived download link. The link carries its
+ * own token, so a 401 here is about the link, not the login session.
+ *
+ * `maxBytes` bounds how much we're willing to read. Local sources serve the file
+ * as it is on disk right now, which can have grown past the indexed size_bytes
+ * since the last index run — so we can't only rely on the size check done before
+ * fetching; we also have to cap the read itself.
+ */
+export async function getDocumentRawText(id: string, maxBytes: number): Promise<string> {
+  const link = await getDocumentDownloadLink(id)
+
+  let response: Response
+  try {
+    response = await fetch(link.url)
+  } catch {
+    throw new ApiError("Couldn't reach the server to load the original file", 0)
+  }
+
+  if (!response.ok) {
+    let detail = `Could not load the original file (${response.status})`
+    try {
+      const data = await response.json()
+      detail = errorDetailMessage(data.detail) ?? detail
+    } catch {
+      // Response body not JSON
+    }
+    throw new ApiError(detail, response.status, detail)
+  }
+
+  const contentLength = response.headers.get('content-length')
+  if (contentLength && Number(contentLength) > maxBytes) {
+    // otherwise the browser keeps pulling the body down after we've given up on it
+    await response.body?.cancel()
+    throw new ApiError(RAW_TEXT_TOO_LARGE_MESSAGE, 413)
+  }
+
+  if (response.body) {
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let total = 0
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) {
+        total += value.byteLength
+        if (total > maxBytes) {
+          await reader.cancel()
+          throw new ApiError(RAW_TEXT_TOO_LARGE_MESSAGE, 413)
+        }
+        chunks.push(value)
+      }
+    }
+
+    const combined = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+      combined.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+
+    return decodeText(combined.buffer)
+  }
+
+  const buffer = await response.arrayBuffer()
+  if (buffer.byteLength > maxBytes) {
+    throw new ApiError(RAW_TEXT_TOO_LARGE_MESSAGE, 413)
+  }
+  return decodeText(buffer)
 }
 
 // ============================================================================
@@ -490,6 +585,7 @@ export const queryKeys = {
   source: (id: string) => ['sources', id] as const,
   search: (query: SearchQuery) => ['search', query] as const,
   document: (id: string) => ['documents', id] as const,
+  documentRaw: (id: string, modifiedAt: number, maxBytes: number) => ['documents', id, 'raw', modifiedAt, maxBytes] as const,
   appSettings: ['appSettings'] as const,
   authStatus: ['authStatus'] as const,
   currentUser: ['currentUser'] as const,
