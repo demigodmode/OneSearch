@@ -24,6 +24,7 @@ import {
   updateAppSettings,
   queryKeys,
   getAgents, getAgent, createAgentEnrollment, approveAgent, disableAgent, revokeAgent, updateAgentProcessingMode,
+  getLocalSourceRoots,
 } from '@/lib/api'
 import type {
   SourceCreate,
@@ -82,6 +83,14 @@ export function useUpdateAppSettings() {
       queryClient.invalidateQueries({ queryKey: queryKeys.appSettings })
       queryClient.invalidateQueries({ queryKey: queryKeys.sources })
     },
+  })
+}
+
+export function useLocalSourceRoots() {
+  return useQuery({
+    queryKey: queryKeys.localSourceRoots,
+    queryFn: getLocalSourceRoots,
+    staleTime: 60000,
   })
 }
 

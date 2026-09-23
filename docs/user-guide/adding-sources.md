@@ -33,6 +33,8 @@ Go to **Admin → Sources**, click **Add Source**, then fill in:
 
 Use **Test** next to Root Path before saving. It checks whether the path is inside allowed roots, exists, is a directory, and is readable by OneSearch from inside the container. If you accidentally enter a host path, the test can point you back toward the mounted container path.
 
+If `ALLOWED_SOURCE_PATHS` is set on the server, an **Allowed root** dropdown appears above Root Path. Pick one of the configured roots and click through its subfolders to browse down to the one you want; selecting a folder fills in Root Path for you. Only folders show up, and each level lists up to 500 of them (a notice tells you if there are more, in which case just type the rest of the path). Symlinked folders don't appear in the browser, but you can still type a path to one and Test it as usual. If `ALLOWED_SOURCE_PATHS` isn't set, the browser isn't offered and the form tells you to set it to enable browsing.
+
 After saving, run a reindex from the same page unless you set a schedule and are happy to wait for the next run.
 
 ## Add a remote source

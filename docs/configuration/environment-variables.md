@@ -75,7 +75,7 @@ Most Docker installs behind the bundled nginx do not need to set this. Set it wh
 
 **ALLOWED_SOURCE_PATHS**
 
-Comma-separated parent directories that sources must live under.
+Comma-separated parent directories that sources must live under. This is also what the folder picker browses when adding a local source; leave it empty and browsing turns off.
 
 - Default: `/data`
 - Example: `/data,/mnt/media`

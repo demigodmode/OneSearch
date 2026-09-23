@@ -148,6 +148,24 @@ export interface SourceBrowseResponse {
   error?: string | null
 }
 
+export interface LocalSourceRoot {
+  root_id: string
+  path: string
+  label: string
+}
+
+export interface LocalSourceRootsResponse {
+  browse_available: boolean
+  roots: LocalSourceRoot[]
+}
+
+export interface LocalBrowseResponse {
+  root_id: string
+  path: string
+  entries: SourceBrowseEntry[]
+  truncated: boolean
+}
+
 export type AgentStatus = 'pending' | 'online' | 'offline' | 'degraded' | 'disabled' | 'revoked'
 export type ProcessingMode = 'on_agent' | 'on_server'
 export interface AllowedRoot { root_id: string; path: string; label?: string }

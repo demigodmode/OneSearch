@@ -6,6 +6,7 @@ Source management API endpoints
 Provides CRUD operations for search sources
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -24,6 +25,10 @@ from ..config import settings
 from ..db.database import get_db
 from ..models import Agent, AgentJob, IndexedFile, Source, User
 from ..schemas import (
+    LocalBrowseRequest,
+    LocalBrowseResponse,
+    LocalSourceRoot,
+    LocalSourceRootsResponse,
     ScheduleConfig,
     SourceBrowseRequest,
     SourceBrowseResponse,
@@ -37,6 +42,7 @@ from ..services.agent_auth import effective_agent_status
 from ..services.agent_jobs import AgentJobService, JobConflict
 from ..services.app_settings import AppSettingsService
 from ..services.indexer import IndexingService
+from ..services.local_browse import LocalBrowseError, list_local_directories
 from ..services.scan_dispatcher import (
     AgentUnavailableError,
     RemoteAgentsDisabledError,
@@ -79,6 +85,27 @@ def _is_within_path(path: Path, parent: Path) -> bool:
 
 def _display_path(path: Path) -> str:
     return str(path).replace("\\", "/")
+
+
+def _local_root_id(path: Path) -> str:
+    # Derived from the path, not its position, so reordering ALLOWED_SOURCE_PATHS
+    # can't make an open form browse a different mount.
+    return "local-" + hashlib.sha256(os.fsencode(path)).hexdigest()[:12]
+
+
+def _local_roots() -> list[tuple[str, Path]]:
+    roots: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for path in _configured_allowed_paths():
+        root_id = _local_root_id(path)
+        if root_id not in seen:
+            seen.add(root_id)
+            roots.append((root_id, path))
+    return roots
+
+
+def _local_browse_error(status_code: int, code: str, message: str) -> HTTPException:
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message})
 
 
 def _allowed_roots_hint(allowed: list[Path]) -> str | None:
@@ -614,6 +641,62 @@ async def get_source_directory_browse(
     if payload is None:
         raise HTTPException(status_code=404, detail="Browse job not found")
     return _browse_response(job, payload)
+
+
+@router.get("/local-roots", response_model=LocalSourceRootsResponse)
+async def get_local_source_roots(
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """Configured local source roots the folder picker may browse."""
+    roots = _local_roots()
+    return LocalSourceRootsResponse(
+        browse_available=bool(roots),
+        roots=[
+            LocalSourceRoot(root_id=root_id, path=_display_path(path), label=_display_path(path))
+            for root_id, path in roots
+        ],
+    )
+
+
+@router.post("/browse-local", response_model=LocalBrowseResponse)
+async def browse_local_directory(
+    request_data: LocalBrowseRequest,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+):
+    """List folders under a configured local root; never creates a source."""
+    roots = _local_roots()
+    if not roots:
+        raise _local_browse_error(
+            status.HTTP_409_CONFLICT,
+            "local_browse_unavailable",
+            "Folder browsing needs ALLOWED_SOURCE_PATHS to be set.",
+        )
+    root = next((path for root_id, path in roots if root_id == request_data.root_id), None)
+    if root is None:
+        raise _local_browse_error(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "local_root_unknown",
+            "That source root is no longer configured.",
+        )
+    try:
+        # Same canonical-relative rules as the agent browse wire contract.
+        path = BrowseResult(
+            root_id=request_data.root_id, path=request_data.path, entries=[], truncated=False
+        ).path
+    except ValueError as error:
+        raise _local_browse_error(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "browse_path_invalid", "Browse path is invalid."
+        ) from error
+    try:
+        page = await asyncio.to_thread(list_local_directories, root, path)
+    except LocalBrowseError as error:
+        raise _local_browse_error(
+            status.HTTP_409_CONFLICT, "browse_path_unavailable", "This folder can't be listed."
+        ) from error
+
+    return LocalBrowseResponse(
+        root_id=request_data.root_id, path=path, entries=list(page.entries), truncated=page.truncated
+    )
 
 
 @router.get("/{source_id}", response_model=SourceResponse)
