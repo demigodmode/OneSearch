@@ -72,4 +72,21 @@ describe('FolderBrowser', () => {
     render(<FolderBrowser roots={roots} available={false} pathStyle="posix" browse={vi.fn()} onSelect={vi.fn()} />)
     expect(screen.getByLabelText('Allowed root')).toBeDisabled()
   })
+
+  it('renders children between the root select and the browse panel', async () => {
+    const browse = vi.fn().mockResolvedValueOnce(page('', ['photos']))
+    render(
+      <FolderBrowser roots={roots} available pathStyle="posix" browse={browse} onSelect={vi.fn()}>
+        <input aria-label="Manual path" />
+      </FolderBrowser>
+    )
+    fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: 'r1' } })
+    await screen.findByRole('button', { name: 'Open folder photos' })
+    const order = Array.from(document.body.querySelectorAll('select, input, button')).map((el) => el.tagName + (el.getAttribute('aria-label') || ''))
+    const selectIndex = order.findIndex((entry) => entry.startsWith('SELECT'))
+    const manualInputIndex = order.findIndex((entry) => entry === 'INPUTManual path')
+    const panelButtonIndex = order.findIndex((entry) => entry.includes('Open folder photos'))
+    expect(selectIndex).toBeLessThan(manualInputIndex)
+    expect(manualInputIndex).toBeLessThan(panelButtonIndex)
+  })
 })

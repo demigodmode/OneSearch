@@ -130,6 +130,34 @@ describe('RemotePathPicker', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('renders the root select, manual input, and Test path button before the browse panel, matching the pre-refactor layout', async () => {
+    const onBrowse = vi.fn().mockResolvedValue(browse('', ['Team']))
+    renderPicker(onBrowse)
+    fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: 'docs' } })
+    await screen.findByRole('button', { name: 'Open folder Team' })
+    const container = screen.getByLabelText('Allowed root').closest('div')!
+    const order = Array.from(container.querySelectorAll('select, input, button')).map((el) => el.tagName + (el.getAttribute('aria-label') || el.getAttribute('id') || el.textContent))
+    const selectIndex = order.findIndex((entry) => entry.startsWith('SELECT'))
+    const inputIndex = order.findIndex((entry) => entry.startsWith('INPUTremote-root-path'))
+    const testButtonIndex = order.findIndex((entry) => entry.includes('Test path'))
+    const panelButtonIndex = order.findIndex((entry) => entry.includes('Open folder Team'))
+    expect(selectIndex).toBeLessThan(inputIndex)
+    expect(inputIndex).toBeLessThan(testButtonIndex)
+    expect(testButtonIndex).toBeLessThan(panelButtonIndex)
+  })
+
+  it('keeps focus in the Remote path input while typing (no remount on manual edit)', async () => {
+    const onBrowse = vi.fn().mockResolvedValue(browse('', ['Team']))
+    renderPicker(onBrowse)
+    fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: 'docs' } })
+    await screen.findByRole('button', { name: 'Open folder Team' })
+    const input = screen.getByLabelText('Remote path') as HTMLInputElement
+    input.focus()
+    expect(input).toHaveFocus()
+    fireEvent.change(input, { target: { value: '/srv/docs/m' } })
+    expect(input).toHaveFocus()
+  })
+
   it('disables remote browsing and testing while offline', () => {
     render(<RemotePathPicker agent={{ ...agent, status: 'offline' }} value="/srv/docs" onChange={vi.fn()} onTest={vi.fn()} testing={false} result={null} onBrowse={vi.fn()} />)
     expect(screen.getByLabelText('Allowed root')).toBeDisabled()

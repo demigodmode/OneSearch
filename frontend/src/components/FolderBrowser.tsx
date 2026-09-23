@@ -3,13 +3,12 @@
 
 /* eslint-disable react-refresh/only-export-components */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronUp, Folder } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { SourceBrowseEntry } from '@/types/api'
 
 export interface BrowseRoot { root_id: string; path: string; label?: string | null }
-// error: a failed browse that still echoes its root/path, so identity is checked before it's shown
 export interface BrowsePage { root_id: string; path: string; entries: SourceBrowseEntry[]; truncated: boolean; error?: string | null }
 export type PathStyle = 'posix' | 'windows'
 
@@ -23,12 +22,14 @@ export function joinRootPath(root: string, relative: string, style: PathStyle) {
   return `${root.replace(/\/+$/, '')}/${relative}`
 }
 
-export function FolderBrowser({ roots, available, pathStyle, browse, onSelect }: {
+export function FolderBrowser({ roots, available, pathStyle, browse, onSelect, children, resetSignal }: {
   roots: BrowseRoot[]
   available: boolean
   pathStyle: PathStyle
   browse: (rootId: string, relativePath: string) => Promise<BrowsePage>
   onSelect: (absolutePath: string) => void
+  children?: ReactNode // goes between the root select and the panel
+  resetSignal?: number // bump to reset without remounting children
 }) {
   const [rootId, setRootId] = useState('')
   const [relativePath, setRelativePath] = useState('')
@@ -37,12 +38,20 @@ export function FolderBrowser({ roots, available, pathStyle, browse, onSelect }:
   const [loading, setLoading] = useState(false)
   const requestId = useRef(0)
   const mounted = useRef(true)
+  const previousResetSignal = useRef(resetSignal)
   const root = roots.find((item) => item.root_id === rootId)
 
   useEffect(() => {
     mounted.current = true
     return () => { mounted.current = false; requestId.current += 1 }
   }, [])
+
+  useEffect(() => {
+    if (resetSignal === undefined || previousResetSignal.current === resetSignal) return
+    previousResetSignal.current = resetSignal
+    requestId.current += 1
+    setRootId(''); setRelativePath(''); setPage(null); setError(null); setLoading(false)
+  }, [resetSignal])
 
   const load = (nextRootId: string, nextRelativePath: string) => {
     if (!available || loading) return
@@ -74,6 +83,7 @@ export function FolderBrowser({ roots, available, pathStyle, browse, onSelect }:
       <option value="">Choose an allowed root (or enter a path)</option>
       {roots.map((item) => <option key={item.root_id} value={item.root_id}>{item.label ?? item.path}</option>)}
     </select>
+    {children}
     {root && <div className="space-y-2 rounded-lg border border-border p-3" aria-live="polite">
       <p className="truncate font-mono text-xs" title={current}>Browsing: {current}</p>
       {relativePath && <Button type="button" size="sm" variant="ghost" onClick={() => navigate(relativePath.split('/').slice(0, -1).join('/'))} disabled={loading}><ChevronUp className="mr-1 h-4 w-4" />Parent folder</Button>}
