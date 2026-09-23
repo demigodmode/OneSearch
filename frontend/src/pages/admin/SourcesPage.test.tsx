@@ -7,6 +7,9 @@ import type { Source } from '@/types/api'
 const testPath = vi.fn()
 let mutationPending = false
 let mockSources: Source[] = []
+let localRootsState: { data: { browse_available: boolean; roots: { root_id: string; path: string; label: string }[] } | undefined; isLoading: boolean; isError: boolean; refetch: () => void } =
+  { data: { browse_available: false, roots: [] }, isLoading: false, isError: false, refetch: vi.fn() }
+const browseLocalDirectory = vi.fn()
 vi.mock('@/hooks/useApi', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useApi')>('@/hooks/useApi')
   return {
@@ -19,13 +22,21 @@ vi.mock('@/hooks/useApi', async () => {
     useUpdateSource: () => ({ mutate: vi.fn(), isPending: false }),
     useDeleteSource: () => ({ mutate: vi.fn(), isPending: false }),
     useReindexSource: () => ({ mutate: vi.fn(), isPending: false }),
+    useLocalSourceRoots: () => localRootsState,
+  }
+})
+vi.mock('@/lib/api', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
+  return {
+    ...actual,
+    browseLocalDirectory: (...args: unknown[]) => browseLocalDirectory(...args),
   }
 })
 
 const agent = { id: 'agent-1', name: 'Online agent', platform: 'linux', version: '1', protocol_version: 1, allowed_roots: [{ root_id: 'docs', path: '/srv/docs' }], default_processing_mode: 'on_agent' as const, auto_update: false, status: 'online' as const, approved_at: '2026-01-01T00:00:00Z', last_seen_at: null, disabled_at: null, created_at: '', updated_at: '', health: null, summary: { attached_sources: 0, indexed_documents: 0, pending_jobs: 0, active_jobs: 0, failed_jobs: 0, earliest_next_scan_at: null } }
 
 describe('SourceForm remote source flow', () => {
-  beforeEach(() => { testPath.mockReset(); mutationPending = false })
+  beforeEach(() => { testPath.mockReset(); mutationPending = false; localRootsState = { data: { browse_available: false, roots: [] }, isLoading: false, isError: false, refetch: vi.fn() }; browseLocalDirectory.mockReset() })
   it('shows a successful local test started from a blank path', () => {
     render(<SourceForm remoteAgentsEnabled agents={[]} defaultSchedule={null} onSubmit={vi.fn()} onCancel={vi.fn()} isLoading={false} />)
     fireEvent.change(screen.getByLabelText('Root Path'), { target: { value: '/data/documents' } })
@@ -304,6 +315,24 @@ describe('SourceForm remote source flow', () => {
     expect(submit.mock.calls[0][0]).not.toHaveProperty('agent_id')
     expect(submit.mock.calls[0][0]).not.toHaveProperty('root_path')
     expect(submit.mock.calls[0][0]).not.toHaveProperty('processing_mode')
+  })
+})
+
+describe('SourceForm local folder picker', () => {
+  beforeEach(() => { testPath.mockReset(); mutationPending = false; localRootsState = { data: { browse_available: false, roots: [] }, isLoading: false, isError: false, refetch: vi.fn() }; browseLocalDirectory.mockReset() })
+
+  it('picks a folder and fills Root Path, then resets when typed over', async () => {
+    localRootsState.data = { browse_available: true, roots: [{ root_id: 'local-abc', path: '/data', label: '/data' }] }
+    browseLocalDirectory.mockResolvedValueOnce({ root_id: 'local-abc', path: '', entries: [{ name: 'photos', path: 'photos' }], truncated: false })
+    browseLocalDirectory.mockResolvedValueOnce({ root_id: 'local-abc', path: 'photos', entries: [], truncated: false })
+    render(<SourceForm remoteAgentsEnabled={false} agents={[]} defaultSchedule={null} onSubmit={vi.fn()} onCancel={vi.fn()} isLoading={false} />)
+
+    fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: 'local-abc' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Open folder photos' }))
+    expect(screen.getByLabelText('Root Path')).toHaveValue('/data/photos')
+
+    fireEvent.change(screen.getByLabelText('Root Path'), { target: { value: '/data/typed' } })
+    expect(screen.queryByRole('button', { name: 'Open folder photos' })).not.toBeInTheDocument()
   })
 })
 

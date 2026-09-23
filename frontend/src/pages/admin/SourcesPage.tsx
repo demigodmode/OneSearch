@@ -6,6 +6,7 @@ import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCi
 import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath, useAppSettings, useAgents } from '@/hooks/useApi'
 import type { Agent, ProcessingMode, Source, SourceCreate, SourceUpdate, SourcePathTestResponse } from '@/types/api'
 import { RemotePathPicker } from '@/components/agents/RemotePathPicker'
+import { LocalFolderPicker } from '@/components/LocalFolderPicker'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { browseSourceDirectory } from '@/lib/api'
 import { AgentUnavailableBadge } from '@/components/agents/AgentUnavailableBadge'
@@ -73,6 +74,7 @@ export function SourceForm({
   const [pathValidationJobId, setPathValidationJobId] = useState<string | null>(null)
   const [pathTestError, setPathTestError] = useState<string | null>(null)
   const [pathTestPending, setPathTestPending] = useState(false)
+  const [localBrowserKey, setLocalBrowserKey] = useState(0)
   const testPathMutation = useTestSourcePath()
   const pathTestRequestId = useRef(0)
   const currentPathContext = useRef({ locationType, agentId, rootPath: rootPath.trim() })
@@ -210,10 +212,11 @@ export function SourceForm({
         {remoteAgentsEnabled && <div className="space-y-2"><Label>Location</Label><div className="flex gap-3 text-sm"><label><input type="radio" checked={locationType === 'local'} onChange={() => { invalidatePathContext({ locationType: 'local', agentId, rootPath }); setLocationType('local') }} /> Local</label><label><input type="radio" checked={locationType === 'agent'} onChange={() => { invalidatePathContext({ locationType: 'agent', agentId, rootPath }); setLocationType('agent') }} /> Remote agent</label></div></div>}
         {locationType === 'agent' && !remoteAgentsEnabled ? <p className="rounded-lg border border-border bg-secondary/30 p-3 text-sm text-muted-foreground">Remote source binding is unavailable while remote agents are disabled. This source remains attached to {selectedAgent?.name ?? agentId} at {rootPath}.</p> : locationType === 'agent' ? <><Label htmlFor="agent">Approved agent</Label><select id="agent" value={agentId} onChange={(event) => { invalidatePathContext({ locationType, agentId: event.target.value, rootPath: '' }); setAgentId(event.target.value); setRootPath(''); setProcessingMode('') }} className="w-full rounded-lg border border-border bg-background px-3 py-2"><option value="">Choose an approved agent</option>{approvedAgentOptions.map((agent) => <option key={agent.id} value={agent.id}>{agent.name} ({agent.status})</option>)}</select>{agentSelectionMissing && <p className="text-xs text-destructive" role="alert">Select an approved agent before saving — this source needs an online agent to index from.</p>}<RemotePathPicker key={agentId} agent={selectedAgent} value={rootPath} onChange={(value) => { invalidatePathContext({ locationType, agentId, rootPath: value }); setRootPath(value) }} onTest={handleTestPath} result={pathTestResult} testing={pathTestPending} onBrowse={browseSourceDirectory} />{pathTestError && <p className="text-xs text-destructive" role="alert">{pathTestError}</p>}<label className="block text-sm">Processing mode <select value={processingMode} onChange={(event) => setProcessingMode(event.target.value as ProcessingMode | '')} className="ml-2 rounded-lg border border-border bg-background px-2 py-1"><option value="">Inherit agent default ({selectedAgent?.default_processing_mode ?? '—'})</option><option value="on_agent">On agent</option><option value="on_server">On server</option></select></label></> : <>
         <Label htmlFor="root_path">Root Path</Label>
+        <LocalFolderPicker key={localBrowserKey} onSelect={(value) => { invalidatePathContext({ locationType, agentId, rootPath: value }); setRootPath(value) }} />
         <Input
           id="root_path"
           value={rootPath}
-          onChange={(e) => { invalidatePathContext({ locationType, agentId, rootPath: e.target.value }); setRootPath(e.target.value) }}
+          onChange={(e) => { setLocalBrowserKey((key) => key + 1); invalidatePathContext({ locationType, agentId, rootPath: e.target.value }); setRootPath(e.target.value) }}
           placeholder="/data/documents"
           title="Path inside the OneSearch container, not necessarily the host path."
           className="font-mono text-sm"
