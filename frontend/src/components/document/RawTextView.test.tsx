@@ -25,14 +25,14 @@ describe('RawTextView', () => {
     const { container } = render(<RawTextView document={doc} language="markdown" maxBytes={25 * 1024 * 1024} />)
 
     expect(container.textContent).toMatch(/title: Notes/)
-    expect(useDocumentRawText).toHaveBeenCalledWith('doc-1', 1700000000, true)
+    expect(useDocumentRawText).toHaveBeenCalledWith('doc-1', 1700000000, true, 25 * 1024 * 1024)
   })
 
   it('does not fetch files over the preview size limit', () => {
     render(<RawTextView document={{ ...doc, size_bytes: 30 * 1024 * 1024 }} language="markdown" maxBytes={25 * 1024 * 1024} />)
 
     expect(screen.getByText(/too large to show here/i)).toBeInTheDocument()
-    expect(useDocumentRawText).toHaveBeenCalledWith('doc-1', 1700000000, false)
+    expect(useDocumentRawText).toHaveBeenCalledWith('doc-1', 1700000000, false, 25 * 1024 * 1024)
   })
 
   it('shows loading', () => {

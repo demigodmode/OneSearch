@@ -19,7 +19,7 @@ export function RawTextView({
   maxBytes: number
 }) {
   const tooLarge = document.size_bytes > maxBytes
-  const { data, isLoading, error, refetch } = useDocumentRawText(document.id, document.modified_at, !tooLarge)
+  const { data, isLoading, error, refetch } = useDocumentRawText(document.id, document.modified_at, !tooLarge, maxBytes)
 
   if (tooLarge) {
     return (

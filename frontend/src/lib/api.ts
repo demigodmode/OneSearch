@@ -449,11 +449,18 @@ export function decodeText(buffer: ArrayBuffer): string {
   }
 }
 
+const RAW_TEXT_TOO_LARGE_MESSAGE = 'This file is now over the preview size limit. Download it to see the original.'
+
 /**
  * Original file contents, via a short-lived download link. The link carries its
  * own token, so a 401 here is about the link, not the login session.
+ *
+ * `maxBytes` bounds how much we're willing to read. Local sources serve the file
+ * as it is on disk right now, which can have grown past the indexed size_bytes
+ * since the last index run — so we can't only rely on the size check done before
+ * fetching; we also have to cap the read itself.
  */
-export async function getDocumentRawText(id: string): Promise<string> {
+export async function getDocumentRawText(id: string, maxBytes: number): Promise<string> {
   const link = await getDocumentDownloadLink(id)
 
   let response: Response
@@ -474,7 +481,44 @@ export async function getDocumentRawText(id: string): Promise<string> {
     throw new ApiError(detail, response.status, detail)
   }
 
-  return decodeText(await response.arrayBuffer())
+  const contentLength = response.headers.get('content-length')
+  if (contentLength && Number(contentLength) > maxBytes) {
+    throw new ApiError(RAW_TEXT_TOO_LARGE_MESSAGE, 413)
+  }
+
+  if (response.body) {
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let total = 0
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (value) {
+        total += value.byteLength
+        if (total > maxBytes) {
+          await reader.cancel()
+          throw new ApiError(RAW_TEXT_TOO_LARGE_MESSAGE, 413)
+        }
+        chunks.push(value)
+      }
+    }
+
+    const combined = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+      combined.set(chunk, offset)
+      offset += chunk.byteLength
+    }
+
+    return decodeText(combined.buffer)
+  }
+
+  const buffer = await response.arrayBuffer()
+  if (buffer.byteLength > maxBytes) {
+    throw new ApiError(RAW_TEXT_TOO_LARGE_MESSAGE, 413)
+  }
+  return decodeText(buffer)
 }
 
 // ============================================================================
@@ -539,7 +583,7 @@ export const queryKeys = {
   source: (id: string) => ['sources', id] as const,
   search: (query: SearchQuery) => ['search', query] as const,
   document: (id: string) => ['documents', id] as const,
-  documentRaw: (id: string, modifiedAt: number) => ['documents', id, 'raw', modifiedAt] as const,
+  documentRaw: (id: string, modifiedAt: number, maxBytes: number) => ['documents', id, 'raw', modifiedAt, maxBytes] as const,
   appSettings: ['appSettings'] as const,
   authStatus: ['authStatus'] as const,
   currentUser: ['currentUser'] as const,

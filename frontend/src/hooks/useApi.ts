@@ -269,10 +269,10 @@ export function useDocument(id: string) {
   })
 }
 
-export function useDocumentRawText(id: string, modifiedAt: number, enabled: boolean) {
+export function useDocumentRawText(id: string, modifiedAt: number, enabled: boolean, maxBytes: number) {
   return useQuery({
-    queryKey: queryKeys.documentRaw(id, modifiedAt),
-    queryFn: () => getDocumentRawText(id),
+    queryKey: queryKeys.documentRaw(id, modifiedAt, maxBytes),
+    queryFn: () => getDocumentRawText(id, maxBytes),
     enabled: enabled && !!id,
     staleTime: 300000,
     retry: false,

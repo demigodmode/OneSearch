@@ -70,7 +70,7 @@ describe('DocumentPage raw view', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Raw' }))
 
     expect(container.textContent).toMatch(/title: Notes/)
-    expect(useDocumentRawText).toHaveBeenCalledWith('doc-1', 1700000000, true)
+    expect(useDocumentRawText).toHaveBeenCalledWith('doc-1', 1700000000, true, 25 * 1024 * 1024)
   })
 
   it('still offers Raw when the markdown body is empty (front-matter only)', async () => {
