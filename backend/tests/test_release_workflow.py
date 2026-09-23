@@ -22,8 +22,13 @@ def _agent_workflow() -> dict:
     return yaml.safe_load(AGENT_WORKFLOW.read_text(encoding="utf-8"))
 
 
+def _action_name(uses: str | None) -> str:
+    # dependabot bumps the @version, the checks care about which action it is
+    return (uses or "").split("@", 1)[0]
+
+
 def _action_step(job: dict, action: str) -> list[dict]:
-    return [step for step in job["steps"] if step.get("uses") == action]
+    return [step for step in job["steps"] if _action_name(step.get("uses")) == action]
 
 
 def test_release_reclaims_only_build_cache_before_buildx():
@@ -61,7 +66,7 @@ def test_agent_manual_validation_job_has_only_a_read_token_and_no_secrets():
     assert job["permissions"] == {"contents": "read"}
     assert "environment" not in job
     assert "secrets." not in str(job)
-    assert _action_step(job, "actions/checkout@v7")[0]["with"]["ref"] == "${{ inputs.ref }}"
+    assert _action_step(job, "actions/checkout")[0]["with"]["ref"] == "${{ inputs.ref }}"
 
 
 def test_agent_manual_validation_always_records_a_nonpublication_summary():
@@ -79,7 +84,7 @@ def test_agent_release_publication_is_isolated_in_a_protected_write_job():
     assert job["if"] == "github.event_name == 'release'"
     assert job["permissions"] == {"contents": "write", "packages": "write"}
     assert job["environment"] == "release"
-    assert _action_step(job, "actions/checkout@v7")[0]["with"]["ref"] == "${{ github.sha }}"
+    assert _action_step(job, "actions/checkout")[0]["with"]["ref"] == "${{ github.sha }}"
     assert job["env"]["DOCKERHUB_USERNAME"] == "${{ secrets.DOCKERHUB_USERNAME }}"
     assert job["env"]["DOCKERHUB_TOKEN"] == "${{ secrets.DOCKERHUB_TOKEN }}"
 
@@ -91,7 +96,7 @@ def test_agent_release_tag_and_version_are_verified_before_every_publish_side_ef
     for name in ("release-native", "release-publish"):
         job = jobs[name]
         assert job["if"] == "github.event_name == 'release'"
-        assert _action_step(job, "actions/checkout@v7")[0]["with"]["ref"] == "${{ github.sha }}"
+        assert _action_step(job, "actions/checkout")[0]["with"]["ref"] == "${{ github.sha }}"
         tag_check = next(
             index
             for index, step in enumerate(job["steps"])
@@ -100,22 +105,22 @@ def test_agent_release_tag_and_version_are_verified_before_every_publish_side_ef
         assert "refs/tags/$TAG^{commit}" in job["steps"][tag_check]["run"]
         assert "GITHUB_SHA" in job["steps"][tag_check]["run"]
         for index, step in enumerate(job["steps"]):
-            if step.get("uses") in {
-                "actions/upload-artifact@v7",
-                "docker/login-action@v4",
-                "docker/build-push-action@v7",
-                "softprops/action-gh-release@v2",
+            if _action_name(step.get("uses")) in {
+                "actions/upload-artifact",
+                "docker/login-action",
+                "docker/build-push-action",
+                "softprops/action-gh-release",
             } or step.get("name") == "Create signed manifests and checksums":
                 assert tag_check < index
 
     publish = jobs["release-publish"]
-    dockerhub_steps = _action_step(publish, "docker/login-action@v4")[1:]
+    dockerhub_steps = _action_step(publish, "docker/login-action")[1:]
     assert all("env.DOCKERHUB_" in step["if"] for step in dockerhub_steps)
     assert all("secrets." not in step["if"] for step in dockerhub_steps)
-    image_pushes = _action_step(publish, "docker/build-push-action@v7")
+    image_pushes = _action_step(publish, "docker/build-push-action")
     assert all(step["with"]["push"] is True for step in image_pushes)
     assert all(":latest" in step["with"]["tags"] for step in image_pushes)
-    assert _action_step(publish, "softprops/action-gh-release@v2")
+    assert _action_step(publish, "softprops/action-gh-release")
     assert any(step.get("name") == "Create signed manifests and checksums" for step in publish["steps"])
 
 
@@ -145,7 +150,7 @@ def test_agent_release_native_embeds_a_valid_key_only_after_tag_verification():
     publish = _agent_workflow()["jobs"]["release-publish"]
     assert all(
         "AGENT_UPDATE_PUBLIC_KEY=${{ env.AGENT_UPDATE_PUBLIC_KEY }}" in step["with"]["build-args"]
-        for step in _action_step(publish, "docker/build-push-action@v7")
+        for step in _action_step(publish, "docker/build-push-action")
     )
     dockerfile = Path("agent/Dockerfile").read_text(encoding="utf-8")
     assert "ARG AGENT_UPDATE_PUBLIC_KEY" in dockerfile

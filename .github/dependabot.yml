@@ -17,6 +17,11 @@ updates:
       npm-deps:
         patterns:
           - "*"
+    ignore:
+      # typescript-eslint doesn't support TS 7 yet (peer range <6.1), npm ci fails with it.
+      # Drop this once typescript-eslint ships TS 7 support.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
