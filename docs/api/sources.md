@@ -11,6 +11,8 @@ Manage search sources via API. All endpoints require authentication.
 - `DELETE /api/sources/{id}` - Delete source
 - `POST /api/sources/test-path` - Test a candidate root path before saving
 - `GET /api/sources/test-path/{job_id}` - Read a queued remote path test
+- `GET /api/sources/local-roots` - List configured local roots the folder picker can browse
+- `POST /api/sources/browse-local` - List subfolders under a local root
 - `POST /api/sources/{id}/reindex` - Trigger reindex
 - `POST /api/sources/{id}/clear-stale` - Clean failed-file entries
 
@@ -108,6 +110,59 @@ The response includes a `job_id` and starts with `ok: false` while validation is
 Pass that job ID as `path_validation_job_id` when creating the remote source. The validation must have completed within the last 10 minutes and match the same agent and path. Changing a source to a remote location, selecting a different agent, or changing its remote path requires a matching validation too. Editing only the name, patterns, or schedule does not require a new path test.
 
 Missing validation on save returns `422`; an unknown validation job returns `404`. An incomplete, expired, or mismatched validation returns `409`. Run a fresh test before retrying. See [Remote agents](agents.md) for enrollment and approval.
+
+## Browse local folders
+
+`GET /api/sources/local-roots` lists the roots from `ALLOWED_SOURCE_PATHS` that the folder picker can browse.
+
+```bash
+curl http://localhost:8000/api/sources/local-roots \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Example response:
+
+```json
+{
+  "browse_available": true,
+  "roots": [
+    {"root_id": "local-3f2a9c1be04d", "path": "/data", "label": "/data"}
+  ]
+}
+```
+
+`root_id` is derived from the path and stays stable even if `ALLOWED_SOURCE_PATHS` is reordered. If `ALLOWED_SOURCE_PATHS` is empty, this returns `{"browse_available": false, "roots": []}`.
+
+`POST /api/sources/browse-local` lists the folders directly under a root, or under a subfolder of it.
+
+```bash
+curl -X POST http://localhost:8000/api/sources/browse-local \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"root_id": "local-3f2a9c1be04d", "path": "photos/2024"}'
+```
+
+`path` is relative to the root; use `""` to list the root itself. Example response:
+
+```json
+{
+  "root_id": "local-3f2a9c1be04d",
+  "path": "photos/2024",
+  "entries": [
+    {"name": "vacation", "path": "photos/2024/vacation"}
+  ],
+  "truncated": false
+}
+```
+
+Only folders are listed, capped at 500 per directory; `truncated` is `true` when there were more. Symlinked folders are left out of the listing. Errors come back as `detail: {code, message}`:
+
+| Status | Code | Meaning |
+|--------|------|---------|
+| 409 | `local_browse_unavailable` | `ALLOWED_SOURCE_PATHS` is empty, so there's nothing to browse |
+| 422 | `local_root_unknown` | `root_id` doesn't match a currently configured root |
+| 422 | `browse_path_invalid` | `path` contains `..`, is absolute, uses backslashes, or has control characters |
+| 409 | `browse_path_unavailable` | the folder is missing, not a directory, unreadable, or a symlink along the way; these all return the same response on purpose |
 
 ## Reindex
 
