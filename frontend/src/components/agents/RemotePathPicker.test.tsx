@@ -121,6 +121,15 @@ describe('RemotePathPicker', () => {
     expect(folder).toHaveAttribute('title', longName)
   })
 
+  it('ignores a failed browse response that belongs to a different root or path', async () => {
+    const onBrowse = vi.fn().mockResolvedValueOnce({ ...browse('elsewhere'), status: 'failed', error: 'stale failure' })
+    renderPicker(onBrowse)
+    fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: 'docs' } })
+    await act(async () => {})
+    expect(screen.queryByText('stale failure')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('disables remote browsing and testing while offline', () => {
     render(<RemotePathPicker agent={{ ...agent, status: 'offline' }} value="/srv/docs" onChange={vi.fn()} onTest={vi.fn()} testing={false} result={null} onBrowse={vi.fn()} />)
     expect(screen.getByLabelText('Allowed root')).toBeDisabled()

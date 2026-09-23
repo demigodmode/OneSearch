@@ -28,6 +28,8 @@ import type {
   AppSettings,
   AppSettingsUpdate,
   Agent, AgentDetails, AgentEnrollment, ProcessingMode,
+  LocalSourceRootsResponse,
+  LocalBrowseResponse,
 } from '@/types/api'
 
 // ============================================================================
@@ -315,6 +317,17 @@ export async function browseSourceDirectory(data: SourceBrowseRequest, options: 
   return pollSourceDirectoryBrowse(result.job_id, options)
 }
 
+export async function getLocalSourceRoots(): Promise<LocalSourceRootsResponse> {
+  return apiFetch<LocalSourceRootsResponse>('/sources/local-roots')
+}
+
+export async function browseLocalDirectory(rootId: string, path: string): Promise<LocalBrowseResponse> {
+  return apiFetch<LocalBrowseResponse>('/sources/browse-local', {
+    method: 'POST',
+    body: JSON.stringify({ root_id: rootId, path }),
+  })
+}
+
 /**
  * Delete a source
  */
@@ -591,4 +604,5 @@ export const queryKeys = {
   currentUser: ['currentUser'] as const,
   agents: ['agents'] as const,
   agent: (id: string) => ['agents', id] as const,
+  localSourceRoots: ['sources', 'local-roots'] as const,
 }
