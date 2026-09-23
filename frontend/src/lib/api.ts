@@ -20,7 +20,6 @@ import type {
   StatusResponse,
   HealthResponse,
   ReindexResponse,
-  APIError,
   AuthStatusResponse,
   SetupRequest,
   LoginRequest,
@@ -59,6 +58,22 @@ export function setToken(token: string): void {
  */
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY)
+}
+
+// FastAPI details come in three shapes: a string, our {code, message} objects,
+// or a 422 validation array of {msg, ...}
+function errorDetailMessage(detail: unknown): string | undefined {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((item) => (item && typeof item === 'object' && 'msg' in item ? String(item.msg) : ''))
+      .filter(Boolean)
+    return msgs.length ? msgs.join('; ') : undefined
+  }
+  if (detail && typeof detail === 'object' && 'message' in detail) {
+    return String((detail as { message: unknown }).message)
+  }
+  return undefined
 }
 
 /**
@@ -113,8 +128,8 @@ async function apiFetch<T>(
 
     let detail: string | undefined
     try {
-      const errorData = (await response.json()) as APIError
-      detail = errorData.detail
+      const errorData = (await response.json()) as { detail?: unknown }
+      detail = errorDetailMessage(errorData.detail)
     } catch {
       // Response body not JSON
     }
@@ -402,11 +417,7 @@ export async function getDocumentPreviewBlob(id: string): Promise<Blob> {
     let detail = `Preview unavailable (${response.status})`
     try {
       const data = await response.json()
-      if (typeof data.detail === 'string') {
-        detail = data.detail
-      } else if (data.detail?.message) {
-        detail = data.detail.message
-      }
+      detail = errorDetailMessage(data.detail) ?? detail
     } catch {
       // Response body not JSON
     }
@@ -426,6 +437,38 @@ export async function getDocumentDownloadLink(id: string): Promise<DocumentDownl
   return apiFetch<DocumentDownloadLink>(`/documents/${encodeURIComponent(id)}/download-link`, {
     method: 'POST',
   })
+}
+
+// Same order as the backend markdown extractor: utf-8, then latin-1 (the browser's
+// "latin1" is really windows-1252; only differs for 0x80-0x9F)
+export function decodeText(buffer: ArrayBuffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+  } catch {
+    return new TextDecoder('latin1').decode(buffer)
+  }
+}
+
+/**
+ * Original file contents, via a short-lived download link. The link carries its
+ * own token, so a 401 here is about the link, not the login session.
+ */
+export async function getDocumentRawText(id: string): Promise<string> {
+  const link = await getDocumentDownloadLink(id)
+  const response = await fetch(link.url)
+
+  if (!response.ok) {
+    let detail = `Could not load the original file (${response.status})`
+    try {
+      const data = await response.json()
+      detail = errorDetailMessage(data.detail) ?? detail
+    } catch {
+      // Response body not JSON
+    }
+    throw new ApiError(detail, response.status, detail)
+  }
+
+  return decodeText(await response.arrayBuffer())
 }
 
 // ============================================================================
@@ -490,6 +533,7 @@ export const queryKeys = {
   source: (id: string) => ['sources', id] as const,
   search: (query: SearchQuery) => ['search', query] as const,
   document: (id: string) => ['documents', id] as const,
+  documentRaw: (id: string, modifiedAt: number) => ['documents', id, 'raw', modifiedAt] as const,
   appSettings: ['appSettings'] as const,
   authStatus: ['authStatus'] as const,
   currentUser: ['currentUser'] as const,
