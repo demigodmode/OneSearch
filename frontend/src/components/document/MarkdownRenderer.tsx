@@ -5,10 +5,12 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 // languages are registered on PrismLight in DocumentPage.tsx; fences render unhighlighted if that hasn't loaded
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { useCodeTheme } from '@/hooks/useCodeTheme'
 
 // Markdown content renderer
 export function MarkdownRenderer({ content }: { content: string }) {
+  const codeTheme = useCodeTheme()
+
   return (
     <div className="prose prose-invert max-w-none">
       <ReactMarkdown
@@ -20,12 +22,12 @@ export function MarkdownRenderer({ content }: { content: string }) {
             const isInline = !match
 
             return isInline ? (
-              <code className="bg-secondary px-1.5 py-0.5 rounded text-brand font-mono text-sm" {...props}>
+              <code className="bg-secondary px-1.5 py-0.5 rounded text-brand-strong font-mono text-sm" {...props}>
                 {children}
               </code>
             ) : (
               <SyntaxHighlighter
-                style={oneDark}
+                style={codeTheme}
                 language={match[1]}
                 PreTag="div"
                 className="rounded-lg !bg-card border border-border"
@@ -41,7 +43,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-brand hover:underline"
+                className="text-brand-strong hover:underline"
                 {...props}
               >
                 {children}
