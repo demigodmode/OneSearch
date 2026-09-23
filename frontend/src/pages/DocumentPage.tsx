@@ -6,6 +6,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppSettings, useDocument } from '@/hooks/useApi'
 import { FormatDetails } from '@/components/document/FormatDetails'
 import { ReadableTextRenderer } from '@/components/document/ReadableTextRenderer'
+import { MarkdownRenderer } from '@/components/document/MarkdownRenderer'
 import {
   ArrowLeft,
   FileText,
@@ -23,7 +24,6 @@ import {
   FileArchive,
   Download,
 } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 // Register only the languages we use — keeps the chunk ~300KB lighter than full Prism
@@ -156,54 +156,6 @@ function FileTypeIcon({ type, className }: { type: string; className?: string })
     default:
       return <File className={className} />
   }
-}
-
-// Markdown content renderer
-function MarkdownRenderer({ content }: { content: string }) {
-  return (
-    <div className="prose prose-invert max-w-none">
-      <ReactMarkdown
-        components={{
-          // Custom code block rendering with syntax highlighting
-          code({ className, children, ...props }) {
-            const match = /language-(\w+)/.exec(className || '')
-            const isInline = !match
-
-            return isInline ? (
-              <code className="bg-secondary px-1.5 py-0.5 rounded text-brand font-mono text-sm" {...props}>
-                {children}
-              </code>
-            ) : (
-              <SyntaxHighlighter
-                style={oneDark}
-                language={match[1]}
-                PreTag="div"
-                className="rounded-lg !bg-card border border-border"
-              >
-                {String(children).replace(/\n$/, '')}
-              </SyntaxHighlighter>
-            )
-          },
-          // Style links
-          a({ children, href, ...props }) {
-            return (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-brand hover:underline"
-                {...props}
-              >
-                {children}
-              </a>
-            )
-          },
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  )
 }
 
 // Code content renderer with syntax highlighting
