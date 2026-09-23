@@ -205,7 +205,7 @@ jobs:
           done
           uv run --package onesearch-agent python -c 'from pathlib import Path; from onesearch_agent.packaging import checksum_lines; path=Path("release-assets/SHA256SUMS"); path.write_text("\n".join(checksum_lines(path.parent))+"\n")'
           uv run --package onesearch-agent python agent/packaging/sign_checksums.py --input release-assets/SHA256SUMS --private-key "$AGENT_UPDATE_PRIVATE_KEY" --output release-assets/SHA256SUMS.sig
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: release-assets/*
       - uses: docker/setup-buildx-action@v4
