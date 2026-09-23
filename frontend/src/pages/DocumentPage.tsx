@@ -4,10 +4,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppSettings, useDocument } from '@/hooks/useApi'
-import { useCodeTheme } from '@/hooks/useCodeTheme'
 import { FormatDetails } from '@/components/document/FormatDetails'
 import { ReadableTextRenderer } from '@/components/document/ReadableTextRenderer'
 import { MarkdownRenderer } from '@/components/document/MarkdownRenderer'
+import { CodeRenderer } from '@/components/document/CodeRenderer'
+import { RawTextView } from '@/components/document/RawTextView'
+import { ViewModeToggle } from '@/components/document/ViewModeToggle'
 import {
   ArrowLeft,
   FileText,
@@ -131,6 +133,9 @@ const extensionToLanguage: Record<string, string> = {
 // Code file extensions that should use syntax highlighting
 const codeExtensions = new Set(Object.keys(extensionToLanguage))
 const proseDocumentTypes = new Set(['epub', 'rtf', 'subtitle', 'pdf', 'docx', 'pptx'])
+// Types where the indexed text differs from the file (markdown strips front-matter)
+const rawViewTypes = new Set(['markdown'])
+const DEFAULT_MAX_PREVIEW_MB = 25
 const DEFAULT_LONG_TEXT_THRESHOLD = 20_000
 const DEFAULT_READABLE_PAGE_CHARS = 6000
 
@@ -158,24 +163,6 @@ function FileTypeIcon({ type, className }: { type: string; className?: string })
   }
 }
 
-// Code content renderer with syntax highlighting
-function CodeRenderer({ content, language }: { content: string; language: string }) {
-  const codeTheme = useCodeTheme()
-
-  return (
-    <SyntaxHighlighter
-      style={codeTheme}
-      language={language}
-      showLineNumbers
-      wrapLines
-      lineNumberStyle={{ color: 'hsl(var(--muted-foreground))', paddingRight: '1em', minWidth: '3em' }}
-      className="rounded-lg !bg-card border border-border text-sm"
-    >
-      {content}
-    </SyntaxHighlighter>
-  )
-}
-
 // Plain text content renderer
 function PlainTextRenderer({ content }: { content: string }) {
   return (
@@ -200,6 +187,9 @@ export default function DocumentPage() {
 
   const { data: document, isLoading, error } = useDocument(id || '')
   const { data: appSettings } = useAppSettings()
+
+  // Keyed by doc id so moving to another document drops back to Rendered
+  const [rawViewFor, setRawViewFor] = useState<string | null>(null)
 
   const handleBack = useCallback(() => {
     if (fromQuery) {
@@ -360,6 +350,9 @@ export default function DocumentPage() {
     )
   }
 
+  const supportsRawView = rawViewTypes.has(document.type)
+  const showRaw = supportsRawView && rawViewFor === document.id
+
   return (
     <div className="min-h-[calc(100vh-4rem)] gradient-mesh">
       <div className="max-w-5xl mx-auto px-4 py-8">
@@ -452,11 +445,25 @@ export default function DocumentPage() {
 
         {/* Document content */}
         <div className="bg-card border border-border rounded-lg overflow-hidden">
-          <div className="p-1 bg-secondary/50 border-b border-border">
+          <div className="flex items-center justify-between p-1 bg-secondary/50 border-b border-border">
             <span className="text-xs text-muted-foreground px-3">Content</span>
+            {supportsRawView && (
+              <ViewModeToggle
+                value={showRaw ? 'raw' : 'rendered'}
+                onChange={(mode) => setRawViewFor(mode === 'raw' ? document.id : null)}
+              />
+            )}
           </div>
           <div className="p-4 md:p-6">
-            {renderContent()}
+            {showRaw ? (
+              <RawTextView
+                document={document}
+                language="markdown"
+                maxBytes={(appSettings?.max_preview_size_mb ?? DEFAULT_MAX_PREVIEW_MB) * 1024 * 1024}
+              />
+            ) : (
+              renderContent()
+            )}
           </div>
         </div>
 

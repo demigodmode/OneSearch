@@ -455,7 +455,13 @@ export function decodeText(buffer: ArrayBuffer): string {
  */
 export async function getDocumentRawText(id: string): Promise<string> {
   const link = await getDocumentDownloadLink(id)
-  const response = await fetch(link.url)
+
+  let response: Response
+  try {
+    response = await fetch(link.url)
+  } catch {
+    throw new ApiError("Couldn't reach the server to load the original file", 0)
+  }
 
   if (!response.ok) {
     let detail = `Could not load the original file (${response.status})`

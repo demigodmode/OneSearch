@@ -34,6 +34,16 @@ describe('document API', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, link.url)
   })
 
+  it('gives a friendlier message when the file fetch itself fails', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(() => json(link))
+      .mockImplementationOnce(() => Promise.reject(new TypeError('Failed to fetch')))
+
+    const error = await getDocumentRawText('doc-1').catch((e) => e)
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error.message).toBe("Couldn't reach the server to load the original file")
+  })
+
   it('reports download failures without touching the session', async () => {
     localStorage.setItem('onesearch_token', 'session')
     vi.spyOn(globalThis, 'fetch')
