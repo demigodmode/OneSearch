@@ -48,6 +48,7 @@
   --color-success-strong: hsl(var(--success-strong));
   --color-warning-strong: hsl(var(--warning-strong));
   --color-destructive-strong: hsl(var(--destructive-strong));
+  --color-brand-strong: hsl(var(--brand-strong));
 
   --animate-fade-in: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   --animate-fade-in-up: fadeInUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -124,6 +125,8 @@
        ═══════════════════════════════════════════════════════════ */
     --brand: var(--brand-h) var(--brand-s) var(--brand-l);
     --brand-foreground: 28 50% 8%;
+    /* Brand as text (links, inline code) — plain brand already reads fine on dark */
+    --brand-strong: var(--brand);
 
     --success: 142 60% 45%;
     --warning: 38 92% 58%;
@@ -156,6 +159,9 @@
     --ring: var(--brand-h) var(--brand-s) var(--brand-l);
     --brand: var(--brand-h) var(--brand-s) var(--brand-l);
     --brand-foreground: 28 50% 8%;
+    /* Brand as text on white/secondary. Fixed 26% lightness so every preset
+       clears 4.5:1 (amber ~5.7:1 on secondary); plain brand is ~1.9:1 here. */
+    --brand-strong: var(--brand-h) var(--brand-s) 26%;
     --success: 142 65% 38%;
     --warning: 38 92% 40%;
     /* Readable text on the /15 tint (light theme) — measured ≥5:1 over card/bg */
@@ -189,16 +195,6 @@
   /* Selection */
   ::selection {
     @apply bg-brand/25 text-foreground;
-  }
-
-  .prose {
-    --tw-prose-links: hsl(var(--brand));
-    --tw-prose-bold: hsl(var(--foreground));
-  }
-
-  .prose-invert {
-    --tw-prose-invert-links: hsl(var(--brand));
-    --tw-prose-invert-bold: hsl(var(--foreground));
   }
 
   /* Focus visible */
@@ -340,4 +336,30 @@
       radial-gradient(at 0% 50%, hsl(var(--brand) / 0.04) 0px, transparent 50%),
       hsl(var(--background));
   }
+}
+
+/* Typography colors follow the theme tokens so previews work in light and dark.
+   Deliberately outside @layer: the typography plugin emits .prose/.prose-invert
+   in the components layer, which beats anything in base. prose-invert only
+   swaps these same vars, so overriding them here covers both classes. */
+.prose,
+.prose-invert {
+  --tw-prose-body: hsl(var(--foreground) / 0.85);
+  --tw-prose-headings: hsl(var(--foreground));
+  --tw-prose-lead: hsl(var(--muted-foreground));
+  --tw-prose-links: hsl(var(--brand-strong));
+  --tw-prose-bold: hsl(var(--foreground));
+  --tw-prose-counters: hsl(var(--muted-foreground));
+  --tw-prose-bullets: hsl(var(--muted-foreground) / 0.7);
+  --tw-prose-hr: hsl(var(--border));
+  --tw-prose-quotes: hsl(var(--foreground) / 0.85);
+  --tw-prose-quote-borders: hsl(var(--border));
+  --tw-prose-captions: hsl(var(--muted-foreground));
+  --tw-prose-kbd: hsl(var(--foreground));
+  --tw-prose-kbd-shadows: hsl(var(--foreground) / 0.1);
+  --tw-prose-code: hsl(var(--foreground));
+  --tw-prose-pre-code: hsl(var(--foreground));
+  --tw-prose-pre-bg: hsl(var(--secondary));
+  --tw-prose-th-borders: hsl(var(--muted-foreground) / 0.5);
+  --tw-prose-td-borders: hsl(var(--border));
 }

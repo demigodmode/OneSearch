@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppSettings, useDocument } from '@/hooks/useApi'
+import { useCodeTheme } from '@/hooks/useCodeTheme'
 import { FormatDetails } from '@/components/document/FormatDetails'
 import { ReadableTextRenderer } from '@/components/document/ReadableTextRenderer'
 import { MarkdownRenderer } from '@/components/document/MarkdownRenderer'
@@ -25,7 +26,6 @@ import {
   Download,
 } from 'lucide-react'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 // Register only the languages we use — keeps the chunk ~300KB lighter than full Prism
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
 import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
@@ -160,9 +160,11 @@ function FileTypeIcon({ type, className }: { type: string; className?: string })
 
 // Code content renderer with syntax highlighting
 function CodeRenderer({ content, language }: { content: string; language: string }) {
+  const codeTheme = useCodeTheme()
+
   return (
     <SyntaxHighlighter
-      style={oneDark}
+      style={codeTheme}
       language={language}
       showLineNumbers
       wrapLines

@@ -14,6 +14,13 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByText('code').tagName).toBe('CODE')
   })
 
+  it('uses the contrast-safe brand color for link and inline code text', () => {
+    render(<MarkdownRenderer content={'[docs](https://example.com) and `code`'} />)
+
+    expect(screen.getByRole('link', { name: 'docs' })).toHaveClass('text-brand-strong')
+    expect(screen.getByText('code')).toHaveClass('text-brand-strong')
+  })
+
   it('renders pipe tables inside a horizontal scroll wrapper', () => {
     const md = '| Name | Size |\n| --- | --- |\n| a.txt | 1 KB |\n| b.txt | 2 KB |'
     render(<MarkdownRenderer content={md} />)
