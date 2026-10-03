@@ -159,9 +159,8 @@
     --ring: var(--brand-h) var(--brand-s) var(--brand-l);
     --brand: var(--brand-h) var(--brand-s) var(--brand-l);
     --brand-foreground: 28 50% 8%;
-    /* Brand as text on white/secondary. Fixed 26% lightness so every preset
-       clears 4.5:1 (amber ~5.7:1 on secondary); plain brand is ~1.9:1 here. */
-    --brand-strong: var(--brand-h) var(--brand-s) 26%;
+    /* Brand text on card and secondary surfaces stays above 4.5:1. */
+    --brand-strong: var(--brand-h) var(--brand-s) 22%;
     --success: 142 65% 38%;
     --warning: 38 92% 40%;
     /* Readable text on the /15 tint (light theme) — measured ≥5:1 over card/bg */

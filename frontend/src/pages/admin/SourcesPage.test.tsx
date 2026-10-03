@@ -334,6 +334,28 @@ describe('SourceForm local folder picker', () => {
     fireEvent.change(screen.getByLabelText('Root Path'), { target: { value: '/data/typed' } })
     expect(screen.queryByRole('button', { name: 'Open folder photos' })).not.toBeInTheDocument()
   })
+
+  it('keeps test and save actions usable after selecting from a truncated folder list while editing', async () => {
+    const submit = vi.fn()
+    const entries = Array.from({ length: 500 }, (_, index) => {
+      const name = `folder-${String(index + 1).padStart(3, '0')}`
+      return { name, path: name }
+    })
+    localRootsState.data = { browse_available: true, roots: [{ root_id: 'local-abc', path: '/data', label: '/data' }] }
+    browseLocalDirectory.mockResolvedValueOnce({ root_id: 'local-abc', path: '', entries, truncated: true })
+    browseLocalDirectory.mockResolvedValueOnce({ root_id: 'local-abc', path: 'folder-500', entries: [], truncated: false })
+    render(<SourceForm source={{ id: 'local-source', name: 'Local docs', root_path: '/data/old', location_type: 'local', agent_id: null, processing_mode: null, created_at: '', updated_at: '' }} remoteAgentsEnabled={false} agents={[]} defaultSchedule={null} onSubmit={submit} onCancel={vi.fn()} isLoading={false} />)
+
+    fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: 'local-abc' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Open folder folder-500' }))
+    expect(screen.getByLabelText('Root Path')).toHaveValue('/data/folder-500')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }))
+    expect(testPath).toHaveBeenLastCalledWith(expect.objectContaining({ root_path: '/data/folder-500' }), expect.anything())
+    act(() => testPath.mock.calls[testPath.mock.calls.length - 1][1].onSuccess({ ok: true, message: 'Ready', path: '/data/folder-500', exists: true, is_directory: true, readable: true, inside_allowed_roots: true, allowed_roots: ['/data'], looks_like_host_path: false }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    expect(submit).toHaveBeenCalledWith(expect.objectContaining({ root_path: '/data/folder-500' }))
+  })
 })
 
 describe('SourcesPage list', () => {

@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { Link, MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
+import { Link, MemoryRouter, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DocumentPage from './DocumentPage'
 import type { Document } from '@/types/api'
@@ -34,13 +34,27 @@ const renderPage = () =>
     </MemoryRouter>,
   )
 
+const renderQueryPage = () =>
+  render(
+    <MemoryRouter initialEntries={['/document/doc-1?q=Body%20text']}>
+      <Routes>
+        <Route path="/document/:id" element={<DocumentPage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+
 function NavHarness() {
   const { id } = useParams<{ id: string }>()
+  const location = useLocation()
+  const navigate = useNavigate()
   return (
     <>
       <DocumentPage />
       <Link to="/document/doc-2">go-to-doc-2</Link>
+      <Link to="/document/doc-1?q=changed">change-query</Link>
+      <button onClick={() => navigate(-1)}>history-back</button>
       <span data-testid="route-id">{id}</span>
+      <span data-testid="route-query">{location.search}</span>
     </>
   )
 }
@@ -73,6 +87,14 @@ describe('DocumentPage raw view', () => {
     expect(useDocumentRawText).toHaveBeenCalledWith('doc-1', 1700000000, true, 25 * 1024 * 1024)
   })
 
+  it('passes the query through to Rendered and Raw Markdown views', async () => {
+    renderQueryPage()
+    expect(document.querySelector('mark')).toHaveTextContent('Body text')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    expect(screen.getAllByRole('mark').length).toBeGreaterThan(0)
+  })
+
   it('still offers Raw when the markdown body is empty (front-matter only)', async () => {
     current = { ...base, content: '' }
     const { container } = renderPage()
@@ -93,6 +115,36 @@ describe('DocumentPage raw view', () => {
     expect(screen.getByTestId('route-id')).toHaveTextContent('doc-2')
     expect(screen.getByRole('heading', { name: 'Other body' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Rendered' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('resets Raw when history returns to an earlier document', async () => {
+    renderWithNav()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    await userEvent.click(screen.getByText('go-to-doc-2'))
+    useDocumentRawText.mockClear()
+    await userEvent.click(screen.getByRole('button', { name: 'history-back' }))
+
+    expect(screen.getByTestId('route-id')).toHaveTextContent('doc-1')
+    expect(screen.getByRole('heading', { name: 'Body text' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rendered' })).toHaveAttribute('aria-pressed', 'true')
+    expect(useDocumentRawText).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    expect(screen.getByRole('button', { name: 'Raw' })).toHaveAttribute('aria-pressed', 'true')
+    expect(useDocumentRawText).toHaveBeenCalledWith('doc-1', 1700000000, true, 25 * 1024 * 1024)
+  })
+
+  it('keeps Raw selected when only the query changes', async () => {
+    renderWithNav()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    await userEvent.click(screen.getByText('change-query'))
+
+    expect(screen.getByTestId('route-id')).toHaveTextContent('doc-1')
+    expect(screen.getByTestId('route-query')).toHaveTextContent('?q=changed')
+    expect(screen.getByRole('button', { name: 'Raw' })).toHaveAttribute('aria-pressed', 'true')
+    expect(useDocumentRawText).toHaveBeenCalledWith('doc-1', 1700000000, true, 25 * 1024 * 1024)
   })
 
   it('has no toggle for other types', () => {

@@ -188,8 +188,10 @@ export default function DocumentPage() {
   const { data: document, isLoading, error } = useDocument(id || '')
   const { data: appSettings } = useAppSettings()
 
-  // Keyed by doc id so moving to another document drops back to Rendered
-  const [rawViewFor, setRawViewFor] = useState<string | null>(null)
+  const [rawView, setRawView] = useState({ routeId: id, raw: false })
+  if (rawView.routeId !== id) {
+    setRawView({ routeId: id, raw: false })
+  }
 
   const handleBack = useCallback(() => {
     if (fromQuery) {
@@ -288,7 +290,7 @@ export default function DocumentPage() {
 
     // Markdown files
     if (type === 'markdown' || extension === 'md' || extension === 'markdown') {
-      return <MarkdownRenderer content={content} />
+      return <MarkdownRenderer content={content} searchQuery={fromQuery} />
     }
 
     // Long prose-style extracted formats
@@ -351,7 +353,7 @@ export default function DocumentPage() {
   }
 
   const supportsRawView = rawViewTypes.has(document.type)
-  const showRaw = supportsRawView && rawViewFor === document.id
+  const showRaw = supportsRawView && rawView.routeId === id && rawView.raw
 
   return (
     <div className="min-h-[calc(100vh-4rem)] gradient-mesh">
@@ -450,7 +452,7 @@ export default function DocumentPage() {
             {supportsRawView && (
               <ViewModeToggle
                 value={showRaw ? 'raw' : 'rendered'}
-                onChange={(mode) => setRawViewFor(mode === 'raw' ? document.id : null)}
+                onChange={(mode) => setRawView({ routeId: id, raw: mode === 'raw' })}
               />
             )}
           </div>
@@ -459,6 +461,7 @@ export default function DocumentPage() {
               <RawTextView
                 document={document}
                 language="markdown"
+                searchQuery={fromQuery}
                 maxBytes={(appSettings?.max_preview_size_mb ?? DEFAULT_MAX_PREVIEW_MB) * 1024 * 1024}
               />
             ) : (
