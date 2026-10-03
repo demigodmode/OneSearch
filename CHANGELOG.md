@@ -5,6 +5,32 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Markdown previews now render tables, strikethrough, task lists and autolinks. (#271, #276)
+- Switch between Rendered and Raw on Markdown documents. Raw shows the original file text, including front matter, comments, key order and line numbers. (#273, #278)
+- Browse folders for local sources under `ALLOWED_SOURCE_PATHS`, or enter a path manually and test it before saving. (#262, #279)
+
+### Fixed
+
+- Document previews follow Light, Dark and System mode. Markdown text, links and inline code are readable in light mode, and code blocks use the matching theme. (#277)
+- Search query matches now appear in Markdown Rendered and Raw, including inline formatting and fenced code.
+- Large Raw files use plain text pages instead of syntax highlighting the whole file. Paging preserves the source text and original line numbers.
+- Raw refuses oversized responses even when a file grows after indexing. Raising the preview limit retries the fetch instead of keeping the old refusal. (#278)
+- Add/Edit Source controls stay reachable when browsing long folder lists.
+- Opening a different document resets the content view to Rendered, including when returning with browser Back.
+- Markdown tables inside code fences keep their rows on separate lines. (#278)
+- Raw and Download show the API's error message, including when a remote agent is unavailable. (#278)
+
+### Changed
+
+- Frontend changes now run lint, tests and a production build in CI.
+- Updated Python, frontend and documentation dependencies.
+
+---
+
 ## [1.4.0] - 2026-09-08
 
 ### Remote indexing agents (the big one)

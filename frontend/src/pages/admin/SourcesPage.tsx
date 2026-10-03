@@ -186,7 +186,8 @@ export function SourceForm({
   )
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto">
       {error && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -322,8 +323,9 @@ export function SourceForm({
           </>
         )}
       </div>
+      </div>
 
-      <DialogFooter>
+      <DialogFooter className="shrink-0 pt-4">
         <Button type="button" variant="secondary" onClick={handleTestPath} disabled={isLoading || pathTestPending || !rootPath.trim()}>
           {pathTestPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Test
@@ -646,8 +648,8 @@ export default function SourcesPage() {
 
       {/* Add Source Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] min-w-0 w-[calc(100vw-2rem)] max-w-lg flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Add Source</DialogTitle>
             <DialogDescription>
               Add a new directory to index. The path should be accessible from inside the Docker container.
@@ -667,8 +669,8 @@ export default function SourcesPage() {
 
       {/* Edit Source Dialog */}
       <Dialog open={!!editingSource} onOpenChange={(open) => !open && setEditingSource(null)}>
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] min-w-0 w-[calc(100vw-2rem)] max-w-lg flex-col overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle>Edit Source</DialogTitle>
             <DialogDescription>
               Update the source configuration. Changes will apply on the next reindex.

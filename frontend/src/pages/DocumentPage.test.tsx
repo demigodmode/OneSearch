@@ -34,6 +34,15 @@ const renderPage = () =>
     </MemoryRouter>,
   )
 
+const renderQueryPage = () =>
+  render(
+    <MemoryRouter initialEntries={['/document/doc-1?q=Body%20text']}>
+      <Routes>
+        <Route path="/document/:id" element={<DocumentPage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+
 function NavHarness() {
   const { id } = useParams<{ id: string }>()
   const location = useLocation()
@@ -76,6 +85,14 @@ describe('DocumentPage raw view', () => {
 
     expect(container.textContent).toMatch(/title: Notes/)
     expect(useDocumentRawText).toHaveBeenCalledWith('doc-1', 1700000000, true, 25 * 1024 * 1024)
+  })
+
+  it('passes the query through to Rendered and Raw Markdown views', async () => {
+    renderQueryPage()
+    expect(document.querySelector('mark')).toHaveTextContent('Body text')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Raw' }))
+    expect(screen.getAllByRole('mark').length).toBeGreaterThan(0)
   })
 
   it('still offers Raw when the markdown body is empty (front-matter only)', async () => {

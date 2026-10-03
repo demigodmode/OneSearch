@@ -290,7 +290,7 @@ export default function DocumentPage() {
 
     // Markdown files
     if (type === 'markdown' || extension === 'md' || extension === 'markdown') {
-      return <MarkdownRenderer content={content} />
+      return <MarkdownRenderer content={content} searchQuery={fromQuery} />
     }
 
     // Long prose-style extracted formats
@@ -461,6 +461,7 @@ export default function DocumentPage() {
               <RawTextView
                 document={document}
                 language="markdown"
+                searchQuery={fromQuery}
                 maxBytes={(appSettings?.max_preview_size_mb ?? DEFAULT_MAX_PREVIEW_MB) * 1024 * 1024}
               />
             ) : (

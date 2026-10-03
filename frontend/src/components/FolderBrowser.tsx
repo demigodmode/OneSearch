@@ -84,14 +84,14 @@ export function FolderBrowser({ roots, available, pathStyle, browse, onSelect, c
       {roots.map((item) => <option key={item.root_id} value={item.root_id}>{item.label ?? item.path}</option>)}
     </select>
     {children}
-    {root && <div className="space-y-2 rounded-lg border border-border p-3" aria-live="polite">
+    {root && <div className="min-w-0 space-y-2 rounded-lg border border-border p-3" aria-live="polite">
       <p className="truncate font-mono text-xs" title={current}>Browsing: {current}</p>
       {relativePath && <Button type="button" size="sm" variant="ghost" onClick={() => navigate(relativePath.split('/').slice(0, -1).join('/'))} disabled={loading}><ChevronUp className="mr-1 h-4 w-4" />Parent folder</Button>}
       {loading && <p className="text-xs text-muted-foreground" role="status">Loading folders from {current}…</p>}
       {error && <div className="flex flex-wrap items-center gap-2 text-xs text-destructive" role="alert"><span>{error}</span><Button type="button" size="sm" variant="secondary" onClick={() => load(root.root_id, relativePath)} disabled={loading}>Retry</Button></div>}
       {!loading && !error && page?.entries.length === 0 && <p className="text-xs text-muted-foreground">No subfolders here. You can still enter a path manually.</p>}
       {page?.truncated && <p className="text-xs text-muted-foreground">Only the first 500 folders are shown. Enter a path manually for another folder.</p>}
-      <div className="space-y-1">{page?.entries.map((entry) => <button key={entry.path} type="button" onClick={() => navigate(entry.path)} disabled={loading} className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" title={entry.name} aria-label={`Open folder ${entry.name}`}><Folder className="h-4 w-4 shrink-0" /><span className="truncate">{entry.name}</span></button>)}</div>
+      <div className="max-h-60 min-w-0 space-y-1 overflow-y-auto p-0.5">{page?.entries.map((entry) => <button key={entry.path} type="button" onClick={() => navigate(entry.path)} disabled={loading} className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" title={entry.name} aria-label={`Open folder ${entry.name}`}><Folder className="h-4 w-4 shrink-0" /><span className="truncate">{entry.name}</span></button>)}</div>
     </div>}
   </>
 }

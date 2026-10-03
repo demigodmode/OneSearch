@@ -3,37 +3,38 @@
 
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-// languages are registered on PrismLight in DocumentPage.tsx; fences render unhighlighted if that hasn't loaded
-import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { useCodeTheme } from '@/hooks/useCodeTheme'
+import { CodeRenderer } from './CodeRenderer'
+import type { TextMatch } from './queryHighlight'
+import { rehypeQueryHighlights } from './queryHighlight'
 
 // Markdown content renderer
-export function MarkdownRenderer({ content }: { content: string }) {
-  const codeTheme = useCodeTheme()
-
+export function MarkdownRenderer({ content, searchQuery }: { content: string; searchQuery?: string | null }) {
   return (
     <div className="prose prose-invert max-w-none">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={searchQuery?.trim() ? [rehypeQueryHighlights(searchQuery)] : []}
         components={{
           // Custom code block rendering with syntax highlighting
-          code({ className, children, ...props }) {
+          code({ className, children, node, ...props }) {
             const match = /language-(\w+)/.exec(className || '')
             const isInline = !match
 
+            const source = String(children).replace(/\n$/, '')
             return isInline ? (
               <code className="bg-secondary px-1.5 py-0.5 rounded text-brand-strong font-mono text-sm" {...props}>
                 {children}
               </code>
             ) : (
-              <SyntaxHighlighter
-                style={codeTheme}
+              <CodeRenderer
+                content={source}
                 language={match[1]}
-                PreTag="div"
                 className="rounded-lg !bg-card border border-border"
-              >
-                {String(children).replace(/\n$/, '')}
-              </SyntaxHighlighter>
+                preTag="div"
+                showLineNumbers={false}
+                wrapLines={false}
+                highlightRanges={(node?.data as { queryHighlightRanges?: TextMatch[] } | undefined)?.queryHighlightRanges ?? []}
+              />
             )
           },
           // Style links
