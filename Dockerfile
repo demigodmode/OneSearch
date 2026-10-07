@@ -47,7 +47,7 @@ RUN uv pip install --system --no-editable ./shared ./backend ./cli
 # =============================================================================
 # Stage 3: Meilisearch binary
 # =============================================================================
-FROM docker.io/getmeili/meilisearch:v1.12 AS meilisearch-runtime
+FROM docker.io/getmeili/meilisearch:v1.54 AS meilisearch-runtime
 
 # =============================================================================
 # Stage 4: ffprobe for audio/video metadata
