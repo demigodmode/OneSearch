@@ -168,7 +168,7 @@ Found a security vulnerability?
 
 **Please don't open a public issue.**
 
-Email the maintainers (see GitHub profile) with details. We'll respond within 48 hours and coordinate a fix and disclosure.
+Report it privately through [GitHub security advisories](https://github.com/demigodmode/OneSearch/security/advisories/new) with the version, how you're running OneSearch and steps to reproduce. This is a one-person project, so a reply can take a few days. We'll coordinate a fix and disclosure from there.
 
 ---
 
