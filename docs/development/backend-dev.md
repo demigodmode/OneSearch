@@ -16,24 +16,24 @@ Clone the repository and set up the backend:
 
 ```bash
 git clone https://github.com/demigodmode/OneSearch.git
-cd OneSearch/backend
+cd OneSearch
 ```
 
-Install dependencies using uv (faster than pip):
+Install dependencies with uv, from the repo root:
 
 ```bash
-uv sync
+uv sync --all-packages
 ```
 
-This creates a `.venv` directory and installs all dependencies from `pyproject.toml`.
+The repo is a uv workspace with four packages: `backend`, `cli`, `agent` and `shared`. This creates one `.venv` at the repo root with all of them installed, plus pytest and ruff. A plain `uv sync` leaves the packages out, and running it from `backend/` leaves the test tools out.
 
-Or use pip if you prefer:
+Then create the database tables. The app only runs migrations on its own inside the container:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e .
+(cd backend && DATABASE_URL=sqlite:///../onesearch-dev.db uv run alembic upgrade head)
 ```
+
+Use that same database when you start the server, with `DATABASE_URL=sqlite:///./onesearch-dev.db` from the repo root.
 
 ### Start Meilisearch
 
@@ -104,8 +104,7 @@ backend/
 │       └── database.py      # SQLAlchemy setup
 ├── tests/                   # Tests
 ├── alembic/                 # Database migrations
-├── pyproject.toml           # Dependencies (uv/pip)
-└── uv.lock                  # Lock file (commit this!)
+└── pyproject.toml           # Backend dependencies
 ```
 
 ---
@@ -147,7 +146,7 @@ uv add package-name
 uv add --dev package-name
 ```
 
-This updates `pyproject.toml` and `uv.lock`. Always commit the lock file.
+This updates the package's `pyproject.toml` and the `uv.lock` at the repo root. Always commit the lock file.
 
 ---
 
@@ -297,7 +296,7 @@ Run specific tests:
 
 ```bash
 uv run pytest tests/test_extractors.py
-uv run pytest tests/test_api.py::test_search
+uv run pytest tests/test_api.py::TestSearchEndpoint::test_search_with_filters
 ```
 
 Verbose output:

@@ -36,7 +36,7 @@ Remember to check SMART status monthly.
 
 ## Preview
 
-Markdown previews render as formatted content in the document page. Search terms are highlighted when you open a result from the search page.
+Markdown previews render as formatted content in the document page, including tables, task lists, strikethrough and bare links. A **Rendered** / **Raw** switch lets you see the original file text instead, with front matter and line numbers. Search terms are highlighted in both views when you open a result from the search page.
 
 ## Limits
 

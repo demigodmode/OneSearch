@@ -19,15 +19,17 @@ After logging in, click **Admin** in the top nav, then **Sources**.
 Click **Add Source** and fill in:
 
 - **Name**: Something descriptive like "Documents" or "NAS Files"
-- **Path**: The container path to your files (e.g., `/data/documents`)
-- **Include Patterns**: Which files to index (e.g., `**/*.pdf,**/*.md,**/*.txt`)
-- **Exclude Patterns**: What to skip (optional, e.g., `**/node_modules/**,**/.git/**`)
+- **Root Path**: The container path to your files (e.g., `/data/documents`). You can type it, or pick a folder from the **Allowed root** browser above the field, which lists what's mounted under `/data`
+- **Include Patterns**: Which files to index (optional, e.g., `**/*.pdf,**/*.md,**/*.txt`). Leave it empty to index everything
+- **Exclude Patterns**: What to skip (optional, e.g., `**/drafts/**`). Leave it empty and OneSearch skips the usual clutter on its own: version control folders like `.git`, dependency folders like `node_modules`, `venv` and `vendor`, and build output folders named `dist`, `build` or `target`. If you have real documents in a folder with one of those names, set your own exclude patterns so the defaults don't apply
 
-Click **Test** next to Root Path before saving. This confirms whether OneSearch can see the path from inside the container, whether it is inside allowed roots, whether it exists, whether it is a directory, and whether it is readable.
+Click **Test** at the bottom of the form before saving. This confirms whether OneSearch can see the path from inside the container, whether it is inside allowed roots, whether it exists, whether it is a directory, and whether it is readable.
 
 Click **Add Source** when the path looks good.
 
 **Important**: Use the container path, not your host path. If you mounted `/home/user/docs` to `/data/docs` in `docker-compose.yml`, use `/data/docs` here.
+
+To index folders on another machine without mounting them on the server, see [Remote agents](../administration/remote-agents.md). They're off by default.
 
 ### Using the CLI
 

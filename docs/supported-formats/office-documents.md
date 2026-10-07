@@ -34,6 +34,14 @@ Extracts:
 - speaker notes
 - presentation metadata when available
 
+## RTF (`.rtf`)
+
+Indexed as `rtf`.
+
+Extracts the readable text, with the RTF formatting codes stripped out. The title is the filename, and no document metadata is read.
+
+RTF counts as a text file for limits: it uses the text size limit and `TEXT_EXTRACTION_TIMEOUT`, not the Office ones below.
+
 ## Limits
 
 Office extraction uses the Office size limit shown in **Admin → Settings → Indexing**. `MAX_OFFICE_FILE_SIZE_MB` provides the default value, and `OFFICE_EXTRACTION_TIMEOUT` controls how long extraction can run.
