@@ -85,7 +85,7 @@ Check which setup you have before downloading. If your current file has a separa
 
 **Check your `.env` for old values.** Settings such as `ALLOWED_SOURCE_PATHS`, `SCHEDULE_TIMEZONE` and the size limits used to be ignored when set in `.env`. They take effect now.
 
-**Check schedules that use weekday numbers.** The **Weekly (Sunday 2:00 AM)** preset and advanced cron like `0 2 * * 1-5` ran one day late before. They now run on the days they say. Weekday names (`mon-fri`, `sun`) are unchanged.
+**Check schedules that use weekday numbers.** The **Weekly (Sunday 2:00 AM)** preset and advanced cron like `0 2 * * 1-5` ran one day late before. They now run on the days they say. Weekday names (`mon-fri`, `sun`) are unchanged, with one exception: a step on a name, like `mon-fri/2`, used to be ignored and is now applied.
 
 **Reindex sources with audio or video.** The image now has `ffprobe`, so a full reindex adds tags, duration and codec details to media files that were indexed by filename only.
 

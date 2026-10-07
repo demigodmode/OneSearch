@@ -219,10 +219,10 @@ async def test_ffprobe_gets_less_time_than_the_whole_extraction(temp_dir, monkey
     monkeypatch.setattr("app.extractors.media.subprocess.run", slow_probe)
 
     extractor = MediaExtractor("src", "Media", media_metadata_mode="auto")
-    extractor.set_extraction_timeout(20)
+    extractor.set_extraction_timeout(1)  # the smallest value the setter allows
     doc = await extractor.extract_with_timeout(str(file_path))
 
-    assert seen["timeout"] < 20
+    assert 0 < seen["timeout"] < 1
     assert doc.metadata["metadata_only"] is True
     assert doc.metadata["extraction_failed"] is True
 
