@@ -14,9 +14,12 @@ jobs:
       - id: meta
         uses: dependabot/fetch-metadata@v3
 
-      # majors still get a manual look
+      # only patch/minor bumps of app deps. majors and actions updates get a manual look,
+      # and anything fetch-metadata can't classify is left alone
       - name: Enable auto-merge
-        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        if: >-
+          contains(fromJSON('["version-update:semver-patch", "version-update:semver-minor"]'), steps.meta.outputs.update-type)
+          && contains(fromJSON('["npm_and_yarn", "uv", "pip"]'), steps.meta.outputs.package-ecosystem)
         run: gh pr merge --auto --merge "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
