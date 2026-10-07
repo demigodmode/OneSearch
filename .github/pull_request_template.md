@@ -1,10 +1,17 @@
-<!-- What does this change, and why? A few sentences is plenty. -->
+<!-- What does this change, and why? Link the issue if there is one (Closes #123). -->
 
 
 
-Closes #
+**How I tested it**
 
-- [ ] Tests added or updated for the change
-- [ ] `CHANGELOG.md` entry, if users will notice it
-- [ ] Docs updated, if behavior changed
-- [ ] Screenshot attached, for UI changes
+<!-- Commands you ran, or what you clicked through. "CI only" is a fine answer. -->
+
+
+
+**Before merging**
+
+- [ ] Tests cover the change, or it doesn't need any
+- [ ] `CHANGELOG.md` is updated if users will notice this
+- [ ] Docs still match the behavior
+- [ ] Upgrade impact is noted above (migrations, new env vars, compose changes), or there is none
+- [ ] UI changes include a screenshot
