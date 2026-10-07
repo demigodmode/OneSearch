@@ -2,22 +2,22 @@
   <img src="frontend/public/onesearch-logo.svg" alt="OneSearch logo" width="120">
 </p>
 
+<p align="center">
+  <sub>Logo by <a href="https://www.briefreelancing.com/">Briefreelancing</a>.</sub>
+</p>
+
 <h1 align="center">OneSearch</h1>
 
 <p align="center">Search your homelab like you search the web.</p>
 
 <p align="center">
-  <a href="https://github.com/demigodmode/OneSearch/releases/latest"><img src="https://img.shields.io/github/v/release/demigodmode/OneSearch?style=flat-square&logo=github&label=release" alt="Latest release"></a>
-  <a href="https://hub.docker.com/r/demigodmode/onesearch"><img src="https://img.shields.io/docker/pulls/demigodmode/onesearch?style=flat-square&logo=docker&logoColor=white" alt="Docker pulls"></a>
-  <a href="https://pypi.org/project/onesearch-cli/"><img src="https://img.shields.io/pypi/v/onesearch-cli?style=flat-square&logo=pypi&logoColor=white&label=cli" alt="CLI on PyPI"></a>
-  <a href="https://github.com/demigodmode/OneSearch/actions/workflows/backend-tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/backend-tests.yml?branch=main&style=flat-square&label=backend" alt="Backend tests"></a>
-  <a href="https://github.com/demigodmode/OneSearch/actions/workflows/frontend-tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/frontend-tests.yml?branch=main&style=flat-square&label=frontend" alt="Frontend tests"></a>
-  <a href="https://onesearch.readthedocs.io"><img src="https://img.shields.io/readthedocs/onesearch?style=flat-square&logo=readthedocs&logoColor=white" alt="Documentation"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/demigodmode/OneSearch?style=flat-square" alt="License"></a>
-</p>
-
-<p align="center">
-  <sub>Logo by <a href="https://www.briefreelancing.com/">Briefreelancing</a>.</sub>
+  <a href="https://github.com/demigodmode/OneSearch/releases/latest"><img src="https://img.shields.io/github/v/release/demigodmode/OneSearch?style=for-the-badge&logo=github&label=release" alt="Latest release"></a>
+  <a href="https://hub.docker.com/r/demigodmode/onesearch"><img src="https://img.shields.io/docker/pulls/demigodmode/onesearch?style=for-the-badge&logo=docker&logoColor=white" alt="Docker pulls"></a>
+  <a href="https://pypi.org/project/onesearch-cli/"><img src="https://img.shields.io/pypi/v/onesearch-cli?style=for-the-badge&logo=pypi&logoColor=white&label=cli" alt="CLI on PyPI"></a>
+  <a href="https://github.com/demigodmode/OneSearch/actions/workflows/backend-tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/backend-tests.yml?branch=main&style=for-the-badge&label=backend" alt="Backend tests"></a>
+  <a href="https://github.com/demigodmode/OneSearch/actions/workflows/frontend-tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/frontend-tests.yml?branch=main&style=for-the-badge&label=frontend" alt="Frontend tests"></a>
+  <a href="https://onesearch.readthedocs.io"><img src="https://img.shields.io/readthedocs/onesearch?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Documentation"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/demigodmode/OneSearch?style=for-the-badge" alt="License"></a>
 </p>
 
 OneSearch indexes your local directories, NAS shares, and external drives and gives you instant full-text search from a browser. No cloud, no telemetry, runs in Docker.
