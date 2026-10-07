@@ -37,10 +37,7 @@ services:
       # - /home/user/Documents:/data/documents:ro
       # - /path/to/photos:/data/photos:ro
 
-    # Everything in .env reaches the container. The values below win over it.
-    env_file: .env
     environment:
-      - ONESEARCH_MANAGED_MEILI=false
       - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       - SESSION_SECRET=${SESSION_SECRET}
@@ -48,6 +45,37 @@ services:
       - PGID=${PGID:-1000}
       - DATABASE_URL=sqlite:////app/data/onesearch.db
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Optional settings. Each one is passed to the container only if you set it,
+      # in .env or in the shell. Unset ones keep their built-in defaults.
+      - MAX_TEXT_FILE_SIZE_MB
+      - MAX_PDF_FILE_SIZE_MB
+      - MAX_OFFICE_FILE_SIZE_MB
+      - IMAGE_METADATA_MAX_SIZE_MB
+      - EPUB_EXTRACTION_MAX_SIZE_MB
+      - COMIC_EXTRACTION_MAX_SIZE_MB
+      - ARCHIVE_EXTRACTION_MAX_SIZE_MB
+      - MEDIA_PROBE_MAX_SIZE_MB
+      - TEXT_EXTRACTION_TIMEOUT
+      - PDF_EXTRACTION_TIMEOUT
+      - OFFICE_EXTRACTION_TIMEOUT
+      - RAW_METADATA_TIMEOUT_SECONDS
+      - ALLOWED_SOURCE_PATHS
+      - CORS_ORIGINS
+      - SESSION_EXPIRE_HOURS
+      - AUTH_RATE_LIMIT
+      - SCHEDULER_ENABLED
+      - SCHEDULE_TIMEZONE
+      - UNSUPPORTED_FILE_POLICY
+      - MEDIA_METADATA_MODE
+      - RAW_METADATA_MODE
+      - INDEX_GPS_METADATA
+      - SHOW_PREVIEWS
+      - RAW_PREVIEW_ENABLED
+      - MAX_PREVIEW_SIZE_MB
+      - READABLE_PREVIEW_PAGE_CHARS
+      - LONG_TEXT_PAGINATION_THRESHOLD_CHARS
+      - MEILISEARCH_BATCH_SIZE
+      - INDEXING_PROGRESS_INTERVAL
     ports:
       - "8000:8000"
     depends_on:

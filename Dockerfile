@@ -50,11 +50,48 @@ RUN uv pip install --system --no-editable ./shared ./backend ./cli
 FROM docker.io/getmeili/meilisearch:v1.12 AS meilisearch-runtime
 
 # =============================================================================
-# Stage 4: ffprobe binary for audio/video metadata
+# Stage 4: ffprobe for audio/video metadata
 # =============================================================================
-# Static build, so it needs nothing from the runtime image. The Debian ffmpeg
-# package would pull in about 200 packages for the same one binary.
-FROM docker.io/mwader/static-ffmpeg:9.0.2 AS ffprobe-runtime
+# Built from the official FFmpeg source release. No external libraries and no
+# --enable-gpl, so the result is LGPL v2.1+. Only what's needed to read metadata
+# from the media formats OneSearch indexes gets compiled in, which keeps the
+# build short and the binary small.
+FROM docker.io/library/python:3.13-slim AS ffprobe-builder
+
+ARG FFMPEG_VERSION=9.0.2
+ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential ca-certificates curl xz-utils && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+RUN curl -fsSL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" && \
+    echo "${FFMPEG_SHA256}  ffmpeg.tar.xz" | sha256sum -c - && \
+    tar -xf ffmpeg.tar.xz --strip-components=1 && \
+    ./configure \
+        --disable-everything \
+        --disable-autodetect \
+        --disable-programs \
+        --enable-ffprobe \
+        --disable-doc \
+        --disable-network \
+        --disable-debug \
+        --disable-asm \
+        --disable-avdevice \
+        --disable-avfilter \
+        --disable-swscale \
+        --disable-swresample \
+        --enable-protocol=file \
+        --enable-demuxer=mov,matroska,avi,mp3,flac,ogg,wav,aac \
+        --enable-parser=h264,hevc,mpeg4video,mpegvideo,vp8,vp9,av1,aac,aac_latm,mpegaudio,flac,vorbis,opus,ac3 \
+        --enable-decoder=h264,hevc,mpeg4,mpeg2video,vp8,vp9,aac,mp3,flac,vorbis,opus,ac3,eac3,alac,pcm_s16le,pcm_s24le,pcm_s32le,pcm_f32le,pcm_u8,pcm_s16be,pcm_alaw,pcm_mulaw && \
+    make -j"$(nproc)" ffprobe && \
+    install -D -m 0755 ffprobe /out/bin/ffprobe && \
+    install -D -m 0644 COPYING.LGPLv2.1 /out/licenses/COPYING.LGPLv2.1 && \
+    install -D -m 0644 LICENSE.md /out/licenses/LICENSE.md && \
+    printf 'ffprobe from FFmpeg %s, built from https://ffmpeg.org/releases/ffmpeg-%s.tar.xz\nBuild flags are in the OneSearch Dockerfile: https://github.com/demigodmode/OneSearch\n' \
+        "${FFMPEG_VERSION}" "${FFMPEG_VERSION}" > /out/licenses/SOURCE
 
 # =============================================================================
 # Stage 5: Runtime
@@ -83,7 +120,8 @@ COPY --from=backend-builder /usr/local/lib/python3.13/site-packages /usr/local/l
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
 # Copy Meilisearch binary and Alpine runtime libs for opt-in managed mode
-COPY --from=ffprobe-runtime /ffprobe /usr/local/bin/ffprobe
+COPY --from=ffprobe-builder /out/bin/ffprobe /usr/local/bin/ffprobe
+COPY --from=ffprobe-builder /out/licenses /usr/share/licenses/ffmpeg
 COPY --from=meilisearch-runtime /bin/meilisearch /usr/local/bin/meilisearch
 COPY --from=meilisearch-runtime /lib/ld-musl-*.so.1 /lib/
 COPY --from=meilisearch-runtime /lib/libc.musl-*.so.1 /lib/
