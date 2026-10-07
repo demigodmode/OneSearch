@@ -8,6 +8,10 @@ updates:
       python-deps:
         patterns:
           - "*"
+      python-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
 
   - package-ecosystem: "npm"
     directory: "/frontend"
@@ -15,6 +19,10 @@ updates:
       interval: "weekly"
     groups:
       npm-deps:
+        patterns:
+          - "*"
+      npm-security:
+        applies-to: security-updates
         patterns:
           - "*"
     ignore:

@@ -10,6 +10,7 @@ on:
     paths:
       - 'backend/**'
       - 'cli/**'
+      - 'shared/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - '.github/workflows/backend-tests.yml'
@@ -70,6 +71,10 @@ jobs:
       - name: Run CLI tests
         run: |
           uv run pytest cli/tests/ -v --tb=short --color=yes
+
+      - name: Run shared tests
+        run: |
+          uv run pytest shared/tests/ -v --tb=short --color=yes
 
       - name: Build onesearch-cli package
         run: |
