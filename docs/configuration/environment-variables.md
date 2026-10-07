@@ -1,6 +1,6 @@
 # Environment Variables
 
-OneSearch is configured through environment variables, typically set in a `.env` file. Both compose files pass the whole `.env` file into the container. A few values are set by the compose file itself and can't be changed from `.env`: `DATABASE_URL`, `ONESEARCH_MANAGED_MEILI`, and in `docker-compose.legacy.yml` also `MEILI_URL`. Change those by editing the compose file.
+OneSearch is configured through environment variables, typically set in a `.env` file. Both compose files list every setting on this page, and pass each one to the container when you set it in `.env` or in the shell. Anything you leave unset keeps its default, and the `.env` file itself is optional if you supply the values another way. A few values are set by the compose file itself and can't be changed from `.env`: `DATABASE_URL`, `ONESEARCH_MANAGED_MEILI`, and in `docker-compose.legacy.yml` also `MEILI_URL`. Change those by editing the compose file.
 
 ## Required Variables
 
@@ -387,7 +387,7 @@ cp .env.example .env
 # Edit .env with your values
 ```
 
-Docker Compose reads `.env` to fill in the compose file, and `env_file` in the compose file passes every variable in it to the container.
+Docker Compose reads `.env` on its own. The compose file names each setting, so a value you put in `.env` is passed to the container, and settings you leave out aren't.
 
 ### Manual Export (Development)
 
