@@ -31,8 +31,16 @@ Frontend Dependencies (JavaScript/TypeScript):
 - TypeScript - Apache-2.0 License
 - TailwindCSS - MIT License
 
-External Services:
+Fonts bundled with the web UI:
+- Outfit - SIL Open Font License 1.1
+- JetBrains Mono - SIL Open Font License 1.1
+
+Bundled in the Docker image:
 - Meilisearch Server - MIT License (open source core)
+- ffprobe (FFmpeg) - LGPL v2.1 or later. Built from the official source release
+  named in the Dockerfile, with the build flags shown there. The license text
+  is in the image at /usr/share/licenses/ffmpeg.
+- ExifTool - Artistic License / GPL
 
 All third-party licenses are compatible with AGPL-3.0.
 See individual dependency repositories for complete license terms.

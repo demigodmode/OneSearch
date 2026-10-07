@@ -49,6 +49,18 @@ def test_runtime_image_installs_exiftool_for_raw_metadata():
     assert "libimage-exiftool-perl" in dockerfile
 
 
+def test_runtime_image_ships_ffprobe_for_media_metadata():
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+    assert "COPY --from=ffprobe-builder /out/bin/ffprobe /usr/local/bin/ffprobe" in dockerfile
+    # built from the official source, pinned by checksum, and kept LGPL
+    assert "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" in dockerfile
+    assert "sha256sum -c" in dockerfile
+    flags = [line.strip() for line in dockerfile.splitlines() if line.strip().startswith("--")]
+    assert not any(flag.startswith(("--enable-gpl", "--enable-nonfree")) for flag in flags)
+    assert "COPY --from=ffprobe-builder /out/licenses /usr/share/licenses/ffmpeg" in dockerfile
+
+
 def test_runtime_python_packages_are_not_editable_build_paths():
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 

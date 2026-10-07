@@ -6,6 +6,9 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
+// Fonts ship with the app so the browser never has to fetch them from a third party.
+import '@fontsource-variable/outfit'
+import '@fontsource-variable/jetbrains-mono'
 import './index.css'
 
 // Create a client with sensible defaults for a search application
