@@ -7,23 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Upgrading from 1.5.0 or earlier takes one manual step: your compose file needs replacing. See [Upgrading from 1.5.0 or earlier](https://onesearch.readthedocs.io/en/latest/getting-started/upgrading/#upgrading-from-150-or-earlier).
+
+### Added
+
+- The Docker image now includes `ffprobe`, built from the official FFmpeg source, so audio and video files get their tags, duration, codecs and dimensions indexed. Before this the image had no `ffprobe` and media files were indexed by filename only. Run a full reindex on sources with media files to pick the metadata up. (#298)
+- `ONESEARCH_IMAGE` in `.env` picks which image the compose files run, so you can pin a version or point at your own build without editing the compose file. (#298)
+- A `SECURITY.md` with how to report a vulnerability privately through GitHub. The docs used to say to email the maintainers. (#294)
+
 ### Changed
 
-- `docker-compose.yml` and `docker-compose.legacy.yml` now pull the published image by default, so the quick start works with just the compose file and `.env`. Before this they tried to build from source, which fails outside a checkout of the repo. Set `ONESEARCH_IMAGE` in `.env` to pin a version or run your own build.
-- Removed `docker-compose.managed-meili.yml`. It was a copy of `docker-compose.yml` left over from before managed Meilisearch became the default. If you still use it, switch to `docker-compose.yml`; the two were identical.
-- Both compose files now pass every backend setting through to the container when you set it in `.env` or the shell. Before this only a handful of variables got through, so settings like `ALLOWED_SOURCE_PATHS`, `SCHEDULE_TIMEZONE` and the size limits did nothing when set in `.env`. If your `.env` has values you set a while ago and forgot about, they take effect after you update your compose file.
-- The Docker image now includes `ffprobe`, built from the official FFmpeg source, so audio and video files get their tags, duration, codecs and dimensions indexed. Before this the image had no `ffprobe` and media files were indexed by filename only. Run a full reindex on sources with media files to pick the metadata up.
-- The web UI ships its own copies of the Outfit and JetBrains Mono fonts. It used to load them from Google Fonts, which meant every browser that opened OneSearch made a request to Google.
+- `docker-compose.yml` and `docker-compose.legacy.yml` now pull the published image by default, so the quick start works with just the compose file and `.env`. Before this they tried to build from source, which fails outside a checkout of the repo. (#298)
+- Removed `docker-compose.managed-meili.yml`. It was a copy of `docker-compose.yml` left over from before managed Meilisearch became the default. If you still use it, switch to `docker-compose.yml`; the two were identical. (#298)
+- Both compose files now pass every backend setting through to the container when you set it in `.env` or the shell. Before this only a handful of variables got through, so settings like `ALLOWED_SOURCE_PATHS`, `SCHEDULE_TIMEZONE` and the size limits did nothing when set in `.env`. If your `.env` has values you set a while ago and forgot about, they take effect after you update your compose file. (#298)
+- The web UI ships its own copies of the Outfit and JetBrains Mono fonts. It used to load them from Google Fonts, which meant every browser that opened OneSearch made a request to Google. (#298)
+- The README and docs were checked page by page against the code and corrected. That covers CLI examples that didn't run, missing API endpoints and status codes, the contributor setup steps, and newer features that weren't documented, such as the Markdown Rendered/Raw switch and the Download button. (#299)
+- Updated frontend dependencies. (#293)
 
 ### Fixed
 
-- The **Weekly (Sunday 2:00 AM)** schedule actually ran on Monday, and weekday numbers in advanced cron were all one day late. Weekdays now follow standard cron: `0` and `7` are Sunday, `1` is Monday. If you have a schedule that uses weekday numbers, it will move one day earlier to the day it always claimed to run. Names like `mon`, `sun` or `fri-sun` run on the same days as before. The one exception is a step on a named weekday, such as `mon-fri/2`: the step used to be ignored and is now applied.
-- A slow `ffprobe` run could use up the whole extraction time limit, and the file was then recorded as failed instead of being indexed by filename. The probe now gives up earlier so the fallback still happens.
-- `docker-compose.legacy.yml` now turns off Meilisearch's own usage analytics, the same as the default single-container setup already did.
+- The **Weekly (Sunday 2:00 AM)** schedule actually ran on Monday, and weekday numbers in advanced cron were all one day late. Weekdays now follow standard cron: `0` and `7` are Sunday, `1` is Monday. If you have a schedule that uses weekday numbers, it will move one day earlier to the day it always claimed to run. Names like `mon`, `sun` or `fri-sun` run on the same days as before. The one exception is a step on a named weekday, such as `mon-fri/2`: the step used to be ignored and is now applied. (#298, #304)
+- A slow `ffprobe` run could use up the whole extraction time limit, and the file was then recorded as failed instead of being indexed by filename. The probe now gives up earlier so the fallback still happens. (#304)
+- `docker-compose.legacy.yml` now turns off Meilisearch's own usage analytics, the same as the default single-container setup already did. (#298)
 
 ### Security
 
-- Custom source IDs sent to the API are now limited to letters, numbers, hyphens and underscores. Before this, a signed-in admin could create a source whose ID pointed stored image previews, and their cleanup, at a directory outside the preview folder. Preview storage also refuses any source directory outside that folder, which covers sources created before this change.
+- Custom source IDs sent to the API are now limited to letters, numbers, hyphens and underscores. Before this, a signed-in admin could create a source whose ID pointed stored image previews, and their cleanup, at a directory outside the preview folder. Preview storage also refuses any source directory outside that folder, which covers sources created before this change. (#296)
 - Updated PyJWT, pypdf, urllib3 and Mako to patched releases addressing the open Python dependency advisories. (#285, #286, #287, #291)
 - Updated brace-expansion and source-map-js in the frontend to patched releases. (#290, #292)
 

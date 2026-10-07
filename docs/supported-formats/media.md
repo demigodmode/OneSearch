@@ -26,7 +26,7 @@ When media metadata is set to Auto and `ffprobe` is available, OneSearch can ind
 - dimensions and frame rate
 - sample rate and channel count
 
-The official Docker image includes `ffprobe` from the release after 1.5.0. Older images don't have it. If `ffprobe` is missing or fails, files fall back to metadata-only indexing, which means they're searchable by filename and path only.
+The official Docker image includes `ffprobe` from 1.6.0 on. Older images don't have it. If `ffprobe` is missing or fails, files fall back to metadata-only indexing, which means they're searchable by filename and path only.
 
 ## Settings
 
