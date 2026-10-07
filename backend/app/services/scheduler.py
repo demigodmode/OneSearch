@@ -53,11 +53,63 @@ def resolve_cron(schedule: str) -> str:
     return SCHEDULE_PRESETS.get(schedule, schedule)
 
 
+_CRON_WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+
+
+def _cron_weekday(token: str) -> int:
+    token = token.strip().lower()
+    if token in _CRON_WEEKDAYS:
+        return _CRON_WEEKDAYS.index(token)
+    day = int(token)
+    if not 0 <= day <= 7:
+        raise ValueError(f"weekday out of range: {token}")
+    return day
+
+
+def _standard_weekdays(field: str) -> str:
+    """Rewrite a crontab day-of-week field as weekday names.
+
+    Crontab counts from Sunday (0 or 7), APScheduler counts from Monday (0), so a
+    numeric field passed straight through runs a day late. Names mean the same in both.
+    """
+    if field == "*":
+        return field
+    days: set[int] = set()
+    for part in field.split(","):
+        span, _, step_text = part.partition("/")
+        step = int(step_text) if step_text else 1
+        if step < 1:
+            raise ValueError(f"invalid weekday step: {part}")
+        if span == "*":
+            first, last = 0, 6
+        elif "-" in span:
+            start, end = span.split("-", 1)
+            first, last = _cron_weekday(start), _cron_weekday(end)
+        else:
+            first = _cron_weekday(span)
+            last = 6 if step_text else first
+        if first > last:
+            raise ValueError(f"invalid weekday range: {part}")
+        days.update(day % 7 for day in range(first, last + 1, step))
+    if len(days) == 7:
+        return "*"
+    return ",".join(_CRON_WEEKDAYS[day] for day in sorted(days))
+
+
+def build_cron_trigger(cron_expr: str) -> CronTrigger:
+    """Build a trigger from a standard five-field crontab expression."""
+    fields = cron_expr.split()
+    if len(fields) != 5:
+        raise ValueError(f"expected 5 cron fields, got {len(fields)}")
+    fields[4] = _standard_weekdays(fields[4])
+    return CronTrigger.from_crontab(" ".join(fields), timezone=settings.schedule_timezone)
+
+
 def validate_schedule(schedule: str) -> bool:
     """Check if a schedule string is valid."""
     cron_expr = resolve_cron(schedule)
     try:
-        CronTrigger.from_crontab(cron_expr, timezone=settings.schedule_timezone)
+        build_cron_trigger(cron_expr)
         return True
     except (ValueError, KeyError):
         return False
@@ -67,7 +119,7 @@ def calculate_next_run_time(schedule: str) -> Optional[datetime]:
     """Calculate the next run time for a schedule, returns naive UTC datetime."""
     cron_expr = resolve_cron(schedule)
     try:
-        trigger = CronTrigger.from_crontab(cron_expr, timezone=settings.schedule_timezone)
+        trigger = build_cron_trigger(cron_expr)
         next_time = trigger.get_next_fire_time(None, datetime.now(timezone.utc))
         if next_time:
             return next_time.replace(tzinfo=None)
@@ -293,7 +345,7 @@ class SchedulerService:
         else:
             cron_expr = resolve_cron(resolved.get("scan_schedule") or "")
             try:
-                trigger = CronTrigger.from_crontab(cron_expr, timezone=settings.schedule_timezone)
+                trigger = build_cron_trigger(cron_expr)
             except (ValueError, KeyError) as e:
                 logger.error(f"Invalid cron '{cron_expr}' for source '{source_id}': {e}")
                 return

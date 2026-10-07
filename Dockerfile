@@ -50,7 +50,14 @@ RUN uv pip install --system --no-editable ./shared ./backend ./cli
 FROM docker.io/getmeili/meilisearch:v1.12 AS meilisearch-runtime
 
 # =============================================================================
-# Stage 4: Runtime
+# Stage 4: ffprobe binary for audio/video metadata
+# =============================================================================
+# Static build, so it needs nothing from the runtime image. The Debian ffmpeg
+# package would pull in about 200 packages for the same one binary.
+FROM docker.io/mwader/static-ffmpeg:9.0.2 AS ffprobe-runtime
+
+# =============================================================================
+# Stage 5: Runtime
 # =============================================================================
 FROM docker.io/library/python:3.13-slim
 
@@ -76,6 +83,7 @@ COPY --from=backend-builder /usr/local/lib/python3.13/site-packages /usr/local/l
 COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
 # Copy Meilisearch binary and Alpine runtime libs for opt-in managed mode
+COPY --from=ffprobe-runtime /ffprobe /usr/local/bin/ffprobe
 COPY --from=meilisearch-runtime /bin/meilisearch /usr/local/bin/meilisearch
 COPY --from=meilisearch-runtime /lib/ld-musl-*.so.1 /lib/
 COPY --from=meilisearch-runtime /lib/libc.musl-*.so.1 /lib/

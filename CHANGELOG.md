@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `docker-compose.yml` and `docker-compose.legacy.yml` now pull the published image by default, so the quick start works with just the compose file and `.env`. Before this they tried to build from source, which fails outside a checkout of the repo. Set `ONESEARCH_IMAGE` in `.env` to pin a version or run your own build.
+- Removed `docker-compose.managed-meili.yml`. It was a copy of `docker-compose.yml` left over from before managed Meilisearch became the default. If you still use it, switch to `docker-compose.yml`; the two were identical.
+- Both compose files now pass the whole `.env` file into the container. Before this only a handful of variables got through, so settings like `ALLOWED_SOURCE_PATHS`, `SCHEDULE_TIMEZONE` and the size limits did nothing when set in `.env`. If your `.env` has values you set a while ago and forgot about, they take effect after you update your compose file.
+- The Docker image now includes `ffprobe`, so audio and video files get their tags, duration, codecs and dimensions indexed. Before this the image had no `ffprobe` and media files were indexed by filename only. Run a full reindex on sources with media files to pick the metadata up.
+- The web UI ships its own copies of the Outfit and JetBrains Mono fonts. It used to load them from Google Fonts, which meant every browser that opened OneSearch made a request to Google.
+
+### Fixed
+
+- The **Weekly (Sunday 2:00 AM)** schedule actually ran on Monday, and weekday numbers in advanced cron were all one day late. Weekdays now follow standard cron: `0` and `7` are Sunday, `1` is Monday. If you have a schedule that uses weekday numbers, it will move one day earlier to the day it always claimed to run. Names like `mon` or `sun` were never affected.
+- `docker-compose.legacy.yml` now turns off Meilisearch's own usage analytics, the same as the default single-container setup already did.
+
 ### Security
 
 - Custom source IDs sent to the API are now limited to letters, numbers, hyphens and underscores. Before this, a signed-in admin could create a source whose ID pointed stored image previews, and their cleanup, at a directory outside the preview folder. Preview storage also refuses any source directory outside that folder, which covers sources created before this change.

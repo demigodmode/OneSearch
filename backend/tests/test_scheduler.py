@@ -492,3 +492,48 @@ class TestResolveEffectiveSchedule:
             "interval_value": None,
             "interval_unit": None,
         }
+
+
+class TestCronWeekdays:
+    """Day-of-week follows standard cron: 0 and 7 are Sunday, 1 is Monday."""
+
+    @staticmethod
+    def _weekdays(expr):
+        from app.services.scheduler import build_cron_trigger
+
+        trigger = build_cron_trigger(expr)
+        moment = datetime(2026, 10, 4, tzinfo=timezone.utc)  # a Sunday, just before 00:00 runs
+        moment -= timedelta(seconds=1)
+        seen = set()
+        for _ in range(14):
+            moment = trigger.get_next_fire_time(None, moment + timedelta(seconds=1))
+            if moment >= datetime(2026, 10, 11, tzinfo=timezone.utc):
+                break
+            seen.add(moment.strftime("%a"))
+        return seen
+
+    @pytest.mark.parametrize(
+        "expr,expected",
+        [
+            ("0 0 * * 0", {"Sun"}),
+            ("0 0 * * 7", {"Sun"}),
+            ("0 0 * * sun", {"Sun"}),
+            ("0 0 * * 1", {"Mon"}),
+            ("0 0 * * 6", {"Sat"}),
+            ("0 0 * * 1-5", {"Mon", "Tue", "Wed", "Thu", "Fri"}),
+            ("0 0 * * mon-fri", {"Mon", "Tue", "Wed", "Thu", "Fri"}),
+            ("0 0 * * 0,6", {"Sun", "Sat"}),
+            ("0 0 * * 5-7", {"Fri", "Sat", "Sun"}),
+            ("0 0 * * */2", {"Sun", "Tue", "Thu", "Sat"}),
+            ("0 0 * * *", {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}),
+        ],
+    )
+    def test_weekday_numbers_match_standard_cron(self, expr, expected):
+        assert self._weekdays(expr) == expected
+
+    def test_weekly_preset_runs_on_sunday(self):
+        assert self._weekdays(resolve_cron("@weekly")) == {"Sun"}
+
+    @pytest.mark.parametrize("expr", ["0 0 * * 8", "0 0 * * 5-2", "0 0 * * funday", "0 0 * * 1/0"])
+    def test_bad_weekdays_are_invalid(self, expr):
+        assert validate_schedule(expr) is False

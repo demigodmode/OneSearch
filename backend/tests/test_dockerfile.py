@@ -49,6 +49,12 @@ def test_runtime_image_installs_exiftool_for_raw_metadata():
     assert "libimage-exiftool-perl" in dockerfile
 
 
+def test_runtime_image_ships_ffprobe_for_media_metadata():
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+    assert "COPY --from=ffprobe-runtime /ffprobe /usr/local/bin/ffprobe" in dockerfile
+
+
 def test_runtime_python_packages_are_not_editable_build_paths():
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
 

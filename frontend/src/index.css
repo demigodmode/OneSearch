@@ -11,9 +11,9 @@
 @plugin "tailwindcss-animate";
 
 @theme {
-  --font-sans: "Outfit", system-ui, sans-serif;
-  --font-display: "Outfit", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", Consolas, monospace;
+  --font-sans: "Outfit Variable", system-ui, sans-serif;
+  --font-display: "Outfit Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", Consolas, monospace;
 
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
