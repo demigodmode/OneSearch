@@ -5,7 +5,7 @@ Configure the standalone OneSearch CLI client.
 ## Config File
 
 Located at:
-- Linux/macOS: `~/.config/onesearch/config.yml`
+- Linux/macOS: `~/.config/onesearch/config.yml`, or `$XDG_CONFIG_HOME/onesearch/config.yml` if that variable is set
 - Windows: `%APPDATA%\onesearch\config.yml`
 
 Example:
@@ -14,10 +14,9 @@ Example:
 backend_url: http://infra-stack:8000
 auth:
   token: null
-output:
-  colors: true
-  format: table
 ```
+
+`onesearch config init` also writes `output` and `defaults` sections. The CLI doesn't read them yet, so changing them has no effect.
 
 ## Interactive login
 

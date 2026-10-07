@@ -25,7 +25,7 @@ If you opened the document from search, matching terms are highlighted where the
 
 Use this page to add, edit, delete, and reindex sources.
 
-This is also where you set per-source schedules. Use container paths such as `/data/documents` when running in Docker, and use the Root Path **Test** button to confirm OneSearch can see and read the path before saving.
+This is also where you set per-source schedules. Use container paths such as `/data/documents` when running in Docker, and use the **Test** button in the source form to confirm OneSearch can see and read the path before saving.
 
 ## Admin → Status
 

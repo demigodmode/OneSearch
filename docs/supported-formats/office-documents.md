@@ -20,7 +20,7 @@ Extracts:
 
 - workbook sheets
 - cell values
-- workbook metadata
+- sheet names and counts
 
 To keep huge spreadsheets from getting silly, extraction is capped at 10,000 rows and 100 columns per sheet.
 

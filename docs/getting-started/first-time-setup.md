@@ -4,9 +4,9 @@ After installing OneSearch, you'll go through a quick setup wizard, then you can
 
 ## Setup Wizard
 
-When you first open OneSearch at http://localhost:8000, you'll be greeted by a setup wizard that asks you to create an admin account. Pick a username and password. That's what you'll use to log in.
+When you first open OneSearch at http://localhost:8000, you'll be greeted by a setup wizard that asks you to create an admin account. Pick a username (at least 3 characters) and a password (at least 8), and confirm the password. That's what you'll use to log in.
 
-Once that's done, you're taken to the login page. Log in with the credentials you just created.
+Once that's done you're logged in and taken to the search page.
 
 ## Add a Source
 
@@ -190,7 +190,7 @@ Sometimes you want a full reindex:
 - Recovering from errors
 - Debugging search issues
 
-**Web UI**: Check the "Full reindex" box when clicking Reindex.
+**Web UI**: Click **Full reindex** next to the source's Reindex button and confirm.
 
 **CLI**: Add `--full`:
 
@@ -211,7 +211,7 @@ curl -X POST "http://localhost:8000/api/sources/documents/reindex?full=true" \
 
 ### Source path doesn't exist
 
-Error: `Source path does not exist: /data/documents`
+Error: `Root path does not exist`
 
 Make sure you mounted the directory in `docker-compose.yml`:
 

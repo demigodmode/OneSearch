@@ -93,6 +93,8 @@ MEILI_MASTER_KEY=...
 SESSION_SECRET=...
 ```
 
+A missing `MEILI_MASTER_KEY` stops the container at startup. A missing `SESSION_SECRET` doesn't: OneSearch logs a warning and signs logins with a built-in development key, which is not safe to leave in place.
+
 Then check the compose service:
 
 ```bash
@@ -113,7 +115,7 @@ Then open `http://localhost:8080`.
 
 In Docker, source paths are container paths.
 
-Use **Test** next to the Root Path field in **Admin → Sources** first. It reports whether the path is inside allowed roots, exists, is a directory, and is readable from inside the container.
+Use **Test** in the source form under **Admin → Sources** first. It reports whether the path is inside allowed roots, exists, is a directory, and is readable from inside the container.
 
 If compose has:
 

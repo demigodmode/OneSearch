@@ -31,8 +31,9 @@ Welcome to OneSearch development documentation!
 ### Backend
 
 ```bash
-uv sync
-uv run uvicorn app.main:app --app-dir backend --reload
+uv sync --all-packages
+(cd backend && DATABASE_URL=sqlite:///../onesearch-dev.db uv run alembic upgrade head)
+DATABASE_URL=sqlite:///./onesearch-dev.db uv run uvicorn app.main:app --app-dir backend --reload
 ```
 
 ### Frontend
@@ -46,7 +47,10 @@ npm run dev
 ### Docker
 
 ```bash
-docker compose up -d --build
+docker build -t onesearch:dev .
+ONESEARCH_IMAGE=onesearch:dev docker compose up -d
 ```
+
+`docker compose up -d` on its own pulls the published image.
 
 See individual guides for detailed instructions.

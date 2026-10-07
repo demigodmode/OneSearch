@@ -23,6 +23,9 @@ Recent milestones that are already in the product:
 - standalone CLI package
 - Podman deployment notes for rootless and SELinux setups
 - optional remote indexing agents with central scheduling, machine health, and on-agent or on-server extraction
+- a folder browser for picking local source paths
+- Markdown previews with tables and task lists, plus a Rendered/Raw toggle
+- a Clean action for failed files
 
 See the [changelog](changelog.md) for release-by-release details.
 
@@ -43,7 +46,6 @@ These are the kinds of improvements that fit the current product without changin
 - archive contents beyond CBZ comics, such as `.zip` and `.tar.gz`
 - email formats like `.eml` and `.mbox`
 - better handling for very large spreadsheets
-- clearer failed-file cleanup flows
 - more knobs for rich media extraction defaults
 
 ### Operations

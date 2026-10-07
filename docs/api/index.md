@@ -40,7 +40,7 @@ In the Docker image, these routes are proxied through nginx too, so `http://loca
 
 ## Authentication
 
-OneSearch uses JWT-based authentication. Most API endpoints require a valid token. Public endpoints are limited to setup/login helpers and health checks.
+OneSearch uses JWT-based authentication. Most API endpoints require a valid token. The exceptions are the setup and login helpers, health checks, document downloads (authorized by the signed link, not the token), and the remote-agent protocol, which uses enrollment codes and agent tokens.
 
 ### Getting a Token
 
@@ -108,8 +108,27 @@ GET    /api/sources/{id}         # Get details
 PUT    /api/sources/{id}         # Update
 DELETE /api/sources/{id}         # Delete
 POST   /api/sources/test-path     # Test a candidate root path before saving
+GET    /api/sources/test-path/{job_id} # Result of a remote path test
+GET    /api/sources/local-roots   # Allowed roots for the local folder picker
+POST   /api/sources/browse-local  # List folders under an allowed root
+POST   /api/sources/browse        # Queue a folder listing on a remote agent
+GET    /api/sources/browse/{job_id} # Result of a remote folder listing
 POST   /api/sources/{id}/reindex  # Trigger reindex
 POST   /api/sources/{id}/clear-stale # Clean failed-file entries
+```
+
+### Settings
+
+```http
+GET /api/settings   # Read indexing, preview and scheduling settings
+PUT /api/settings   # Update them
+```
+
+### Remote agents
+
+```http
+/api/agents/*       # Admin: enroll, approve, disable, revoke
+/api/agent/v1/*     # Protocol used by the agents themselves
 ```
 
 ### Authentication
@@ -134,7 +153,10 @@ See the endpoint-specific pages for details:
 
 - [Sources API](sources.md)
 - [Search API](search.md)
+- [Preview API](preview.md)
+- [Settings API](settings.md)
 - [Status & Health API](status.md)
+- [Agents API](agents.md)
 
 ---
 
@@ -146,7 +168,7 @@ All responses are JSON.
 
 Successful responses are JSON objects or arrays matching the endpoint. For example, `GET /api/sources` returns an array of source objects, while `POST /api/search` returns a search response with `results`, `total`, `limit`, `offset`, and `processing_time_ms`.
 
-Some action endpoints also include a short message, such as reindex responses with `message` and `stats`.
+Some action endpoints also include a short message, such as reindex responses with `message` and `stats`. Reindexing a remote-agent source is queued instead: it returns `202` with `message`, `job_id`, `status` and `coalesced`, and no `stats`.
 
 ### Error
 
@@ -160,12 +182,19 @@ HTTP status codes follow REST conventions:
 
 - `200 OK` - Success
 - `201 Created` - Resource created
+- `202 Accepted` - Queued for a remote agent (remote reindex)
+- `204 No Content` - Source deleted
 - `400 Bad Request` - Invalid input
 - `401 Unauthorized` - Missing or invalid auth token
+- `403 Forbidden` - Not allowed, such as setup after the first account exists or previews turned off
 - `404 Not Found` - Resource not found
-- `409 Conflict` - Resource busy (e.g., source is already indexing)
-- `429 Too Many Requests` - Rate limit exceeded (login endpoint)
+- `409 Conflict` - Resource busy (e.g., source is already indexing) or agent unavailable
+- `413` / `415` - Preview too large, or not supported for that file type
+- `422 Unprocessable Entity` - Request body failed validation
+- `429 Too Many Requests` - Rate limit exceeded (login and setup endpoints)
 - `500 Internal Server Error` - Server error
+- `502 Bad Gateway` - Search index cleanup failed while deleting a source or revoking an agent
+- `503 Service Unavailable` - `/api/health` when Meilisearch is unavailable
 
 ---
 
@@ -334,7 +363,7 @@ For the second page:
 
 ```json
 {
-  "detail": "Source path does not exist: /data/invalid"
+  "detail": "Root path does not exist"
 }
 ```
 
@@ -387,6 +416,9 @@ All examples in this documentation use `curl` for portability.
 
 - [Sources API](sources.md) - Manage search sources
 - [Search API](search.md) - Search documents
+- [Preview API](preview.md) - Previews and downloads
+- [Settings API](settings.md) - Indexing, preview and scheduling settings
 - [Status & Health API](status.md) - Monitor system
+- [Agents API](agents.md) - Remote agents
 
 Or try the interactive docs at http://localhost:8000/docs

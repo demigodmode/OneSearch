@@ -1,20 +1,24 @@
-# OneSearch
-
 <p align="center">
   <img src="frontend/public/onesearch-logo.svg" alt="OneSearch logo" width="120">
 </p>
 
+<h1 align="center">OneSearch</h1>
+
+<p align="center">Search your homelab like you search the web.</p>
+
 <p align="center">
-  Logo by <a href="https://www.briefreelancing.com/">Briefreelancing</a>.
+  <a href="https://github.com/demigodmode/OneSearch/releases/latest"><img src="https://img.shields.io/github/v/release/demigodmode/OneSearch?style=flat-square&logo=github&label=release" alt="Latest release"></a>
+  <a href="https://hub.docker.com/r/demigodmode/onesearch"><img src="https://img.shields.io/docker/pulls/demigodmode/onesearch?style=flat-square&logo=docker&logoColor=white" alt="Docker pulls"></a>
+  <a href="https://pypi.org/project/onesearch-cli/"><img src="https://img.shields.io/pypi/v/onesearch-cli?style=flat-square&logo=pypi&logoColor=white&label=cli" alt="CLI on PyPI"></a>
+  <a href="https://github.com/demigodmode/OneSearch/actions/workflows/backend-tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/backend-tests.yml?branch=main&style=flat-square&label=backend" alt="Backend tests"></a>
+  <a href="https://github.com/demigodmode/OneSearch/actions/workflows/frontend-tests.yml"><img src="https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/frontend-tests.yml?branch=main&style=flat-square&label=frontend" alt="Frontend tests"></a>
+  <a href="https://onesearch.readthedocs.io"><img src="https://img.shields.io/readthedocs/onesearch?style=flat-square&logo=readthedocs&logoColor=white" alt="Documentation"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/demigodmode/OneSearch?style=flat-square" alt="License"></a>
 </p>
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Latest Release](https://img.shields.io/github/v/release/demigodmode/OneSearch)](https://github.com/demigodmode/OneSearch/releases/latest)
-[![Tests](https://img.shields.io/github/actions/workflow/status/demigodmode/OneSearch/backend-tests.yml?label=tests)](https://github.com/demigodmode/OneSearch/actions/workflows/backend-tests.yml)
-[![Docker Pulls](https://img.shields.io/docker/pulls/demigodmode/onesearch)](https://hub.docker.com/r/demigodmode/onesearch)
-[![Documentation](https://readthedocs.org/projects/onesearch/badge/?version=latest)](https://onesearch.readthedocs.io)
-
-Search your homelab like you search the web.
+<p align="center">
+  <sub>Logo by <a href="https://www.briefreelancing.com/">Briefreelancing</a>.</sub>
+</p>
 
 OneSearch indexes your local directories, NAS shares, and external drives and gives you instant full-text search from a browser. No cloud, no telemetry, runs in Docker.
 
@@ -31,10 +35,10 @@ curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/.env.exampl
 cp .env.example .env
 ```
 
-Edit `.env` and set `MEILI_MASTER_KEY` to a random string (`openssl rand -base64 32` works).
+Edit `.env` and set `MEILI_MASTER_KEY` and `SESSION_SECRET` to two different random strings (`openssl rand -base64 32` works).
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 Open http://localhost:8000, run through the setup wizard, add a directory as a source, and start searching.
@@ -59,7 +63,7 @@ Full setup guide: [onesearch.readthedocs.io](https://onesearch.readthedocs.io/en
 | Config | .yaml, .toml, .json, .xml, .ini, .env, [and more](https://onesearch.readthedocs.io/en/latest/supported-formats/text-files/) |
 | Text | .txt, .log |
 
-Incremental indexing so only changed files get reindexed. Per-source cron schedules so your NAS gets scanned daily without thinking about it.
+Incremental indexing so only changed files get reindexed. Each source can scan on its own interval or cron schedule, or follow one global default, so your NAS gets scanned daily without thinking about it.
 
 ### Remote sources
 
@@ -68,10 +72,6 @@ Optional remote agents can index files on another machine without mounting its d
 ---
 
 ## Screenshots
-
-Search across mounted folders and mixed file types:
-
-![Search results](assets/screenshots/search_results.png)
 
 Preview extracted text with highlighted matches:
 

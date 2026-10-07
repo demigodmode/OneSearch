@@ -33,13 +33,15 @@ Example healthy response:
 {
   "status": "healthy",
   "service": "onesearch-backend",
-  "version": "1.1.0",
+  "version": "1.5.0",
   "setup_required": false,
   "meilisearch": {
     "status": "available"
   }
 }
 ```
+
+If Meilisearch is unavailable, the same endpoint returns `503` with `"status": "degraded"`.
 
 Overall status:
 

@@ -6,11 +6,13 @@ OneSearch runs in Docker and can only index directories that are mounted into th
 
 ## How it works
 
-When you add a source in the UI, you give it a **container path**: the path as seen from inside the Docker container, not the path on your host machine. So if you mount `/mnt/nas` → `/nas` in your compose file, you'd enter `/nas` (or a subdirectory like `/nas/documents`) when adding the source.
+When you add a source in the UI, you give it a **container path**: the path as seen from inside the Docker container, not the path on your host machine. So if you mount `/mnt/nas` → `/data/nas` in your compose file, you'd enter `/data/nas` (or a subdirectory like `/data/nas/documents`) when adding the source.
+
+By default OneSearch only accepts source paths under `/data`. That's the `ALLOWED_SOURCE_PATHS` setting. Mount things under `/data` and it just works. To mount somewhere else, add that path to `ALLOWED_SOURCE_PATHS` in `.env`.
 
 The mount has to exist before OneSearch starts. You can't add a path via the UI that hasn't been mounted. The container can't see it.
 
-When adding or editing a source, use **Test** next to the Root Path field before saving. It checks whether the path is inside the allowed roots, exists, is a directory, and is readable by OneSearch.
+When adding or editing a source, use **Test** in the source form before saving. It checks whether the path is inside the allowed roots, exists, is a directory, and is readable by OneSearch.
 
 ---
 
@@ -25,11 +27,11 @@ services:
   onesearch:
     volumes:
       - onesearch_data:/app/data
-      - /mnt/nas:/nas:ro
-      - /mnt/external:/external:ro
+      - /mnt/nas:/data/nas:ro
+      - /mnt/external:/data/external:ro
 ```
 
-Then in the UI you can add any subdirectory under those mounts (`/nas/documents`, `/nas/photos`, `/external/backups/archive`, etc.) without touching compose again.
+Then in the UI you can add any subdirectory under those mounts (`/data/nas/documents`, `/data/nas/photos`, `/data/external/backups/archive`, etc.) without touching compose again.
 
 Good fit for: NAS shares, external drives, organized data directories.
 
@@ -66,7 +68,7 @@ services:
       - /:/host:ro
 ```
 
-Then add any path via the UI using the `/host/` prefix, e.g. `/host/mnt/nas/documents`.
+Set `ALLOWED_SOURCE_PATHS=/host` in `.env`, since `/host` is outside the default `/data`. Then add any path via the UI using the `/host/` prefix, e.g. `/host/mnt/nas/documents`.
 
 This is the most flexible setup but means the container can read everything on your host. Fine for a single-user homelab where you trust what's running, but worth knowing before you do it.
 

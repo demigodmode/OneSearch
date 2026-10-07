@@ -15,10 +15,16 @@ Thanks for helping with OneSearch. Keep changes focused and easy to review. If a
 From the repo root:
 
 ```bash
-uv sync
+uv sync --all-packages
 ```
 
-That installs the backend and CLI workspace packages plus shared test tools.
+That installs the backend, CLI, agent and shared workspace packages plus the test tools. A plain `uv sync` installs only the test tools.
+
+Create the dev database tables before the first run. The app doesn't run migrations on startup outside the container:
+
+```bash
+(cd backend && DATABASE_URL=sqlite:///../onesearch-dev.db uv run alembic upgrade head)
+```
 
 Run the backend API:
 
@@ -38,7 +44,7 @@ docker run --rm -p 7700:7700 \
   getmeili/meilisearch:v1.12
 ```
 
-If you run `docker compose up -d` instead, the default compose file builds the full OneSearch container and runs managed Meilisearch inside it. That is useful for stack testing, but it is not the same as running the backend process directly from your checkout.
+`docker compose up -d` pulls the published image. To run your checkout in a container, build it with `docker build -t onesearch:dev .` and start it with `ONESEARCH_IMAGE=onesearch:dev docker compose up -d`. The image has managed Meilisearch inside it. That is useful for stack testing, but it is not the same as running the backend process directly from your checkout.
 
 Run the frontend:
 
@@ -55,8 +61,8 @@ The frontend dev server runs at <http://localhost:5173> and proxies API calls to
 Run the smallest useful check while working. Before a mixed backend/frontend/docs PR, run:
 
 ```bash
-uv run pytest backend/tests cli/tests
-cd frontend && npm run lint && npm run build
+uv run pytest backend/tests cli/tests agent/tests shared/tests
+cd frontend && npm run lint && npm test && npm run build
 cd .. && mkdocs build --strict
 ```
 

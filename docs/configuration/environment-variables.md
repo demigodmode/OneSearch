@@ -1,6 +1,6 @@
 # Environment Variables
 
-OneSearch is configured through environment variables, typically set in a `.env` file.
+OneSearch is configured through environment variables, typically set in a `.env` file. Both compose files pass the whole `.env` file into the container. A few values are set by the compose file itself and can't be changed from `.env`: `DATABASE_URL`, `ONESEARCH_MANAGED_MEILI`, and in `docker-compose.legacy.yml` also `MEILI_URL`. Change those by editing the compose file.
 
 ## Required Variables
 
@@ -60,7 +60,7 @@ Meilisearch endpoint for external Meilisearch mode.
 - Required only when `ONESEARCH_MANAGED_MEILI=false`
 - Legacy compose example: `http://meilisearch:7700`
 
-If you use `docker-compose.legacy.yml`, set `MEILI_URL=http://meilisearch:7700` or point it at your own Meilisearch instance. External-mode users manage Meilisearch version compatibility themselves.
+`docker-compose.legacy.yml` already sets `MEILI_URL=http://meilisearch:7700`. To point at your own Meilisearch instance, change that line in the compose file. External-mode users manage Meilisearch version compatibility themselves.
 
 ### Deployment Access
 
@@ -108,7 +108,7 @@ Use `DEBUG` for troubleshooting, `INFO` for normal operation, `WARNING` or `ERRO
 
 ### File Size Limits
 
-These set the default indexing size limits. The text, PDF, and Office limits can also be changed at runtime in **Admin → Settings → Indexing**; saved app settings override these environment defaults.
+These set the default indexing size limits. The text, PDF, Office, image, EPUB, comic and media probe limits can also be changed at runtime in **Admin → Settings → Indexing**; saved app settings override these environment defaults.
 
 **MAX_TEXT_FILE_SIZE_MB**
 
@@ -117,7 +117,7 @@ Maximum size for text files (txt, log, conf, etc.)
 - Default: `10`
 - Unit: Megabytes
 
-Files larger than this are skipped with a warning.
+Files larger than this are recorded as failed, with the reason shown in the failed files list on the Status page.
 
 **MAX_PDF_FILE_SIZE_MB**
 
@@ -261,7 +261,7 @@ How long auth tokens stay valid.
 
 **AUTH_RATE_LIMIT**
 
-Maximum failed login attempts per minute before requests get rejected.
+Maximum login attempts per minute from one IP address before requests get rejected. Every attempt counts, including successful ones and setup requests.
 
 - Default: `5`
 - Unit: Attempts per minute
@@ -317,7 +317,7 @@ PDF extraction is slower than text, so it gets a longer timeout.
 
 **OFFICE_EXTRACTION_TIMEOUT**
 
-Timeout for Office document extraction.
+Timeout for Office document extraction. EPUB, comic, image and media extraction use this timeout too.
 
 - Default: `30`
 - Unit: Seconds
@@ -387,7 +387,7 @@ cp .env.example .env
 # Edit .env with your values
 ```
 
-Docker Compose automatically loads variables from `.env`.
+Docker Compose reads `.env` to fill in the compose file, and `env_file` in the compose file passes every variable in it to the container.
 
 ### Manual Export (Development)
 
@@ -411,7 +411,7 @@ The backend loads variables in `backend/app/config.py` using Pydantic's `BaseSet
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    meili_master_key: str
+    meili_master_key: str = ""
     database_url: str = "sqlite:////app/data/onesearch.db"
     log_level: str = "INFO"
     # ... etc
@@ -456,10 +456,10 @@ For the default managed install, check that `ONESEARCH_MANAGED_MEILI=true` and `
 
 ### Files being skipped
 
-Check file size limits. Files exceeding the max size are skipped and logged.
+Check file size limits. Files over the limit are recorded as failed with a "File too large" error. They show up in the failed files list under **Admin → Status**, and in the logs:
 
 ```bash
-docker compose logs -f onesearch | grep "exceeds"
+docker compose logs onesearch | grep "File too large"
 ```
 
 ### Extraction timeouts

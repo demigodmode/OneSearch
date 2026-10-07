@@ -45,8 +45,8 @@ Go to **Admin → Settings → Search** to tune the search page:
 - results per page
 - sort order
 - snippet length
-- compact or spacious result density
-- whether to show path, size, date, and metadata
+- compact, comfortable, or spacious result density
+- whether to show file path, file size, and modified date
 
 Those are browser preferences, so changing them does not reindex files.
 

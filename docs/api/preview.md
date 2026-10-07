@@ -27,7 +27,7 @@ curl -X POST http://localhost:8000/api/documents/documents--abc123def456/downloa
   -H "Authorization: Bearer $TOKEN"
 ```
 
-The response includes a short-lived, document-scoped `url`. It is same-origin and relative, so clients should resolve it against the OneSearch base URL before opening it outside the browser:
+The response has `url`, `expires_in` and `filename`. The `url` is scoped to that document and valid for 60 seconds. Opening it needs no `Authorization` header, since the token in the link is the authorization. It is same-origin and relative, so clients should resolve it against the OneSearch base URL before opening it outside the browser:
 
 ```bash
 curl -L "http://localhost:8000$DOWNLOAD_URL" --output original-file
@@ -39,8 +39,10 @@ Downloads validate that the indexed path still belongs to the configured source 
 
 The endpoint supports:
 
-- browser-viewable images: JPG, PNG, WebP, GIF, TIFF
+- browser-viewable images: JPG, PNG, WebP, GIF
 - RAW photos when an embedded JPEG preview is available
+
+TIFF files are indexed but have no preview, and return `415` with `unsupported_preview_type`.
 
 RAW previews do not decode sensor data. For local sources, OneSearch scans for embedded JPEG previews and returns the best one it can find. Remote RAW embedded previews are not supported and return `415` with `raw_preview_unavailable`.
 

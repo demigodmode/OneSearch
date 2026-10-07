@@ -23,7 +23,8 @@ cd OneSearch
 Backend:
 
 ```bash
-uv sync
+uv sync --all-packages
+(cd backend && DATABASE_URL=sqlite:///../onesearch-dev.db uv run alembic upgrade head)
 DATABASE_URL=sqlite:///./onesearch-dev.db \
 MEILI_URL=http://localhost:7700 \
 MEILI_MASTER_KEY=dev-meili-key \
@@ -56,7 +57,7 @@ Run the checks that match your change.
 Backend:
 
 ```bash
-uv run pytest backend/tests
+uv run pytest backend/tests cli/tests agent/tests shared/tests
 ```
 
 Frontend:
@@ -64,6 +65,7 @@ Frontend:
 ```bash
 cd frontend
 npm run lint
+npm test
 npm run build
 ```
 
