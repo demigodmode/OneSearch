@@ -242,6 +242,16 @@ class TestSourceEndpoints:
 
         assert data["id"] == "custom-id"
 
+    @pytest.mark.parametrize("bad_id", ["..", "../escape", "/abs/path", "a/b", "a\\b", "has space", "dot.ted"])
+    def test_create_source_rejects_unsafe_custom_id(self, client, temp_source_dir, bad_id):
+        """Custom IDs end up in filesystem paths, so only slug characters are allowed"""
+        response = client.post(
+            "/api/sources",
+            json={"id": bad_id, "name": "Bad ID Source", "root_path": temp_source_dir},
+        )
+
+        assert response.status_code == 422
+
     def test_create_source_duplicate_id(self, client, sample_source, temp_source_dir):
         """Test creating source with duplicate ID fails"""
         source_data = {

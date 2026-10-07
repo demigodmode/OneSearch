@@ -517,3 +517,32 @@ def test_generate_preview_handles_various_image_formats(tmp_path):
         # Should always produce JPEG bytes
         if preview_bytes is not None:
             assert preview_bytes.startswith(b"\xff\xd8\xff"), f"Failed for {format_name}"
+
+
+@pytest.mark.parametrize("source_id", ["..", "../outside", "nested/../../outside"])
+def test_preview_storage_refuses_source_ids_outside_base_dir(tmp_path, source_id):
+    from app.services.preview_assets import (
+        delete_preview,
+        delete_source_previews,
+        load_preview,
+        store_preview,
+        store_preview_if_absent_or_identical,
+    )
+
+    base_dir = tmp_path / "previews"
+    base_dir.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    keep = outside / "keep.txt"
+    keep.write_text("still here")
+    before = sorted(p.name for p in tmp_path.rglob("*"))
+
+    assert store_preview(source_id, "a.jpg", b"jpeg", base_dir, 1) is None
+    assert store_preview_if_absent_or_identical(source_id, "a.jpg", b"jpeg", base_dir, 1) is None
+    assert load_preview(source_id, "a.jpg", base_dir, 1) is None
+    delete_preview(source_id, "a.jpg", base_dir)
+    delete_source_previews(source_id, base_dir)
+
+    assert keep.read_text() == "still here"
+    assert base_dir.is_dir()
+    assert sorted(p.name for p in tmp_path.rglob("*")) == before

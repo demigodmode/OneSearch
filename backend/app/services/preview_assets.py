@@ -4,6 +4,7 @@
 """Derived preview asset generation and storage for remote documents."""
 
 import glob
+import os
 import shutil
 import threading
 import uuid
@@ -22,6 +23,15 @@ def app_data_preview_directory(database_url: str) -> Path:
     if database_url.startswith(prefix):
         return Path(database_url.removeprefix(prefix)).parent / "previews"
     return Path("/app/data/previews")
+
+
+def _source_preview_dir(base_dir: Path, source_id: str) -> Path:
+    """Resolve a source's preview directory, refusing anything outside ``base_dir``."""
+    base = os.path.normpath(str(base_dir))
+    candidate = os.path.normpath(os.path.join(base, source_id))
+    if not candidate.startswith(base + os.sep):
+        raise ValueError("source id escapes the preview directory")
+    return Path(candidate)
 
 
 BROWSER_DISPLAYABLE_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "gif"}
@@ -118,7 +128,7 @@ def store_preview_if_absent_or_identical(
     None is a storage failure.
     """
     try:
-        source_dir = base_dir / source_id
+        source_dir = _source_preview_dir(base_dir, source_id)
         preview_file = source_dir / f"{remote_path_hash(path)}-{modified_at_ns}.jpg"
         with preview_key_locks.hold(str(preview_file)):
             source_dir.mkdir(parents=True, exist_ok=True)
@@ -187,7 +197,7 @@ def store_preview(source_id: str, path: str, preview_bytes: bytes, base_dir: Pat
     Returns the path to the stored preview file, or None if storage failed.
     """
     try:
-        source_dir = base_dir / source_id
+        source_dir = _source_preview_dir(base_dir, source_id)
         source_dir.mkdir(parents=True, exist_ok=True)
 
         path_hash = remote_path_hash(path)
@@ -205,7 +215,7 @@ def store_preview(source_id: str, path: str, preview_bytes: bytes, base_dir: Pat
 def load_preview(source_id: str, path: str, base_dir: Path, modified_at_ns: int) -> bytes | None:
     """Load a stored derived preview from disk, matching the provided mtime."""
     try:
-        source_dir = base_dir / source_id
+        source_dir = _source_preview_dir(base_dir, source_id)
         path_hash = remote_path_hash(path)
         preview_file = source_dir / f"{path_hash}-{modified_at_ns}.jpg"
 
@@ -219,7 +229,7 @@ def load_preview(source_id: str, path: str, base_dir: Path, modified_at_ns: int)
 def delete_preview(source_id: str, path: str, base_dir: Path) -> None:
     """Delete stored derived previews, including all mtime variants."""
     try:
-        source_dir = base_dir / source_id
+        source_dir = _source_preview_dir(base_dir, source_id)
         path_hash = remote_path_hash(path)
 
         # Delete all {path_hash}-*.jpg variants
@@ -233,7 +243,7 @@ def delete_preview(source_id: str, path: str, base_dir: Path) -> None:
 def delete_source_previews(source_id: str, base_dir: Path) -> None:
     """Delete all previews for a source."""
     try:
-        source_dir = base_dir / source_id
+        source_dir = _source_preview_dir(base_dir, source_id)
         if source_dir.exists():
             shutil.rmtree(source_dir, ignore_errors=True)
     except Exception:

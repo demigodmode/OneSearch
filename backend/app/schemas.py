@@ -70,7 +70,8 @@ class SourceBase(BaseModel):
 class SourceCreate(SourceBase):
     """Schema for creating a new source"""
 
-    id: str | None = None  # Auto-generated if not provided
+    # Auto-generated if not provided. The ID is used in on-disk paths, so slug characters only.
+    id: str | None = Field(default=None, max_length=100, pattern=r"^[A-Za-z0-9_-]*$")
     # Remote creation binds this source to one recent successful browse validation.
     path_validation_job_id: str | None = None
 
