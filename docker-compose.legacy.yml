@@ -8,6 +8,7 @@ services:
     environment:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       - MEILI_ENV=production
+      - MEILI_NO_ANALYTICS=true
     networks:
       - onesearch_network
     restart: unless-stopped
@@ -20,13 +21,8 @@ services:
 
   # OneSearch - Unified application (frontend + backend + CLI)
   onesearch:
-    # For local development, build from source:
-    build:
-      context: .
-      dockerfile: Dockerfile
-
-    # For production, use the pre-built image instead:
-    # image: ghcr.io/demigodmode/onesearch:latest
+    # Set ONESEARCH_IMAGE in .env to pin a version or run your own build.
+    image: ${ONESEARCH_IMAGE:-ghcr.io/demigodmode/onesearch:latest}
 
     container_name: onesearch-app
     volumes:
@@ -41,7 +37,10 @@ services:
       # - /home/user/Documents:/data/documents:ro
       # - /path/to/photos:/data/photos:ro
 
+    # Everything in .env reaches the container. The values below win over it.
+    env_file: .env
     environment:
+      - ONESEARCH_MANAGED_MEILI=false
       - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       - SESSION_SECRET=${SESSION_SECRET}
