@@ -5,6 +5,16 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- Custom source IDs sent to the API are now limited to letters, numbers, hyphens and underscores. Before this, a signed-in admin could create a source whose ID pointed stored image previews, and their cleanup, at a directory outside the preview folder. Preview storage also refuses any source directory outside that folder, which covers sources created before this change.
+- Updated PyJWT, pypdf, urllib3 and Mako to patched releases addressing the open Python dependency advisories. (#285, #286, #287, #291)
+- Updated brace-expansion and source-map-js in the frontend to patched releases. (#290, #292)
+
+---
+
 ## [1.5.0] - 2026-10-03
 
 ### Added
