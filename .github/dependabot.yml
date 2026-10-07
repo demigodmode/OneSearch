@@ -41,3 +41,11 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+
+  # base images in the server and agent Dockerfiles
+  - package-ecosystem: "docker"
+    directories:
+      - "/"
+      - "/agent"
+    schedule:
+      interval: "weekly"
