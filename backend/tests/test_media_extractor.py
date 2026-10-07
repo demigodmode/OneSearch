@@ -5,6 +5,7 @@
 Tests for optional ffprobe-based media metadata extraction.
 """
 import json
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -201,6 +202,29 @@ async def test_ffprobe_failure_indexes_metadata_only_with_error(temp_dir, monkey
     assert doc.metadata["metadata_only"] is True
     assert doc.metadata["extraction_failed"] is True
     assert "invalid data" in doc.metadata["extraction_error"]
+
+
+@pytest.mark.asyncio
+async def test_ffprobe_gets_less_time_than_the_whole_extraction(temp_dir, monkeypatch):
+    """A slow probe has to give up early enough to still fall back to filename-only indexing."""
+    file_path = temp_dir / "slow.mkv"
+    write_media_file(file_path)
+    monkeypatch.setattr("app.extractors.media.shutil.which", lambda name: "ffprobe")
+    seen = {}
+
+    def slow_probe(*args, **kwargs):
+        seen["timeout"] = kwargs["timeout"]
+        raise subprocess.TimeoutExpired(cmd="ffprobe", timeout=kwargs["timeout"])
+
+    monkeypatch.setattr("app.extractors.media.subprocess.run", slow_probe)
+
+    extractor = MediaExtractor("src", "Media", media_metadata_mode="auto")
+    extractor.set_extraction_timeout(1)  # the smallest value the setter allows
+    doc = await extractor.extract_with_timeout(str(file_path))
+
+    assert 0 < seen["timeout"] < 1
+    assert doc.metadata["metadata_only"] is True
+    assert doc.metadata["extraction_failed"] is True
 
 
 def test_media_extensions_are_registered(temp_dir):

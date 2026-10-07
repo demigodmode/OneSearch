@@ -14,6 +14,8 @@ docker compose pull
 docker compose up -d
 ```
 
+If your `docker-compose.yml` dates from 1.5.0 or earlier, this won't pick up a new release. See [Upgrading from 1.5.0 or earlier](#upgrading-from-150-or-earlier) first.
+
 ### Building from Source
 
 ```bash
@@ -60,6 +62,32 @@ You can pin to specific tags if you want more control:
 - `1.5.0` - Pin to a specific version (no auto-updates)
 
 There is no major-only tag like `1`.
+
+---
+
+## Upgrading from 1.5.0 or earlier
+
+The compose files changed after 1.5.0, so do this once.
+
+**Replace your compose file.** Up to 1.5.0, `docker-compose.yml` and `docker-compose.legacy.yml` built OneSearch from source and had the published image commented out. With one of those files, `docker compose pull` has no OneSearch image to pull and you stay on the version you built. Download the current file and copy your own lines back into it, which is usually just the source mounts under `volumes:`:
+
+```bash
+cp docker-compose.yml docker-compose.yml.bak
+curl -O https://raw.githubusercontent.com/demigodmode/OneSearch/main/docker-compose.yml
+# copy your source mounts over from docker-compose.yml.bak, then:
+docker compose pull
+docker compose up -d
+```
+
+Check which setup you have before downloading. If your current file has a separate `meilisearch` service, you're on the two-container setup, and the file to download is `docker-compose.legacy.yml`. Replacing it with the default `docker-compose.yml` would switch you to managed Meilisearch, which needs the [migration](migrate-to-managed-meilisearch.md). Your data is safe either way: the `onesearch_data`, `onesearch_index` and `meilisearch_data` volumes keep their names.
+
+**If you used `docker-compose.managed-meili.yml`,** switch to `docker-compose.yml`. The two were identical and the copy has been removed.
+
+**Check your `.env` for old values.** Settings such as `ALLOWED_SOURCE_PATHS`, `SCHEDULE_TIMEZONE` and the size limits used to be ignored when set in `.env`. They take effect now.
+
+**Check schedules that use weekday numbers.** The **Weekly (Sunday 2:00 AM)** preset and advanced cron like `0 2 * * 1-5` ran one day late before. They now run on the days they say. Weekday names (`mon-fri`, `sun`) are unchanged, with one exception: a step on a name, like `mon-fri/2`, used to be ignored and is now applied.
+
+**Reindex sources with audio or video.** The image now has `ffprobe`, so a full reindex adds tags, duration and codec details to media files that were indexed by filename only.
 
 ---
 

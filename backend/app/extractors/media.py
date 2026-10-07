@@ -117,7 +117,10 @@ class MediaExtractor(BaseExtractor):
             ],
             capture_output=True,
             text=True,
-            timeout=self.TIMEOUT,
+            # Stop short of the overall extraction timeout. If the probe used all of it,
+            # the outer timeout would fire first and the file would be recorded as failed
+            # instead of falling back to filename-only indexing.
+            timeout=self._extraction_timeout * 0.8,
         )
         if result.returncode != 0:
             raise ValueError(result.stderr.strip() or "ffprobe failed")

@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The **Weekly (Sunday 2:00 AM)** schedule actually ran on Monday, and weekday numbers in advanced cron were all one day late. Weekdays now follow standard cron: `0` and `7` are Sunday, `1` is Monday. If you have a schedule that uses weekday numbers, it will move one day earlier to the day it always claimed to run. Names like `mon` or `sun` were never affected.
+- The **Weekly (Sunday 2:00 AM)** schedule actually ran on Monday, and weekday numbers in advanced cron were all one day late. Weekdays now follow standard cron: `0` and `7` are Sunday, `1` is Monday. If you have a schedule that uses weekday numbers, it will move one day earlier to the day it always claimed to run. Names like `mon`, `sun` or `fri-sun` run on the same days as before. The one exception is a step on a named weekday, such as `mon-fri/2`: the step used to be ignored and is now applied.
+- A slow `ffprobe` run could use up the whole extraction time limit, and the file was then recorded as failed instead of being indexed by filename. The probe now gives up earlier so the fallback still happens.
 - `docker-compose.legacy.yml` now turns off Meilisearch's own usage analytics, the same as the default single-container setup already did.
 
 ### Security
