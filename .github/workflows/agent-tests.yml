@@ -1,16 +1,8 @@
 name: Agent tests
 
 on:
+  # no path filter on PRs, so both matrix jobs can be required checks
   pull_request:
-    paths:
-      - "agent/**"
-      - "shared/**"
-      - "backend/**"
-      - ".github/workflows/agent-tests.yml"
-      - ".github/workflows/agent-release.yml"
-      - "agent/Dockerfile"
-      - "pyproject.toml"
-      - "uv.lock"
   push:
     branches: [main, feat/remote-indexing-agents]
     paths:
