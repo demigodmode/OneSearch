@@ -56,6 +56,10 @@ def resolve_cron(schedule: str) -> str:
 _CRON_WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
 
 
+def _is_weekday_name(token: str) -> bool:
+    return token.strip().lower() in _CRON_WEEKDAYS
+
+
 def _cron_weekday(token: str) -> int:
     token = token.strip().lower()
     if token in _CRON_WEEKDAYS:
@@ -85,9 +89,17 @@ def _standard_weekdays(field: str) -> str:
         elif "-" in span:
             start, end = span.split("-", 1)
             first, last = _cron_weekday(start), _cron_weekday(end)
+            # Ranges written with names may end on or pass Sunday (fri-sun, sat-mon).
+            # APScheduler always took those, so they wrap instead of being rejected.
+            if first > last and _is_weekday_name(end):
+                last += 7
         else:
             first = _cron_weekday(span)
-            last = 6 if step_text else first
+            last = first
+            if step_text:
+                # "mon/2" has always meant "from Monday to the end of the week", and for
+                # a name that week ends on Sunday. A number follows crontab and stops at 6.
+                last = (7 if first else 0) if _is_weekday_name(span) else 6
         if first > last:
             raise ValueError(f"invalid weekday range: {part}")
         days.update(day % 7 for day in range(first, last + 1, step))

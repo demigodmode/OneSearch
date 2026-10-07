@@ -524,6 +524,14 @@ class TestCronWeekdays:
             ("0 0 * * mon-fri", {"Mon", "Tue", "Wed", "Thu", "Fri"}),
             ("0 0 * * 0,6", {"Sun", "Sat"}),
             ("0 0 * * 5-7", {"Fri", "Sat", "Sun"}),
+            ("0 0 * * fri-sun", {"Fri", "Sat", "Sun"}),
+            ("0 0 * * sat-sun", {"Sat", "Sun"}),
+            ("0 0 * * mon-sun", {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}),
+            ("0 0 * * mon-sun/2", {"Mon", "Wed", "Fri", "Sun"}),
+            ("0 0 * * sat-mon", {"Sat", "Sun", "Mon"}),
+            ("0 0 * * mon/2", {"Mon", "Wed", "Fri", "Sun"}),
+            ("0 0 * * sun/2", {"Sun"}),
+            ("0 0 * * 1/2", {"Mon", "Wed", "Fri"}),
             ("0 0 * * */2", {"Sun", "Tue", "Thu", "Sat"}),
             ("0 0 * * *", {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}),
         ],
@@ -537,3 +545,35 @@ class TestCronWeekdays:
     @pytest.mark.parametrize("expr", ["0 0 * * 8", "0 0 * * 5-2", "0 0 * * funday", "0 0 * * 1/0"])
     def test_bad_weekdays_are_invalid(self, expr):
         assert validate_schedule(expr) is False
+
+    def test_named_weekdays_that_worked_before_still_work(self):
+        """Names never depended on the numbering, so an upgrade must not reject or move them."""
+        from apscheduler.triggers.cron import CronTrigger
+
+        names = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        fields = names + [f"{a}-{b}" for a in names for b in names]
+        fields += [f"{field}/2" for field in fields] + ["mon,wed,fri", "MON-FRI", "sat,sun"]
+        start = datetime(2026, 10, 5, tzinfo=timezone.utc)  # a Monday
+        for field in fields:
+            expr = f"0 2 * * {field}"
+            try:
+                before = CronTrigger.from_crontab(expr, timezone="UTC")
+            except ValueError:
+                continue  # 1.5.0 rejected it too
+            assert validate_schedule(expr) is True, expr
+            if "/" in field:
+                continue  # 1.5.0 silently ignored a step on a name, so the days differ on purpose
+
+            from app.services.scheduler import build_cron_trigger
+
+            after = build_cron_trigger(expr)
+            fired = []
+            for trigger in (before, after):
+                moment, days = start - timedelta(seconds=1), set()
+                for _ in range(8):
+                    moment = trigger.get_next_fire_time(None, moment + timedelta(seconds=1))
+                    if moment >= start + timedelta(days=7):
+                        break
+                    days.add(moment.strftime("%a"))
+                fired.append(days)
+            assert fired[1] == fired[0], expr
