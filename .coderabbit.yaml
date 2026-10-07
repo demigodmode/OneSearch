@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+
+  # inline comments are the useful part, keep the rest off the PR
+  high_level_summary: false
+  review_status: false
+  changed_files_summary: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  enable_prompt_for_ai_agents: false
+  suggested_labels: false
+  suggested_reviewers: false
+  poem: false
+  in_progress_fortune: false
+  collapse_walkthrough: true
+
+  path_filters:
+    - "!uv.lock"
+    - "!frontend/package-lock.json"
+
+  auto_review:
+    enabled: true
+    drafts: false
+    ignore_usernames:
+      - "dependabot[bot]"
