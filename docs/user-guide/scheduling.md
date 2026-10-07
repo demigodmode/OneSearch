@@ -6,9 +6,9 @@ You can set up automatic scan schedules so your sources stay indexed without man
 
 When adding or editing a source in the web UI, you'll see a schedule picker with these options:
 
-- **Manual**: No automatic scanning. You trigger reindex yourself.
-- **Hourly**: Runs every hour on the hour (`0 * * * *`)
-- **Daily**: Runs at 2 AM (`0 2 * * *`)
+- **Manual only**: No automatic scanning. You trigger reindex yourself.
+- **Every hour**: Runs every hour on the hour (`0 * * * *`)
+- **Daily (2:00 AM)**: Runs at 2 AM (`0 2 * * *`)
 - **Weekly**: Runs at 2 AM on Sundays (`0 2 * * 0`)
 - **Custom interval...**: Choose every N minutes, hours, or days.
 - **Advanced cron...**: Enter your own cron expression.
@@ -49,6 +49,8 @@ Some examples:
 | `30 1 * * 1-5` | Weekdays at 1:30 AM |
 | `0 3 1 * *` | First day of each month at 3 AM |
 
+The weekday field follows standard cron: `0` and `7` are Sunday, `1` is Monday, and names like `mon` or `sun` work too. Versions up to 1.5.0 counted weekdays from Monday, so numeric weekdays ran a day late there.
+
 Cron expressions always run on clock boundaries. If you want a true "N units from now" schedule instead, use **Custom interval...**.
 
 ## Timezone
@@ -59,7 +61,7 @@ Cron-based schedules (presets and advanced cron) run in the timezone configured 
 SCHEDULE_TIMEZONE=America/New_York
 ```
 
-Uses standard IANA timezone names. True intervals aren't affected by timezone, since they run N units from whenever they were last saved or last fired.
+Uses standard IANA timezone names. True intervals aren't affected by timezone. They count N units from when the schedule was saved or last fired. Jobs are rebuilt when the server starts, so a restart also restarts the count.
 
 ## How It Works
 
@@ -69,7 +71,7 @@ If a source is already being indexed (from a manual trigger or another schedule 
 
 ## Monitoring Schedules
 
-The sources table in the admin UI shows each source's effective schedule (its own, or the inherited default) and when the next scan is expected. The status page also shows next scan times.
+The sources table in the admin UI shows each source's effective schedule (its own, or the inherited default) and when the next scan is expected. The status page shows the next scan time for cron-based schedules only, so use the sources table for sources on a true interval.
 
 Via the API, check the `effective_schedule`, `last_scan_at`, and `next_scan_at` fields on source objects. See the [Sources API](../api/sources.md) reference for the full field list.
 

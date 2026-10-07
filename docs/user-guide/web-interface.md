@@ -21,11 +21,17 @@ The page remembers display preferences from **Admin → Settings → Search** in
 
 If you opened the document from search, matching terms are highlighted where the preview supports it.
 
+**Copy path** and **Download** sit at the top of the page. Markdown documents also get a **Rendered** / **Raw** switch. See [Document Preview](document-preview.md) for details.
+
 ## Admin → Sources
 
-Use this page to add, edit, delete, and reindex sources.
+Use this page to add, edit, delete, and reindex sources. Each source has a **Reindex** button for the usual incremental run and a **Full reindex** button that clears the source from the index and rebuilds it from scratch, after a confirmation.
 
-This is also where you set per-source schedules. Use container paths such as `/data/documents` when running in Docker, and use the Root Path **Test** button to confirm OneSearch can see and read the path before saving.
+This is also where you set per-source schedules. Use container paths such as `/data/documents` when running in Docker, and use the **Test** button in the source form to confirm OneSearch can see and read the path before saving.
+
+## Admin → Agents
+
+This page only appears after you turn on **Enable remote agents** under **Admin → Settings → Remote Agents**. It's where you enroll, approve, disable and revoke agents. See [Remote agents](../administration/remote-agents.md).
 
 ## Admin → Status
 

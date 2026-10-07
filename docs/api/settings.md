@@ -54,6 +54,7 @@ curl -X PUT http://localhost:8000/api/settings \
 | `comic_extraction_max_size_mb` | integer | CBZ extraction limit. |
 | `readable_preview_page_chars` | integer | Approximate page size for long readable previews. |
 | `long_text_pagination_threshold_chars` | integer | Text longer than this uses the paginated reader. |
+| `remote_agents_enabled` | boolean | Off by default. Has to be on before agents can enroll or run jobs. |
 | `default_scan_schedule` | object or `null` | The global default schedule. Sources with `use_default_schedule: true` follow this. See [Sources API](sources.md) for the object shape. |
 
 `default_scan_schedule` is validated the same way a per-source schedule is: an invalid cron expression or an interval with a missing/invalid value or unit is rejected with a `400` instead of being saved. Example:

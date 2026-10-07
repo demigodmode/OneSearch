@@ -19,18 +19,23 @@ That serves the web UI, API, and FastAPI docs:
 
 ## Image vs local build
 
-For local development, the compose file builds from the repo:
+The compose file pulls the published image unless you say otherwise:
 
 ```yaml
-build:
-  context: .
-  dockerfile: Dockerfile
+image: ${ONESEARCH_IMAGE:-ghcr.io/demigodmode/onesearch:latest}
 ```
 
-For a normal install, use the published image and remove or comment out `build`:
+Set `ONESEARCH_IMAGE` in `.env` to pin a version:
 
-```yaml
-image: ghcr.io/demigodmode/onesearch:latest
+```env
+ONESEARCH_IMAGE=ghcr.io/demigodmode/onesearch:1.5.0
+```
+
+To run a build of your own checkout, build it and use that tag:
+
+```bash
+docker build -t onesearch:dev .
+ONESEARCH_IMAGE=onesearch:dev docker compose up -d
 ```
 
 ## Required environment

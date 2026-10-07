@@ -36,10 +36,10 @@ Remember to check SMART status monthly.
 
 ## Preview
 
-Markdown previews render as formatted content in the document page. Search terms are highlighted when you open a result from the search page.
+Markdown previews render as formatted content in the document page, including tables, task lists, strikethrough and bare links. A **Rendered** / **Raw** switch lets you see the original file text instead, with front matter and line numbers. Search terms are highlighted in both views when you open a result from the search page.
 
 ## Limits
 
 Markdown uses the text extraction limit shown in **Admin → Settings → Indexing**. `MAX_TEXT_FILE_SIZE_MB` provides the default value, and `TEXT_EXTRACTION_TIMEOUT` controls how long extraction can run.
 
-If parsing fails, OneSearch falls back to indexing the filename/path instead of failing the whole source.
+If the front matter can't be parsed, OneSearch still indexes the body of the file and just skips the front matter fields. A file over the size limit is recorded as failed, not indexed.

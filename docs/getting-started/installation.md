@@ -62,21 +62,6 @@ SESSION_SECRET=your-generated-session-secret-here
 
 Keep these secrets secure. Don't commit them to version control.
 
-### Update docker-compose.yml
-
-Edit `docker-compose.yml` and change the `onesearch` service to use the pre-built image:
-
-```yaml
-services:
-  onesearch:
-    image: ghcr.io/demigodmode/onesearch:latest
-    # Comment out the build section if present:
-    # build: .
-    ports:
-      - "8000:8000"
-    # ... rest stays the same
-```
-
 ### Mount your source directories (optional)
 
 If you want to index local directories, add volume mounts under the `onesearch` service:
@@ -177,11 +162,14 @@ services:
 
 ### Build and start
 
+The compose file pulls the published image by default. To run your checkout instead, build the image and point the compose file at it:
+
 ```bash
-docker compose up -d --build
+docker build -t onesearch:dev .
+ONESEARCH_IMAGE=onesearch:dev docker compose up -d
 ```
 
-This builds the unified OneSearch image (takes 5-10 minutes the first time), pulls Meilisearch, and starts everything.
+The build includes the bundled Meilisearch. The first one takes 5-10 minutes.
 
 Watch the logs:
 
@@ -191,7 +179,7 @@ docker compose logs -f onesearch
 
 Look for:
 ```
-INFO:     Uvicorn running on http://0.0.0.0:8001
+INFO:     Uvicorn running on http://127.0.0.1:8001
 ```
 
 ### Access the web interface

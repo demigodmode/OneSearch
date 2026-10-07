@@ -12,7 +12,7 @@ Search across all your files, documents, and notes from a single interface. No c
 
 **Multiple file types supported**: text, code, config, Markdown, PDFs, Office docs, RTF, EPUB, subtitles, comics, images, RAW photos, audio/video metadata, and metadata-only entries for everything else.
 
-**Multiple sources**: Index local directories, NAS shares, or external drives. Each source can have its own include/exclude patterns.
+**Multiple sources**: Index local directories, NAS shares, or external drives. Each source can have its own include/exclude patterns. Optional remote agents index folders on other machines without mounting them on the server.
 
 **Incremental indexing**: Only changed files get reindexed, so updates are fast. Full reindex available when you need it.
 
@@ -24,7 +24,7 @@ Search across all your files, documents, and notes from a single interface. No c
 
 **Themeable**: choose Light, Dark, or System mode, then pick an accent color preset or dial in a custom hue from Admin → Settings. Persists across reloads.
 
-**Privacy first**: Everything runs locally. No outbound connections, no telemetry, no cloud services. Your data never leaves your network.
+**Privacy first**: Everything runs locally. No telemetry, no cloud services, and the server makes no outbound connections. Your data never leaves your network.
 
 ---
 
@@ -57,7 +57,7 @@ For detailed setup instructions, see the [Installation Guide](getting-started/in
 
 ## What's New
 
-The current Docker setup runs OneSearch and managed Meilisearch in a single container by default. Recent releases also added true interval-backed scan schedules and a global default schedule sources can inherit, source path preflight testing, Light/Dark/System theme modes, rich media indexing, authenticated previews, RAW/photo metadata, metadata-only indexing for unsupported files, and full reindex controls in the UI, CLI, and API.
+The current Docker setup runs OneSearch and managed Meilisearch in a single container by default. Recent releases added remote indexing agents for folders on other machines, a folder browser for picking local source paths, and Markdown previews with tables and a Rendered/Raw toggle. Before that came true interval-backed scan schedules and a global default schedule sources can inherit, source path preflight testing, Light/Dark/System theme modes, rich media indexing, authenticated previews, RAW/photo metadata, metadata-only indexing for unsupported files, and full reindex controls in the UI, CLI, and API.
 
 Check the [Changelog](about/changelog.md) for release-by-release details.
 

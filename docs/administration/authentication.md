@@ -4,7 +4,7 @@ OneSearch uses JWT-based authentication for users. User-facing API requests requ
 
 ## Setup wizard
 
-The first time you open OneSearch, you'll see a setup wizard asking you to create an admin account. Pick a username and password, and you're the admin.
+The first time you open OneSearch, you'll see a setup wizard asking you to create an admin account. Pick a username (3 to 50 characters) and a password (at least 8 characters), confirm the password, and you're the admin. You're logged in straight away.
 
 This only works once. After the initial account is created, the setup endpoint is disabled. If you need to reset your credentials, you'll need to clear the `users` table in the database.
 
@@ -12,7 +12,7 @@ This only works once. After the initial account is created, the setup endpoint i
 
 ### Web UI
 
-Just go to http://localhost:8000 and you'll be redirected to the login page if you're not already authenticated. Enter your credentials and you're in. The token is stored in your browser and refreshed automatically.
+Just go to http://localhost:8000 and you'll be redirected to the login page if you're not already authenticated. Enter your credentials and you're in. The token is stored in your browser. It isn't refreshed, so you log in again when it expires.
 
 ### API
 
@@ -51,7 +51,7 @@ openssl rand -base64 32
 
 **SESSION_EXPIRE_HOURS**: How long tokens last before you need to log in again. Default is 24 hours.
 
-**AUTH_RATE_LIMIT**: Max failed login attempts per minute. Default is 5. After that, login requests get rejected with a 429 status until the window resets.
+**AUTH_RATE_LIMIT**: Max login attempts per minute from one IP address. Default is 5. Successful logins count too, and so do setup requests. After that, requests get rejected with a 429 status until the window resets.
 
 ## Rate limiting
 

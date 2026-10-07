@@ -20,7 +20,7 @@ Manage search sources via API. All endpoints require authentication.
 
 When creating or updating a source, you can set:
 
-- `id` - Optional source ID on create. If omitted, OneSearch generates one from the name.
+- `id` - Optional source ID on create. Letters, numbers, hyphens and underscores only, up to 100 characters; anything else is rejected with `422`. If omitted, OneSearch generates one from the name. An ID that's already taken returns `400`.
 - `name` - Display name for the source
 - `root_path` - Directory path to index (container path in Docker)
 - `location_type` - `"local"` (default) or `"agent"`
@@ -168,7 +168,13 @@ Only folders are listed, capped at 500 per directory; `truncated` is `true` when
 
 `POST /api/sources/{id}/reindex` triggers an immediate reindex. Add `?full=true` for a full reindex instead of incremental.
 
-Returns `409 Conflict` if the source is already being indexed (either by a manual trigger or a scheduled run).
+For a local source the request runs the reindex and returns `message` and `stats` when it finishes. For a remote-agent source it queues a job and returns `202` with `message`, `job_id`, `status` and `coalesced`.
+
+Returns `409 Conflict` if the source is already being indexed (either by a manual trigger or a scheduled run), or if its agent is unavailable or remote agents are turned off.
+
+## Delete
+
+`DELETE /api/sources/{id}` returns `204` with no body, or `404` if the source doesn't exist. If the documents can't be removed from the search index it returns `502` and leaves the source in place, so you can try again.
 
 ## Clean failed files
 

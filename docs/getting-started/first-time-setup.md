@@ -4,9 +4,9 @@ After installing OneSearch, you'll go through a quick setup wizard, then you can
 
 ## Setup Wizard
 
-When you first open OneSearch at http://localhost:8000, you'll be greeted by a setup wizard that asks you to create an admin account. Pick a username and password. That's what you'll use to log in.
+When you first open OneSearch at http://localhost:8000, you'll be greeted by a setup wizard that asks you to create an admin account. Pick a username (at least 3 characters) and a password (at least 8), and confirm the password. That's what you'll use to log in.
 
-Once that's done, you're taken to the login page. Log in with the credentials you just created.
+Once that's done you're logged in and taken to the search page.
 
 ## Add a Source
 
@@ -19,15 +19,17 @@ After logging in, click **Admin** in the top nav, then **Sources**.
 Click **Add Source** and fill in:
 
 - **Name**: Something descriptive like "Documents" or "NAS Files"
-- **Path**: The container path to your files (e.g., `/data/documents`)
-- **Include Patterns**: Which files to index (e.g., `**/*.pdf,**/*.md,**/*.txt`)
-- **Exclude Patterns**: What to skip (optional, e.g., `**/node_modules/**,**/.git/**`)
+- **Root Path**: The container path to your files (e.g., `/data/documents`). You can type it, or pick a folder from the **Allowed root** browser above the field, which lists what's mounted under `/data`
+- **Include Patterns**: Which files to index (optional, e.g., `**/*.pdf,**/*.md,**/*.txt`). Leave it empty to index everything
+- **Exclude Patterns**: What to skip (optional, e.g., `**/drafts/**`). Leave it empty and OneSearch skips the usual clutter on its own: version control folders like `.git`, dependency folders like `node_modules`, `venv` and `vendor`, and build output folders named `dist`, `build` or `target`. If you have real documents in a folder with one of those names, set your own exclude patterns so the defaults don't apply
 
-Click **Test** next to Root Path before saving. This confirms whether OneSearch can see the path from inside the container, whether it is inside allowed roots, whether it exists, whether it is a directory, and whether it is readable.
+Click **Test** at the bottom of the form before saving. This confirms whether OneSearch can see the path from inside the container, whether it is inside allowed roots, whether it exists, whether it is a directory, and whether it is readable.
 
 Click **Add Source** when the path looks good.
 
 **Important**: Use the container path, not your host path. If you mounted `/home/user/docs` to `/data/docs` in `docker-compose.yml`, use `/data/docs` here.
+
+To index folders on another machine without mounting them on the server, see [Remote agents](../administration/remote-agents.md). They're off by default.
 
 ### Using the CLI
 
@@ -190,7 +192,7 @@ Sometimes you want a full reindex:
 - Recovering from errors
 - Debugging search issues
 
-**Web UI**: Check the "Full reindex" box when clicking Reindex.
+**Web UI**: Click **Full reindex** next to the source's Reindex button and confirm.
 
 **CLI**: Add `--full`:
 
@@ -211,7 +213,7 @@ curl -X POST "http://localhost:8000/api/sources/documents/reindex?full=true" \
 
 ### Source path doesn't exist
 
-Error: `Source path does not exist: /data/documents`
+Error: `Root path does not exist`
 
 Make sure you mounted the directory in `docker-compose.yml`:
 

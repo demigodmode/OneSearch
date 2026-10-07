@@ -28,7 +28,7 @@ GPS metadata is off by default. Turn it on only if you want location data search
 
 ## Previews
 
-Image previews are authenticated and served only for indexed documents.
+Image previews are authenticated and served only for indexed documents. JPG, PNG, WebP and GIF files can be previewed. TIFF files are indexed for metadata but have no preview.
 
 RAW previews use embedded JPEG previews when available. OneSearch does not decode RAW sensor data.
 

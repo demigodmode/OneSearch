@@ -20,7 +20,7 @@ Extracts:
 
 - workbook sheets
 - cell values
-- workbook metadata
+- sheet names and counts
 
 To keep huge spreadsheets from getting silly, extraction is capped at 10,000 rows and 100 columns per sheet.
 
@@ -33,6 +33,14 @@ Extracts:
 - slide text
 - speaker notes
 - presentation metadata when available
+
+## RTF (`.rtf`)
+
+Indexed as `rtf`.
+
+Extracts the readable text, with the RTF formatting codes stripped out. The title is the filename, and no document metadata is read.
+
+RTF counts as a text file for limits: it uses the text size limit and `TEXT_EXTRACTION_TIMEOUT`, not the Office ones below.
 
 ## Limits
 

@@ -18,7 +18,7 @@ OneSearch supports searchable text extraction, format metadata, and safe preview
 | **EPUB** | `epub` | .epub | Book metadata, ordered spine text |
 | **Subtitles** | `subtitle` | .srt, .vtt, .ass | Transcript extraction, cue counts |
 | **Comics** | `comic` | .cbz | Page listing, ComicInfo.xml metadata |
-| **Images** | `image` | .jpg, .jpeg, .png, .webp, .gif, .tif, .tiff | Dimensions, EXIF metadata, authenticated previews |
+| **Images** | `image` | .jpg, .jpeg, .png, .webp, .gif, .tif, .tiff | Dimensions, EXIF metadata, authenticated previews (not TIFF) |
 | **RAW Photos** | `raw_image` | .cr2, .cr3, .nef, .arw, .raf, .orf, .rw2, .dng | Optional exiftool metadata, embedded JPEG previews |
 | **Media** | `media` | .mp4, .mkv, .mov, .avi, .mp3, .flac, .m4a, .ogg, .wav | Optional ffprobe metadata |
 | **Unsupported files** | `file` | any other extension | Optional filename/path metadata-only indexing |
@@ -36,7 +36,7 @@ OneSearch supports searchable text extraction, format metadata, and safe preview
 - [Text, Code & Config Files](text-files.md)
 - [Markdown](markdown.md)
 - [PDF Documents](pdf.md)
-- [Office Documents](office-documents.md)
+- [Office Documents](office-documents.md), which also covers RTF
 - [Images & RAW Photos](images-raw.md)
 - [Audio & Video Media](media.md)
 - [EPUB & Comics](ebooks-comics.md)

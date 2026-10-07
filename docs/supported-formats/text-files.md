@@ -15,7 +15,7 @@ General plain text files.
 
 ### Code (`code`)
 
-Source code and markup files. Indexed as full text with the filename as the title.
+Source code and markup files. Indexed as full text. The title is the first non-empty line near the top of the file, with comment markers stripped, or the filename if there isn't a short enough line.
 
 | Extensions | |
 |------------|-|

@@ -22,11 +22,13 @@ Prompts for username and password, then stores the returned token in the CLI con
 onesearch login
 ```
 
-For scripts or pre-issued tokens:
+If you already have a token, `--token` prompts for it and stores it, skipping the username and password:
 
 ```bash
 onesearch login --token
 ```
+
+For scripts, set `ONESEARCH_TOKEN` instead. Nothing is prompted and nothing is written to the config file.
 
 ### `onesearch logout`
 
@@ -169,7 +171,7 @@ onesearch config get backend_url
 
 ```bash
 onesearch config set backend_url http://localhost:8000
-onesearch config set defaults.search_limit 50
+onesearch config set auth.token null
 ```
 
 Values are parsed as YAML, so `false`, `50`, and nested values keep their types.

@@ -134,26 +134,30 @@ onesearch config path
 
 ## Global Options
 
-These work with any command:
+These go before the command name:
 
 ```bash
---quiet, -q          # Minimal output
---json               # JSON format
 --url URL            # Override API URL
---help               # Show help
+--quiet, -q          # Minimal output
+--verbose, -v        # More detail
+--version            # Print the CLI version
+--help, -h           # Show help
 ```
 
 Examples:
 
 ```bash
 # Quiet mode
-onesearch search "docker" --quiet
-
-# JSON for scripting
-onesearch source list --json | jq '.[] | .name'
+onesearch --quiet search "docker"
 
 # Custom URL
 onesearch --url http://nas.local:8000 status
+```
+
+`--json` is not global. It belongs to `search`, `status` and `health`, and goes after the command:
+
+```bash
+onesearch status --json | jq -r '.sources[].source_name'
 ```
 
 ---
@@ -162,26 +166,36 @@ onesearch --url http://nas.local:8000 status
 
 ### Table (Default)
 
+`onesearch source list` prints a table like this:
+
 ```
-┌──────────┬────────────┬───────────┬──────────┐
-│ ID       │ Name       │ Path      │ Files    │
-├──────────┼────────────┼───────────┼──────────┤
-│ docs     │ Documents  │ /data/docs│ 1,234    │
-└──────────┴────────────┴───────────┴──────────┘
+┌──────┬───────────┬────────────┬──────────────────┬──────────────────┐
+│ ID   │ Name      │ Root Path  │ Include Patterns │ Exclude Patterns │
+├──────┼───────────┼────────────┼──────────────────┼──────────────────┤
+│ docs │ Documents │ /data/docs │ **/*.pdf         │ **/drafts/**     │
+└──────┴───────────┴────────────┴──────────────────┴──────────────────┘
 ```
 
 ### JSON
 
+`search`, `status` and `health` take `--json` and print the API response as-is. For example `onesearch status --json`:
+
 ```json
-[
-  {
-    "id": "docs",
-    "name": "Documents",
-    "root_path": "/data/docs",
-    "total_files": 1234
-  }
-]
+{
+  "sources": [
+    {
+      "source_id": "docs",
+      "source_name": "Documents",
+      "total_files": 1234,
+      "successful": 1230,
+      "failed": 4,
+      "skipped": 0
+    }
+  ]
+}
 ```
+
+The source commands (`source list`, `source add` and so on) only print tables.
 
 ---
 
@@ -189,7 +203,7 @@ onesearch --url http://nas.local:8000 status
 
 The CLI stores config in a platform-specific location:
 
-- **Linux/macOS**: `~/.config/onesearch/config.yml`
+- **Linux/macOS**: `~/.config/onesearch/config.yml`, or `$XDG_CONFIG_HOME/onesearch/config.yml` if that variable is set
 - **Windows**: `%APPDATA%\onesearch\config.yml`
 
 Example config:
@@ -214,7 +228,7 @@ See the [Configuration Guide](configuration.md) for details.
 #!/bin/bash
 # Reindex all sources nightly
 
-for source in $(onesearch source list --json | jq -r '.[].id'); do
+for source in $(onesearch status --json | jq -r '.sources[].source_id'); do
   echo "Reindexing $source..."
   onesearch source reindex "$source"
 done
@@ -224,10 +238,11 @@ done
 
 ```bash
 #!/bin/bash
-# Find PDFs mentioning "invoice" and copy them
+# Find PDFs mentioning "invoice" and copy them.
+# The paths are the server's paths, so run this where those paths exist.
 
 onesearch search "invoice" --type pdf --json | \
-  jq -r '.[].path' | \
+  jq -r '.results[].path' | \
   xargs -I {} cp {} /backup/invoices/
 ```
 
@@ -237,7 +252,7 @@ onesearch search "invoice" --type pdf --json | \
 #!/bin/bash
 # Alert if OneSearch is down
 
-if ! onesearch health --quiet; then
+if ! onesearch --quiet health; then
   echo "OneSearch is down!" | mail -s "Alert" admin@example.com
 fi
 ```

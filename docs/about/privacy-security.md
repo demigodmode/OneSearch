@@ -6,7 +6,7 @@ OneSearch is self-hosted and does not include telemetry or analytics.
 
 ### Outbound connections
 
-OneSearch server components do not contact external services by default. An optional remote agent connects outbound to the OneSearch server configured by its administrator. Source data travels only between that agent and the server.
+OneSearch server components do not contact external services by default, and the web UI loads its fonts and scripts from your own server. An optional remote agent connects outbound to the OneSearch server configured by its administrator. Source data travels only between that agent and the server.
 
 Automatic installation is off by default, but agents with a configured release signing key contact the OneSearch GitHub release host for signed release metadata at startup and about every 24 hours. The request does not include indexed content, source paths, search queries, or the agent credential. Only native agents with `auto_update = true` download signed artifacts; Docker agents only report an available update and never replace their own image.
 
@@ -52,7 +52,7 @@ OneSearch can't modify your files, which prevents accidental corruption and redu
 
 ### Non-root container
 
-The OneSearch container runs as a non-root user (UID 1000) by default, limiting permissions and following security best practices.
+The backend and the bundled Meilisearch run as an unprivileged `onesearch` user, UID 1000 unless you set `PUID`. The container's supervisor process and the nginx master process run as root, which is how they start those services and bind the port; nginx's worker processes run as `www-data`.
 
 ### Built-in authentication
 

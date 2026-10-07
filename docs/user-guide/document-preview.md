@@ -7,16 +7,29 @@ Click a search result to open the document page. OneSearch shows the indexed doc
 The preview depends on the file type:
 
 - text, code, and config files show readable extracted text
-- Markdown renders as formatted content
+- Markdown renders as formatted content, including tables, task lists and strikethrough
 - PDFs and Office files show extracted text and metadata
 - long text can be split into preview pages
 - images and browser-viewable formats can show authenticated previews
 - RAW photos can show embedded JPEG previews when available
 - photos can show camera/lens/exposure metadata
-- audio and video can show ffprobe metadata
+- audio and video can show tags, duration, codecs and dimensions
 - EPUB files show book metadata and extracted text
 - CBZ comics show page lists and ComicInfo metadata when present
 - unsupported files show filename/path metadata if metadata-only indexing is enabled
+
+## Markdown: Rendered and Raw
+
+Markdown documents have a **Rendered** / **Raw** switch above the content. Rendered is the formatted view. Raw shows the file's original text with line numbers, including front matter and comments that the rendered view leaves out. Search matches are highlighted in both.
+
+Raw isn't available for files over the preview size limit.
+
+## Copy path and Download
+
+The document page has two buttons for getting at the original file:
+
+- **Copy path** copies the file's path as OneSearch sees it. In Docker that's the container path.
+- **Download** fetches the original file through OneSearch. You have to be logged in, and it works for any indexed file, whether or not previews are turned on.
 
 ## Remote files
 
@@ -32,7 +45,7 @@ When you open a result from the search page, OneSearch carries the query into th
 
 ## Preview limits
 
-Admins can disable previews or set size limits in **Admin → Settings → File Previews**.
+Admins can disable previews, turn RAW embedded previews on or off, and set size limits in **Admin → Settings → File Previews**. The same panel sets how many characters a page of a long text preview holds, and how long a text has to be before it gets split into pages.
 
 RAW previews use embedded JPEGs when available. OneSearch does not decode RAW sensor data, which keeps previews fast and avoids a lot of format-specific trouble.
 

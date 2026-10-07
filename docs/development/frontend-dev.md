@@ -493,7 +493,7 @@ Shows query status, cache, and refetches in the browser.
 
 ## Code Style
 
-**Formatting** - ESLint and Prettier are configured. Run:
+**Linting** - ESLint is configured, with warnings treated as errors. There's no Prettier. Run:
 
 ```bash
 npm run lint

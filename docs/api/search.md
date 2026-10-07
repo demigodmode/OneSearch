@@ -91,7 +91,7 @@ Document IDs come from search results. They use the source ID plus a path hash, 
 
 ## Preview endpoint
 
-Readable previews and image/RAW previews are handled by:
+Image and RAW previews are handled by:
 
 ```http
 GET /api/documents/{document_id}/preview

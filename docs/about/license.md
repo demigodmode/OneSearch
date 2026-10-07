@@ -64,11 +64,19 @@ We chose AGPL-3.0 to ensure:
 
 ## Dependencies
 
-All OneSearch dependencies use permissive licenses compatible with AGPL-3.0:
+OneSearch's dependencies use licenses compatible with AGPL-3.0. Most are permissive, a few are not:
 
-- Python packages: MIT, BSD, Apache-2.0
+- Python packages: mostly MIT, BSD and Apache-2.0. `chardet` is LGPL.
 - JavaScript packages: MIT, BSD, Apache-2.0
+- Bundled fonts (Outfit, JetBrains Mono): SIL Open Font License 1.1
 - Meilisearch: MIT License
+
+The Docker image also ships two command-line tools that OneSearch runs but doesn't link against:
+
+- `ffprobe`, from FFmpeg, under LGPL v2.1 or later. It's built from the official FFmpeg source release named in the `Dockerfile`, with the build flags shown there. The license text is in the image at `/usr/share/licenses/ffmpeg`.
+- ExifTool, from Debian's package, under the Artistic License or GPL.
+
+See the `NOTICE` file in the repository for the full list.
 
 ---
 

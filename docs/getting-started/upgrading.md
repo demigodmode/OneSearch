@@ -21,7 +21,8 @@ docker compose up -d
 git pull origin main
 
 # Rebuild and restart
-docker compose up -d --build
+docker build -t onesearch:dev .
+ONESEARCH_IMAGE=onesearch:dev docker compose up -d
 ```
 
 ---
@@ -55,9 +56,10 @@ docker run -d \
 
 You can pin to specific tags if you want more control:
 - `latest` - Always get the newest release
-- `1` - Stay on the 1.x line
-- `1.1` - Stay on the 1.1.x line
-- `1.1.0` - Pin to a specific version (no auto-updates)
+- `1.5` - Stay on the 1.5.x line
+- `1.5.0` - Pin to a specific version (no auto-updates)
+
+There is no major-only tag like `1`.
 
 ---
 

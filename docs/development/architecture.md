@@ -45,7 +45,7 @@ Indexing and search:
 3. User triggers reindex
 4. Scanner walks the directory and applies glob patterns (include/exclude)
 5. For each file:
-   - Check if it changed by comparing modified time, size, and hash with the `indexed_files` table
+   - Check if it changed by comparing size and modified time with the `indexed_files` table
    - If changed, extract content using the appropriate extractor
    - Send normalized document to Meilisearch
    - Update `indexed_files` table with metadata
@@ -92,11 +92,11 @@ Tracks all indexed files for incremental updates.
 | size_bytes | INTEGER | File size in bytes |
 | modified_at | DATETIME | File modified timestamp |
 | indexed_at | DATETIME | When we indexed it |
-| hash | TEXT | SHA256 hash of path (for document ID) |
+| hash | TEXT | File content hash. Only remote-agent ingest fills it in; local indexing leaves it empty |
 | status | TEXT | success, failed, skipped |
 | error_message | TEXT | Error if failed |
 
-Unique constraint on `(source_id, path)` prevents duplicates.
+There is no unique constraint on `(source_id, path)`. The indexer looks the row up by those two columns and updates it in place.
 
 ---
 

@@ -29,7 +29,7 @@ The default managed install stores app data in:
 
 ## File size limits
 
-Large files are where extraction gets expensive. Text, PDF, and Office limits can be changed in **Admin → Settings → Indexing**. The matching environment variables set their defaults before an app setting is saved:
+Large files are where extraction gets expensive. The text, PDF, Office, image, EPUB, comic and media probe limits can be changed in **Admin → Settings → Indexing**. The matching environment variables set their defaults before an app setting is saved:
 
 ```env
 MAX_TEXT_FILE_SIZE_MB=10
