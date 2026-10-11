@@ -7,7 +7,7 @@
 # =============================================================================
 # Stage 1: Build Frontend
 # =============================================================================
-FROM docker.io/library/node:22-alpine AS frontend-builder
+FROM docker.io/library/node:25-alpine AS frontend-builder
 
 WORKDIR /app
 
