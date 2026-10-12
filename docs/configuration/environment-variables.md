@@ -277,6 +277,36 @@ How many documents OneSearch sends to Meilisearch in each batch.
 
 Larger batches can improve throughput on bigger machines but use more memory. Smaller batches are gentler on low-memory systems.
 
+**MEILI_MAX_INDEXING_THREADS**
+
+How many threads Meilisearch may use while indexing. This is the setting that decides how much memory Meilisearch needs: roughly 0.6 GB plus 0.3 GB per thread.
+
+- Default: worked out at startup from the container's memory, see below
+- Default in `docker-compose.legacy.yml`: `4`
+
+**MEILI_MAX_INDEXING_MEMORY**
+
+Meilisearch's own limit on indexing memory, such as `1Gb` or `800Mb`.
+
+- Default: worked out at startup alongside the thread count
+
+The Meilisearch version OneSearch currently ships doesn't hold to this limit in practice, so if memory is the problem, lower the thread count instead.
+
+You normally don't need either of these. With the default managed install, OneSearch looks at the container's memory limit when it starts (or the machine's RAM if there is no limit), keeps half of it for Meilisearch, and picks as many indexing threads as fit: 2 threads in a 2 GB container, 4 at around 3.6 GB, and more from there up to what Meilisearch would use by itself. The startup log has a line saying what it saw and what it picked:
+
+```
+Meilisearch indexing: 2 threads, 1024 MiB memory (container limit 2048 MiB)
+```
+
+If you set one of the two variables, your value is used as is and the other is still worked out for you.
+
+Two cases worth knowing about:
+
+- **No memory limit on the container.** OneSearch uses at most 4 threads (about 1.8 GB). That is deliberate. When Docker runs inside something that has its own limit, such as a Proxmox LXC, the container can't see that outer limit and only sees the host's RAM. If you know you have the memory, raise `MEILI_MAX_INDEXING_THREADS`.
+- **Less than 2 GB.** OneSearch starts with 2 threads and logs a warning. Small libraries can work, but a big indexing run may get Meilisearch killed and restarted over and over. Give the container at least 2 GB.
+
+With `docker-compose.legacy.yml` Meilisearch runs in its own container, so OneSearch can't size it. The compose file defaults to 4 threads there, and both variables go to the Meilisearch service.
+
 ### Scheduling
 
 **SCHEDULER_ENABLED**
@@ -334,6 +364,7 @@ MEILI_MASTER_KEY=YourSecureRandomKeyHere123456789
 DATABASE_URL=sqlite:////app/data/onesearch.db
 ONESEARCH_MANAGED_MEILI=true
 # MEILI_URL=http://meilisearch:7700  # Only for docker-compose.legacy.yml or another external Meilisearch instance
+# MEILI_MAX_INDEXING_THREADS=2       # Only to override what OneSearch picks at startup
 LOG_LEVEL=INFO
 CORS_ORIGINS=
 ALLOWED_SOURCE_PATHS=/data
@@ -430,6 +461,7 @@ If you're indexing millions of files:
 - Increase `MAX_PDF_FILE_SIZE_MB` cautiously - larger PDFs slow indexing
 - Consider lowering `PDF_EXTRACTION_TIMEOUT` to skip problematic files faster
 - Set `LOG_LEVEL=WARNING` to reduce log noise
+- Give the container more memory. OneSearch gives Meilisearch more indexing threads when it sees more memory
 
 ### For Slow Systems
 
@@ -445,6 +477,7 @@ If you have powerful hardware:
 
 - Increase file size limits to index more content
 - Increase timeouts to handle complex documents
+- Raise `MEILI_MAX_INDEXING_THREADS` if the container has no memory limit and you have RAM to spare
 
 ---
 
@@ -453,6 +486,10 @@ If you have powerful hardware:
 ### Meilisearch connection failed
 
 For the default managed install, check that `ONESEARCH_MANAGED_MEILI=true` and `MEILI_MASTER_KEY` is set. For `docker-compose.legacy.yml` or another external Meilisearch instance, check that `MEILI_URL` points to the external service and that both containers use the same `MEILI_MASTER_KEY`.
+
+### Meilisearch keeps restarting during indexing
+
+If search goes down while a big source is indexing and the container log shows Meilisearch starting again and again, it is running out of memory. Lower `MEILI_MAX_INDEXING_THREADS` (2 is the lowest that works well), or give the container more memory. See [Indexing internals](#indexing-internals).
 
 ### Files being skipped
 

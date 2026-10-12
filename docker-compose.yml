@@ -59,6 +59,10 @@ services:
       - LONG_TEXT_PAGINATION_THRESHOLD_CHARS
       - MEILISEARCH_BATCH_SIZE
       - INDEXING_PROGRESS_INTERVAL
+      # Meilisearch indexing limits. OneSearch picks these from the container's memory
+      # at startup, set them only to override that.
+      - MEILI_MAX_INDEXING_THREADS
+      - MEILI_MAX_INDEXING_MEMORY
     ports:
       - "8000:8000"
     restart: unless-stopped
