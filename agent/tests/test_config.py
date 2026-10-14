@@ -97,7 +97,8 @@ def test_root_behind_a_folder_this_user_cannot_enter(tmp_path: Path):
     finally:
         parent.chmod(0o755)
 
-    assert "root 'inside'" in message
+    assert "root 'inside'" in message and "can't be checked" in message
+    assert "mounted" not in message
 
 
 def test_missing_config_file_says_which_file(tmp_path: Path):

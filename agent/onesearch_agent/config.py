@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import socket
+import stat
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -24,15 +25,15 @@ class ConfigError(ValueError):
 def _root_problem(path: Path) -> str | None:
     if not path.is_absolute():
         return "path must be absolute"
+    # stat() rather than exists(): from 3.14 exists() returns False for a
+    # parent we can't enter, which would blame a missing mount
     try:
-        exists = path.exists()
-        is_dir = exists and path.is_dir()
-    except OSError as error:
-        # e.g. a parent folder this user can't enter
-        return f"path can't be checked: {error.strerror or error}"
-    if not exists:
+        info = path.stat()
+    except FileNotFoundError:
         return "path does not exist (running in Docker? check that it is mounted)"
-    if not is_dir:
+    except OSError as error:
+        return f"path can't be checked: {error.strerror or error}"
+    if not stat.S_ISDIR(info.st_mode):
         return "path is not a directory"
     if not os.access(path, os.R_OK | os.X_OK):
         return "path is not readable by this user"
