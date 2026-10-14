@@ -75,6 +75,13 @@ CLI_INIT = _source_path("cli runtime")
 FRONTEND_PKG = _source_path("frontend")
 FRONTEND_LOCK = ROOT / "frontend" / "package-lock.json"
 UV_LOCK = ROOT / "uv.lock"
+WORKSPACE_PACKAGES = (
+    "onesearch",
+    "onesearch-agent",
+    "onesearch-backend",
+    "onesearch-cli",
+    "onesearch-shared",
+)
 VERSION_FILES = TOML_VERSION_FILES + (AGENT_INIT, CLI_INIT, FRONTEND_PKG, FRONTEND_LOCK, UV_LOCK)
 CHANGELOG = ROOT / "CHANGELOG.md"
 
@@ -173,17 +180,25 @@ def _bumped_runtime_content(path: Path, new_version: str) -> bytes:
 
 
 def _bumped_lock_content(path: Path, new_version: str) -> bytes:
-    # Only our own workspace packages are editable in the lock, so this leaves
-    # third-party pins alone. Saves running `uv lock`, which may want the network.
+    # Edits our own workspace entries directly instead of running `uv lock`,
+    # which may want the network halfway through a release.
     content = path.read_bytes()
-    new_content, count = re.subn(
-        rb'^(version = ")[^"]+("\r?\nsource = \{ editable = )',
-        lambda match: match.group(1) + new_version.encode("utf-8") + match.group(2),
+    found = []
+
+    def bump(match):
+        found.append(match.group(2).decode("utf-8"))
+        return match.group(1) + new_version.encode("utf-8") + match.group(3)
+
+    names = b"|".join(re.escape(name.encode("utf-8")) for name in WORKSPACE_PACKAGES)
+    new_content = re.sub(
+        rb'^(name = "(' + names + rb')"\r?\nversion = ")[^"]+("\r?\nsource = \{ editable = )',
+        bump,
         content,
         flags=re.MULTILINE,
     )
-    if count != len(TOML_VERSION_FILES):
-        die(f"Expected {len(TOML_VERSION_FILES)} workspace packages in {path}, found {count}")
+    if sorted(found) != sorted(WORKSPACE_PACKAGES):
+        missing = sorted(set(WORKSPACE_PACKAGES) - set(found))
+        die(f"{path} is missing workspace packages: {', '.join(missing) or 'duplicates found'}")
     return new_content
 
 

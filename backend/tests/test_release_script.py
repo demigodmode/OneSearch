@@ -196,6 +196,26 @@ def test_release_refuses_a_uv_lock_missing_a_workspace_package(tmp_path, monkeyp
     assert {path: path.read_bytes() for path in version_files} == original
 
 
+def test_release_refuses_when_another_editable_package_stands_in_for_ours(tmp_path, monkeypatch):
+    import scripts.release as release
+
+    _write_release_sources(tmp_path)
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        lock.read_text(encoding="utf-8").replace('name = "onesearch-shared"', 'name = "some-local-tool"'),
+        encoding="utf-8",
+    )
+    version_files = _version_files(tmp_path)
+    original = {path: path.read_bytes() for path in version_files}
+    _configure_update(release, version_files, monkeypatch)
+    monkeypatch.setattr(release, "bump_frontend", lambda _version: None)
+
+    with pytest.raises(SystemExit):
+        release.update_version("1.4.0")
+
+    assert {path: path.read_bytes() for path in version_files} == original
+
+
 def test_release_update_preserves_each_version_file_mode(tmp_path, monkeypatch):
     import scripts.release as release
 
