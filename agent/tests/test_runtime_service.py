@@ -12,6 +12,7 @@ from onesearch_agent.service import (
     _systemd_arg,
     install,
     uninstall,
+    validate_service_backend,
 )
 
 
@@ -522,3 +523,29 @@ def test_service_command_distinguishes_frozen_agent_from_python_source(tmp_path:
     assert _service_command(config, "/usr/bin/python", frozen=False) == (
         '"/usr/bin/python" -m onesearch_agent.cli --config ' + _systemd_arg(str(config)) + " run"
     )
+
+
+def _service_config(tmp_path: Path) -> Path:
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    config.write_text(
+        f'server_url = "http://host"\nstate_dir = "{(tmp_path / "state").as_posix()}"\n'
+        f'credential_store = "file"\n[[allowed_roots]]\nroot_id = "r"\npath = "{root.as_posix()}"\n'
+    )
+    return config
+
+
+def test_service_install_before_enroll_says_to_enroll_first(tmp_path: Path):
+    with pytest.raises(ServiceError, match="Run enroll first") as error:
+        validate_service_backend(_service_config(tmp_path))
+
+    assert "credential is unavailable" in str(error.value)
+
+
+def test_service_install_shows_config_problems(tmp_path: Path):
+    config = _service_config(tmp_path)
+    config.write_text(config.read_text().replace(str((tmp_path / "root").as_posix()), "/no/such/root"))
+
+    with pytest.raises(ServiceError, match="root 'r'"):
+        validate_service_backend(config)

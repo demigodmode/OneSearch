@@ -112,7 +112,10 @@ def load_config(path: Path | str | None = None) -> AgentConfig:
     except OSError as error:
         raise ConfigError(f"unable to read agent configuration {target}: {error.strerror}") from error
     except tomllib.TOMLDecodeError as error:
-        raise ConfigError(f"agent configuration {target} is not valid TOML: {error}") from error
+        hint = ""
+        if "overwrite" in str(error).lower():
+            hint = " (each allowed root needs its own [[allowed_roots]] line above it)"
+        raise ConfigError(f"agent configuration {target} is not valid TOML: {error}{hint}") from error
     except UnicodeDecodeError as error:
         raise ConfigError(
             f"agent configuration {target} is not valid UTF-8 (byte {error.start})"

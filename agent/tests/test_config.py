@@ -122,3 +122,14 @@ def test_config_strips_trailing_slash_and_has_no_secret_field(tmp_path: Path):
     )
     assert value.server_url == "http://host"
     assert "token" not in repr(value).lower()
+
+
+def test_repeated_root_keys_get_a_hint(tmp_path: Path):
+    # what the issue reporter tried first: several roots under one header
+    config = tmp_path / "agent.toml"
+    config.write_text(
+        'server_url = "http://host"\n[[allowed_roots]]\nroot_id = "a"\npath = "/a"\nroot_id = "b"\npath = "/b"\n'
+    )
+
+    with pytest.raises(ConfigError, match=r"its own \[\[allowed_roots\]\] line"):
+        load_config(config)
