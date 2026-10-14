@@ -1,9 +1,11 @@
 import asyncio
+import sys
 from importlib.resources import files
 from pathlib import Path
 
 import pytest
 from onesearch_agent.client import AgentDisabled, AgentPending, AgentRevoked
+from onesearch_agent.credentials import CredentialError
 from onesearch_agent.runtime import run_runtime
 from onesearch_agent.service import (
     ServiceError,
@@ -536,11 +538,35 @@ def _service_config(tmp_path: Path) -> Path:
     return config
 
 
-def test_service_install_before_enroll_says_to_enroll_first(tmp_path: Path):
-    with pytest.raises(ServiceError, match="Run enroll first") as error:
+def test_service_install_before_enroll_says_to_enroll_first(tmp_path: Path, monkeypatch):
+    class NoCredential:
+        def load(self):
+            raise CredentialError("credential is unavailable")
+
+    monkeypatch.setattr("onesearch_agent.service.credential_store", lambda config: NoCredential())
+
+    with pytest.raises(ServiceError, match="Run enroll first"):
         validate_service_backend(_service_config(tmp_path))
 
-    assert "credential is unavailable" in str(error.value)
+
+def test_service_install_passes_other_credential_problems_through(tmp_path: Path, monkeypatch):
+    class BrokenStore:
+        def load(self):
+            raise CredentialError("system credential store is unavailable")
+
+    monkeypatch.setattr("onesearch_agent.service.credential_store", lambda config: BrokenStore())
+
+    with pytest.raises(ServiceError) as error:
+        validate_service_backend(_service_config(tmp_path))
+
+    assert "system credential store is unavailable" in str(error.value)
+    assert "enroll" not in str(error.value)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="file credentials are Linux only")
+def test_service_install_before_enroll_with_a_real_file_store(tmp_path: Path):
+    with pytest.raises(ServiceError, match="Run enroll first"):
+        validate_service_backend(_service_config(tmp_path))
 
 
 def test_service_install_shows_config_problems(tmp_path: Path):
