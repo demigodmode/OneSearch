@@ -1104,7 +1104,7 @@ wheels = [
 
 [[package]]
 name = "onesearch"
-version = "1.6.0"
+version = "1.6.1"
 source = { editable = "." }
 
 [package.optional-dependencies]
@@ -1158,7 +1158,7 @@ dev = [
 
 [[package]]
 name = "onesearch-agent"
-version = "1.6.0"
+version = "1.6.1"
 source = { editable = "agent" }
 dependencies = [
     { name = "click" },
@@ -1189,7 +1189,7 @@ requires-dist = [
 
 [[package]]
 name = "onesearch-backend"
-version = "1.6.0"
+version = "1.6.1"
 source = { editable = "backend" }
 dependencies = [
     { name = "alembic" },
@@ -1238,7 +1238,7 @@ requires-dist = [
 
 [[package]]
 name = "onesearch-cli"
-version = "1.6.0"
+version = "1.6.1"
 source = { editable = "cli" }
 dependencies = [
     { name = "click" },
@@ -1259,7 +1259,7 @@ requires-dist = [
 
 [[package]]
 name = "onesearch-shared"
-version = "1.6.0"
+version = "1.6.1"
 source = { editable = "shared" }
 dependencies = [
     { name = "pydantic" },
