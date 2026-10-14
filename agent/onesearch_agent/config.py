@@ -24,9 +24,15 @@ class ConfigError(ValueError):
 def _root_problem(path: Path) -> str | None:
     if not path.is_absolute():
         return "path must be absolute"
-    if not path.exists():
+    try:
+        exists = path.exists()
+        is_dir = exists and path.is_dir()
+    except OSError as error:
+        # e.g. a parent folder this user can't enter
+        return f"path can't be checked: {error.strerror or error}"
+    if not exists:
         return "path does not exist (running in Docker? check that it is mounted)"
-    if not path.is_dir():
+    if not is_dir:
         return "path is not a directory"
     if not os.access(path, os.R_OK | os.X_OK):
         return "path is not readable by this user"
@@ -74,7 +80,7 @@ class AgentConfig(BaseModel):
         ids = set()
         for root in self.allowed_roots:
             if root.root_id in ids:
-                problems.append(f"root '{root.root_id}': root_id is used more than once")
+                problems.append(f"root '{root.root_id}' ({root.path}): root_id is used more than once")
             ids.add(root.root_id)
             problem = _root_problem(Path(root.path))
             if problem:
@@ -106,6 +112,10 @@ def load_config(path: Path | str | None = None) -> AgentConfig:
         raise ConfigError(f"unable to read agent configuration {target}: {error.strerror}") from error
     except tomllib.TOMLDecodeError as error:
         raise ConfigError(f"agent configuration {target} is not valid TOML: {error}") from error
+    except UnicodeDecodeError as error:
+        raise ConfigError(
+            f"agent configuration {target} is not valid UTF-8 (byte {error.start})"
+        ) from error
     try:
         return AgentConfig.model_validate(data)
     except ValidationError as error:

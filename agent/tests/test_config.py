@@ -53,7 +53,7 @@ def test_config_reports_every_bad_root_by_id(tmp_path: Path):
     assert "root 'gone'" in message and "does not exist" in message
     assert "root 'file'" in message and "not a directory" in message
     assert "root 'rel'" in message and "must be absolute" in message
-    assert "root 'good': root_id is used more than once" in message
+    assert f"root 'good' ({good}): root_id is used more than once" in message
 
 
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads everything")
@@ -77,6 +77,27 @@ def test_config_errors_do_not_echo_the_whole_config(tmp_path: Path):
 
     assert "secret" not in str(error.value)
     assert "server_url:" in str(error.value)
+
+
+def test_config_that_is_not_utf8_is_a_plain_error(tmp_path: Path):
+    config = tmp_path / "agent.toml"
+    config.write_bytes(b'server_url = "http://h\xffost"\n')
+
+    with pytest.raises(ConfigError, match="not valid UTF-8"):
+        load_config(config)
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads everything")
+def test_root_behind_a_folder_this_user_cannot_enter(tmp_path: Path):
+    parent = tmp_path / "parent"
+    (parent / "inside").mkdir(parents=True)
+    parent.chmod(0)
+    try:
+        message = _roots_error([{"root_id": "inside", "path": str(parent / "inside")}])
+    finally:
+        parent.chmod(0o755)
+
+    assert "root 'inside'" in message
 
 
 def test_missing_config_file_says_which_file(tmp_path: Path):
