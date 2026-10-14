@@ -71,6 +71,18 @@ def test_every_backend_setting_can_be_set_from_the_compose_files():
         assert expected - names == set(), compose_file
 
 
+def test_meilisearch_indexing_limits_can_be_set_from_env():
+    assert {"MEILI_MAX_INDEXING_THREADS", "MEILI_MAX_INDEXING_MEMORY"} <= _container_env_names(
+        "docker-compose.yml"
+    )
+
+    # in legacy mode they belong to the Meilisearch container, which nothing sizes for you
+    legacy = Path("docker-compose.legacy.yml").read_text()
+    meilisearch_service = legacy.split("  onesearch:")[0]
+    assert "- MEILI_MAX_INDEXING_THREADS=${MEILI_MAX_INDEXING_THREADS:-4}" in meilisearch_service
+    assert "- MEILI_MAX_INDEXING_MEMORY\n" in meilisearch_service
+
+
 def test_compose_files_do_not_need_an_env_file():
     # env_file makes compose refuse to start without a physical .env
     for compose_file in ["docker-compose.yml", "docker-compose.legacy.yml"]:

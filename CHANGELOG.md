@@ -5,6 +5,12 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Meilisearch no longer runs the container out of memory during a big indexing run. The bundled Meilisearch sized itself from the host and ignored the container's memory limit, so in a small container on a large machine it grew until it was killed, restarted, picked the same task up again and was killed again. OneSearch now sets Meilisearch's indexing threads and memory cap at startup from the memory the container actually has, and logs what it picked. `MEILI_MAX_INDEXING_THREADS` and `MEILI_MAX_INDEXING_MEMORY` can be set in `.env` to override it, and `docker-compose.legacy.yml` defaults to 4 threads. Update your compose file to pick up the two variables. (#306)
+
 ## [1.6.0] - 2026-10-07
 
 Upgrading from 1.5.0 or earlier takes one manual step: your compose file needs replacing. See [Upgrading from 1.5.0 or earlier](https://onesearch.readthedocs.io/en/latest/getting-started/upgrading/#upgrading-from-150-or-earlier).

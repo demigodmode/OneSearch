@@ -9,6 +9,10 @@ services:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       - MEILI_ENV=production
       - MEILI_NO_ANALYTICS=true
+      # Each indexing thread costs roughly 0.3 GB of memory on top of about 0.6 GB.
+      # Meilisearch would otherwise use half the host's cores, whatever the memory limit.
+      - MEILI_MAX_INDEXING_THREADS=${MEILI_MAX_INDEXING_THREADS:-4}
+      - MEILI_MAX_INDEXING_MEMORY
     networks:
       - onesearch_network
     restart: unless-stopped
