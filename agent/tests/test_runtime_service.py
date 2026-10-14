@@ -1,9 +1,11 @@
 import asyncio
+import sys
 from importlib.resources import files
 from pathlib import Path
 
 import pytest
 from onesearch_agent.client import AgentDisabled, AgentPending, AgentRevoked
+from onesearch_agent.credentials import CredentialError
 from onesearch_agent.runtime import run_runtime
 from onesearch_agent.service import (
     ServiceError,
@@ -12,6 +14,7 @@ from onesearch_agent.service import (
     _systemd_arg,
     install,
     uninstall,
+    validate_service_backend,
 )
 
 
@@ -522,3 +525,53 @@ def test_service_command_distinguishes_frozen_agent_from_python_source(tmp_path:
     assert _service_command(config, "/usr/bin/python", frozen=False) == (
         '"/usr/bin/python" -m onesearch_agent.cli --config ' + _systemd_arg(str(config)) + " run"
     )
+
+
+def _service_config(tmp_path: Path) -> Path:
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    config.write_text(
+        f'server_url = "http://host"\nstate_dir = "{(tmp_path / "state").as_posix()}"\n'
+        f'credential_store = "file"\n[[allowed_roots]]\nroot_id = "r"\npath = "{root.as_posix()}"\n'
+    )
+    return config
+
+
+def test_service_install_before_enroll_says_to_enroll_first(tmp_path: Path, monkeypatch):
+    class NoCredential:
+        def load(self):
+            raise CredentialError("credential is unavailable")
+
+    monkeypatch.setattr("onesearch_agent.service.credential_store", lambda config: NoCredential())
+
+    with pytest.raises(ServiceError, match="Run enroll first"):
+        validate_service_backend(_service_config(tmp_path))
+
+
+def test_service_install_passes_other_credential_problems_through(tmp_path: Path, monkeypatch):
+    class BrokenStore:
+        def load(self):
+            raise CredentialError("system credential store is unavailable")
+
+    monkeypatch.setattr("onesearch_agent.service.credential_store", lambda config: BrokenStore())
+
+    with pytest.raises(ServiceError) as error:
+        validate_service_backend(_service_config(tmp_path))
+
+    assert "system credential store is unavailable" in str(error.value)
+    assert "enroll" not in str(error.value)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="file credentials are Linux only")
+def test_service_install_before_enroll_with_a_real_file_store(tmp_path: Path):
+    with pytest.raises(ServiceError, match="Run enroll first"):
+        validate_service_backend(_service_config(tmp_path))
+
+
+def test_service_install_shows_config_problems(tmp_path: Path):
+    config = _service_config(tmp_path)
+    config.write_text(config.read_text().replace(str((tmp_path / "root").as_posix()), "/no/such/root"))
+
+    with pytest.raises(ServiceError, match="root 'r'"):
+        validate_service_backend(config)

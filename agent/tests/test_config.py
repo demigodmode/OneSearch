@@ -1,7 +1,8 @@
+import os
 from pathlib import Path
 
 import pytest
-from onesearch_agent.config import AgentConfig, load_config
+from onesearch_agent.config import AgentConfig, ConfigError, load_config
 from pydantic import ValidationError
 
 
@@ -26,8 +27,83 @@ def test_config_preserves_advertised_path_and_rejects_unknown_toml(tmp_path: Pat
     config.write_text(
         f'server_url = "http://example.test/"\nallowed_roots = [{{root_id = "docs", path = "{root_text}"}}]\nunknown = 1\n'
     )
-    with pytest.raises(ValidationError):
+    with pytest.raises(ConfigError, match="unknown: Extra inputs are not permitted"):
         load_config(config)
+
+
+def _roots_error(roots) -> str:
+    with pytest.raises(ValidationError) as error:
+        AgentConfig(server_url="http://host", allowed_roots=roots)
+    return str(error.value)
+
+
+def test_config_reports_every_bad_root_by_id(tmp_path: Path):
+    good = tmp_path / "good"
+    good.mkdir()
+    a_file = tmp_path / "file.txt"
+    a_file.write_text("x")
+    message = _roots_error([
+        {"root_id": "good", "path": str(good)},
+        {"root_id": "gone", "path": str(tmp_path / "gone")},
+        {"root_id": "file", "path": str(a_file)},
+        {"root_id": "rel", "path": "relative/path"},
+        {"root_id": "good", "path": str(good)},
+    ])
+
+    assert "root 'gone'" in message and "does not exist" in message
+    assert "root 'file'" in message and "not a directory" in message
+    assert "root 'rel'" in message and "must be absolute" in message
+    assert f"root 'good' ({good}): root_id is used more than once" in message
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads everything")
+def test_config_reports_a_root_this_user_cannot_read(tmp_path: Path):
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        assert "not readable by this user" in _roots_error([{"root_id": "locked", "path": str(locked)}])
+    finally:
+        locked.chmod(0o755)
+
+
+def test_config_errors_do_not_echo_the_whole_config(tmp_path: Path):
+    config = tmp_path / "agent.toml"
+    config.write_text(
+        'server_url = "https://user:secret@host"\nallowed_roots = [{root_id = "r", path = "/nope"}]\n'
+    )
+    with pytest.raises(ConfigError) as error:
+        load_config(config)
+
+    assert "secret" not in str(error.value)
+    assert "server_url:" in str(error.value)
+
+
+def test_config_that_is_not_utf8_is_a_plain_error(tmp_path: Path):
+    config = tmp_path / "agent.toml"
+    config.write_bytes(b'server_url = "http://h\xffost"\n')
+
+    with pytest.raises(ConfigError, match="not valid UTF-8"):
+        load_config(config)
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root reads everything")
+def test_root_behind_a_folder_this_user_cannot_enter(tmp_path: Path):
+    parent = tmp_path / "parent"
+    (parent / "inside").mkdir(parents=True)
+    parent.chmod(0)
+    try:
+        message = _roots_error([{"root_id": "inside", "path": str(parent / "inside")}])
+    finally:
+        parent.chmod(0o755)
+
+    assert "root 'inside'" in message and "can't be checked" in message
+    assert "mounted" not in message
+
+
+def test_missing_config_file_says_which_file(tmp_path: Path):
+    with pytest.raises(ConfigError, match="unable to read agent configuration"):
+        load_config(tmp_path / "missing.toml")
 
 
 @pytest.mark.parametrize("url", ["ftp://host", "https://host/?q=1", "https://host/#x"])
@@ -46,3 +122,14 @@ def test_config_strips_trailing_slash_and_has_no_secret_field(tmp_path: Path):
     )
     assert value.server_url == "http://host"
     assert "token" not in repr(value).lower()
+
+
+def test_repeated_root_keys_get_a_hint(tmp_path: Path):
+    # what the issue reporter tried first: several roots under one header
+    config = tmp_path / "agent.toml"
+    config.write_text(
+        'server_url = "http://host"\n[[allowed_roots]]\nroot_id = "a"\npath = "/a"\nroot_id = "b"\npath = "/b"\n'
+    )
+
+    with pytest.raises(ConfigError, match=r"its own \[\[allowed_roots\]\] line"):
+        load_config(config)

@@ -9,8 +9,8 @@ import unicodedata
 from importlib.resources import files
 from pathlib import Path
 
-from .config import load_config
-from .credentials import credential_store
+from .config import ConfigError, load_config
+from .credentials import CredentialError, credential_store
 
 
 class ServiceError(RuntimeError):
@@ -22,9 +22,23 @@ def validate_service_backend(config_path: Path) -> None:
         raise ServiceError("service configuration path must be absolute")
     try:
         config = load_config(config_path)
+    except ConfigError as error:
+        raise ServiceError(str(error)) from error
+    try:
         credential_store(config).load()
+    except CredentialError as error:
+        if str(error) == "credential is unavailable":
+            # nothing saved: enroll hasn't run yet, or ran as another user or
+            # with another state_dir
+            raise ServiceError(
+                "no saved agent credential. Run enroll first, as the user the service "
+                "will run as and with this same config, then install the service"
+            ) from error
+        raise ServiceError(f"agent credential can't be used: {error}") from error
     except Exception as error:
-        raise ServiceError("service credential backend is unavailable") from error
+        raise ServiceError(
+            f"service credential backend is unavailable ({type(error).__name__})"
+        ) from error
 
 
 def _systemd_arg(value: str) -> str:
