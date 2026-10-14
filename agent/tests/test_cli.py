@@ -374,4 +374,26 @@ def test_run_malformed_config_is_safe(tmp_path: Path):
     config = tmp_path / "agent.toml"
     config.write_text("not = [valid")
     result = CliRunner().invoke(main, ["--config", str(config), "run"])
-    assert "configuration is unavailable" in result.output
+    assert result.exit_code == 1
+    assert "is not valid TOML" in result.output
+    assert "Traceback" not in result.output and "not = [valid" not in result.output
+
+
+def test_config_check_names_the_root_that_is_not_mounted(tmp_path: Path):
+    root = tmp_path / "root"
+    root.mkdir()
+    config = tmp_path / "agent.toml"
+    # same layout as the issue: several roots, one of them never mounted
+    config.write_text(
+        f'server_url = "http://host"\nstate_dir = "{(tmp_path / "state").as_posix()}"\n'
+        f'[[allowed_roots]]\nroot_id = "r"\npath = "{root.as_posix()}"\n'
+        f'[[allowed_roots]]\nroot_id = "script-main"\npath = "{(tmp_path / "script").as_posix()}"\n'
+    )
+
+    result = CliRunner().invoke(main, ["--config", str(config), "config", "check"])
+
+    assert result.exit_code == 1
+    assert "root 'script-main'" in result.output
+    assert "does not exist" in result.output and "mounted" in result.output
+    assert "root 'r'" not in result.output
+    assert "Traceback" not in result.output

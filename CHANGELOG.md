@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Meilisearch no longer runs the container out of memory during a big indexing run. The bundled Meilisearch sized itself from the host and ignored the container's memory limit, so in a small container on a large machine it grew until it was killed, restarted, picked the same task up again and was killed again. OneSearch now sets Meilisearch's indexing threads and memory cap at startup from the memory the container actually has, and logs what it picked. `MEILI_MAX_INDEXING_THREADS` and `MEILI_MAX_INDEXING_MEMORY` can be set in `.env` to override it, and `docker-compose.legacy.yml` defaults to 4 threads. Update your compose file to pick up the two variables. (#306)
+- The remote agent now says which allowed root is wrong and why when it rejects its config: the path doesn't exist (with a hint to check the Docker mount), isn't a directory, isn't readable, isn't absolute, or the `root_id` is used twice. It used to print one generic sentence for all of these, and `config check` showed a Python traceback. (#309)
 
 ## [1.6.0] - 2026-10-07
 

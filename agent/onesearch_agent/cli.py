@@ -14,7 +14,7 @@ import click
 
 from . import __version__
 from .client import AgentClient, AgentIncompatible, AgentRevoked
-from .config import config_path, load_config
+from .config import ConfigError, config_path, load_config
 from .credentials import (
     CredentialError,
     FileCredentialStore,
@@ -41,7 +41,10 @@ def _update_platform() -> str:
 
 
 def _config(ctx):
-    return load_config(ctx.obj["config"])
+    try:
+        return load_config(ctx.obj["config"])
+    except ConfigError as error:
+        raise click.ClickException(str(error)) from error
 
 
 def _linux_systemd_managed() -> bool:
@@ -192,6 +195,8 @@ def run(ctx):
         asyncio.run(loop())
     except KeyboardInterrupt:
         pass
+    except click.ClickException:
+        raise
     except CredentialError as error:
         raise click.ClickException(str(error)) from error
     except (AgentRevoked, AgentIncompatible) as error:

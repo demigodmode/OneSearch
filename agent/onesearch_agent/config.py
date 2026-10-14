@@ -9,12 +9,28 @@ from urllib.parse import urlsplit, urlunsplit
 
 from onesearch_shared import AllowedRoot
 from platformdirs import user_state_dir
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib
+
+
+class ConfigError(ValueError):
+    """The config file can't be used. The message is meant for the person running the agent."""
+
+
+def _root_problem(path: Path) -> str | None:
+    if not path.is_absolute():
+        return "path must be absolute"
+    if not path.exists():
+        return "path does not exist (running in Docker? check that it is mounted)"
+    if not path.is_dir():
+        return "path is not a directory"
+    if not os.access(path, os.R_OK | os.X_OK):
+        return "path is not readable by this user"
+    return None
 
 
 class AgentConfig(BaseModel):
@@ -53,19 +69,18 @@ class AgentConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_roots(self) -> AgentConfig:
+        # check every root so one run of `config check` shows all of the problems
+        problems = []
         ids = set()
         for root in self.allowed_roots:
-            path = Path(root.path)
-            if (
-                root.root_id in ids
-                or not path.is_absolute()
-                or not path.is_dir()
-                or not os.access(path, os.R_OK)
-            ):
-                raise ValueError(
-                    "allowed roots must have unique IDs and be readable existing absolute directories"
-                )
+            if root.root_id in ids:
+                problems.append(f"root '{root.root_id}': root_id is used more than once")
             ids.add(root.root_id)
+            problem = _root_problem(Path(root.path))
+            if problem:
+                problems.append(f"root '{root.root_id}' ({root.path}): {problem}")
+        if problems:
+            raise ValueError("\n".join(problems))
         if self.state_dir.exists() and self.state_dir.is_symlink():
             raise ValueError("state directory must not be a symlink")
         if not self.state_dir.is_absolute():
@@ -87,6 +102,23 @@ def load_config(path: Path | str | None = None) -> AgentConfig:
     try:
         with target.open("rb") as handle:
             data = tomllib.load(handle)
-    except (OSError, tomllib.TOMLDecodeError) as error:
-        raise ValueError("unable to load agent configuration") from error
-    return AgentConfig.model_validate(data)
+    except OSError as error:
+        raise ConfigError(f"unable to read agent configuration {target}: {error.strerror}") from error
+    except tomllib.TOMLDecodeError as error:
+        raise ConfigError(f"agent configuration {target} is not valid TOML: {error}") from error
+    try:
+        return AgentConfig.model_validate(data)
+    except ValidationError as error:
+        raise ConfigError(f"agent configuration {target} has problems:\n{_describe(error)}") from error
+
+
+def _describe(error: ValidationError) -> str:
+    # Only the location and message. Pydantic's own text includes the input
+    # values, which would print the whole config back.
+    lines = []
+    for item in error.errors():
+        message = item["msg"].removeprefix("Value error, ")
+        location = ".".join(str(part) for part in item["loc"])
+        for line in message.splitlines():
+            lines.append(f"  {location}: {line}" if location else f"  {line}")
+    return "\n".join(lines)
