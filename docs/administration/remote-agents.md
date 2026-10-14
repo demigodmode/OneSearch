@@ -31,7 +31,15 @@ root_id = "documents"
 path = "/srv/documents"
 display_name = "Documents"
 read_only = true
+
+[[allowed_roots]]
+root_id = "projects"
+path = "/srv/projects"
+display_name = "Projects"
+read_only = true
 ```
+
+Add one `[[allowed_roots]]` block per folder, repeating the `[[allowed_roots]]` line each time. Every root needs its own `root_id`.
 
 The agent process must be able to read each allowed root and write to `state_dir`. `credential_store = "auto"` uses a secure system credential store when one is available and otherwise uses a permission-restricted file on Linux. Native Windows agents require the Windows credential store.
 
