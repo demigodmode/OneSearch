@@ -17,6 +17,7 @@ What this does:
        shared/pyproject.toml
        cli/onesearch/__init__.py
        frontend/package.json + package-lock.json (via npm)
+       uv.lock (the workspace packages' own entries)
   2. Promotes [Unreleased] section in CHANGELOG.md to versioned entry
   3. Appends comparison link at the CHANGELOG footer
   4. Commits all changed files
@@ -73,7 +74,8 @@ AGENT_INIT = _source_path("agent runtime")
 CLI_INIT = _source_path("cli runtime")
 FRONTEND_PKG = _source_path("frontend")
 FRONTEND_LOCK = ROOT / "frontend" / "package-lock.json"
-VERSION_FILES = TOML_VERSION_FILES + (AGENT_INIT, CLI_INIT, FRONTEND_PKG, FRONTEND_LOCK)
+UV_LOCK = ROOT / "uv.lock"
+VERSION_FILES = TOML_VERSION_FILES + (AGENT_INIT, CLI_INIT, FRONTEND_PKG, FRONTEND_LOCK, UV_LOCK)
 CHANGELOG = ROOT / "CHANGELOG.md"
 
 REPO = "demigodmode/OneSearch"
@@ -170,6 +172,21 @@ def _bumped_runtime_content(path: Path, new_version: str) -> bytes:
     return new_content
 
 
+def _bumped_lock_content(path: Path, new_version: str) -> bytes:
+    # Only our own workspace packages are editable in the lock, so this leaves
+    # third-party pins alone. Saves running `uv lock`, which may want the network.
+    content = path.read_bytes()
+    new_content, count = re.subn(
+        rb'^(version = ")[^"]+("\r?\nsource = \{ editable = )',
+        lambda match: match.group(1) + new_version.encode("utf-8") + match.group(2),
+        content,
+        flags=re.MULTILINE,
+    )
+    if count != len(TOML_VERSION_FILES):
+        die(f"Expected {len(TOML_VERSION_FILES)} workspace packages in {path}, found {count}")
+    return new_content
+
+
 def bump_cli_init(new_version: str):
     new_content = _bumped_runtime_content(CLI_INIT, new_version)
     CLI_INIT.write_bytes(new_content)
@@ -230,6 +247,7 @@ def update_version(new_version: str) -> None:
         (
             (AGENT_INIT, _bumped_runtime_content(AGENT_INIT, new_version)),
             (CLI_INIT, _bumped_runtime_content(CLI_INIT, new_version)),
+            (UV_LOCK, _bumped_lock_content(UV_LOCK, new_version)),
         )
     )
     try:
@@ -418,6 +436,7 @@ def main():
     print("       shared/pyproject.toml")
     print(f"       cli/onesearch/__init__.py")
     print(f"       frontend/package.json + package-lock.json")
+    print("       uv.lock")
     print(f"  2. Promote CHANGELOG.md [Unreleased] -> {new_version}")
     print(f"  3. Append comparison link to CHANGELOG.md footer")
     print(f"  4. Commit all changed files")
@@ -444,6 +463,7 @@ def main():
     print(f"  ok agent/onesearch_agent/__init__.py")
     print(f"  ok cli/onesearch/__init__.py")
     print(f"  ok frontend/package.json + package-lock.json")
+    print("  ok uv.lock")
 
     # --- CHANGELOG ---
     print("\nUpdating CHANGELOG.md...")
@@ -465,6 +485,7 @@ def main():
         "cli/onesearch/__init__.py "
         "frontend/package.json "
         "frontend/package-lock.json "
+        "uv.lock "
         "CHANGELOG.md"
     )
     run(f'git commit -m "release {tag}"')

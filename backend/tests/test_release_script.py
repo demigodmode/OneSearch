@@ -29,6 +29,23 @@ def _write_release_sources(root: Path, shared_version: str | None = "1.3.0") -> 
     frontend.mkdir()
     (frontend / "package.json").write_text('{"version": "1.3.0"}', encoding="utf-8")
     (frontend / "package-lock.json").write_text('{"version": "1.3.0"}', encoding="utf-8")
+    (root / "uv.lock").write_text(_uv_lock("1.3.0"), encoding="utf-8")
+
+
+def _uv_lock(version: str) -> str:
+    packages = [
+        f'[[package]]\nname = "{name}"\nversion = "{version}"\nsource = {{ editable = "{path}" }}\n'
+        for name, path in [
+            ("onesearch", "."),
+            ("onesearch-agent", "agent"),
+            ("onesearch-backend", "backend"),
+            ("onesearch-cli", "cli"),
+            ("onesearch-shared", "shared"),
+        ]
+    ]
+    # a third-party package that happens to share the old version must not move
+    packages.insert(1, '[[package]]\nname = "click"\nversion = "1.3.0"\nsource = { registry = "https://pypi.org/simple" }\n')
+    return "\n".join(packages)
 
 
 def _version_files(root: Path) -> tuple[Path, ...]:
@@ -38,6 +55,7 @@ def _version_files(root: Path) -> tuple[Path, ...]:
         root / "cli" / "onesearch" / "__init__.py",
         root / "frontend" / "package.json",
         root / "frontend" / "package-lock.json",
+        root / "uv.lock",
     )
 
 
@@ -47,6 +65,7 @@ def _configure_update(release, version_files: tuple[Path, ...], monkeypatch) -> 
     monkeypatch.setattr(release, "CLI_INIT", version_files[6])
     monkeypatch.setattr(release, "FRONTEND_PKG", version_files[7])
     monkeypatch.setattr(release, "FRONTEND_LOCK", version_files[8])
+    monkeypatch.setattr(release, "UV_LOCK", version_files[9])
     monkeypatch.setattr(release, "VERSION_FILES", version_files)
 
 
@@ -135,7 +154,7 @@ def test_release_update_changes_every_version_source(tmp_path, monkeypatch):
     _configure_update(release, version_files, monkeypatch)
 
     def bump_frontend(version: str) -> None:
-        for path in version_files[-2:]:
+        for path in version_files[7:9]:
             path.write_text(f'{{"version": "{version}"}}', encoding="utf-8")
 
     monkeypatch.setattr(release, "bump_frontend", bump_frontend)
@@ -143,6 +162,38 @@ def test_release_update_changes_every_version_source(tmp_path, monkeypatch):
     release.update_version("1.4.0")
 
     assert all(b"1.4.0" in path.read_bytes() for path in version_files)
+
+
+def test_release_update_bumps_only_workspace_packages_in_uv_lock(tmp_path, monkeypatch):
+    import scripts.release as release
+
+    _write_release_sources(tmp_path)
+    version_files = _version_files(tmp_path)
+    _configure_update(release, version_files, monkeypatch)
+    monkeypatch.setattr(release, "bump_frontend", lambda _version: None)
+
+    release.update_version("1.4.0")
+
+    lock = (tmp_path / "uv.lock").read_text(encoding="utf-8")
+    assert lock.count('version = "1.4.0"') == 5
+    assert 'name = "click"\nversion = "1.3.0"' in lock
+
+
+def test_release_refuses_a_uv_lock_missing_a_workspace_package(tmp_path, monkeypatch):
+    import scripts.release as release
+
+    _write_release_sources(tmp_path)
+    lock = tmp_path / "uv.lock"
+    lock.write_text(lock.read_text(encoding="utf-8").replace('editable = "shared"', 'virtual = "shared"'), encoding="utf-8")
+    version_files = _version_files(tmp_path)
+    original = {path: path.read_bytes() for path in version_files}
+    _configure_update(release, version_files, monkeypatch)
+    monkeypatch.setattr(release, "bump_frontend", lambda _version: None)
+
+    with pytest.raises(SystemExit):
+        release.update_version("1.4.0")
+
+    assert {path: path.read_bytes() for path in version_files} == original
 
 
 def test_release_update_preserves_each_version_file_mode(tmp_path, monkeypatch):
