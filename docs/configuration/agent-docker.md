@@ -30,7 +30,7 @@ read_only = true
 
 Each folder you want to share gets its own `[[allowed_roots]]` block, with the `[[allowed_roots]]` line repeated above it. Putting a second `root_id` and `path` under the same block is a TOML error. `root_id` must be different for every root.
 
-The paths in this file are container paths, and every one of them needs a matching volume in the compose file below. If a root has no mount, the folder doesn't exist inside the container and `config check` reports that root. The state directory must remain `/var/lib/onesearch-agent` for the volume layout below.
+The paths in this file are container paths, and every one of them needs a matching volume in the compose file below. A root without a mount usually doesn't exist inside the container, and `config check` reports it. The check can't tell whether a folder that does exist is actually a mount, though. The state directory must remain `/var/lib/onesearch-agent` for the volume layout below.
 
 Create a compose override or separate compose file:
 
