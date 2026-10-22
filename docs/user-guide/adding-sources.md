@@ -37,6 +37,18 @@ An **Allowed root** dropdown appears above Root Path, listing the folders in `AL
 
 After saving, run a reindex from the same page unless you set a schedule and are happy to wait for the next run.
 
+## Add several folders at once
+
+In **Admin > Sources**, choose **Add folders as sources**. Browse a local allowed root, or select one approved online remote agent if remote agents are enabled. Check up to 25 folders, then review the selection. Give each folder a name and set the patterns and schedule shared by the batch. Remote batches also share a processing mode. Choose **Create sources** to see a result for each folder.
+
+Each checked folder becomes one source. OneSearch scans files in its subfolders recursively; checking a parent does not create a separate source for every child. You can check a child as well if you want it to be a separate source. Local paths must still be under `ALLOWED_SOURCE_PATHS`. Remote paths must be under the selected agent's allowed roots, and the agent must be online for each path test.
+
+Results distinguish **Created**, **Already exists**, **Duplicate selection**, and **Needs attention**. **Already exists** means a source already uses that exact folder on the same local server or agent. A parent source does not make a child an exact duplicate. Resolve the problem shown for a folder marked **Needs attention** and use its **Retry** button. If the saved path itself is wrong, start a new batch for the correct path. Successfully created sources are kept when another folder fails.
+
+The Sources page lists saved batches. If you close the dialog, reload the page, or lose the connection, use **Resume batch** there to check its saved result and continue pending folders. **View batch** opens a completed result. A saved batch keeps its original results if you later delete a source; retrying it will not recreate that deleted source. **Dismiss** hides the batch from the page without deleting its sources or saved result.
+
+The batch dialog creates source records. Run a reindex on a new source to index it immediately, or wait for its scheduled scan.
+
 ## Add a remote source
 
 Remote agents are optional. Local remains the default and uses a path mounted read-only on the server. To use a remote machine instead, enable **Remote agents** in Settings, enroll and approve its agent, and wait for it to show `online` under **Admin > Agents**.

@@ -20,6 +20,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
+    select,
+    update,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -92,6 +95,43 @@ class AgentEnrollment(Base):
     created_at = Column(DateTime, default=_utcnow, nullable=False)
 
     created_by_user = relationship("User", back_populates="agent_enrollments")
+
+
+class SourceBatch(Base):
+    """Immutable owner-scoped batch request; IDs remain reserved indefinitely."""
+
+    __tablename__ = "source_batches"
+
+    id = Column(String(36), primary_key=True)
+    owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    fingerprint = Column(String(64), nullable=False)
+    request_snapshot = Column(Text, nullable=False)
+    location_type = Column(String(5), nullable=False)
+    agent_id = Column(String, nullable=True)
+    dismissed = Column(Boolean, nullable=False, default=False, server_default="0")
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    updated_at = Column(DateTime, default=_utcnow, nullable=False)
+    items = relationship("SourceBatchItem", back_populates="batch", cascade="all, delete-orphan", order_by="SourceBatchItem.position")
+
+
+class SourceBatchItem(Base):
+    """A durable item outcome, independent of source and agent deletion."""
+
+    __tablename__ = "source_batch_items"
+    __table_args__ = (UniqueConstraint("batch_id", "item_id", name="uq_source_batch_item"),)
+
+    batch_id = Column(String(36), ForeignKey("source_batches.id", ondelete="CASCADE"), primary_key=True)
+    item_id = Column(String(36), primary_key=True)
+    position = Column(Integer, nullable=False)
+    name = Column(String(200), nullable=False)
+    root_path = Column(String(4096), nullable=False)
+    state = Column(String(24), nullable=False, default="pending", server_default="pending")
+    source_id = Column(String(100), nullable=True)
+    duplicate_of_item_id = Column(String(36), nullable=True)
+    last_error = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    updated_at = Column(DateTime, default=_utcnow, nullable=False)
+    batch = relationship("SourceBatch", back_populates="items")
 
 
 class Source(Base):
@@ -402,3 +442,12 @@ class User(Base):
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username})>"
+
+
+@event.listens_for(User, "before_delete")
+def _scrub_deleted_user_batches(mapper, connection, target):
+    """ORM account deletion removes private drafts in the same transaction."""
+    batches = connection.execute(select(SourceBatch.id).where(SourceBatch.owner_user_id == target.id)).scalars().all()
+    if batches:
+        connection.execute(update(SourceBatch).where(SourceBatch.id.in_(batches)).values(request_snapshot="{}", agent_id=None))
+        connection.execute(update(SourceBatchItem).where(SourceBatchItem.batch_id.in_(batches)).values(name="", root_path="", last_error=None))

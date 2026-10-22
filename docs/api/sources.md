@@ -15,6 +15,11 @@ Manage search sources via API. All endpoints require authentication.
 - `POST /api/sources/browse-local` - List subfolders under a local root
 - `POST /api/sources/{id}/reindex` - Trigger reindex
 - `POST /api/sources/{id}/clear-stale` - Clean failed-file entries
+- `POST /api/sources/batches` - Save a batch of up to 25 source requests
+- `GET /api/sources/batches` - List your saved batches
+- `GET /api/sources/batches/{batch_id}` - Read a saved batch and its item results
+- `POST /api/sources/batches/{batch_id}/items/{item_id}/create` - Create or retry one item
+- `POST /api/sources/batches/{batch_id}/dismiss` - Hide a batch from the Sources page
 
 ## Source Fields
 
@@ -163,6 +168,39 @@ Only folders are listed, capped at 500 per directory; `truncated` is `true` when
 | 422 | `local_root_unknown` | `root_id` doesn't match a currently configured root |
 | 422 | `browse_path_invalid` | `path` contains `..`, is absolute, uses backslashes, or has control characters |
 | 409 | `browse_path_unavailable` | the folder is missing, not a directory, unreadable, or a symlink along the way; these all return the same response on purpose |
+
+## Create sources in a batch
+
+`POST /api/sources/batches` saves one request for 1 to 25 local folders or folders on one agent. It does not create the sources yet. Supply a new UUID v4 for the batch and each item. Each item has its own name and path; `common_settings` applies to all items. The normalized request must fit within 64 KiB. The server keeps saved batches so you can resume after a lost response or page reload.
+
+```json
+{
+  "id": "914b176f-988b-44ea-bb9b-20ac87cd5b31",
+  "location_type": "local",
+  "agent_id": null,
+  "common_settings": {"use_default_schedule": true},
+  "items": [
+    {"id": "ae48c19a-5623-42c3-a264-c384cb54ebad", "name": "Books", "root_path": "/data/books"},
+    {"id": "818652c2-9a34-4ccd-9c12-885e976dc311", "name": "Photos", "root_path": "/data/photos"}
+  ]
+}
+```
+
+The create request returns `201` with the saved batch and items in `pending` state. Repeating the same batch ID with the same request returns its saved state; changing the request for an existing ID returns `409`. A batch ID owned by another user returns `404`. IDs remain reserved, even if an owner or source is deleted.
+
+Call `POST /api/sources/batches/{batch_id}/items/{item_id}/create` for each pending item with `{}` as the body. For an agent item, first run a fresh remote path test and pass `{"path_validation_job_id": "..."}`. The agent must be online for that test. The item response has `state`, `source_id`, `source_deleted`, `duplicate_of_item_id`, `error`, and `updated_at`. Possible states are:
+
+| State | Meaning |
+| --- | --- |
+| `created` | This item created a source. |
+| `already_exists` | A source at the same canonical local path, or the same path and agent, already exists. |
+| `duplicate_selection` | An earlier item in this batch selected the same location. |
+| `failed` | Fix the reported path or agent condition before retrying. The saved request cannot be edited. |
+| `pending` | This item has not finished. |
+
+Local duplicates use the resolved path. Remote duplicates use the agent ID and normalized path; Windows agent paths compare without case. Parent and child paths are separate locations. Successful item outcomes remain saved, so repeating the item request does not create another source. A failed item can be retried after fixing the reported condition. To change its saved path, start a new batch. A deleted source is shown with `source_deleted: true`; retrying its saved successful item does not recreate it. If the response to the initial batch request is lost, list your batches before starting a new ID.
+
+`GET /api/sources/batches?limit=20` returns the current user's batches, newest first, with counts and a `next_cursor`. Pass that cursor to retrieve the next page. Page size is 1 to 20. `GET /api/sources/batches/{batch_id}` returns the item details. `POST /api/sources/batches/{batch_id}/dismiss` marks the batch as dismissed but retains its result and sources. Other users' batches return `404` on detail, item creation, and dismissal.
 
 ## Reindex
 

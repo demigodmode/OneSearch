@@ -155,3 +155,72 @@ def test_agent_release_native_embeds_a_valid_key_only_after_tag_verification():
     dockerfile = Path("agent/Dockerfile").read_text(encoding="utf-8")
     assert "ARG AGENT_UPDATE_PUBLIC_KEY" in dockerfile
     assert "release_public_key.txt" in dockerfile
+
+
+def _docker_workflow() -> dict:
+    return yaml.safe_load(DOCKER_WORKFLOW.read_text(encoding="utf-8"))
+
+
+def test_docker_smoke_runs_on_pr_main_push_release_and_dispatch():
+    workflow = _docker_workflow()
+    events = workflow[True]
+    assert events["pull_request"]["branches"] == ["main"]
+    assert events["push"]["branches"] == ["main"]
+    assert events["release"]["types"] == ["published"]
+    assert "workflow_dispatch" in events
+    assert "tags" not in events["push"]
+
+
+def test_docker_smoke_is_read_only_and_resolves_exact_source():
+    workflow = _docker_workflow()
+    smoke = workflow["jobs"]["smoke"]
+    assert smoke["runs-on"] == "ubuntu-latest"
+    assert smoke["permissions"] == {"contents": "read"}
+    assert "secrets." not in str(smoke)
+    assert "resolved_sha" in smoke["outputs"]
+    assert "image_id" in smoke["outputs"]
+    checkout = _action_step(smoke, "actions/checkout")[0]
+    assert "inputs.ref" in checkout["with"]["ref"]
+    assert "github.sha" in checkout["with"]["ref"]
+    run_steps = "\n".join(step.get("run", "") for step in smoke["steps"])
+    assert "git rev-parse HEAD" in run_steps
+    assert "refs/tags/$TAG^{commit}" in run_steps
+    assert "GITHUB_SHA" in run_steps
+    assert "scripts/docker_smoke.py" in run_steps
+    assert "docker builder prune" not in run_steps
+
+
+def test_docker_publisher_requires_same_run_smoke_and_immutable_checkout():
+    workflow = _docker_workflow()
+    publish = workflow["jobs"]["build-and-push"]
+    assert publish["needs"] == "smoke"
+    assert "github.event_name == 'release'" in publish["if"]
+    assert "inputs.version != ''" in publish["if"]
+    assert "needs.smoke.outputs.resolved_sha" in publish["env"]["RESOLVED_SHA"]
+    checkout = _action_step(publish, "actions/checkout")[0]
+    assert checkout["with"]["ref"] == "${{ needs.smoke.outputs.resolved_sha }}"
+    verify = next(
+        i
+        for i, step in enumerate(publish["steps"])
+        if step.get("name") == "Verify smoke source SHA"
+    )
+    assert "git rev-parse HEAD" in publish["steps"][verify]["run"]
+    assert "RESOLVED_SHA" in publish["steps"][verify]["run"]
+    for i, step in enumerate(publish["steps"]):
+        if step.get("name") in {
+            "Reclaim Docker build space",
+            "Publish onesearch-cli to PyPI",
+        } or _action_name(step.get("uses")) in {
+            "actions/upload-artifact",
+            "docker/login-action",
+            "docker/build-push-action",
+        }:
+            assert verify < i
+    pushes = _action_step(publish, "docker/build-push-action")
+    assert len(pushes) == 1
+    assert pushes[0]["with"]["push"] is True
+    assert all(
+        not _action_step(job, "docker/build-push-action")
+        for name, job in workflow["jobs"].items()
+        if name != "build-and-push"
+    )

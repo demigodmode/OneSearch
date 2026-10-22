@@ -130,6 +130,13 @@ def list_confined_browse_directories_page(
         raise ValueError("browse limits must be positive")
     if os.name == "nt":
         return _windows_browse_directory_page(root_id, relative, roots, max_entries, scan_budget)
+    if (
+        not getattr(os, "O_DIRECTORY", 0)
+        or not getattr(os, "O_NOFOLLOW", 0)
+        or getattr(os, "open", None) not in getattr(os, "supports_dir_fd", ())
+        or getattr(os, "scandir", None) not in getattr(os, "supports_fd", ())
+    ):
+        raise PathOutsideAllowedRoots("path cannot be listed safely")
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     directory_fd = -1
     heap: list[tuple[_DescendingDirectoryName, str]] = []
@@ -150,7 +157,7 @@ def list_confined_browse_directories_page(
                 name = candidate.name
                 fd = -1
                 try:
-                    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd)
+                    fd = os.open(name, flags, dir_fd=directory_fd)
                     if not stat.S_ISDIR(os.fstat(fd).st_mode):
                         continue
                     item = (_DescendingDirectoryName(name), name)

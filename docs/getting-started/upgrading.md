@@ -38,6 +38,8 @@ OneSearch is compatible with Docker auto-update tools. Database migrations run a
 - Healthchecks ensure the app is ready before marking the update successful
 - Semver tags let you control update scope (patch, minor, major)
 
+Saved source batches are stored in the OneSearch SQLite database. Keep the existing `onesearch_data` volume when upgrading so their progress and results remain available. The batch tables are added by the normal startup migration; no separate index-volume migration or reindex is required for this change.
+
 **Common tools:**
 
 - **Watchtower** - Automatically pulls and updates containers on a schedule

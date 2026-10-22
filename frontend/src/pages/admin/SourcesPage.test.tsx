@@ -2,22 +2,33 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SourcesPage, { SourceForm } from './SourcesPage'
 import { ApiError } from '@/lib/api'
-import type { Source } from '@/types/api'
+import type { Source, SourceBatchPage } from '@/types/api'
 
 const testPath = vi.fn()
 let mutationPending = false
 let mockSources: Source[] = []
+let mockBatchPage: SourceBatchPage = { batches: [], next_cursor: null }
 let localRootsState: { data: { browse_available: boolean; roots: { root_id: string; path: string; label: string }[] } | undefined; isLoading: boolean; isError: boolean; refetch: () => void } =
   { data: { browse_available: false, roots: [] }, isLoading: false, isError: false, refetch: vi.fn() }
 const browseLocalDirectory = vi.fn()
+const refetchSources = vi.fn()
+let deferredBatchCreated: ((id: string) => void) | null = null
+vi.mock('./BatchSourceDialog', () => ({
+  BatchSourceDialog: ({ onClose, onSourceCreated }: { onClose: () => void; onSourceCreated: (id: string) => void }) => <div>
+    <button onClick={() => onSourceCreated('qa-source')}>Simulate batch creation</button>
+    <button onClick={() => { deferredBatchCreated = onSourceCreated }}>Capture creation callback</button>
+    <button onClick={onClose}>Close batch</button>
+  </div>,
+}))
 vi.mock('@/hooks/useApi', async () => {
   const actual = await vi.importActual<typeof import('@/hooks/useApi')>('@/hooks/useApi')
   return {
     ...actual,
     useTestSourcePath: () => ({ mutate: testPath, isPending: mutationPending }),
-    useSources: () => ({ data: mockSources, isLoading: false, error: null }),
+    useSources: () => ({ data: mockSources, isLoading: false, error: null, refetch: refetchSources }),
     useAppSettings: () => ({ data: undefined }),
     useAgents: () => ({ data: [] }),
+    useSourceBatches: () => ({ data: mockBatchPage, isLoading: false, refetch: vi.fn() }),
     useCreateSource: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false }),
     useUpdateSource: () => ({ mutate: vi.fn(), isPending: false }),
     useDeleteSource: () => ({ mutate: vi.fn(), isPending: false }),
@@ -359,7 +370,43 @@ describe('SourceForm local folder picker', () => {
 })
 
 describe('SourcesPage list', () => {
-  beforeEach(() => { mockSources = [] })
+  beforeEach(() => { mockSources = []; mockBatchPage = { batches: [], next_cursor: null }; refetchSources.mockReset(); deferredBatchCreated = null })
+
+  it('refetches Sources once when a new batch creates a source and the dialog closes', () => {
+    render(<SourcesPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add folders as sources' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close batch' }))
+    expect(refetchSources).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Add folders as sources' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Simulate batch creation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close batch' }))
+    expect(refetchSources).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Add folders as sources' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close batch' }))
+    expect(refetchSources).toHaveBeenCalledTimes(1)
+  })
+
+  it('flushes created Sources when the dialog X closes and ignores duplicate notifications', () => {
+    render(<SourcesPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add folders as sources' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Simulate batch creation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Simulate batch creation' }))
+    expect(refetchSources).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /^Close$/ }))
+    expect(refetchSources).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes immediately for a late result from a closed dialog even when another is open', () => {
+    render(<SourcesPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add folders as sources' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Capture creation callback' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close batch' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add folders as sources' }))
+    act(() => deferredBatchCreated?.('late-source'))
+    expect(refetchSources).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Close batch' }))
+    expect(refetchSources).toHaveBeenCalledTimes(1)
+  })
 
   it('shows an agent offline badge for a source whose agent is unavailable', async () => {
     mockSources = [{
@@ -375,5 +422,15 @@ describe('SourcesPage list', () => {
     }]
     render(<SourcesPage />)
     expect(await screen.findByText('Agent offline')).toBeInTheDocument()
+    expect(document.getElementById('source-remote-source')).toBeInTheDocument()
+  })
+
+  it('allows paging past a fully dismissed first page to recover older batches', () => {
+    mockBatchPage = { batches: Array.from({ length: 20 }, (_, index) => ({
+      id: `dismissed-${index}`, created_at: '', updated_at: '', fingerprint: '', dismissed: true,
+      state: 'complete' as const, counts: { pending: 0, created: 1, already_exists: 0, duplicate_selection: 0, failed: 0 },
+    })), next_cursor: 'older-page' }
+    render(<SourcesPage />)
+    expect(screen.getByRole('button', { name: 'More batches' })).toBeInTheDocument()
   })
 })
