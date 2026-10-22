@@ -436,7 +436,7 @@ def test_migration_is_head_and_round_trips_only_a_temporary_database(tmp_path):
             column[1] for column in connection.execute("PRAGMA table_info('indexed_files')")
         }
     assert row == ("local", None, None)
-    assert revision == "d4a7f2b9c801"
+    assert revision == "f9c23a14b980"
     assert "modified_at_ns" in indexed_columns
     assert "ix_agent_jobs_agent_status_created" in index_names
     assert "ix_agent_jobs_status_lease_expires" in index_names
@@ -450,4 +450,4 @@ def test_migration_is_head_and_round_trips_only_a_temporary_database(tmp_path):
     alembic("check")
     with sqlite3.connect(database_path) as connection:
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-    assert revision == "d4a7f2b9c801"
+    assert revision == "f9c23a14b980"

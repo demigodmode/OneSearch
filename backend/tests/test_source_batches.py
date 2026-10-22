@@ -2,7 +2,17 @@
 
 from uuid import uuid4
 
+import pytest
+
 from app.models import Source
+
+
+@pytest.fixture
+def allowed_temp_source_dir(temp_source_dir, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, 'allowed_source_paths', temp_source_dir)
+    return temp_source_dir
 
 
 def request_payload(*paths):
@@ -24,8 +34,8 @@ def test_create_batch_replays_snapshot_and_rejects_changed_payload(client, temp_
     assert client.post('/api/sources/batches', json=payload).status_code == 409
 
 
-def test_created_item_replays_after_source_deletion(client, db_session, temp_source_dir):
-    payload = request_payload(temp_source_dir)
+def test_created_item_replays_after_source_deletion(client, db_session, allowed_temp_source_dir):
+    payload = request_payload(allowed_temp_source_dir)
     assert client.post('/api/sources/batches', json=payload).status_code == 201
     url = f"/api/sources/batches/{payload['id']}/items/{payload['items'][0]['id']}/create"
     created = client.post(url, json={})
@@ -64,10 +74,10 @@ def test_batch_is_owner_scoped_including_uuid_collision(client, db_session, temp
     assert client.get('/api/sources/batches', headers=headers).json()['batches'] == []
 
 
-def test_batch_partial_results_and_duplicate_selection(client, db_session, temp_source_dir):
+def test_batch_partial_results_and_duplicate_selection(client, db_session, allowed_temp_source_dir):
     from pathlib import Path
-    first = str(Path(temp_source_dir) / 'subdir')
-    missing = str(Path(temp_source_dir) / 'missing')
+    first = str(Path(allowed_temp_source_dir) / 'subdir')
+    missing = str(Path(allowed_temp_source_dir) / 'missing')
     payload = request_payload(first, first + '/.', missing)
     assert client.post('/api/sources/batches', json=payload).status_code == 201
     results = []
@@ -84,12 +94,12 @@ def test_batch_partial_results_and_duplicate_selection(client, db_session, temp_
     assert db_session.query(Source).count() == 2
 
 
-def test_existing_legacy_duplicates_choose_oldest_then_id(client, db_session, temp_source_dir):
+def test_existing_legacy_duplicates_choose_oldest_then_id(client, db_session, allowed_temp_source_dir):
     from datetime import datetime
     for source_id in ['z-source', 'a-source']:
-        db_session.add(Source(id=source_id, name=source_id, root_path=temp_source_dir, created_at=datetime(2020, 1, 1)))
+        db_session.add(Source(id=source_id, name=source_id, root_path=allowed_temp_source_dir, created_at=datetime(2020, 1, 1)))
     db_session.commit()
-    payload = request_payload(temp_source_dir)
+    payload = request_payload(allowed_temp_source_dir)
     assert client.post('/api/sources/batches', json=payload).status_code == 201
     result = client.post(f"/api/sources/batches/{payload['id']}/items/{payload['items'][0]['id']}/create", json={})
     assert result.json()['state'] == 'already_exists'
@@ -393,9 +403,9 @@ def test_same_item_concurrent_calls_return_one_created_source(tmp_path):
         engine.dispose()
 
 
-def test_scheduler_error_reports_committed_source_with_warning(client, monkeypatch, temp_source_dir):
+def test_scheduler_error_reports_committed_source_with_warning(client, monkeypatch, allowed_temp_source_dir):
     from app.main import app
-    payload = request_payload(temp_source_dir)
+    payload = request_payload(allowed_temp_source_dir)
     assert client.post('/api/sources/batches', json=payload).status_code == 201
     def fail_schedule(source_id):
         raise RuntimeError('scheduler unavailable')
@@ -412,14 +422,14 @@ def test_canonical_windows_identity_folds_drive_and_case():
     assert _identity('agent', 'a', '/srv/Docs', False) != _identity('agent', 'a', '/srv/docs', False)
 
 
-def test_local_filesystem_checks_happen_before_write_lock(client, db_session, temp_source_dir, monkeypatch):
+def test_local_filesystem_checks_happen_before_write_lock(client, db_session, allowed_temp_source_dir, monkeypatch):
     import os
 
     from sqlalchemy import event
 
     from app.api import source_batches
 
-    payload = request_payload(temp_source_dir)
+    payload = request_payload(allowed_temp_source_dir)
     assert client.post('/api/sources/batches', json=payload).status_code == 201
     locked = False
     original_realpath = os.path.realpath
