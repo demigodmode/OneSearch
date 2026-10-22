@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add up to 25 local folders or folders from one approved remote agent as sources in one visit to **Admin > Sources**. Each folder gets its own name; patterns, schedule, and remote processing mode can be shared. Saved batches show per-folder results and can be resumed after a page reload or lost connection. Retrying a saved batch does not create its successful sources again. (#280)
+- Select up to 25 local folders or folders from one approved remote agent as separate sources in **Admin > Sources**. Each folder gets its own name; patterns, schedule, and remote processing mode can be shared. Saved batches show per-folder results and can be resumed after a page reload or lost connection. Retrying a saved batch does not create its successful sources again. (#280)
 - A Docker startup smoke check now runs for pull requests and pushes to `main`. Before a Docker image or CLI package is published by the release workflow, the check builds the candidate commit, starts it with disposable data, indexes a file, and confirms search works. Publication uses the same commit that passed the check. This does not gate GitHub release creation or the separate agent release workflow. (#97)
 
 ### Fixed
 
 - Remote agent folder browsing skips named pipes instead of waiting for a writer. Regular folders still appear in the picker. (#281)
-- The batch source dialog keeps the Sources list current after creation and shows saved results when reopened. Its folder selection, review, and result states are easier to distinguish, including in the light theme. (#280)
+- The batch dialog refreshes the Sources list when it closes after creation and restores saved results when reopened. Selection, review, and results are separate steps. Results label each folder's status, and the review step's remove icon is visible in both themes. (#280)
 
 ---
 
