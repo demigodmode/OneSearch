@@ -156,9 +156,11 @@ def exercise_api(
         sleep(min(2, max(0, deadline - clock())))
 
 
-def docker_command(args, timeout=15, redactions=()):
+def docker_command(args, timeout=15, redactions=(), environment=None):
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(
+            args, capture_output=True, text=True, timeout=timeout, check=False, env=environment
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SmokeError(
             f"Docker command failed: {' '.join(args[:3])}: {type(exc).__name__}"
@@ -237,6 +239,10 @@ def container_environment(meili_key, session_secret):
         "ALLOWED_SOURCE_PATHS": SOURCE_ROOT,
         "SCHEDULER_ENABLED": "false",
     }
+
+
+def container_environment_flags(values):
+    return [part for key in values for part in ("--env", key)]
 
 
 def _build_image(context, image, build_log):
@@ -339,15 +345,7 @@ def run_smoke(sha, run_id, context):
         password = secrets.token_urlsafe(24)
         meili_key = secrets.token_urlsafe(32)
         session_secret = secrets.token_urlsafe(32)
-        env_file = root / "container.env"
-        env_file.write_text(
-            "".join(
-                f"{key}={value}\n"
-                for key, value in container_environment(meili_key, session_secret).items()
-            ),
-            encoding="utf-8",
-        )
-        env_file.chmod(0o600)
+        container_env = container_environment(meili_key, session_secret)
         try:
             step = "build"
             _build_image(context, image, root / "build.log")
@@ -379,8 +377,7 @@ def run_smoke(sha, run_id, context):
                     "512",
                     "--publish",
                     "127.0.0.1::8000",
-                    "--env-file",
-                    str(env_file),
+                    *container_environment_flags(container_env),
                     "--mount",
                     f"type=volume,src={data_volume},dst=/app/data",
                     "--mount",
@@ -391,6 +388,7 @@ def run_smoke(sha, run_id, context):
                 ],
                 timeout=60,
                 redactions=(password, meili_key, session_secret),
+                environment={**os.environ, **container_env},
             )
             port = docker_command(["docker", "port", container, "8000/tcp"])
             match = re.search(r"127\.0\.0\.1:(\d+)", port)

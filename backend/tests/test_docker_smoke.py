@@ -192,6 +192,37 @@ def test_container_environment_allows_only_the_fixture_path():
     assert values["SESSION_SECRET"] == "session-secret"
 
 
+def test_container_environment_flags_name_variables_without_exposing_values():
+    smoke = smoke_module()
+    values = smoke.container_environment("meili-secret", "session-secret")
+    flags = smoke.container_environment_flags(values)
+    assert flags == [part for key in values for part in ("--env", key)]
+    assert "meili-secret" not in flags
+    assert "session-secret" not in flags
+
+
+def test_docker_command_passes_generated_secrets_as_process_environment(monkeypatch):
+    smoke = smoke_module()
+    captured = {}
+
+    class Result:
+        returncode = 0
+        stdout = "container-id"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        captured.update(args=args, kwargs=kwargs)
+        return Result()
+
+    monkeypatch.setattr(smoke.subprocess, "run", fake_run)
+    command = ["docker", "run", "--env", "SESSION_SECRET", "image"]
+    environment = {"SESSION_SECRET": "session-secret"}
+    assert smoke.docker_command(command, environment=environment) == "container-id"
+    assert captured["args"] == command
+    assert captured["kwargs"]["env"] == environment
+    assert "session-secret" not in " ".join(command)
+
+
 def test_failed_docker_command_reports_bounded_redacted_daemon_error(monkeypatch):
     smoke = smoke_module()
 
