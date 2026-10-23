@@ -192,7 +192,11 @@ export function BatchSourceDialog({ onClose, onChanged, onSourceCreated, agents,
       try {
         saved = await getSourceBatch(payload.id)
       } catch {
-        if (cause instanceof ApiError && cause.status !== 404) { setError(cause.message); setBusy(false); return }
+        if (cause instanceof ApiError && cause.status !== 404) {
+          // nothing was saved on a 413/422, so let the user fix it and send a fresh batch
+          if (cause.status === 413 || cause.status === 422) operation.current = null
+          setError(cause.message); setBusy(false); return
+        }
         try { saved = await createSourceBatch(payload) }
         catch { uncertainBatches.add(payload.id); setError('Submission is uncertain. Retry this same batch to recover its saved operation.'); setBusy(false); return }
       }

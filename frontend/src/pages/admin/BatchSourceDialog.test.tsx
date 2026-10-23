@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { BatchSourceDialog } from './BatchSourceDialog'
+import { ApiError } from '@/lib/api'
 
 const createBatch = vi.fn()
 const createItem = vi.fn()
@@ -12,6 +13,9 @@ vi.mock('@/lib/api', () => ({
   createSourceBatchItem: (...args: unknown[]) => createItem(...args),
   getSourceBatch: (...args: unknown[]) => getBatch(...args),
   testSourcePath: vi.fn(),
+  ApiError: class ApiError extends Error {
+    constructor(message: string, public status: number) { super(message) }
+  },
 }))
 
 describe('BatchSourceDialog', () => {
@@ -234,6 +238,29 @@ describe('BatchSourceDialog', () => {
     expect(await screen.findByText('1 created, 0 already existed, 0 duplicate selections, 0 need attention')).toBeInTheDocument()
     expect(createBatch).toHaveBeenCalledTimes(1)
     expect(createItem).not.toHaveBeenCalled()
+  })
+
+  it('sends the edited batch after the server rejects the first one', async () => {
+    createBatch.mockReset()
+      .mockRejectedValueOnce(new ApiError('Batch request exceeds 64 KiB', 413))
+      .mockResolvedValueOnce(saved(['created']))
+    createItem.mockReset()
+    getBatch.mockReset()
+      .mockRejectedValueOnce(new ApiError('Batch not found', 404))
+      .mockImplementation(async () => saved(['created']))
+    render(<BatchSourceDialog onClose={vi.fn()} onChanged={vi.fn()} agents={[]} remoteAgentsEnabled={false} defaultSchedule={null} />)
+    fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: 'docs' } })
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select folder /data/team' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review 1 folder' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create 1 source' }))
+    expect(await screen.findByText('Batch request exceeds 64 KiB')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Name for /data/team'), { target: { value: 'Renamed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create 1 source' }))
+    await waitFor(() => expect(createBatch).toHaveBeenCalledTimes(2))
+    const [first, second] = createBatch.mock.calls.map(([payload]) => payload)
+    expect(second.id).not.toBe(first.id)
+    expect(second.items[0].name).toBe('Renamed')
   })
 
   it('shows six successes and two failures on reopening without starting pending work', async () => {

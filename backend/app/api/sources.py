@@ -512,6 +512,11 @@ def _validate_source_location(
     return canonical_path
 
 
+# These are fixed routes under /api/sources, so a source with one of these IDs
+# couldn't be fetched with GET /api/sources/{id}
+RESERVED_SOURCE_IDS = {"batches", "browse", "browse-local", "local-roots", "test-path"}
+
+
 def generate_source_id(name: str) -> str:
     """Generate a URL-safe source ID from name"""
     import re
@@ -520,6 +525,8 @@ def generate_source_id(name: str) -> str:
     source_id = name.lower().strip()
     source_id = re.sub(r"\s+", "-", source_id)
     source_id = re.sub(r"[^a-z0-9\-]", "", source_id)
+    if source_id in RESERVED_SOURCE_IDS:
+        return f"{source_id}-source"
     return source_id or "source"
 
 
@@ -528,9 +535,15 @@ def _build_source(db: Session, data: SourceCreate, source_id: str, root_path: st
     if not data.use_default_schedule:
         if data.schedule_type == "interval":
             if not validate_interval(data.interval_value, data.interval_unit):
-                raise HTTPException(status_code=400, detail="Invalid interval")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid interval: {data.interval_value} {data.interval_unit}",
+                )
         elif data.scan_schedule and not validate_schedule(data.scan_schedule):
-            raise HTTPException(status_code=400, detail="Invalid scan schedule")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid scan schedule: {data.scan_schedule}",
+            )
     source = Source(
         id=source_id, name=data.name, root_path=str(root_path),
         location_type=data.location_type, agent_id=data.agent_id,
@@ -773,6 +786,11 @@ async def create_source(
     """
     # Generate ID if not provided
     source_id = source_data.id or generate_source_id(source_data.name)
+    if source_id in RESERVED_SOURCE_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Source ID '{source_id}' is reserved",
+        )
 
     # Check if ID already exists
     existing = db.get(Source, source_id)

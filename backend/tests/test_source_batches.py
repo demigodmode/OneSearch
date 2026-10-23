@@ -267,6 +267,9 @@ def test_busy_writer_returns_bounded_503_without_changing_item(tmp_path):
                 _write_item(session, batch_id, item_id, 1, source, None, None)
             assert error.value.status_code == 503
             assert time.monotonic() - start < 2.5
+        # blocker is still checked out, so this gets the connection _write_item used
+        with engine.connect() as conn:
+            assert conn.exec_driver_sql('PRAGMA busy_timeout').scalar() == 5000
     finally:
         blocker.rollback()
         blocker.close()
@@ -274,6 +277,39 @@ def test_busy_writer_returns_bounded_503_without_changing_item(tmp_path):
     with sessions() as session:
         assert session.get(SourceBatchItem, (batch_id, item_id)).state == 'pending'
         assert session.query(Source).count() == 0
+    engine.dispose()
+
+
+def test_created_item_leaves_pooled_busy_timeout_alone(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from app.api.source_batches import _write_item
+    from app.api.sources import _build_source
+    from app.config import settings
+    from app.models import Base, SourceBatch, SourceBatchItem
+    from app.schemas import SourceCreate
+    engine = create_engine(f'sqlite:///{tmp_path / "timeout.db"}', connect_args={'check_same_thread': False})
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(bind=engine, autoflush=False)
+    folder = tmp_path / 'docs'
+    folder.mkdir()
+    batch_id, item_id = str(uuid4()), str(uuid4())
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with sessions() as session:
+        session.add(SourceBatch(id=batch_id, owner_user_id=1, fingerprint='f', request_snapshot='{"common_settings":{}}',
+            location_type='local', created_at=now, updated_at=now,
+            items=[SourceBatchItem(batch_id=batch_id, item_id=item_id, position=0, name='Docs', root_path=str(folder))]))
+        session.commit()
+    monkeypatch.setattr(settings, 'allowed_source_paths', str(tmp_path))
+    with sessions() as session:
+        source = _build_source(session, SourceCreate(id='batch-ok', name='Docs', root_path=str(folder)), 'batch-ok', str(folder))
+        _result, created = _write_item(session, batch_id, item_id, 1, source, None, None)
+        assert created
+    with engine.connect() as conn:
+        assert conn.exec_driver_sql('PRAGMA busy_timeout').scalar() == 5000
     engine.dispose()
 
 

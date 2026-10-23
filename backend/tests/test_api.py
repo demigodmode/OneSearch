@@ -252,6 +252,21 @@ class TestSourceEndpoints:
 
         assert response.status_code == 422
 
+    def test_source_named_batches_gets_a_fetchable_id(self, client, temp_source_dir):
+        # /api/sources/batches is the batch list, so the generated ID has to differ
+        response = client.post("/api/sources", json={"name": "Batches", "root_path": temp_source_dir})
+        assert response.status_code == 201
+        assert response.json()["id"] == "batches-source"
+        assert client.get("/api/sources/batches-source").json()["name"] == "Batches"
+
+    def test_create_source_rejects_route_name_as_custom_id(self, client, temp_source_dir):
+        response = client.post(
+            "/api/sources",
+            json={"id": "local-roots", "name": "Roots", "root_path": temp_source_dir},
+        )
+        assert response.status_code == 400
+        assert "reserved" in response.json()["detail"]
+
     def test_create_source_duplicate_id(self, client, sample_source, temp_source_dir):
         """Test creating source with duplicate ID fails"""
         source_data = {
@@ -440,6 +455,14 @@ class TestSourceScheduling:
 
         assert data["scan_schedule"] is None
         assert data["next_scan_at"] is None
+
+    def test_create_source_bad_schedule_says_what_was_wrong(self, client, temp_source_dir):
+        response = client.post(
+            "/api/sources",
+            json={"name": "Bad cron", "root_path": temp_source_dir, "scan_schedule": "not a cron"},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid scan schedule: not a cron"
 
     def test_update_source_schedule_updates_next_scan(self, client, sample_source):
         """Updating a source's schedule should update next_scan_at immediately"""
