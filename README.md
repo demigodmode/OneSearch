@@ -22,7 +22,7 @@
 
 OneSearch indexes your local directories, NAS shares, and external drives and gives you instant full-text search from a browser. No cloud, no telemetry, runs in Docker.
 
-![OneSearch search results](assets/screenshots/search_results.png)
+https://github.com/user-attachments/assets/00b47f81-8275-4e49-a40d-a5a820f48726
 
 ---
 
