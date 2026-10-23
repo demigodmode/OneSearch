@@ -240,6 +240,22 @@ describe('BatchSourceDialog', () => {
     expect(createItem).not.toHaveBeenCalled()
   })
 
+  it('locks the review form when the last submit might have been saved', async () => {
+    createBatch.mockReset().mockRejectedValueOnce(new ApiError('Server error', 500))
+    createItem.mockReset()
+    getBatch.mockReset().mockRejectedValueOnce(new ApiError('Server error', 500))
+    render(<BatchSourceDialog onClose={vi.fn()} onChanged={vi.fn()} agents={[]} remoteAgentsEnabled={false} defaultSchedule={null} />)
+    fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: 'docs' } })
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select folder /data/team' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Review 1 folder' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create 1 source' }))
+    expect(await screen.findByText('Server error')).toBeInTheDocument()
+    expect(screen.getByText(/trying again sends the same folders and settings/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Name for /data/team')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Back to folders' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Create 1 source' })).toBeEnabled()
+  })
+
   it('sends the edited batch after the server rejects the first one', async () => {
     createBatch.mockReset()
       .mockRejectedValueOnce(new ApiError('Batch request exceeds 64 KiB', 413))

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..db.database import get_db
 from ..models import Agent, Source, SourceBatch, SourceBatchItem, User, _utcnow
 from ..schemas import SourceBatchCreate, SourceBatchItemCreateRequest, SourceCreate
+from ..services.scheduler import validate_interval, validate_schedule
 from .auth import get_current_user
 
 router = APIRouter(prefix="/batches")
@@ -81,6 +82,14 @@ def create_batch(payload: SourceBatchCreate, db: Session = Depends(get_db), curr
         if existing.fingerprint != fingerprint:
             raise HTTPException(status_code=409, detail="Batch ID already has a different request")
         return _detail(db, existing)
+    # Batch settings can't be edited later, so a bad schedule would fail every item for good
+    common = payload.common_settings
+    if not common.use_default_schedule:
+        if common.schedule_type == "interval":
+            if not validate_interval(common.interval_value, common.interval_unit):
+                raise HTTPException(status_code=422, detail="Invalid interval")
+        elif common.scan_schedule and not validate_schedule(common.scan_schedule):
+            raise HTTPException(status_code=422, detail=f"Invalid scan schedule: {common.scan_schedule}")
     now = _utcnow()
     batch = SourceBatch(id=payload.id, owner_user_id=current_user.id, fingerprint=fingerprint,
                         request_snapshot=encoded, location_type=payload.location_type, agent_id=payload.agent_id,

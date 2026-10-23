@@ -34,6 +34,17 @@ def test_create_batch_replays_snapshot_and_rejects_changed_payload(client, temp_
     assert client.post('/api/sources/batches', json=payload).status_code == 409
 
 
+@pytest.mark.parametrize('schedule', [
+    {'schedule_type': 'cron', 'scan_schedule': 'not a cron'},
+    {'schedule_type': 'interval', 'interval_value': 5},
+])
+def test_bad_schedule_is_rejected_before_the_batch_is_saved(client, temp_source_dir, schedule):
+    payload = request_payload(temp_source_dir)
+    payload['common_settings'] = schedule
+    assert client.post('/api/sources/batches', json=payload).status_code == 422
+    assert client.get(f"/api/sources/batches/{payload['id']}").status_code == 404
+
+
 def test_created_item_replays_after_source_deletion(client, db_session, allowed_temp_source_dir):
     payload = request_payload(allowed_temp_source_dir)
     assert client.post('/api/sources/batches', json=payload).status_code == 201

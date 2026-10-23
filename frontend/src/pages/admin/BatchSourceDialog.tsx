@@ -64,6 +64,7 @@ export function BatchSourceDialog({ onClose, onChanged, onSourceCreated, agents,
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [interrupted, setInterrupted] = useState(false)
+  const [frozen, setFrozen] = useState(false)
   const proofCache = useRef(new Map<string, { jobId: string; at: number }>())
   const operation = useRef<SourceBatchCreate | null>(null)
   const observedCreated = useRef(new Set<string>())
@@ -184,6 +185,7 @@ export function BatchSourceDialog({ onClose, onChanged, onSourceCreated, agents,
       items: selected.map((item, index) => ({ id: item.id, name: names[index], root_path: item.absolute_path })),
     }
     operation.current = payload // A lost initial response keeps the same operation UUID and immutable payload.
+    setFrozen(true)
     setBusy(true); setError(null)
     let saved: SourceBatch
     try {
@@ -194,7 +196,7 @@ export function BatchSourceDialog({ onClose, onChanged, onSourceCreated, agents,
       } catch {
         if (cause instanceof ApiError && cause.status !== 404) {
           // nothing was saved on a 413/422, so let the user fix it and send a fresh batch
-          if (cause.status === 413 || cause.status === 422) operation.current = null
+          if (cause.status === 413 || cause.status === 422) { operation.current = null; setFrozen(false) }
           setError(cause.message); setBusy(false); return
         }
         try { saved = await createSourceBatch(payload) }
@@ -248,6 +250,8 @@ export function BatchSourceDialog({ onClose, onChanged, onSourceCreated, agents,
     </>}
     {step === 'review' && <>
       <div><h3 className="text-base font-semibold">Review selected folders</h3><p className="text-muted-foreground">Give each source a name, then apply settings shared by this batch.</p></div>
+      {frozen && <p role="status" className="rounded-md border border-border bg-secondary/40 p-3">The last submit may have been saved, so trying again sends the same folders and settings. Close this dialog and start a new batch if you need changes.</p>}
+      <fieldset disabled={frozen} className="space-y-3 disabled:opacity-60">
       <div className="space-y-3">{selected.map((item) => <section key={item.id} className="space-y-3 rounded-lg border border-border bg-card p-3 shadow-sm"><div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><p className="min-w-0 break-all rounded bg-secondary/40 px-2 py-1 font-mono text-xs">{item.absolute_path}</p><Button type="button" size="icon" variant="outline" aria-label={`Remove selected folder ${item.absolute_path}`} title={`Remove selected folder ${item.absolute_path} from this batch`} className="shrink-0 self-start border-destructive-strong/60 text-destructive-strong hover:bg-destructive/10 hover:text-destructive-strong" onClick={() => setSelected((current) => current.filter((row) => row.id !== item.id))}><Trash2 aria-hidden="true" /></Button></div><label className="block space-y-1 font-medium">Name <input aria-label={`Name for ${item.absolute_path}`} className="w-full rounded-md border border-input bg-background p-2 font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" maxLength={200} value={item.name} onChange={(event) => setSelected((current) => current.map((row) => row.id === item.id ? { ...row, name: event.target.value } : row))} /></label></section>)}</div>
       <section className="space-y-3 rounded-lg border border-border bg-secondary/20 p-3" aria-label="Shared settings"><h3 className="font-semibold">Shared settings</h3>
         <label className="block space-y-1">Include patterns <input aria-label="Include patterns" className="w-full rounded-md border border-input bg-background p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={includePatterns} onChange={(event) => setIncludePatterns(event.target.value)} placeholder="Comma separated" /></label>
@@ -256,7 +260,8 @@ export function BatchSourceDialog({ onClose, onChanged, onSourceCreated, agents,
         {!useDefaultSchedule && <SchedulePicker value={schedule} onChange={setSchedule} idPrefix="batch-schedule" />}
         {locationType === 'agent' && <label className="block">Processing mode <select aria-label="Processing mode" value={processingMode} onChange={(event) => setProcessingMode(event.target.value as ProcessingMode | '')}><option value="">Inherit agent default</option><option value="on_agent">On agent</option><option value="on_server">On server</option></select></label>}
       </section>
-      <div className="flex flex-col-reverse gap-2 border-t border-border pt-3 sm:flex-row sm:justify-end"><Button type="button" variant="outline" onClick={() => setStep('select')}>Back to folders</Button><Button type="button" disabled={busy || !selected.length} onClick={submit}>{busy ? 'Submitting…' : `Create ${selected.length} source${selected.length === 1 ? '' : 's'}`}</Button></div>
+      </fieldset>
+      <div className="flex flex-col-reverse gap-2 border-t border-border pt-3 sm:flex-row sm:justify-end"><Button type="button" variant="outline" disabled={frozen} onClick={() => setStep('select')}>Back to folders</Button><Button type="button" disabled={busy || !selected.length} onClick={submit}>{busy ? 'Submitting…' : `Create ${selected.length} source${selected.length === 1 ? '' : 's'}`}</Button></div>
     </>}
     {step === 'results' && <>
       {!batch ? <p role="status">Loading saved batch…</p> : <>
