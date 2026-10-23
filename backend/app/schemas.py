@@ -465,3 +465,57 @@ class MessageResponse(BaseModel):
     """Generic message response"""
 
     message: str
+
+
+class SourceBatchSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    include_patterns: list[str] = Field(default_factory=list, max_length=20)
+    exclude_patterns: list[str] = Field(default_factory=list, max_length=20)
+    scan_schedule: str | None = Field(default=None, max_length=100)
+    schedule_type: Literal["cron", "interval"] = "cron"
+    interval_value: int | None = Field(default=None, gt=0)
+    interval_unit: Literal["minutes", "hours", "days"] | None = None
+    use_default_schedule: bool = False
+    processing_mode: Literal["on_agent", "on_server"] | None = None
+
+    @model_validator(mode="after")
+    def _bounded_patterns(self):
+        if any(not pattern or len(pattern) > 256 for pattern in self.include_patterns + self.exclude_patterns):
+            raise ValueError("Patterns must be 1–256 characters")
+        return self
+
+
+class SourceBatchItemCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    name: str = Field(min_length=1, max_length=200)
+    root_path: str = Field(min_length=1, max_length=4096)
+
+
+class SourceBatchCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    location_type: Literal["local", "agent"]
+    agent_id: str | None = Field(default=None, max_length=100)
+    common_settings: SourceBatchSettings
+    items: list[SourceBatchItemCreate] = Field(min_length=1, max_length=25)
+
+    @model_validator(mode="after")
+    def _binding(self):
+        from uuid import UUID
+        try:
+            if UUID(self.id).version != 4 or any(UUID(item.id).version != 4 for item in self.items):
+                raise ValueError("IDs must be UUID v4")
+        except (ValueError, AttributeError) as error:
+            raise ValueError("IDs must be UUID v4") from error
+        if len({item.id for item in self.items}) != len(self.items):
+            raise ValueError("Item IDs must be unique")
+        if self.location_type == "local" and (self.agent_id or self.common_settings.processing_mode):
+            raise ValueError("Local batches cannot bind an agent or processing mode")
+        if self.location_type == "agent" and not self.agent_id:
+            raise ValueError("Agent ID is required")
+        return self
+
+
+class SourceBatchItemCreateRequest(BaseModel):
+    path_validation_job_id: str | None = None

@@ -1,7 +1,13 @@
+import os
+import subprocess
+import sys
 import time
+from pathlib import Path
 
+import onesearch_agent.paths as paths
 import pytest
 from onesearch_agent import worker
+from onesearch_agent.paths import PathOutsideAllowedRoots, list_confined_browse_directories_page
 from onesearch_shared import AgentJobLease, AllowedRoot, JobKind, JobStatus
 
 
@@ -20,6 +26,122 @@ class _Client:
 
     async def cancel_ack(self, *_args):
         return None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX FIFO and dirfd semantics")
+def test_posix_agent_browse_job_skips_fifo_without_blocking(tmp_path):
+    (tmp_path / "alpha").mkdir()
+    (tmp_path / "ordinary.txt").write_text("file")
+    (tmp_path / "escape").symlink_to(tmp_path.parent, target_is_directory=True)
+    os.mkfifo(tmp_path / "pipe")
+    script = """
+import asyncio
+import json
+import sys
+from onesearch_agent import worker
+from onesearch_shared import AgentJobLease, AllowedRoot, JobKind
+
+class Client:
+    def __init__(self):
+        self.completion = None
+
+    async def complete(self, _job_id, completion, _token):
+        self.completion = completion
+
+    async def job_heartbeat(self, *_args):
+        return None
+
+lease = AgentJobLease(
+    id="fifo", kind=JobKind.BROWSE,
+    payload={"operation": "list", "root_id": "docs", "path": ""}, lease_token="token"
+)
+client = Client()
+asyncio.run(worker.run_browse_job(
+    lease, client, roots=[AllowedRoot(root_id="docs", path=sys.argv[1])]
+))
+print(json.dumps({
+    "status": client.completion.status.value,
+    "names": [entry.name for entry in client.completion.browse_result.entries],
+}))
+"""
+    project_root = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        (str(project_root / "agent"), str(project_root / "shared"), env.get("PYTHONPATH", ""))
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == '{"status": "succeeded", "names": ["alpha"]}'
+    assert str(tmp_path) not in result.stdout + result.stderr
+
+
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX dirfd semantics")
+@pytest.mark.parametrize(
+    "missing_capability",
+    [
+        "no_directory_flag",
+        "zero_directory_flag",
+        "no_nofollow_flag",
+        "zero_nofollow_flag",
+        "no_open_dirfd",
+        "no_scandir_fd",
+    ],
+)
+def test_posix_browse_rejects_missing_required_capability_before_open(
+    tmp_path, monkeypatch, missing_capability
+):
+    (tmp_path / "safe").mkdir()
+
+    def forbidden_open(*_args, **_kwargs):
+        raise AssertionError("browse opened a path without required capabilities")
+
+    monkeypatch.setattr(paths.os, "open", forbidden_open)
+    supported_dir_fd = set(os.supports_dir_fd) | {forbidden_open}
+    supported_fd = set(os.supports_fd)
+    if missing_capability == "no_directory_flag":
+        monkeypatch.delattr(paths.os, "O_DIRECTORY")
+    elif missing_capability == "zero_directory_flag":
+        monkeypatch.setattr(paths.os, "O_DIRECTORY", 0)
+    elif missing_capability == "no_nofollow_flag":
+        monkeypatch.delattr(paths.os, "O_NOFOLLOW")
+    elif missing_capability == "zero_nofollow_flag":
+        monkeypatch.setattr(paths.os, "O_NOFOLLOW", 0)
+    elif missing_capability == "no_open_dirfd":
+        supported_dir_fd.remove(forbidden_open)
+    else:
+        supported_fd.remove(os.scandir)
+    monkeypatch.setattr(paths.os, "supports_dir_fd", supported_dir_fd)
+    monkeypatch.setattr(paths.os, "supports_fd", supported_fd)
+
+    roots = [AllowedRoot(root_id="docs", path=str(tmp_path))]
+    with pytest.raises(PathOutsideAllowedRoots, match="^path cannot be listed safely$"):
+        list_confined_browse_directories_page("docs", "", roots, max_entries=10)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX dirfd semantics")
+def test_posix_browse_keeps_nested_directory_confined(tmp_path):
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / "inner").mkdir()
+    (nested / "escape").symlink_to(tmp_path.parent, target_is_directory=True)
+    roots = [AllowedRoot(root_id="docs", path=str(tmp_path))]
+
+    page = list_confined_browse_directories_page("docs", "nested", roots, max_entries=10)
+
+    assert [(entry.name, entry.relative_path) for entry in page.entries] == [
+        ("inner", "nested/inner")
+    ]
+    with pytest.raises(PathOutsideAllowedRoots, match="^path cannot be listed safely$"):
+        list_confined_browse_directories_page("docs", "nested/escape", roots, max_entries=10)
+    with pytest.raises(PathOutsideAllowedRoots, match="^invalid relative path$"):
+        list_confined_browse_directories_page("docs", "nested/../inner", roots, max_entries=10)
 
 
 @pytest.mark.asyncio

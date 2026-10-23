@@ -415,3 +415,50 @@ export interface ValidationError {
     type: string
   }>
 }
+
+export interface SourceBatchSettings extends ScheduleConfig {
+  include_patterns: string[]
+  exclude_patterns: string[]
+  use_default_schedule: boolean
+  processing_mode: ProcessingMode | null
+}
+export interface SourceBatchCreate {
+  id: string
+  location_type: 'local' | 'agent'
+  agent_id: string | null
+  common_settings: SourceBatchSettings
+  items: { id: string; name: string; root_path: string }[]
+}
+export interface SourceBatchItem {
+  id: string
+  name: string
+  root_path: string
+  state: 'pending' | 'created' | 'already_exists' | 'duplicate_selection' | 'failed'
+  source_id: string | null
+  source_deleted: boolean
+  duplicate_of_item_id: string | null
+  error: string | null
+  updated_at: string
+  warning?: string | null
+}
+export interface SourceBatch {
+  id: string
+  location_type: 'local' | 'agent'
+  agent_id: string | null
+  common_settings: SourceBatchSettings
+  fingerprint: string
+  dismissed: boolean
+  created_at: string
+  updated_at: string
+  items: SourceBatchItem[]
+}
+export interface SourceBatchSummary {
+  id: string
+  created_at: string
+  updated_at: string
+  fingerprint: string
+  dismissed: boolean
+  state: 'pending' | 'needs_attention' | 'complete'
+  counts: Record<SourceBatchItem['state'], number>
+}
+export interface SourceBatchPage { batches: SourceBatchSummary[]; next_cursor: string | null }

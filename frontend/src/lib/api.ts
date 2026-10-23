@@ -30,6 +30,7 @@ import type {
   Agent, AgentDetails, AgentEnrollment, ProcessingMode,
   LocalSourceRootsResponse,
   LocalBrowseResponse,
+  SourceBatch, SourceBatchCreate, SourceBatchItem, SourceBatchPage,
 } from '@/types/api'
 
 // ============================================================================
@@ -166,6 +167,24 @@ export async function getHealth(): Promise<HealthResponse> {
  */
 export async function getStatus(): Promise<StatusResponse> {
   return apiFetch<StatusResponse>('/status')
+}
+
+export function createSourceBatch(data: SourceBatchCreate): Promise<SourceBatch> {
+  return apiFetch<SourceBatch>('/sources/batches', { method: 'POST', body: JSON.stringify(data) })
+}
+export function listSourceBatches(cursor?: string): Promise<SourceBatchPage> {
+  return apiFetch<SourceBatchPage>(`/sources/batches${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
+}
+export function getSourceBatch(id: string): Promise<SourceBatch> {
+  return apiFetch<SourceBatch>(`/sources/batches/${encodeURIComponent(id)}`)
+}
+export function createSourceBatchItem(batchId: string, itemId: string, pathValidationJobId?: string | null): Promise<SourceBatchItem> {
+  return apiFetch<SourceBatchItem>(`/sources/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemId)}/create`, {
+    method: 'POST', body: JSON.stringify({ path_validation_job_id: pathValidationJobId ?? null }),
+  })
+}
+export function dismissSourceBatch(id: string): Promise<SourceBatch> {
+  return apiFetch<SourceBatch>(`/sources/batches/${encodeURIComponent(id)}/dismiss`, { method: 'POST' })
 }
 
 // ============================================================================

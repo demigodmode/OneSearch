@@ -3,12 +3,14 @@
 
 import { useRef, useState } from 'react'
 import { Database, Plus, FolderOpen, RefreshCw, Pencil, Trash2, Loader2, AlertCircle, Clock, CheckCircle, Link2 } from 'lucide-react'
-import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath, useAppSettings, useAgents } from '@/hooks/useApi'
+import { useSources, useCreateSource, useUpdateSource, useDeleteSource, useReindexSource, useTestSourcePath, useAppSettings, useAgents, useSourceBatches } from '@/hooks/useApi'
 import type { Agent, ProcessingMode, Source, SourceCreate, SourceUpdate, SourcePathTestResponse } from '@/types/api'
 import { RemotePathPicker } from '@/components/agents/RemotePathPicker'
 import { LocalFolderPicker } from '@/components/LocalFolderPicker'
 import { cn, formatRelativeTime } from '@/lib/utils'
-import { browseSourceDirectory } from '@/lib/api'
+import { browseSourceDirectory, dismissSourceBatch, listSourceBatches } from '@/lib/api'
+import { BatchSourceDialog } from './BatchSourceDialog'
+import type { SourceBatchSummary } from '@/types/api'
 import { AgentUnavailableBadge } from '@/components/agents/AgentUnavailableBadge'
 import {
   Dialog,
@@ -382,15 +384,57 @@ function DeleteConfirmDialog({
 
 export default function SourcesPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isBatchDialogOpen, setIsBatchDialogOpen] = useState(false)
+  const batchDialogOpen = useRef(false)
+  const batchDialogSession = useRef(0)
+  const dirtyBatchSession = useRef<number | null>(null)
+  const announcedBatchSources = useRef(new Set<string>())
+  const [resumeBatchId, setResumeBatchId] = useState<string | null>(null)
+  const [olderBatches, setOlderBatches] = useState<SourceBatchSummary[]>([])
+  const [nextBatchCursor, setNextBatchCursor] = useState<string | null | undefined>(undefined)
+  const [loadingMoreBatches, setLoadingMoreBatches] = useState(false)
   const [editingSource, setEditingSource] = useState<Source | null>(null)
   const [deletingSource, setDeletingSource] = useState<Source | null>(null)
   const [fullReindexSource, setFullReindexSource] = useState<Source | null>(null)
   const [reindexingId, setReindexingId] = useState<string | null>(null)
 
   // Queries and mutations
-  const { data: sources, isLoading: isLoadingSources, error: sourcesError } = useSources()
+  const { data: sources, isLoading: isLoadingSources, error: sourcesError, refetch: refetchSources } = useSources()
   const { data: appSettings } = useAppSettings()
   const { data: agents = [] } = useAgents()
+  const { data: batchPage, isLoading: loadingBatches, refetch: refetchBatches } = useSourceBatches()
+  const refreshCreatedSources = (session: number) => {
+    if (dirtyBatchSession.current !== session) return
+    dirtyBatchSession.current = null
+    void refetchSources()
+  }
+  const setBatchDialogOpen = (open: boolean) => {
+    if (open && !batchDialogOpen.current) batchDialogSession.current += 1
+    const session = batchDialogSession.current
+    batchDialogOpen.current = open
+    setIsBatchDialogOpen(open)
+    if (!open) refreshCreatedSources(session)
+  }
+  const onBatchSourceCreated = (sourceId: string, originSession: number) => {
+    if (announcedBatchSources.current.has(sourceId)) return
+    announcedBatchSources.current.add(sourceId)
+    // A late response from an older dialog must not wait for a newer dialog to close.
+    if (!batchDialogOpen.current || originSession !== batchDialogSession.current) void refetchSources()
+    else dirtyBatchSession.current = originSession
+  }
+  const renderedBatchSession = batchDialogSession.current
+  const visibleBatches = [...(batchPage?.batches ?? []), ...olderBatches].filter((row, index, all) =>
+    !row.dismissed && all.findIndex((candidate) => candidate.id === row.id) === index)
+  const loadMoreBatches = async () => {
+    const cursor = nextBatchCursor === undefined ? batchPage?.next_cursor : nextBatchCursor
+    if (!cursor) return
+    setLoadingMoreBatches(true)
+    try {
+      const page = await listSourceBatches(cursor)
+      setOlderBatches((current) => [...current, ...page.batches])
+      setNextBatchCursor(page.next_cursor)
+    } finally { setLoadingMoreBatches(false) }
+  }
   const createMutation = useCreateSource()
   const updateMutation = useUpdateSource()
   const deleteMutation = useDeleteSource()
@@ -493,10 +537,11 @@ export default function SourcesPage() {
             Manage directories and locations to index
           </p>
         </div>
-        <Button onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}>
-          <Plus className="h-4 w-4" />
-          Add Source
-        </Button>
+        <div className="flex gap-2"><Button variant="outline" disabled={loadingBatches} onClick={() => { setResumeBatchId(null); setBatchDialogOpen(true) }}>
+          <Plus className="h-4 w-4" /> Add folders as sources
+        </Button><Button onClick={() => { createMutation.reset(); setIsAddDialogOpen(true) }}>
+          <Plus className="h-4 w-4" /> Add Source
+        </Button></div>
       </div>
 
       {hasSources ? (
@@ -526,6 +571,7 @@ export default function SourcesPage() {
               {sources?.map((source, index) => {
                 return (
                 <tr
+                  id={`source-${source.id}`}
                   key={source.id}
                   className="hover:bg-secondary/30 transition-colors animate-fade-in-up animate-initial"
                   style={{ animationDelay: `${index * 50}ms`, animationFillMode: 'forwards' }}
@@ -638,6 +684,16 @@ export default function SourcesPage() {
         </div>
       )}
 
+      {(visibleBatches.length > 0 || (nextBatchCursor === undefined ? batchPage?.next_cursor : nextBatchCursor)) && <section className="mt-6 space-y-2" aria-label="Saved source batches">
+        <h2 className="text-lg font-medium">Saved source batches</h2>
+        {visibleBatches.map((row) => <div key={row.id} className="flex items-center justify-between rounded border p-2 text-sm">
+          <span>{row.counts.created} created, {row.counts.failed + row.counts.pending} need attention</span>
+          <div className="flex gap-2"><Button type="button" variant="outline" onClick={() => { setResumeBatchId(row.id); setBatchDialogOpen(true) }}>{row.state === 'complete' ? 'View batch' : 'Resume batch'}</Button>
+          <Button type="button" variant="ghost" onClick={async () => { await dismissSourceBatch(row.id); await refetchBatches(); setOlderBatches((current) => current.filter((item) => item.id !== row.id)) }}>Dismiss</Button></div>
+        </div>)}
+        {(nextBatchCursor === undefined ? batchPage?.next_cursor : nextBatchCursor) && <Button type="button" variant="outline" disabled={loadingMoreBatches} onClick={loadMoreBatches}>More batches</Button>}
+      </section>}
+
       {/* Help text */}
       <div className="mt-6 p-4 rounded-lg bg-secondary/30 border border-border">
         <p className="text-sm text-muted-foreground">
@@ -645,6 +701,13 @@ export default function SourcesPage() {
           Use <code className="px-1.5 py-0.5 bg-secondary rounded font-mono text-xs">:ro</code> for read-only mounts.
         </p>
       </div>
+
+      <Dialog open={isBatchDialogOpen} onOpenChange={setBatchDialogOpen}>
+        <DialogContent className="flex max-h-[calc(100dvh-2rem)] min-w-0 w-[calc(100vw-2rem)] max-w-2xl flex-col overflow-hidden">
+          <DialogHeader><DialogTitle>Add folders as sources</DialogTitle><DialogDescription>Select folders, review settings, and recover saved results.</DialogDescription></DialogHeader>
+          {isBatchDialogOpen && <BatchSourceDialog key={resumeBatchId ?? 'new'} resumeId={resumeBatchId} onClose={() => setBatchDialogOpen(false)} onChanged={() => { void refetchBatches() }} onSourceCreated={(sourceId) => onBatchSourceCreated(sourceId, renderedBatchSession)} agents={agents} remoteAgentsEnabled={appSettings?.remote_agents_enabled ?? false} defaultSchedule={appSettings?.default_scan_schedule ?? null} />}
+        </DialogContent>
+      </Dialog>
 
       {/* Add Source Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>

@@ -24,7 +24,7 @@ import {
   updateAppSettings,
   queryKeys,
   getAgents, getAgent, createAgentEnrollment, approveAgent, disableAgent, revokeAgent, updateAgentProcessingMode,
-  getLocalSourceRoots,
+  getLocalSourceRoots, listSourceBatches,
 } from '@/lib/api'
 import type {
   SourceCreate,
@@ -286,4 +286,8 @@ export function useDocumentRawText(id: string, modifiedAt: number, enabled: bool
     staleTime: 300000,
     retry: false,
   })
+}
+
+export function useSourceBatches() {
+  return useQuery({ queryKey: ['sources', 'batches'], queryFn: () => listSourceBatches() })
 }

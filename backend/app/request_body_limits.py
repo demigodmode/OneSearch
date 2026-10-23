@@ -1,4 +1,4 @@
-"""Raw ASGI request-body limits for remote agent submission endpoints."""
+"""Raw ASGI request-body limits for agent submissions and source batches."""
 
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ class RemoteAgentBodyLimitMiddleware:
         if scope["type"] != "http" or scope["method"] != "POST":
             return None
         path = scope["path"]
+        if path in {"/api/sources/batches", "/api/sources/batches/"}:
+            return 65_536
         prefix = "/api/agent/v1/jobs/"
         if not path.startswith(prefix):
             return None

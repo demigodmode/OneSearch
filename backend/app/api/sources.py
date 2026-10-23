@@ -58,6 +58,7 @@ from ..services.scheduler import (
 )
 from ..services.search import meili_service
 from .auth import get_current_user
+from .source_batches import router as batch_router
 
 logger = logging.getLogger(__name__)
 
@@ -511,6 +512,11 @@ def _validate_source_location(
     return canonical_path
 
 
+# These are fixed routes under /api/sources, so a source with one of these IDs
+# couldn't be fetched with GET /api/sources/{id}
+RESERVED_SOURCE_IDS = {"batches", "browse", "browse-local", "local-roots", "test-path"}
+
+
 def generate_source_id(name: str) -> str:
     """Generate a URL-safe source ID from name"""
     import re
@@ -519,7 +525,37 @@ def generate_source_id(name: str) -> str:
     source_id = name.lower().strip()
     source_id = re.sub(r"\s+", "-", source_id)
     source_id = re.sub(r"[^a-z0-9\-]", "", source_id)
+    if source_id in RESERVED_SOURCE_IDS:
+        return f"{source_id}-source"
     return source_id or "source"
+
+
+def _build_source(db: Session, data: SourceCreate, source_id: str, root_path: str) -> Source:
+    """Build and schedule a complete source before its creation transaction."""
+    if not data.use_default_schedule:
+        if data.schedule_type == "interval":
+            if not validate_interval(data.interval_value, data.interval_unit):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid interval: {data.interval_value} {data.interval_unit}",
+                )
+        elif data.scan_schedule and not validate_schedule(data.scan_schedule):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid scan schedule: {data.scan_schedule}",
+            )
+    source = Source(
+        id=source_id, name=data.name, root_path=str(root_path),
+        location_type=data.location_type, agent_id=data.agent_id,
+        processing_mode=data.processing_mode,
+        include_patterns=json.dumps(data.include_patterns) if data.include_patterns else None,
+        exclude_patterns=json.dumps(data.exclude_patterns) if data.exclude_patterns else None,
+        scan_schedule=data.scan_schedule or None, schedule_type=data.schedule_type,
+        interval_value=data.interval_value, interval_unit=data.interval_unit,
+        use_default_schedule=data.use_default_schedule,
+    )
+    source.next_scan_at = calculate_next_run_time_for_schedule(**resolve_effective_schedule(source, db))
+    return source
 
 
 @router.get("", response_model=list[SourceResponse])
@@ -699,6 +735,9 @@ async def browse_local_directory(
     )
 
 
+router.include_router(batch_router)
+
+
 @router.get("/{source_id}", response_model=SourceResponse)
 async def get_source(
     source_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
@@ -747,6 +786,11 @@ async def create_source(
     """
     # Generate ID if not provided
     source_id = source_data.id or generate_source_id(source_data.name)
+    if source_id in RESERVED_SOURCE_IDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Source ID '{source_id}' is reserved",
+        )
 
     # Check if ID already exists
     existing = db.get(Source, source_id)
@@ -771,54 +815,10 @@ async def create_source(
             root_path=root_path,
         )
 
-    # Validate schedule if provided and not following the global default
-    if not source_data.use_default_schedule:
-        if source_data.schedule_type == "interval":
-            if not validate_interval(source_data.interval_value, source_data.interval_unit):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Invalid interval: {source_data.interval_value} {source_data.interval_unit}",
-                )
-        elif source_data.scan_schedule and not validate_schedule(source_data.scan_schedule):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid scan schedule: {source_data.scan_schedule}",
-            )
-
-    # Serialize patterns to JSON
-    include_patterns = (
-        json.dumps(source_data.include_patterns) if source_data.include_patterns else None
-    )
-    exclude_patterns = (
-        json.dumps(source_data.exclude_patterns) if source_data.exclude_patterns else None
-    )
-
-    # Create source
-    source = Source(
-        id=source_id,
-        name=source_data.name,
-        root_path=str(root_path),
-        location_type=source_data.location_type,
-        agent_id=source_data.agent_id,
-        processing_mode=source_data.processing_mode,
-        include_patterns=include_patterns,
-        exclude_patterns=exclude_patterns,
-        scan_schedule=source_data.scan_schedule or None,
-        schedule_type=source_data.schedule_type,
-        interval_value=source_data.interval_value,
-        interval_unit=source_data.interval_unit,
-        use_default_schedule=source_data.use_default_schedule,
-    )
-
+    source = _build_source(db, source_data, source_id, root_path)
     db.add(source)
     db.commit()
     db.refresh(source)
-
-    # Compute next_scan_at from the resolved effective schedule (own schedule or
-    # the global default) so it's correct even without a live scheduler attached.
-    effective_schedule = resolve_effective_schedule(source, db)
-    source.next_scan_at = calculate_next_run_time_for_schedule(**effective_schedule)
-    db.commit()
 
     logger.info(f"Created source: {source_id} at {source.root_path}")
 

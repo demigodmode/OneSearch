@@ -5,6 +5,10 @@ name: Release Server Docker Image and CLI Package
 # The remote-agent image is published independently by agent-release.yml.
 
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   release:
     types: [published]
   workflow_dispatch:
@@ -32,12 +36,61 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/onesearch
 
 jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      resolved_sha: ${{ steps.resolve.outputs.resolved_sha }}
+      image_id: ${{ steps.run_smoke.outputs.image_id }}
+    steps:
+      - name: Checkout candidate once
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve and verify source SHA
+        id: resolve
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          resolved_sha="$(git rev-parse HEAD)"
+          if [ "$EVENT_NAME" = release ]; then
+            git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+            tag_sha="$(git rev-parse "refs/tags/$TAG^{commit}")"
+            [ "$tag_sha" = "$GITHUB_SHA" ] || { echo "Release tag and event SHA differ" >&2; exit 1; }
+          fi
+          if [ "$EVENT_NAME" != workflow_dispatch ]; then
+            [ "$resolved_sha" = "$GITHUB_SHA" ] || { echo "Checkout and event SHA differ" >&2; exit 1; }
+          fi
+          echo "resolved_sha=$resolved_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Build and run startup smoke
+        id: run_smoke
+        shell: bash
+        env:
+          RESOLVED_SHA: ${{ steps.resolve.outputs.resolved_sha }}
+        run: |
+          python3 scripts/docker_smoke.py --sha "$RESOLVED_SHA" --run-id "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+
   build-and-push:
+    needs: smoke
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.version != '')
     runs-on: [self-hosted, linux, multiarch]
     permissions:
       contents: read
       packages: write
     env:
+      RESOLVED_SHA: ${{ needs.smoke.outputs.resolved_sha }}
+      PUBLISH_VERSION: ${{ inputs.version }}
+      PUBLISH_LATEST: ${{ inputs.publish_latest }}
+      EVENT_NAME: ${{ github.event_name }}
       PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -46,7 +99,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+          ref: ${{ needs.smoke.outputs.resolved_sha }}
+          persist-credentials: false
+
+      - name: Verify smoke source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RESOLVED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Missing or invalid smoke SHA" >&2; exit 1; }
+          [ "$(git rev-parse HEAD)" = "$RESOLVED_SHA" ] || { echo "Publisher checkout differs from smoke SHA" >&2; exit 1; }
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            [[ "$PUBLISH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Manual publication requires X.Y.Z version" >&2; exit 1; }
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -132,18 +196,18 @@ jobs:
         run: |
           {
             echo 'tags<<EOF'
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
-              version="${{ inputs.version }}"
+            if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+              version="$PUBLISH_VERSION"
               minor="${version%.*}"
               printf '%s/%s:%s\n' "${{ env.REGISTRY_GHCR }}" "${{ env.IMAGE_NAME }}" "$version"
               printf '%s/%s:%s\n' "${{ env.REGISTRY_GHCR }}" "${{ env.IMAGE_NAME }}" "$minor"
-              if [ "${{ inputs.publish_latest }}" = "true" ]; then
+              if [ "$PUBLISH_LATEST" = "true" ]; then
                 printf '%s/%s:latest\n' "${{ env.REGISTRY_GHCR }}" "${{ env.IMAGE_NAME }}"
               fi
               if [ -n "${{ env.DOCKERHUB_USERNAME }}" ] && [ -n "${{ env.DOCKERHUB_TOKEN }}" ]; then
                 printf '%s/%s:%s\n' "${{ env.REGISTRY_DOCKER }}" "${{ env.IMAGE_NAME }}" "$version"
                 printf '%s/%s:%s\n' "${{ env.REGISTRY_DOCKER }}" "${{ env.IMAGE_NAME }}" "$minor"
-                if [ "${{ inputs.publish_latest }}" = "true" ]; then
+                if [ "$PUBLISH_LATEST" = "true" ]; then
                   printf '%s/%s:latest\n' "${{ env.REGISTRY_DOCKER }}" "${{ env.IMAGE_NAME }}"
                 fi
               fi
@@ -161,7 +225,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.version != '') }}
+          push: true
           tags: ${{ steps.image-tags.outputs.tags }}
           labels: ${{ steps.meta-ghcr.outputs.labels }}
           cache-from: type=local,src=/tmp/.buildx-cache

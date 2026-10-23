@@ -138,6 +138,8 @@ The server owns source configuration and scheduling. After the agent is online, 
 4. Choose a processing mode or inherit the agent default.
 5. Use the global schedule, set a schedule for this source, or leave it manual.
 
+To add several folders from the same agent, use **Add folders as sources** on the Sources page. The folder browser lists directories and skips special files such as named pipes. A checked parent is one recursive source; its children become separate sources only if you check them too. Each selected path is tested against the agent's allowed roots before its source is created. See [Adding sources](../user-guide/adding-sources.md#add-several-folders-at-once) for saved batch results and retries.
+
 The agent has no separate schedule. If a due scan cannot run while the agent is offline, OneSearch retains one pending scan for that source. Repeated due times do not create a backlog. The job is recorded with the `catch_up` reason and runs after the agent reconnects. An ordinary scheduled job that was already pending keeps its original `schedule` reason.
 
 ## Processing modes

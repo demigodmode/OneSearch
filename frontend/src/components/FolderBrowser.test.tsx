@@ -34,6 +34,7 @@ describe('FolderBrowser', () => {
 
     fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: 'r1' } })
     expect(await screen.findByRole('alert')).toHaveTextContent("This folder can't be listed.")
+    expect(screen.getByRole('alert')).toHaveClass('text-destructive-strong')
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(await screen.findByText(/No subfolders here/)).toBeInTheDocument()
     expect(screen.getByText(/Only the first 500 folders/)).toBeInTheDocument()
@@ -88,5 +89,24 @@ describe('FolderBrowser', () => {
     const panelButtonIndex = order.findIndex((entry) => entry.includes('Open folder photos'))
     expect(selectIndex).toBeLessThan(manualInputIndex)
     expect(manualInputIndex).toBeLessThan(panelButtonIndex)
+  })
+})
+
+describe('FolderBrowser multi-select', () => {
+  it('selects current and child folders across roots without navigating on checkbox clicks', async () => {
+    const browse = vi.fn().mockResolvedValueOnce(page('', ['photos'])).mockResolvedValueOnce(page('', ['music'], false, 'r2'))
+    const onToggle = vi.fn()
+    const onSelect = vi.fn()
+    render(<FolderBrowser roots={roots} available pathStyle="posix" browse={browse} onSelect={onSelect} multiSelect selected={[]} onToggle={onToggle} />)
+    fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: 'r1' } })
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select folder /data' }))
+    expect(onToggle).toHaveBeenLastCalledWith({ root_id: 'r1', path: '', absolute_path: '/data' })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select folder /data/photos' }))
+    expect(onToggle).toHaveBeenLastCalledWith({ root_id: 'r1', path: 'photos', absolute_path: '/data/photos' })
+    expect(browse).toHaveBeenCalledTimes(1)
+    expect(onSelect).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('Allowed root'), { target: { value: 'r2' } })
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Select folder /media/music' }))
+    expect(onToggle).toHaveBeenLastCalledWith({ root_id: 'r2', path: 'music', absolute_path: '/media/music' })
   })
 })

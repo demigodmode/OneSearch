@@ -71,3 +71,9 @@ cd .. && mkdocs build --strict
 ```
 
 You do not need to run everything for a tiny docs-only edit, but do run the docs build.
+
+## Docker publication smoke
+
+Pull requests to `main` and pushes to `main` run the `smoke` job in `.github/workflows/docker-publish.yml`. It builds the candidate Docker image, starts it with disposable data, creates and indexes a fixture source, and checks that search finds the fixture. A release or manual publishing run must pass the same job before its Docker image and CLI package steps use that run's resolved commit SHA. The script is `scripts/docker_smoke.py`; it removes only resources created for its run.
+
+This check does not control when a GitHub release is published or when native agent assets are built by the separate agent workflow. Test those paths through their own release checks.
