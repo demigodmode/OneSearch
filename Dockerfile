@@ -26,7 +26,7 @@ RUN npm run build
 # =============================================================================
 # Stage 2: Build Backend + CLI
 # =============================================================================
-FROM docker.io/library/python:3.13-slim AS backend-builder
+FROM docker.io/library/python:3.14-slim AS backend-builder
 
 # Install uv for fast package management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -56,7 +56,7 @@ FROM docker.io/getmeili/meilisearch:v1.12 AS meilisearch-runtime
 # --enable-gpl, so the result is LGPL v2.1+. Only what's needed to read metadata
 # from the media formats OneSearch indexes gets compiled in, which keeps the
 # build short and the binary small.
-FROM docker.io/library/python:3.13-slim AS ffprobe-builder
+FROM docker.io/library/python:3.14-slim AS ffprobe-builder
 
 ARG FFMPEG_VERSION=9.0.2
 ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
@@ -96,7 +96,7 @@ RUN curl -fsSL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VER
 # =============================================================================
 # Stage 5: Runtime
 # =============================================================================
-FROM docker.io/library/python:3.13-slim
+FROM docker.io/library/python:3.14-slim
 
 # Install runtime services, healthcheck curl, and exiftool for RAW metadata probing
 RUN apt-get update && \
