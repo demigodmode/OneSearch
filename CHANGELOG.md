@@ -5,6 +5,41 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-10-25
+
+### Breaking changes
+
+Source and pip installations now require Python 3.11 or newer. (#323)
+
+#### Who is affected
+
+Users and developers running the server, CLI or agent on Python 3.10 must upgrade Python before updating OneSearch. Existing installations keep working. The new minimum applies when upgrading.
+
+#### Who is not affected by this requirement
+
+- Docker users: the images include Python 3.13, so no host Python upgrade is needed.
+- Packaged native agent users: the agent bundles its own runtime.
+- Source and pip users already on Python 3.11 or newer.
+
+#### Why we changed it
+
+Pillow 13 requires Python 3.11+, which sets the new minimum for the patched dependencies. Docker and native builds remain on Python 3.13.
+
+### Security
+
+- Updated Pillow to 13.0.0, pypdf to 6.21.2 and certifi to 2026.10.23. (#323)
+- Added direct agent dependency floors for standalone upgrades, including when an older backend is already installed. The CLI also requires patched certifi. (#323)
+- Updated the frontend development dependency undici from 8.11.2 to 8.12.3. (#321)
+
+### Maintenance
+
+- Added Python 3.11/3.12/3.13 CI coverage for the backend, CLI, shared contracts and Linux agent. Windows agent checks use 3.13. CI uses `--frozen` installs. (#323)
+- Tests now verify PDF text extraction and decoded image previews. Office fixtures include images, and agent metadata tests check dependency minimums. (#323)
+- Updated frontend dependencies, including React 19.3.1, Radix components and test tooling. (#324)
+- Added a README demo video and revised the comparisons and installation instructions. (#319, #320)
+
+---
+
 ## [1.7.0] - 2026-10-23
 
 ### Added
@@ -847,6 +882,7 @@ Milestone 1 complete. All core features are in — search, indexing, auth, sched
 
 ---
 
+[1.7.1]: https://github.com/demigodmode/OneSearch/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/demigodmode/OneSearch/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/demigodmode/OneSearch/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/demigodmode/OneSearch/compare/v1.5.0...v1.6.0
