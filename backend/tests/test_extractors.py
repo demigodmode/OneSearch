@@ -9,6 +9,7 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from pypdf import PdfWriter
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from app.extractors import (
     TextExtractor,
@@ -63,9 +64,21 @@ def sample_pdf_file(temp_dir):
     """Create sample PDF file"""
     file_path = temp_dir / "sample.pdf"
 
-    # Create a simple PDF with PyPDF2
     writer = PdfWriter()
-    writer.add_blank_page(width=200, height=200)
+    page = writer.add_blank_page(width=200, height=200)
+    page[NameObject("/Resources")] = DictionaryObject({
+        NameObject("/Font"): DictionaryObject({
+            NameObject("/F1"): DictionaryObject({
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/Type1"),
+                NameObject("/BaseFont"): NameObject("/Helvetica"),
+                NameObject("/Encoding"): NameObject("/WinAnsiEncoding"),
+            }),
+        }),
+    })
+    content = DecodedStreamObject()
+    content.set_data(b"BT /F1 12 Tf 20 100 Td (Searchable PDF regression text.) Tj ET")
+    page.replace_contents(content)
 
     # Add metadata
     writer.add_metadata({
@@ -300,6 +313,11 @@ class TestPDFExtractor:
         assert doc.extension == "pdf"
         assert doc.metadata["page_count"] == 1
         assert doc.metadata.get("title") == "Test PDF Document"
+        assert "Searchable PDF regression text." in doc.content
+        assert doc.metadata["pages_extracted"] == 1
+        assert doc.metadata["extracted_text_length"] == len(doc.content)
+        assert doc.metadata["extraction_failed"] is False
+        assert "extraction_warning" not in doc.metadata
 
     @pytest.mark.asyncio
     async def test_supports_file(self, temp_dir):
@@ -407,7 +425,17 @@ class TestExtractorRegistry:
 
 # Fixtures for Office files
 @pytest.fixture
-def sample_docx_file(temp_dir):
+def sample_embedded_image(temp_dir):
+    """Small real PNG used by the Office libraries when embedding images."""
+    from PIL import Image
+
+    image_path = temp_dir / "embedded.png"
+    Image.new("RGB", (32, 24), color="blue").save(image_path, "PNG")
+    return image_path
+
+
+@pytest.fixture
+def sample_docx_file(temp_dir, sample_embedded_image):
     """Create sample DOCX file"""
     from docx import Document as DocxDocument
 
@@ -430,14 +458,16 @@ def sample_docx_file(temp_dir):
     table.cell(1, 0).text = "Cell A2"
     table.cell(1, 1).text = "Cell B2"
 
+    doc.add_picture(str(sample_embedded_image))
     doc.save(file_path)
     return str(file_path)
 
 
 @pytest.fixture
-def sample_xlsx_file(temp_dir):
+def sample_xlsx_file(temp_dir, sample_embedded_image):
     """Create sample XLSX file"""
     from openpyxl import Workbook
+    from openpyxl.drawing.image import Image as WorksheetImage
 
     file_path = temp_dir / "sample.xlsx"
     wb = Workbook()
@@ -457,12 +487,13 @@ def sample_xlsx_file(temp_dir):
     ws2["A1"] = "Total Items"
     ws2["B1"] = 2
 
+    ws1.add_image(WorksheetImage(str(sample_embedded_image)), "D1")
     wb.save(file_path)
     return str(file_path)
 
 
 @pytest.fixture
-def sample_pptx_file(temp_dir):
+def sample_pptx_file(temp_dir, sample_embedded_image):
     """Create sample PPTX file"""
     from pptx import Presentation
     from pptx.util import Inches
@@ -494,6 +525,7 @@ def sample_pptx_file(temp_dir):
     p = tf.add_paragraph()
     p.text = "Second bullet point"
 
+    slide2.shapes.add_picture(str(sample_embedded_image), Inches(1), Inches(3), width=Inches(1))
     prs.save(file_path)
     return str(file_path)
 

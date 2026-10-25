@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from onesearch_agent.packaging import (
     verify_key_pair,
 )
 from onesearch_agent.update import UpdateManager
+from packaging.requirements import Requirement
 
 
 def test_artifact_names_and_manifest_url_use_one_explicit_target_mapping():
@@ -97,3 +99,29 @@ def test_windows_frozen_entry_dispatches_only_no_cli_invocations_to_scm():
     assert not should_launch_windows_service("win32", ["--help"])
     assert not should_launch_windows_service("win32", ["unknown"])
     assert not should_launch_windows_service("linux", [])
+
+
+@pytest.mark.parametrize(
+    ("package", "vulnerable_version", "patched_version"),
+    [
+        ("pillow", "12.3.0", "13.0.0"),
+        ("pypdf", "6.21.1", "6.21.2"),
+        ("certifi", "2025.11.12", "2026.10.19"),
+    ],
+)
+def test_standalone_agent_metadata_rejects_vulnerable_parser_and_tls_versions(
+    package, vulnerable_version, patched_version
+):
+    """An already-installed older backend must not weaken an agent upgrade's floors."""
+    manifest = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    metadata = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    requirements = {}
+    for dependency in metadata["project"]["dependencies"]:
+        requirement = Requirement(dependency)
+        requirements[requirement.name.lower()] = requirement
+
+    assert package in requirements, f"{package} must be constrained by the agent itself"
+    requirement = requirements[package]
+    assert requirement.marker is None, "security floors must apply on every agent platform"
+    assert vulnerable_version not in requirement.specifier
+    assert patched_version in requirement.specifier

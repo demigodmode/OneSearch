@@ -6,7 +6,7 @@ Thanks for helping with OneSearch. Keep changes focused and easy to review. If a
 
 ## Prerequisites
 
-- Python 3.10+ with [uv](https://docs.astral.sh/uv/)
+- Python 3.11+ with [uv](https://docs.astral.sh/uv/)
 - Node 22.13+ with npm
 - Docker for a local Meilisearch container; Docker Compose for full-stack container checks
 

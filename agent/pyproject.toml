@@ -2,10 +2,14 @@
 name = "onesearch-agent"
 version = "1.7.0"
 description = "Secure remote indexing agent for OneSearch"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "onesearch-shared",
     "onesearch-backend",
+    # Protect standalone agent upgrades that retain an older installed backend.
+    "pillow>=13.0.0",
+    "pypdf>=6.21.2",
+    "certifi>=2026.10.19",
     "click>=8",
     "httpx>=0.25",
     "pydantic>=2,<3",
