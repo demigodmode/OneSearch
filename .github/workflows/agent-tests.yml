@@ -1,7 +1,7 @@
 name: Agent tests
 
 on:
-  # no path filter on PRs, so both matrix jobs can be required checks
+  # no path filter on PRs, so each matrix job can be a required check
   pull_request:
   push:
     branches: [main, feat/remote-indexing-agents]
@@ -16,16 +16,34 @@ on:
 
 jobs:
   test:
+    name: ${{ matrix.python == '3.13' && format('test ({0})', matrix.os) || format('test ({0}, Python {1})', matrix.os, matrix.python) }}
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            python: '3.11'
+          - os: ubuntu-latest
+            python: '3.12'
+          - os: ubuntu-latest
+            python: '3.13'
+          - os: windows-latest
+            python: '3.13'
     runs-on: ${{ matrix.os }}
+    env:
+      UV_PYTHON: ${{ matrix.python }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python }}
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync --all-packages --group dev
-      - run: uv run pytest agent/tests backend/tests/test_dockerfile.py -v
+        with:
+          enable-cache: true
+          cache-suffix: ${{ matrix.os }}-python-${{ matrix.python }}
+          cache-dependency-glob: |
+            uv.lock
+            **/pyproject.toml
+      - run: uv sync --frozen --all-packages --group dev
+      - run: uv run --frozen pytest agent/tests backend/tests/test_dockerfile.py -v

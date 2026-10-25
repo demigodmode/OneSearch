@@ -17,7 +17,15 @@ on:
 
 jobs:
   test:
+    name: ${{ matrix.python == '3.13' && 'test' || format('test (Python {0})', matrix.python) }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        python: ['3.11', '3.12', '3.13']
     runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: ${{ matrix.python }}
 
     services:
       meilisearch:
@@ -40,7 +48,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.13'
+          python-version: ${{ matrix.python }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -53,34 +61,36 @@ jobs:
           path: |
             .venv
             ~/.cache/uv
-          key: ${{ runner.os }}-uv-${{ hashFiles('pyproject.toml', 'uv.lock', 'backend/pyproject.toml', 'cli/pyproject.toml') }}
+          key: ${{ runner.os }}-python-${{ matrix.python }}-uv-${{ hashFiles('pyproject.toml', 'uv.lock', 'agent/pyproject.toml', 'backend/pyproject.toml', 'cli/pyproject.toml', 'shared/pyproject.toml') }}
           restore-keys: |
-            ${{ runner.os }}-uv-
+            ${{ runner.os }}-python-${{ matrix.python }}-uv-
 
       - name: Install workspace dependencies
         run: |
-          uv sync --all-extras --all-groups
+          uv sync --frozen --all-extras --all-groups
 
       - name: Run backend tests
         env:
           MEILI_URL: http://127.0.0.1:7700
           MEILI_MASTER_KEY: test-master-key
         run: |
-          uv run pytest backend/tests/ -v --tb=short --color=yes --cov=app
+          uv run --frozen pytest backend/tests/ -v --tb=short --color=yes --cov=app
 
       - name: Run CLI tests
         run: |
-          uv run pytest cli/tests/ -v --tb=short --color=yes
+          uv run --frozen pytest cli/tests/ -v --tb=short --color=yes
 
       - name: Run shared tests
         run: |
-          uv run pytest shared/tests/ -v --tb=short --color=yes
+          uv run --frozen pytest shared/tests/ -v --tb=short --color=yes
 
       - name: Build onesearch-cli package
+        if: matrix.python == '3.13'
         run: |
-          uv run --with build python -m build cli
+          uv run --frozen --with build python -m build cli
 
       - name: Upload onesearch-cli artifacts
+        if: matrix.python == '3.13'
         uses: actions/upload-artifact@v7
         with:
           name: onesearch-cli-dist
