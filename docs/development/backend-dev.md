@@ -1,12 +1,12 @@
 # Backend Development
 
-The OneSearch backend is built with FastAPI and Python 3.10+.
+The OneSearch backend is built with FastAPI and Python 3.11+.
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.10 or later
+- Python 3.11 or later
 - uv (recommended) or pip
 - Docker, if you want to run a local Meilisearch container
 

@@ -3,7 +3,7 @@ name = "onesearch-shared"
 version = "1.7.0"
 description = "Versioned wire contracts shared by OneSearch servers and remote agents"
 license = {text = "AGPL-3.0-only"}
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.0,<3.0",
 ]

@@ -3,7 +3,7 @@ name = "onesearch"
 version = "1.7.0"
 description = "Self-hosted, privacy-focused search for your homelab"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "AGPL-3.0-only"}
 authors = [
     {name = "demigodmode"}
@@ -19,7 +19,6 @@ classifiers = [
     "License :: OSI Approved :: GNU Affero General Public License v3",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -72,7 +71,7 @@ dev = [
 # Shared Ruff configuration
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 exclude = [
     ".git",
     ".venv",

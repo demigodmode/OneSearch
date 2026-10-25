@@ -496,27 +496,38 @@ def test_generate_preview_rejects_pillow_decompression_bomb_warning(monkeypatch)
     assert not image.converted
 
 
-def test_generate_preview_handles_various_image_formats(tmp_path):
-    """Test preview generation works with various image formats."""
+@pytest.mark.parametrize(
+    ("format_name", "mode", "color", "expected_rgb"),
+    [
+        ("PNG", "RGB", (20, 160, 60), (20, 160, 60)),
+        ("PNG", "RGBA", (255, 0, 0, 128), (255, 127, 127)),
+        ("PNG", "LA", (80, 128), (167, 167, 167)),
+        ("PNG", "P", 0, (0, 128, 0)),
+        ("GIF", "P", 0, (0, 128, 0)),
+    ],
+)
+def test_generate_preview_handles_various_image_formats(
+    tmp_path, format_name, mode, color, expected_rgb
+):
+    """Decode resized previews, including alpha composition and palette conversion."""
     from app.services.preview_assets import generate_derived_jpeg_preview
 
-    formats = [
-        ("PNG", "test.png"),
-        ("GIF", "test.gif"),
-    ]
+    image = Image.new(mode, (200, 150), color=color)
+    if mode == "P":
+        image.putpalette([0, 128, 0] + [0] * 765)
+    image_path = tmp_path / f"test-{mode}.{format_name.lower()}"
+    image.save(image_path, format_name)
 
-    for format_name, filename in formats:
-        # Create test image in format
-        test_image = Image.new("RGB", (200, 150), color="green")
-        image_path = tmp_path / filename
-        test_image.save(image_path, format_name)
+    preview_bytes = generate_derived_jpeg_preview(image_path, max_dimension=100)
 
-        # Generate preview
-        preview_bytes = generate_derived_jpeg_preview(image_path)
-
-        # Should always produce JPEG bytes
-        if preview_bytes is not None:
-            assert preview_bytes.startswith(b"\xff\xd8\xff"), f"Failed for {format_name}"
+    assert preview_bytes is not None, f"Preview failed for {format_name}/{mode}"
+    with Image.open(BytesIO(preview_bytes)) as preview:
+        preview.load()
+        assert preview.format == "JPEG"
+        assert preview.mode == "RGB"
+        assert preview.size == (100, 75)
+        assert preview.getpixel((50, 37)) == pytest.approx(expected_rgb, abs=8)
+    assert is_valid_derived_jpeg(preview_bytes)
 
 
 @pytest.mark.parametrize("source_id", ["..", "../outside", "nested/../../outside"])

@@ -3,7 +3,7 @@ name = "onesearch-backend"
 version = "1.7.0"
 description = "OneSearch backend API server"
 license = {text = "AGPL-3.0-only"}
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "onesearch-shared",
     "fastapi>=0.104.0,<0.200.0",
@@ -13,14 +13,15 @@ dependencies = [
     "sqlalchemy>=2.0.36",
     "alembic>=1.14.0",
     "meilisearch>=0.31.0",
-    "pypdf>=6.15.0",
+    "certifi>=2026.10.19",
+    "pypdf>=6.21.2",
     "python-frontmatter>=1.0.0",
     "chardet>=5.2.0",
     "python-multipart>=0.0.22",
     "python-docx>=1.1.0",
     "openpyxl>=3.1.0",
     "python-pptx>=1.0.0",
-    "pillow>=12.3.0",
+    "pillow>=13.0.0",
     "bcrypt>=4.0.0",
     "PyJWT>=2.13.0",
     "APScheduler>=3.10.0,<4.0.0",
