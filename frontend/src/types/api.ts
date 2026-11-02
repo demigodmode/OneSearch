@@ -391,6 +391,39 @@ export interface AuthResponse {
 }
 
 /**
+ * Request body for changing your own password
+ */
+export interface ChangePasswordRequest {
+  current_password: string
+  new_password: string
+}
+
+export type UserRole = 'admin' | 'member'
+
+/**
+ * A user as listed on the admin Users screen
+ */
+export interface AdminUser {
+  id: number
+  username: string
+  role: UserRole
+  is_active: boolean
+  must_change_password: boolean
+  created_at: string
+  created_by: string | null
+  last_login_at: string | null
+}
+
+/**
+ * Request body for an admin creating a user
+ */
+export interface CreateUserRequest {
+  username: string
+  password: string
+  role: UserRole
+}
+
+/**
  * User info response from /api/auth/me
  */
 export interface User {

@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { MIN_PASSWORD_LENGTH, PASSWORD_LENGTH_HINT, validateNewPassword } from '@/lib/passwordPolicy'
 import { Search, AlertCircle, CheckCircle } from 'lucide-react'
 
 export default function SetupPage() {
@@ -49,8 +50,9 @@ export default function SetupPage() {
     }
 
     // Validate password length
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters')
+    const passwordError = validateNewPassword(password)
+    if (passwordError) {
+      setError(passwordError)
       return
     }
 
@@ -123,10 +125,10 @@ export default function SetupPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
                 required
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
               />
               <p className="text-xs text-muted-foreground">
-                At least 8 characters
+                {PASSWORD_LENGTH_HINT}
               </p>
             </div>
 

@@ -4,6 +4,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/useAuth'
 import { isAdmin } from '@/lib/utils'
+import ForcedPasswordChange from '@/components/ForcedPasswordChange'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
@@ -31,6 +32,11 @@ export default function ProtectedRoute({ children, requireAdmin = false }: Prote
   // Redirect to login if not authenticated
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
+  // Admin resets and the recovery command leave a temporary password that must be replaced first
+  if (user?.must_change_password) {
+    return <ForcedPasswordChange />
   }
 
   // Members go back to search instead of seeing admin pages

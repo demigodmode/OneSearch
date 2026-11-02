@@ -21,6 +21,12 @@ describe('MainLayout admin link', () => {
     expect(screen.getByText('Admin')).toBeInTheDocument()
   })
 
+  it('shows Account to every signed-in user', () => {
+    role = 'member'
+    render(<MemoryRouter><MainLayout /></MemoryRouter>)
+    expect(screen.getByText('Account')).toBeInTheDocument()
+  })
+
   it('hides Admin from members', () => {
     role = 'member'
     render(<MemoryRouter><MainLayout /></MemoryRouter>)

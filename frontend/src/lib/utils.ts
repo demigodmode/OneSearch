@@ -28,6 +28,10 @@ function parseApiDate(isoString: string): Date {
   return new Date(hasTimezone ? isoString : `${isoString}Z`)
 }
 
+export function formatDateTime(isoString: string): string {
+  return parseApiDate(isoString).toLocaleString()
+}
+
 export function formatRelativeTime(isoString?: string | null): string | null {
   if (!isoString) return null
   const date = parseApiDate(isoString)

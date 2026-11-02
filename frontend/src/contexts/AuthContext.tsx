@@ -16,6 +16,7 @@ import {
   login as apiLogin,
   logout as apiLogout,
   setup as apiSetup,
+  changePassword as apiChangePassword,
   getAuthStatus,
 } from '@/lib/api'
 import type { User, LoginRequest, SetupRequest } from '@/types/api'
@@ -98,6 +99,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     navigate('/')
   }
 
+  // The old session is ended server-side, so swap in the fresh token and reload the user.
+  // Once the server has accepted the change, a failed reload must not look like a failed change.
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    const response = await apiChangePassword({ current_password: currentPassword, new_password: newPassword })
+    setToken(response.access_token)
+    try {
+      const currentUser = await getCurrentUser()
+      setUser(currentUser)
+    } catch {
+      setUser((previous) => (previous ? { ...previous, must_change_password: false } : previous))
+    }
+  }
+
   const value: AuthContextType = {
     user,
     isAuthenticated: !!user,
@@ -106,6 +120,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     login,
     logout,
     setup,
+    changePassword,
     checkAuth,
   }
 

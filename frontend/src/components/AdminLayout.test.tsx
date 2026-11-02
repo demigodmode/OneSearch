@@ -1,13 +1,29 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminLayout from './AdminLayout'
 
 let enabled = false
 vi.mock('@/contexts/useAuth', () => ({ useAuth: () => ({ user: null, logout: vi.fn() }) }))
 vi.mock('@/hooks/useApi', () => ({ useAppSettings: () => ({ data: { remote_agents_enabled: enabled } }) }))
 
-describe('AdminLayout remote navigation', () => {
+describe('AdminLayout navigation', () => {
+  beforeEach(() => {
+    enabled = false
+  })
+
+  it('shows the Users link', () => {
+    render(<MemoryRouter><AdminLayout /></MemoryRouter>)
+    expect(screen.getByText('Users')).toBeInTheDocument()
+  })
+
+  it('keeps Sources, Status, Users, Agents, Settings in that order', () => {
+    enabled = true
+    render(<MemoryRouter><AdminLayout /></MemoryRouter>)
+    const labels = within(screen.getByRole('navigation')).getAllByRole('link').map((link) => link.textContent)
+    expect(labels).toEqual(['Sources', 'Status', 'Users', 'Agents', 'Settings'])
+  })
+
   it('hides Agents while disabled and shows it once enabled', () => {
     const { rerender } = render(<MemoryRouter><AdminLayout /></MemoryRouter>)
     expect(screen.queryByText('Agents')).not.toBeInTheDocument()

@@ -14,6 +14,8 @@ import SourcesPage from './pages/admin/SourcesPage'
 import StatusPage from './pages/admin/StatusPage'
 import SettingsPage from './pages/admin/SettingsPage'
 import AgentsPage from './pages/admin/AgentsPage'
+import UsersPage from './pages/admin/UsersPage'
+import AccountPage from './pages/AccountPage'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
 
@@ -41,6 +43,7 @@ function App() {
         >
           <Route index element={<SearchPage />} />
           <Route path="document/:id" element={<Suspense fallback={null}><DocumentPage /></Suspense>} />
+          <Route path="account" element={<AccountPage />} />
         </Route>
 
         {/* Protected admin routes */}
@@ -56,6 +59,7 @@ function App() {
           <Route path="sources" element={<SourcesPage />} />
           <Route path="status" element={<StatusPage />} />
           <Route path="agents" element={<AgentsPage />} />
+          <Route path="users" element={<UsersPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
 

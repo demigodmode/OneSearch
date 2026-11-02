@@ -24,6 +24,9 @@ import type {
   SetupRequest,
   LoginRequest,
   AuthResponse,
+  ChangePasswordRequest,
+  AdminUser,
+  CreateUserRequest,
   User,
   AppSettings,
   AppSettingsUpdate,
@@ -603,6 +606,31 @@ export async function getCurrentUser(): Promise<User> {
   return apiFetch<User>('/auth/me')
 }
 
+/**
+ * Change your own password. Returns a fresh session token.
+ */
+export async function changePassword(data: ChangePasswordRequest): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+// ============================================================================
+// Users (admin)
+// ============================================================================
+
+export async function listUsers(): Promise<AdminUser[]> {
+  return apiFetch<AdminUser[]>('/users')
+}
+
+export async function createUser(data: CreateUserRequest): Promise<AdminUser> {
+  return apiFetch<AdminUser>('/users', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
 // ============================================================================
 // Query Keys for TanStack Query
 // ============================================================================
@@ -621,6 +649,7 @@ export const queryKeys = {
   appSettings: ['appSettings'] as const,
   authStatus: ['authStatus'] as const,
   currentUser: ['currentUser'] as const,
+  users: ['users'] as const,
   agents: ['agents'] as const,
   agent: (id: string) => ['agents', id] as const,
   localSourceRoots: ['sources', 'local-roots'] as const,

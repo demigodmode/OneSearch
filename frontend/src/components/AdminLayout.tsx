@@ -2,26 +2,26 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Database, Activity, ArrowLeft, Terminal, LogOut, User, Settings, Cpu } from 'lucide-react'
+import { Database, Activity, ArrowLeft, Terminal, LogOut, User, Settings, Cpu, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/useAuth'
 import { Button } from '@/components/ui/button'
 import { OneSearchLogo } from '@/components/OneSearchLogo'
 import { useAppSettings } from '@/hooks/useApi'
 
-const adminNavItems = [
-  { path: '/admin/sources',  label: 'Sources',  icon: Database  },
-  { path: '/admin/status',   label: 'Status',   icon: Activity  },
-  { path: '/admin/settings', label: 'Settings', icon: Settings  },
+const navItemsFor = (remoteAgentsEnabled: boolean) => [
+  { path: '/admin/sources',  label: 'Sources',  icon: Database,  enabled: true },
+  { path: '/admin/status',   label: 'Status',   icon: Activity,  enabled: true },
+  { path: '/admin/users',    label: 'Users',    icon: Users,     enabled: true },
+  { path: '/admin/agents',   label: 'Agents',   icon: Cpu,       enabled: remoteAgentsEnabled },
+  { path: '/admin/settings', label: 'Settings', icon: Settings,  enabled: true },
 ]
 
 export default function AdminLayout() {
   const location = useLocation()
   const { user, logout } = useAuth()
   const { data: appSettings } = useAppSettings()
-  const visibleNavItems = appSettings?.remote_agents_enabled
-    ? [...adminNavItems.slice(0, 2), { path: '/admin/agents', label: 'Agents', icon: Cpu }, adminNavItems[2]]
-    : adminNavItems
+  const visibleNavItems = navItemsFor(Boolean(appSettings?.remote_agents_enabled)).filter((item) => item.enabled)
 
   return (
     <div className="min-h-screen bg-background">

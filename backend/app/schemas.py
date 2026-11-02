@@ -318,6 +318,21 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class PasswordChangeRequest(BaseModel):
+    """Schema for changing the signed-in user's own password"""
+
+    current_password: str
+    new_password: str = Field(..., min_length=8)
+
+
+class UserCreateRequest(BaseModel):
+    """Schema for an admin creating a user with a temporary password"""
+
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=8)
+    role: Literal["admin", "member"]
+
+
 class UserResponse(BaseModel):
     """Schema for user info response"""
 
@@ -329,6 +344,19 @@ class UserResponse(BaseModel):
     role: Literal["admin", "member"]
     must_change_password: bool
     created_at: datetime
+
+
+class UserAdminResponse(BaseModel):
+    """A user as an admin sees them in the Users list"""
+
+    id: int
+    username: str
+    role: Literal["admin", "member"]
+    is_active: bool
+    must_change_password: bool
+    created_at: datetime
+    created_by: str | None = None
+    last_login_at: datetime | None = None
 
 
 class AuthResponse(BaseModel):

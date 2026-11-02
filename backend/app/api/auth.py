@@ -14,7 +14,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 import bcrypt
 import jwt
 
@@ -23,6 +23,7 @@ from ..models import ROLE_ADMIN, User
 from ..schemas import (
     SetupRequest,
     LoginRequest,
+    PasswordChangeRequest,
     UserResponse,
     AuthResponse,
     MessageResponse,
@@ -245,7 +246,17 @@ def allow_anyone() -> None:
     """Marks a route that needs no sign-in. See access.py."""
 
 
-async def require_signed_in(user: User = Depends(get_current_user)) -> User:  # noqa: B008
+async def require_user(user: User = Depends(get_current_user)) -> User:  # noqa: B008
+    """Signed in, even while a password change is pending. Only for the routes that must stay reachable."""
+    return user
+
+
+async def require_signed_in(user: User = Depends(require_user)) -> User:  # noqa: B008
+    if user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password change required",
+        )
     return user
 
 
@@ -388,6 +399,9 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    user.last_login_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
+
     logger.info(f"User logged in: {user.username}")
 
     # Generate token
@@ -400,8 +414,76 @@ async def login(
     )
 
 
+@router.post("/change-password", response_model=AuthResponse)
+async def change_password(
+    request: Request,
+    password_data: PasswordChangeRequest,
+    current_user: User = Depends(require_user),  # noqa: B008
+    db: Session = Depends(get_db),
+) -> AuthResponse:
+    """
+    Change the signed-in user's password. Ends their other sessions.
+
+    Returns a fresh access token so the current session stays signed in.
+
+    Raises:
+        400: Current password is wrong, or the new one is the same as the old
+        409: Account changed while the request was running, try again
+        429: Too many wrong current passwords from this user and IP
+    """
+    rate_limit_key = f"change-password:{current_user.id}:{get_client_ip(request)}"
+    if not check_rate_limit(rate_limit_key):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Try again later."
+        )
+
+    if not verify_password(password_data.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    if password_data.new_password == password_data.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from the current password",
+        )
+
+    expected_version = current_user.session_version
+    result = db.execute(
+        update(User)
+        .where(User.id == current_user.id, User.session_version == expected_version)
+        .values(
+            password_hash=hash_password(password_data.new_password),
+            must_change_password=False,
+            session_version=expected_version + 1,
+        )
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Account changed. Sign in again and retry.",
+        )
+    db.commit()
+    db.refresh(current_user)
+
+    logger.info(f"Password changed: {current_user.username}")
+
+    token, expires_in = create_access_token(
+        current_user.id, current_user.username, current_user.session_version
+    )
+
+    return AuthResponse(
+        access_token=token,
+        token_type="bearer",
+        expires_in=expires_in
+    )
+
+
 @router.post("/logout", response_model=MessageResponse)
-async def logout(current_user: User = Depends(require_signed_in)):
+async def logout(current_user: User = Depends(require_user)):  # noqa: B008
     """
     Logout the current user.
 
@@ -416,7 +498,7 @@ async def logout(current_user: User = Depends(require_signed_in)):
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(current_user: User = Depends(require_signed_in)):
+async def get_current_user_info(current_user: User = Depends(require_user)):  # noqa: B008
     """
     Get information about the currently authenticated user.
 

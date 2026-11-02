@@ -450,6 +450,52 @@ def test_download_streams_original_file_from_signed_link(client, source, temp_so
     assert 'filename="photo.jpg"' in response.headers["content-disposition"]
 
 
+def test_download_link_stops_working_after_session_version_bump(
+    client, db_session, source, temp_source, monkeypatch
+):
+    _, image_path, _ = temp_source
+
+    async def get_document(document_id):
+        return image_doc(source, image_path)
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+    url = client.post("/api/documents/photos--image123/download-link").json()["url"]
+
+    previewer = db_session.query(User).filter_by(username="previewer").one()
+    previewer.session_version += 1
+    db_session.commit()
+
+    response = client.get(url)
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "download_token_invalid"
+
+
+@pytest.mark.parametrize("change", ["disabled", "must_change_password"])
+def test_download_link_rejected_when_user_state_blocks_signed_in_use(
+    client, db_session, source, temp_source, monkeypatch, change
+):
+    _, image_path, _ = temp_source
+
+    async def get_document(document_id):
+        return image_doc(source, image_path)
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+    url = client.post("/api/documents/photos--image123/download-link").json()["url"]
+
+    previewer = db_session.query(User).filter_by(username="previewer").one()
+    if change == "disabled":
+        previewer.is_active = False
+    else:
+        previewer.must_change_password = True
+    db_session.commit()
+
+    response = client.get(url)
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "download_token_invalid"
+
+
 @pytest.mark.parametrize("agent_state", ["offline", "pending", "disabled", "revoked", "missing"])
 def test_remote_download_link_rejects_unavailable_agent_without_enqueuing(
     client, db_session, remote_download, agent_state

@@ -25,8 +25,10 @@ import {
   queryKeys,
   getAgents, getAgent, createAgentEnrollment, approveAgent, disableAgent, revokeAgent, updateAgentProcessingMode,
   getLocalSourceRoots, listSourceBatches,
+  listUsers, createUser,
 } from '@/lib/api'
 import type {
+  CreateUserRequest,
   SourceCreate,
   SourceUpdate,
   SearchQuery,
@@ -241,6 +243,25 @@ export function useReindexSource() {
       // Invalidate both sources (for updated_at) and status (for indexing info)
       queryClient.invalidateQueries({ queryKey: queryKeys.sources })
       queryClient.invalidateQueries({ queryKey: queryKeys.status })
+    },
+  })
+}
+
+// ============================================================================
+// Users Hooks (admin)
+// ============================================================================
+
+export function useUsers() {
+  return useQuery({ queryKey: queryKeys.users, queryFn: listUsers })
+}
+
+export function useCreateUser() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: CreateUserRequest) => createUser(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.users })
     },
   })
 }

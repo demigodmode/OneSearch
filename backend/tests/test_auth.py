@@ -506,7 +506,7 @@ class TestGetCurrentUserEdgeCases:
         from app.api.preview import _create_download_token
 
         creds = Mock()
-        creds.credentials = _create_download_token(sample_user.id, "photos--image123")
+        creds.credentials = _create_download_token(sample_user.id, "photos--image123", sample_user.session_version)
 
         with pytest.raises(HTTPException) as exc_info:
             await get_current_user(credentials=creds, db=db_session)
@@ -588,7 +588,7 @@ class TestGetOptionalUser:
         from app.api.preview import _create_download_token
 
         creds = Mock()
-        creds.credentials = _create_download_token(sample_user.id, "photos--image123")
+        creds.credentials = _create_download_token(sample_user.id, "photos--image123", sample_user.session_version)
 
         result = await get_optional_user(credentials=creds, db=db_session)
         assert result is None
