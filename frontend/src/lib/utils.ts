@@ -3,6 +3,7 @@
 
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import type { User } from '@/types/api'
 
 /**
  * Utility function to merge Tailwind CSS classes
@@ -10,6 +11,13 @@ import { twMerge } from 'tailwind-merge'
  */
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+/**
+ * Whether the signed-in user is an admin
+ */
+export function isAdmin(user: Pick<User, 'role'> | null | undefined): boolean {
+  return user?.role === 'admin'
 }
 
 /**

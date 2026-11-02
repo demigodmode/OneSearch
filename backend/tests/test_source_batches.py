@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import Source
+from app.models import ROLE_ADMIN, Source
 
 
 @pytest.fixture
@@ -68,10 +68,10 @@ def test_batch_is_owner_scoped_including_uuid_collision(client, db_session, temp
     from app.models import User
     payload = request_payload(temp_source_dir)
     assert client.post('/api/sources/batches', json=payload).status_code == 201
-    other = User(username='other-owner', password_hash=hash_password('password'), is_active=True)
+    other = User(username='other-owner', password_hash=hash_password('password'), is_active=True, role=ROLE_ADMIN)
     db_session.add(other)
     db_session.commit()
-    token, _ = create_access_token(other.id, other.username)
+    token, _ = create_access_token(other.id, other.username, other.session_version)
     headers = {'Authorization': f'Bearer {token}'}
     item_url = f"/api/sources/batches/{payload['id']}/items/{payload['items'][0]['id']}/create"
     for method, url, body in [

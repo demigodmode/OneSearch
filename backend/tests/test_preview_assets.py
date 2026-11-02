@@ -21,7 +21,7 @@ from sqlalchemy.pool import StaticPool
 from app.api.auth import create_access_token, hash_password
 from app.db.database import get_db
 from app.main import app
-from app.models import Agent, AppSetting, Base, IndexedFile, Source, User
+from app.models import ROLE_ADMIN, Agent, AppSetting, Base, IndexedFile, Source, User
 from app.services.preview_assets import (
     PreviewKeyLockRegistry,
     delete_preview,
@@ -209,10 +209,10 @@ def test_source_deletion_removes_preview_directory(db_session, tmp_path, monkeyp
     from fastapi.testclient import TestClient
 
     # Setup user and source with previews
-    user = User(username="test", password_hash=hash_password("test"), is_active=True)
+    user = User(username="test", password_hash=hash_password("test"), is_active=True, role=ROLE_ADMIN)
     db_session.add(user)
     db_session.commit()
-    token, _ = create_access_token(user.id, user.username)
+    token, _ = create_access_token(user.id, user.username, user.session_version)
 
     source = Source(
         id="local-source",

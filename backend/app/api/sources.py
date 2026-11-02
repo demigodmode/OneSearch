@@ -36,6 +36,7 @@ from ..schemas import (
     SourcePathTestRequest,
     SourcePathTestResponse,
     SourceResponse,
+    SourceSummaryResponse,
     SourceUpdate,
 )
 from ..services.agent_auth import effective_agent_status
@@ -558,15 +559,18 @@ def _build_source(db: Session, data: SourceCreate, source_id: str, root_path: st
     return source
 
 
-@router.get("", response_model=list[SourceResponse])
+@router.get("", response_model=list[SourceResponse] | list[SourceSummaryResponse])
 async def list_sources(
     db: Session = Depends(get_db), current_user: User = Depends(require_signed_in)
 ):
     """
     List all configured sources
 
-    Returns list of sources with configuration details
+    Admins get full source details. Members get only id and name.
     """
+    if not current_user.is_admin:
+        rows = db.execute(select(Source.id, Source.name).order_by(Source.created_at.desc())).all()
+        return [SourceSummaryResponse(id=row.id, name=row.name) for row in rows]
     stmt = select(Source).options(selectinload(Source.agent)).order_by(Source.created_at.desc())
     sources = db.execute(stmt).scalars().all()
     app_settings = AppSettingsService(db).get_settings()

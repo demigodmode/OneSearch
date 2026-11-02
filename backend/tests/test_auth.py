@@ -87,7 +87,7 @@ def sample_user(db_session):
 @pytest.fixture
 def auth_headers(sample_user):
     """Get authentication headers for sample user"""
-    token, _ = create_access_token(sample_user.id, sample_user.username)
+    token, _ = create_access_token(sample_user.id, sample_user.username, sample_user.session_version)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -122,7 +122,7 @@ class TestJWTTokens:
 
     def test_create_access_token(self):
         """Test JWT token creation"""
-        token, expires_in = create_access_token(1, "testuser")
+        token, expires_in = create_access_token(1, "testuser", 0)
 
         assert token is not None
         assert len(token) > 0
@@ -130,7 +130,7 @@ class TestJWTTokens:
 
     def test_decode_valid_token(self):
         """Test decoding a valid token"""
-        token, _ = create_access_token(1, "testuser")
+        token, _ = create_access_token(1, "testuser", 0)
         payload = decode_token(token)
 
         assert payload is not None
@@ -530,7 +530,7 @@ class TestGetCurrentUserEdgeCases:
         db_session.commit()
         db_session.refresh(user)
 
-        token, _ = create_access_token(user.id, user.username)
+        token, _ = create_access_token(user.id, user.username, user.session_version)
         creds = Mock()
         creds.credentials = token
 
@@ -558,7 +558,7 @@ class TestGetOptionalUser:
     @pytest.mark.asyncio
     async def test_valid_token(self, db_session, sample_user):
         from unittest.mock import Mock
-        token, _ = create_access_token(sample_user.id, sample_user.username)
+        token, _ = create_access_token(sample_user.id, sample_user.username, sample_user.session_version)
         creds = Mock()
         creds.credentials = token
 

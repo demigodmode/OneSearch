@@ -133,7 +133,7 @@ def auth_headers(db_session):
     user = User(username="previewer", password_hash=hash_password("testpass"), is_active=True)
     db_session.add(user)
     db_session.commit()
-    token, _ = create_access_token(user.id, user.username)
+    token, _ = create_access_token(user.id, user.username, user.session_version)
     return {"Authorization": f"Bearer {token}"}
 
 

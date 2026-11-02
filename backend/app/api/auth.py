@@ -7,7 +7,7 @@ Handles user setup, login, logout, and session management
 """
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 from collections import defaultdict
 import time
 
@@ -19,7 +19,7 @@ import bcrypt
 import jwt
 
 from ..db.database import get_db
-from ..models import User
+from ..models import ROLE_ADMIN, User
 from ..schemas import (
     SetupRequest,
     LoginRequest,
@@ -67,7 +67,7 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 
-def create_access_token(user_id: int, username: str) -> tuple[str, int]:
+def create_access_token(user_id: int, username: str, session_version: int) -> tuple[str, int]:
     """Create a JWT access token"""
     expire_hours = settings.session_expire_hours
     now = datetime.now(timezone.utc)
@@ -77,6 +77,7 @@ def create_access_token(user_id: int, username: str) -> tuple[str, int]:
     payload = {
         "sub": str(user_id),
         "username": username,
+        "sv": session_version,
         "exp": expire,
         "iat": now,
     }
@@ -85,7 +86,7 @@ def create_access_token(user_id: int, username: str) -> tuple[str, int]:
     return token, expires_in
 
 
-def decode_token(token: str) -> Optional[dict]:
+def decode_token(token: str) -> Optional[dict[str, Any]]:
     """Decode and validate a JWT token"""
     try:
         payload = jwt.decode(token, get_secret_key(), algorithms=[ALGORITHM])
@@ -152,6 +153,12 @@ def is_setup_required(db: Session) -> bool:
     return count == 0
 
 
+def _session_is_current(payload: dict[str, Any], user: User) -> bool:
+    """Tokens from before session versions existed have no sv and stay valid until they expire."""
+    token_version = payload.get("sv")
+    return token_version is None or token_version == user.session_version
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db)
@@ -191,6 +198,13 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if not _session_is_current(payload, user):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return user
 
 
@@ -214,7 +228,7 @@ async def get_optional_user(
         return None
 
     user = db.get(User, int(user_id))
-    if not user or not user.is_active:
+    if not user or not user.is_active or not _session_is_current(payload, user):
         return None
 
     return user
@@ -228,8 +242,12 @@ async def require_signed_in(user: User = Depends(get_current_user)) -> User:  # 
     return user
 
 
-async def require_admin(user: User = Depends(get_current_user)) -> User:  # noqa: B008
-    # There is only one user so far, and it runs the instance. Roles plug in here.
+async def require_admin(user: User = Depends(require_signed_in)) -> User:  # noqa: B008
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
     return user
 
 
@@ -297,6 +315,7 @@ async def setup_admin(
         username=setup_data.username,
         password_hash=hash_password(setup_data.password),
         is_active=True,
+        role=ROLE_ADMIN,
     )
 
     db.add(user)
@@ -306,7 +325,7 @@ async def setup_admin(
     logger.info(f"Admin user created: {user.username}")
 
     # Generate token
-    token, expires_in = create_access_token(user.id, user.username)
+    token, expires_in = create_access_token(user.id, user.username, user.session_version)
 
     return AuthResponse(
         access_token=token,
@@ -365,7 +384,7 @@ async def login(
     logger.info(f"User logged in: {user.username}")
 
     # Generate token
-    token, expires_in = create_access_token(user.id, user.username)
+    token, expires_in = create_access_token(user.id, user.username, user.session_version)
 
     return AuthResponse(
         access_token=token,

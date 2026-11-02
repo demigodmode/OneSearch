@@ -170,6 +170,13 @@ class LocalBrowseResponse(BaseModel):
     truncated: bool = False
 
 
+class SourceSummaryResponse(BaseModel):
+    """What a member sees of a source: enough to filter search by it"""
+
+    id: str
+    name: str
+
+
 class SourceResponse(SourceBase):
     """Schema for source response"""
 
@@ -319,6 +326,8 @@ class UserResponse(BaseModel):
     id: int
     username: str
     is_active: bool
+    role: Literal["admin", "member"]
+    must_change_password: bool
     created_at: datetime
 
 

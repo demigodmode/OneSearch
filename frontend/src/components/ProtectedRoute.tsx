@@ -3,13 +3,15 @@
 
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/contexts/useAuth'
+import { isAdmin } from '@/lib/utils'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
+  requireAdmin?: boolean
 }
 
-export default function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading, setupRequired } = useAuth()
+export default function ProtectedRoute({ children, requireAdmin = false }: ProtectedRouteProps) {
+  const { user, isAuthenticated, isLoading, setupRequired } = useAuth()
   const location = useLocation()
 
   // Show loading while checking auth status
@@ -29,6 +31,11 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   // Redirect to login if not authenticated
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
+  // Members go back to search instead of seeing admin pages
+  if (requireAdmin && !isAdmin(user)) {
+    return <Navigate to="/" replace />
   }
 
   return <>{children}</>

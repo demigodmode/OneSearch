@@ -398,6 +398,8 @@ export interface User {
   username: string
   is_active: boolean
   created_at: string
+  role: 'admin' | 'member'
+  must_change_password: boolean
 }
 
 /**

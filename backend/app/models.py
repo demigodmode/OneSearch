@@ -421,10 +421,14 @@ class AppSetting(Base):
         return f"<AppSetting(key={self.key})>"
 
 
+ROLE_ADMIN = "admin"
+ROLE_MEMBER = "member"
+
+
 class User(Base):
     """
     User authentication table
-    Stores admin credentials for OneSearch
+    Stores login credentials and role for OneSearch users
     """
 
     __tablename__ = "users"
@@ -433,12 +437,21 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    role = Column(String(16), default=ROLE_MEMBER, nullable=False)
+    session_version = Column(Integer, default=0, server_default="0", nullable=False)
+    must_change_password = Column(Boolean, default=False, server_default="0", nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_utcnow, nullable=False)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow, nullable=False)
 
     agent_enrollments = relationship(
         "AgentEnrollment", back_populates="created_by_user", passive_deletes=True
     )
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == ROLE_ADMIN
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username})>"
