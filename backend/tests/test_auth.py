@@ -498,6 +498,21 @@ class TestDecodeTokenEdgeCases:
 class TestGetCurrentUserEdgeCases:
 
     @pytest.mark.asyncio
+    async def test_download_token_is_not_a_session(self, db_session, sample_user):
+        from unittest.mock import Mock
+
+        from fastapi import HTTPException
+
+        from app.api.preview import _create_download_token
+
+        creds = Mock()
+        creds.credentials = _create_download_token(sample_user.id, "photos--image123")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(credentials=creds, db=db_session)
+        assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
     async def test_token_missing_sub(self, db_session):
         """Token with no 'sub' field should fail"""
         import jwt as pyjwt
@@ -565,3 +580,28 @@ class TestGetOptionalUser:
         result = await get_optional_user(credentials=creds, db=db_session)
         assert result is not None
         assert result.username == "testuser"
+
+    @pytest.mark.asyncio
+    async def test_download_token_is_not_a_session(self, db_session, sample_user):
+        from unittest.mock import Mock
+
+        from app.api.preview import _create_download_token
+
+        creds = Mock()
+        creds.credentials = _create_download_token(sample_user.id, "photos--image123")
+
+        result = await get_optional_user(credentials=creds, db=db_session)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_token_without_purpose_still_works(self, db_session, sample_user):
+        from unittest.mock import Mock
+
+        import jwt as pyjwt
+
+        payload = {"sub": str(sample_user.id), "username": sample_user.username, "exp": 4102444800}
+        creds = Mock()
+        creds.credentials = pyjwt.encode(payload, get_secret_key(), algorithm="HS256")
+
+        result = await get_optional_user(credentials=creds, db=db_session)
+        assert result is not None

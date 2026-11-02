@@ -35,6 +35,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 # JWT configuration
 ALGORITHM = "HS256"
+SESSION_PURPOSE = "session"
 BCRYPT_ROUNDS = 12  # Cost factor for bcrypt
 
 # Rate limiting storage (in-memory, resets on restart)
@@ -78,6 +79,7 @@ def create_access_token(user_id: int, username: str, session_version: int) -> tu
         "sub": str(user_id),
         "username": username,
         "sv": session_version,
+        "purpose": SESSION_PURPOSE,
         "exp": expire,
         "iat": now,
     }
@@ -93,6 +95,11 @@ def decode_token(token: str) -> Optional[dict[str, Any]]:
         return payload
     except jwt.exceptions.InvalidTokenError:
         return None
+
+
+def _is_session_payload(payload: dict[str, Any]) -> bool:
+    """Tokens from before purposes existed have none and count as sessions."""
+    return payload.get("purpose", SESSION_PURPOSE) == SESSION_PURPOSE
 
 
 _last_prune = 0.0
@@ -175,7 +182,7 @@ async def get_current_user(
         )
 
     payload = decode_token(credentials.credentials)
-    if not payload:
+    if not payload or not _is_session_payload(payload):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -220,7 +227,7 @@ async def get_optional_user(
         return None
 
     payload = decode_token(credentials.credentials)
-    if not payload:
+    if not payload or not _is_session_payload(payload):
         return None
 
     user_id = payload.get("sub")

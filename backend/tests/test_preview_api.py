@@ -1759,3 +1759,12 @@ def test_upload_preview_rejects_path_traversal(db_session, monkeypatch):
         assert response2.status_code in {400, 409}
 
     app.dependency_overrides.clear()
+
+
+def test_download_rejects_session_token(client, test_user):
+    response = client.get(
+        "/api/documents/photos--image123/download", params={"token": test_user["token"]}
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "download_token_wrong_purpose"

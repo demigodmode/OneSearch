@@ -176,3 +176,13 @@ def test_token_without_session_version_still_works(client, test_user):
     response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
 
     assert response.status_code == 200
+
+
+def test_download_token_cannot_be_used_as_session(client, test_user):
+    from app.api.preview import _create_download_token
+
+    token = _create_download_token(test_user["user"].id, "photos--image123")
+
+    response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
