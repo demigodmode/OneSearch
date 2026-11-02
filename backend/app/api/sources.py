@@ -57,7 +57,7 @@ from ..services.scheduler import (
     validate_schedule,
 )
 from ..services.search import meili_service
-from .auth import get_current_user
+from .auth import require_admin, require_signed_in
 from .source_batches import router as batch_router
 
 logger = logging.getLogger(__name__)
@@ -560,7 +560,7 @@ def _build_source(db: Session, data: SourceCreate, source_id: str, root_path: st
 
 @router.get("", response_model=list[SourceResponse])
 async def list_sources(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db), current_user: User = Depends(require_signed_in)
 ):
     """
     List all configured sources
@@ -596,7 +596,7 @@ async def list_sources(
 async def test_source_path(
     request_data: SourcePathTestRequest,
     db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Test a source path before saving it."""
     if request_data.location_type == "local":
@@ -626,7 +626,7 @@ async def test_source_path(
 async def get_source_path_test(
     job_id: str,
     db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: User = Depends(require_admin),  # noqa: B008
 ):
     """Return the sanitized result of a queued remote path validation."""
     job = db.get(AgentJob, job_id)
@@ -643,7 +643,7 @@ async def get_source_path_test(
 async def browse_source_directory(
     request_data: SourceBrowseRequest,
     db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: User = Depends(require_admin),  # noqa: B008
 ):
     """Queue a bounded directory-only browse; this never creates a source."""
     if not AppSettingsService(db).get_settings().remote_agents_enabled:
@@ -670,7 +670,7 @@ async def browse_source_directory(
 async def get_source_directory_browse(
     job_id: str,
     db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: User = Depends(require_admin),  # noqa: B008
 ):
     job = db.get(AgentJob, job_id)
     payload = _browse_payload(job) if job is not None else None
@@ -681,7 +681,7 @@ async def get_source_directory_browse(
 
 @router.get("/local-roots", response_model=LocalSourceRootsResponse)
 async def get_local_source_roots(
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: User = Depends(require_admin),  # noqa: B008
 ):
     """Configured local source roots the folder picker may browse."""
     roots = _local_roots()
@@ -697,7 +697,7 @@ async def get_local_source_roots(
 @router.post("/browse-local", response_model=LocalBrowseResponse)
 async def browse_local_directory(
     request_data: LocalBrowseRequest,
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: User = Depends(require_admin),  # noqa: B008
 ):
     """List folders under a configured local root; never creates a source."""
     roots = _local_roots()
@@ -740,7 +740,7 @@ router.include_router(batch_router)
 
 @router.get("/{source_id}", response_model=SourceResponse)
 async def get_source(
-    source_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    source_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)
 ):
     """
     Get a specific source by ID
@@ -770,7 +770,7 @@ async def create_source(
     request: Request,
     source_data: SourceCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Create a new search source
@@ -839,7 +839,7 @@ async def update_source(
     source_id: str,
     source_data: SourceUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Update an existing source configuration
@@ -990,7 +990,7 @@ async def delete_source(
     request: Request,
     source_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Delete a source and all its indexed files
@@ -1041,7 +1041,7 @@ async def reindex_source(
     source_id: str,
     full: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Manually trigger reindexing for a source
@@ -1156,7 +1156,7 @@ async def reindex_source(
 async def clear_stale_failed_files(
     source_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Clean failed file entries for a source.

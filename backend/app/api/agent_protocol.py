@@ -60,6 +60,7 @@ from ..services.remote_files import (
 )
 from ..services.remote_ingest import RemoteIngestService, canonical_remote_path
 from ..services.search import meili_service
+from .auth import allow_anyone
 
 router = APIRouter(prefix="/api/agent/v1", tags=["agent-protocol"])
 Database = Annotated[Session, Depends(get_db)]
@@ -154,7 +155,7 @@ def _validate_enrollment(request: AgentEnrollmentRequest) -> None:
     "/enroll",
     response_model=AgentEnrollmentResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_remote_agents_enabled)],
+    dependencies=[Depends(allow_anyone), Depends(require_remote_agents_enabled)],
 )
 async def enroll_agent(request: AgentEnrollmentRequest, db: Database):
     _validate_enrollment(request)

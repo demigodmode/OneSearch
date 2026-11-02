@@ -280,13 +280,20 @@ class SourceStatus(BaseModel):
     next_scan_at: datetime | None = None
 
 
+class MeilisearchHealth(BaseModel):
+    """Meilisearch status nested in the health response"""
+
+    status: str
+
+
 class HealthResponse(BaseModel):
     """Schema for health check response"""
 
     status: str
-    meilisearch_connected: bool
-    database_connected: bool
+    service: str
+    version: str
     setup_required: bool = False
+    meilisearch: MeilisearchHealth
 
 
 # Authentication schemas

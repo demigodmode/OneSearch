@@ -32,7 +32,7 @@ from ..services.remote_files import (
     remote_streams,
 )
 from ..services.search import meili_service
-from .auth import ALGORITHM, get_current_user, get_secret_key
+from .auth import ALGORITHM, allow_anyone, get_secret_key, require_signed_in
 
 router = APIRouter(prefix="/api", tags=["preview"])
 
@@ -54,7 +54,7 @@ async def get_document_preview(
     request: Request,
     document_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_signed_in),
 ):
     """Stream a safe preview for an indexed image document."""
     app_settings = AppSettingsService(db).get_settings()
@@ -151,7 +151,7 @@ async def get_document_preview(
 async def create_document_download_link(
     document_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_signed_in),
 ):
     """Create a short-lived signed URL for downloading an indexed document."""
     document = _document_to_dict(await meili_service.get_document(document_id))
@@ -174,7 +174,7 @@ async def create_document_download_link(
     }
 
 
-@router.get("/documents/{document_id}/download")
+@router.get("/documents/{document_id}/download", dependencies=[Depends(allow_anyone)])
 async def download_document(
     request: Request,
     document_id: str,

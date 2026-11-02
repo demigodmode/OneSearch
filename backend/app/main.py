@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from . import __version__
 from .api import agent_protocol, agents, auth, preview, search, sources, status
 from .api import settings as settings_api
+from .api.auth import allow_anyone
 from .config import settings
 from .db.database import engine, get_db
 from .request_body_limits import RemoteAgentBodyLimitMiddleware
@@ -173,7 +174,7 @@ app.include_router(agents.router)
 app.include_router(agent_protocol.router)
 
 
-@app.get("/api/health")
+@app.get("/api/health", dependencies=[Depends(allow_anyone)])
 async def health_check(db: Session = Depends(get_db)):
     """
     Health check endpoint for container healthcheck
@@ -210,7 +211,7 @@ async def health_check(db: Session = Depends(get_db)):
     return JSONResponse(content=response_data, status_code=status_code)
 
 
-@app.get("/")
+@app.get("/", dependencies=[Depends(allow_anyone)])
 async def root():
     """Root endpoint - API information"""
     return {

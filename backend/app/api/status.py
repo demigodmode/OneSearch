@@ -15,7 +15,7 @@ from ..db.database import get_db
 from ..models import User
 from ..services.indexer import IndexingService
 from ..services.search import SearchService, meili_service
-from .auth import get_current_user
+from .auth import require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api", tags=["status"])
 
 
 @router.get("/status")
-async def get_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_status(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     """
     Get indexing status for all sources
 
@@ -65,7 +65,7 @@ async def get_status(db: Session = Depends(get_db), current_user: User = Depends
 
 
 @router.get("/status/{source_id}")
-async def get_source_status(source_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_source_status(source_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     """
     Get detailed indexing status for a specific source
 

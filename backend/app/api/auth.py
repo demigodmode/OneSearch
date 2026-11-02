@@ -220,7 +220,20 @@ async def get_optional_user(
     return user
 
 
-@router.get("/status")
+def allow_anyone() -> None:
+    """Marks a route that needs no sign-in. See access.py."""
+
+
+async def require_signed_in(user: User = Depends(get_current_user)) -> User:  # noqa: B008
+    return user
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:  # noqa: B008
+    # There is only one user so far, and it runs the instance. Roles plug in here.
+    return user
+
+
+@router.get("/status", dependencies=[Depends(allow_anyone)])
 async def auth_status(db: Session = Depends(get_db)):
     """
     Check authentication status and whether setup is required.
@@ -233,7 +246,7 @@ async def auth_status(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/setup", response_model=AuthResponse)
+@router.post("/setup", response_model=AuthResponse, dependencies=[Depends(allow_anyone)])
 async def setup_admin(
     request: Request,
     setup_data: SetupRequest,
@@ -302,7 +315,7 @@ async def setup_admin(
     )
 
 
-@router.post("/login", response_model=AuthResponse)
+@router.post("/login", response_model=AuthResponse, dependencies=[Depends(allow_anyone)])
 async def login(
     request: Request,
     login_data: LoginRequest,
@@ -362,7 +375,7 @@ async def login(
 
 
 @router.post("/logout", response_model=MessageResponse)
-async def logout(current_user: User = Depends(get_current_user)):
+async def logout(current_user: User = Depends(require_signed_in)):
     """
     Logout the current user.
 
@@ -377,7 +390,7 @@ async def logout(current_user: User = Depends(get_current_user)):
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(current_user: User = Depends(get_current_user)):
+async def get_current_user_info(current_user: User = Depends(require_signed_in)):
     """
     Get information about the currently authenticated user.
 

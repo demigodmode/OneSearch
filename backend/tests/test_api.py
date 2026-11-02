@@ -27,6 +27,7 @@ from app.config import settings
 from app.db.database import get_db
 from app.main import app
 from app.models import AppSetting, Base, IndexedFile, Source, User
+from app.schemas import HealthResponse
 from app.services.search import meili_service
 
 # In-memory SQLite database for testing
@@ -167,6 +168,16 @@ class TestHealthEndpoint:
 
         assert "meilisearch" in data
         assert "status" in data["meilisearch"]
+
+    def test_health_check_matches_health_response_schema(self, client):
+        """Test the real /api/health payload validates against HealthResponse"""
+        response = client.get("/api/health")
+
+        health = HealthResponse.model_validate(response.json())
+
+        assert health.service == "onesearch-backend"
+        assert health.status in ("healthy", "degraded")
+        assert isinstance(health.meilisearch.status, str)
 
 
 class TestSourceEndpoints:

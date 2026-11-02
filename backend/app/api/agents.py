@@ -32,13 +32,14 @@ from ..services.agent_auth import (
     hash_token,
     require_remote_agents_enabled,
 )
-from .auth import get_current_user
+from .auth import require_admin
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
+
+CurrentAdmin = Annotated[User, Depends(require_admin)]
 Database = Annotated[Session, Depends(get_db)]
-CurrentUser = Annotated[User, Depends(get_current_user)]
 RemoteAgentsEnabled = Annotated[None, Depends(require_remote_agents_enabled)]
 _DEGRADED_WINDOW = timedelta(hours=24)
 _AFFECTED_SOURCE_LIMIT = 99
@@ -250,7 +251,7 @@ def _get_agent(agent_id: str, db: Session) -> Agent:
     status_code=status.HTTP_201_CREATED,
 )
 async def create_enrollment(
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
     feature_enabled: RemoteAgentsEnabled,
     db: Database,
 ):
@@ -275,7 +276,7 @@ async def create_enrollment(
 @router.get("", response_model=list[AgentAdminResponse])
 async def list_agents(
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
 ):
     del current_user
     agents = db.query(Agent).order_by(Agent.created_at).all()
@@ -289,7 +290,7 @@ async def list_agents(
 async def get_agent(
     agent_id: str,
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
 ):
     del current_user
     return _detail_response(_get_agent(agent_id, db), db)
@@ -300,7 +301,7 @@ async def update_agent(
     agent_id: str,
     update: AgentAdminUpdate,
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
 ):
     """Update the defaults inherited by future remote-source jobs."""
     del current_user
@@ -319,7 +320,7 @@ async def update_agent(
 async def approve_agent(
     agent_id: str,
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
 ):
     del current_user
     agent = _get_agent(agent_id, db)
@@ -346,7 +347,7 @@ async def approve_agent(
 async def disable_agent(
     agent_id: str,
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
 ):
     del current_user
     agent = _get_agent(agent_id, db)
@@ -372,7 +373,7 @@ async def revoke_agent(
     agent_id: str,
     request: Request,
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
     delete_sources: bool = False,
 ):
     del current_user

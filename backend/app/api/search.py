@@ -17,7 +17,7 @@ from ..schemas import Document, SearchQuery, SearchResponse, SearchResult
 from ..services.agent_auth import effective_agent_status
 from ..services.app_settings import AppSettingsService
 from ..services.search import meili_service
-from .auth import get_current_user
+from .auth import require_signed_in
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def _apply_relevance_tiebreak(results: list[SearchResult]) -> None:
 @router.post("/search", response_model=SearchResponse)
 async def search(
     query: SearchQuery,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_signed_in),
     db: Session = Depends(get_db),
 ):
     """
@@ -190,7 +190,7 @@ async def search(
 
 
 @router.get("/documents/{document_id}", response_model=Document)
-async def get_document(document_id: str, current_user: User = Depends(get_current_user)):
+async def get_document(document_id: str, current_user: User = Depends(require_signed_in)):
     """
     Get a single document by ID
 

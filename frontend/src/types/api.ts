@@ -307,11 +307,6 @@ export interface HealthResponse {
     status: string
     [key: string]: unknown
   }
-  config: {
-    database: string
-    meilisearch_url: string
-    log_level: string
-  }
 }
 
 /**

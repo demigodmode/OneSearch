@@ -17,7 +17,7 @@ from ..db.database import get_db
 from ..models import Agent, Source, SourceBatch, SourceBatchItem, User, _utcnow
 from ..schemas import SourceBatchCreate, SourceBatchItemCreateRequest, SourceCreate
 from ..services.scheduler import validate_interval, validate_schedule
-from .auth import get_current_user
+from .auth import require_admin
 
 router = APIRouter(prefix="/batches")
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ def _summary(batch: SourceBatch) -> dict:
 
 
 @router.post("", status_code=201)
-def create_batch(payload: SourceBatchCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):  # noqa: B008
+def create_batch(payload: SourceBatchCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):  # noqa: B008
     # The ASGI body limiter checks raw bytes before JSON parsing; also bound the
     # normalized snapshot persisted to the database.
     snapshot = payload.model_dump(mode="json")
@@ -112,7 +112,7 @@ def create_batch(payload: SourceBatchCreate, db: Session = Depends(get_db), curr
 
 
 @router.get("")
-def list_batches(cursor: str | None = None, limit: int = 20, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):  # noqa: B008
+def list_batches(cursor: str | None = None, limit: int = 20, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):  # noqa: B008
     if not 1 <= limit <= 20:
         raise HTTPException(status_code=422, detail="Page size must be 1–20")
     stmt = select(SourceBatch).options(selectinload(SourceBatch.items)).where(SourceBatch.owner_user_id == current_user.id)
@@ -130,12 +130,12 @@ def list_batches(cursor: str | None = None, limit: int = 20, db: Session = Depen
 
 
 @router.get("/{batch_id}")
-def get_batch(batch_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):  # noqa: B008
+def get_batch(batch_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):  # noqa: B008
     return _detail(db, _owned(db, batch_id, current_user.id))
 
 
 @router.post("/{batch_id}/dismiss")
-def dismiss_batch(batch_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):  # noqa: B008
+def dismiss_batch(batch_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):  # noqa: B008
     batch = _owned(db, batch_id, current_user.id)
     batch.dismissed = True
     batch.updated_at = _utcnow()
@@ -311,7 +311,7 @@ def _write_item(db: Session, batch_id: str, item_id: str, owner_id: int, source:
 
 @router.post("/{batch_id}/items/{item_id}/create")
 def create_item(batch_id: str, item_id: str, data: SourceBatchItemCreateRequest, request: Request,
-                db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):  # noqa: B008
+                db: Session = Depends(get_db), current_user: User = Depends(require_admin)):  # noqa: B008
     owner_id = current_user.id
     batch = _owned(db, batch_id, owner_id)
     item = db.get(SourceBatchItem, (batch_id, item_id))
