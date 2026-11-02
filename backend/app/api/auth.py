@@ -161,6 +161,11 @@ def is_setup_required(db: Session) -> bool:
     return count == 0
 
 
+def ending_sessions_values() -> dict[str, Any]:
+    """Values for an UPDATE that ends all of a user's sessions. Spread into .values()."""
+    return {"session_version": User.session_version + 1}
+
+
 def _session_is_current(payload: dict[str, Any], user: User) -> bool:
     """Tokens from before session versions existed have no sv and stay valid until they expire."""
     token_version = payload.get("sv")
@@ -457,7 +462,7 @@ async def change_password(
         .values(
             password_hash=hash_password(password_data.new_password),
             must_change_password=False,
-            session_version=expected_version + 1,
+            **ending_sessions_values(),
         )
     )
     if result.rowcount != 1:

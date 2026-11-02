@@ -5,13 +5,39 @@ import { useState } from 'react'
 import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { useUsers } from '@/hooks/useApi'
+import { useAuth } from '@/contexts/useAuth'
+import { useUpdateUser, useUsers } from '@/hooks/useApi'
 import { formatDateTime } from '@/lib/utils'
+import type { AdminUser, UpdateUserRequest } from '@/types/api'
 import { CreateUserDialog } from '@/pages/admin/CreateUserDialog'
+import { DeleteUserDialog } from '@/pages/admin/DeleteUserDialog'
+import { ResetPasswordDialog } from '@/pages/admin/ResetPasswordDialog'
+import { UserActionsMenu } from '@/pages/admin/UserActionsMenu'
+
+// The one place that decides what a row's role and active toggles change to.
+const roleToggle = (user: AdminUser): UpdateUserRequest => ({ role: user.role === 'admin' ? 'member' : 'admin' })
+const activeToggle = (user: AdminUser): UpdateUserRequest => ({ is_active: !user.is_active })
 
 export default function UsersPage() {
   const users = useUsers()
+  const updateUser = useUpdateUser()
+  const { user: me } = useAuth()
   const [createOpen, setCreateOpen] = useState(false)
+  // The target stays set after a dialog closes so its title doesn't change mid-animation.
+  const [resetTarget, setResetTarget] = useState<AdminUser | null>(null)
+  const [resetOpen, setResetOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [actionError, setActionError] = useState('')
+
+  const changeUser = async (user: AdminUser, data: UpdateUserRequest) => {
+    setActionError('')
+    try {
+      await updateUser.mutateAsync({ id: user.id, data })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not update user')
+    }
+  }
 
   return (
     <div className="animate-fade-in">
@@ -28,6 +54,7 @@ export default function UsersPage() {
 
       {users.isLoading && <p className="text-sm text-muted-foreground">Loading users...</p>}
       {users.error && <p role="alert" className="text-sm text-destructive">Unable to load users.</p>}
+      {actionError && <p role="alert" className="mb-4 text-sm text-destructive">{actionError}</p>}
 
       {users.data && (
         <div className="bg-card border border-border rounded-lg">
@@ -40,6 +67,7 @@ export default function UsersPage() {
                 <TableHead>Created by</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Last login</TableHead>
+                <TableHead><span className="sr-only">Actions</span></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -51,6 +79,23 @@ export default function UsersPage() {
                   <TableCell>{user.created_by ?? '—'}</TableCell>
                   <TableCell>{formatDateTime(user.created_at)}</TableCell>
                   <TableCell>{user.last_login_at ? formatDateTime(user.last_login_at) : 'Never'}</TableCell>
+                  <TableCell>
+                    {me && me.id !== user.id && (
+                      <UserActionsMenu
+                        user={user}
+                        onChangeRole={() => changeUser(user, roleToggle(user))}
+                        onToggleActive={() => changeUser(user, activeToggle(user))}
+                        onResetPassword={() => {
+                          setResetTarget(user)
+                          setResetOpen(true)
+                        }}
+                        onDelete={() => {
+                          setDeleteTarget(user)
+                          setDeleteOpen(true)
+                        }}
+                      />
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -59,6 +104,8 @@ export default function UsersPage() {
       )}
 
       <CreateUserDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <ResetPasswordDialog user={resetTarget} open={resetOpen} onOpenChange={setResetOpen} />
+      <DeleteUserDialog user={deleteTarget} open={deleteOpen} onOpenChange={setDeleteOpen} />
     </div>
   )
 }

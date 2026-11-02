@@ -5,15 +5,22 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import delete, select, update
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import Select
 
 from ..db.database import get_db
-from ..models import User
-from ..schemas import UserAdminResponse, UserCreateRequest
-from .auth import hash_password, require_admin
+from ..db.locks import begin_immediate
+from ..models import ROLE_ADMIN, AgentEnrollment, SourceBatch, User
+from ..schemas import (
+    UserAdminResponse,
+    UserCreateRequest,
+    UserPasswordResetRequest,
+    UserUpdateRequest,
+)
+from .auth import ending_sessions_values, hash_password, require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +32,72 @@ def _username_taken() -> HTTPException:
         status_code=status.HTTP_409_CONFLICT,
         detail="Username already exists",
     )
+
+
+def _user_or_404(db: Session, user_id: int) -> User:
+    user = db.get(User, user_id, populate_existing=True)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return user
+
+
+def _busy_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Someone else is changing users right now. Try again.",
+    )
+
+
+def _last_admin_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="There has to be at least one active admin",
+    )
+
+
+def _active_admins_lock_statement() -> Select:
+    return (
+        select(User.id)
+        .where(User.role == ROLE_ADMIN, User.is_active.is_(True))
+        .order_by(User.id)
+        .with_for_update()
+    )
+
+
+def _active_admin_ids_locked(db: Session) -> list[int]:
+    # SQLite has no row locks, so take the database write lock first. Postgres
+    # locks the admin rows in the SELECT itself. Either way it holds until commit.
+    if db.get_bind().dialect.name == "sqlite":
+        db.rollback()
+        try:
+            begin_immediate(db)
+        except OperationalError as exc:
+            db.rollback()
+            if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
+                raise
+            raise _busy_error() from exc
+    return list(db.execute(_active_admins_lock_statement()).scalars())
+
+
+def _guard_admin_removal(admin: User, user: User, active_admin_ids: list[int]) -> None:
+    if user.id == admin.id:
+        raise _not_yourself_error()
+    if user.id in active_admin_ids and len(active_admin_ids) == 1:
+        raise _last_admin_error()
+
+
+def _not_yourself_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="You can't do that to your own account",
+    )
+
+
+def _created_by_name(db: Session, user: User) -> str | None:
+    if user.created_by_id is None:
+        return None
+    creator = db.get(User, user.created_by_id)
+    return creator.username if creator else None
 
 
 def _to_admin_response(user: User, created_by: str | None) -> UserAdminResponse:
@@ -86,3 +159,106 @@ async def create_user(
     logger.info(f"User created: {user.username} by {admin.username}")
 
     return _to_admin_response(user, admin.username)
+
+
+@router.patch("/{user_id}", response_model=UserAdminResponse)
+async def update_user(
+    user_id: int,
+    update_data: UserUpdateRequest,
+    admin: User = Depends(require_admin),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+) -> UserAdminResponse:
+    """
+    Change a user's role or turn their account on or off.
+    A role change or a disable ends their sessions.
+
+    Raises:
+        400: Trying to disable or demote your own account
+        404: Unknown user
+        409: The user is the last active admin, or another admin change is in progress
+    """
+    active_admin_ids = _active_admin_ids_locked(db)
+    user = _user_or_404(db, user_id)
+    changes = update_data.model_dump(exclude_none=True)
+    new_role = changes.get("role", user.role)
+    new_active = changes.get("is_active", user.is_active)
+    role_changed = new_role != user.role
+    disabled_now = user.is_active and not new_active
+
+    if user.is_active and user.is_admin and (new_role != ROLE_ADMIN or not new_active):
+        _guard_admin_removal(admin, user, active_admin_ids)
+
+    if role_changed or disabled_now:
+        changes.update(ending_sessions_values())
+    if changes:
+        db.execute(update(User).where(User.id == user.id).values(**changes))
+    db.commit()
+    db.refresh(user)
+
+    logger.info(f"User updated: {user.username} by {admin.username}")
+
+    return _to_admin_response(user, _created_by_name(db, user))
+
+
+@router.post("/{user_id}/reset-password", response_model=UserAdminResponse)
+async def reset_user_password(
+    user_id: int,
+    reset_data: UserPasswordResetRequest,
+    admin: User = Depends(require_admin),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+) -> UserAdminResponse:
+    """
+    Set a new temporary password. The user must change it at next sign-in and their sessions end.
+
+    Raises:
+        404: Unknown user
+    """
+    user = _user_or_404(db, user_id)
+    db.execute(
+        update(User)
+        .where(User.id == user.id)
+        .values(
+            password_hash=hash_password(reset_data.password),
+            must_change_password=True,
+            **ending_sessions_values(),
+        )
+    )
+    db.commit()
+    db.refresh(user)
+
+    logger.info(f"Password reset: {user.username} by {admin.username}")
+
+    return _to_admin_response(user, _created_by_name(db, user))
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: int,
+    admin: User = Depends(require_admin),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+) -> Response:
+    """
+    Delete a user. Disabling is the normal way to remove someone; this is for mistakes.
+
+    Raises:
+        400: Trying to delete your own account
+        404: Unknown user
+        409: The user is the last active admin, or another admin change is in progress
+    """
+    active_admin_ids = _active_admin_ids_locked(db)
+    user = _user_or_404(db, user_id)
+    _guard_admin_removal(admin, user, active_admin_ids)
+
+    db.execute(delete(AgentEnrollment).where(AgentEnrollment.created_by_user_id == user.id))
+    db.execute(update(User).where(User.created_by_id == user.id).values(created_by_id=None))
+    db.delete(user)
+    # The before_delete hook on User reads the batches it owns, so flush before clearing the owner.
+    db.flush()
+    db.execute(
+        update(SourceBatch).where(SourceBatch.owner_user_id == user.id).values(owner_user_id=None)
+    )
+    db.commit()
+
+    logger.info(f"User deleted: {user.username} by {admin.username}")
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

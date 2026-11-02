@@ -27,6 +27,8 @@ import type {
   ChangePasswordRequest,
   AdminUser,
   CreateUserRequest,
+  ResetUserPasswordRequest,
+  UpdateUserRequest,
   User,
   AppSettings,
   AppSettingsUpdate,
@@ -629,6 +631,24 @@ export async function createUser(data: CreateUserRequest): Promise<AdminUser> {
     method: 'POST',
     body: JSON.stringify(data),
   })
+}
+
+export async function updateUser(id: number, data: UpdateUserRequest): Promise<AdminUser> {
+  return apiFetch<AdminUser>(`/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function resetUserPassword(id: number, data: ResetUserPasswordRequest): Promise<AdminUser> {
+  return apiFetch<AdminUser>(`/users/${id}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteUser(id: number): Promise<void> {
+  return apiFetch<void>(`/users/${id}`, { method: 'DELETE' })
 }
 
 // ============================================================================

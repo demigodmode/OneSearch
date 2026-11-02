@@ -25,10 +25,12 @@ import {
   queryKeys,
   getAgents, getAgent, createAgentEnrollment, approveAgent, disableAgent, revokeAgent, updateAgentProcessingMode,
   getLocalSourceRoots, listSourceBatches,
-  listUsers, createUser,
+  listUsers, createUser, updateUser, resetUserPassword, deleteUser,
 } from '@/lib/api'
 import type {
   CreateUserRequest,
+  ResetUserPasswordRequest,
+  UpdateUserRequest,
   SourceCreate,
   SourceUpdate,
   SearchQuery,
@@ -260,6 +262,39 @@ export function useCreateUser() {
 
   return useMutation({
     mutationFn: (data: CreateUserRequest) => createUser(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.users })
+    },
+  })
+}
+
+export function useUpdateUser() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: UpdateUserRequest }) => updateUser(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.users })
+    },
+  })
+}
+
+export function useResetUserPassword() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: ResetUserPasswordRequest }) => resetUserPassword(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.users })
+    },
+  })
+}
+
+export function useDeleteUser() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) => deleteUser(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.users })
     },

@@ -333,6 +333,19 @@ class UserCreateRequest(BaseModel):
     role: Literal["admin", "member"]
 
 
+class UserUpdateRequest(BaseModel):
+    """Schema for an admin changing a user's role or active state. Send only what changes."""
+
+    role: Literal["admin", "member"] | None = None
+    is_active: bool | None = None
+
+
+class UserPasswordResetRequest(BaseModel):
+    """Schema for an admin setting a new temporary password for a user"""
+
+    password: str = Field(..., min_length=8)
+
+
 class UserResponse(BaseModel):
     """Schema for user info response"""
 

@@ -424,6 +424,21 @@ export interface CreateUserRequest {
 }
 
 /**
+ * Request body for an admin changing a user's role or active state
+ */
+export interface UpdateUserRequest {
+  role?: UserRole
+  is_active?: boolean
+}
+
+/**
+ * Request body for an admin setting a temporary password
+ */
+export interface ResetUserPasswordRequest {
+  password: string
+}
+
+/**
  * User info response from /api/auth/me
  */
 export interface User {

@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, selectinload
 
 from ..db.database import get_db
+from ..db.locks import begin_immediate
 from ..models import Agent, Source, SourceBatch, SourceBatchItem, User, _utcnow
 from ..schemas import SourceBatchCreate, SourceBatchItemCreateRequest, SourceCreate
 from ..services.scheduler import validate_interval, validate_schedule
@@ -174,18 +175,6 @@ def _local_identity_without_io(path: str) -> tuple:
     return ("local", os.path.normpath(os.path.abspath(os.path.expanduser(path))))
 
 
-def _begin_immediate(db: Session):
-    # Only wait briefly for the write lock. busy_timeout sticks to the pooled
-    # connection, so put the old value back before anything else gets it.
-    conn = db.connection()
-    previous = int(conn.exec_driver_sql("PRAGMA busy_timeout").scalar())
-    conn.exec_driver_sql("PRAGMA busy_timeout=400")
-    try:
-        conn.exec_driver_sql("BEGIN IMMEDIATE")
-    finally:
-        conn.exec_driver_sql(f"PRAGMA busy_timeout={previous}")
-
-
 def _write_item(db: Session, batch_id: str, item_id: str, owner_id: int, source: Source | None,
                 preflight_error: str | None, proof: str | None):
     from .sources import (
@@ -225,7 +214,7 @@ def _write_item(db: Session, batch_id: str, item_id: str, owner_id: int, source:
                     for row in db.execute(select(Source).where(Source.location_type == "local")).scalars()
                 }
             db.rollback()
-            _begin_immediate(db)
+            begin_immediate(db)
             batch = _owned(db, batch_id, owner_id)
             item = db.get(SourceBatchItem, (batch_id, item_id))
             if item is None:
