@@ -67,6 +67,16 @@ There is no major-only tag like `1`.
 
 ---
 
+## Upgrading to 1.8.0
+
+Nothing to set up. Pull the new image and restart as usual.
+
+Startup runs a migration that adds user roles, API tokens and the audit log. The account you set up becomes an admin, and it's the only account there is until you add more from **Admin > Users**. Sessions you already have keep working until they expire, so the upgrade doesn't sign anyone out.
+
+This release also fixes a sign-in issue with download links. See the [changelog](../about/changelog.md) for details.
+
+---
+
 ## Upgrading from 1.5.0 or earlier
 
 The compose files changed after 1.5.0, so do this once.

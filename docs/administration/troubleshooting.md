@@ -173,6 +173,18 @@ For deeper drift, run a full reindex:
 onesearch source reindex documents --full
 ```
 
+## Locked out
+
+If you forgot the password, or the only admin can't sign in, reset a password from inside the container. Use your container name from your compose file:
+
+```bash
+docker exec onesearch-app onesearch-admin reset-password <username>
+```
+
+The command prints a temporary password. Sign in with it and you'll be asked to choose a new password. If the username doesn't exist, the command lists the usernames that do. This works for any account, not only admins. See [Recovering access](authentication.md#recovering-access).
+
+If you get a 429 error instead of a wrong-password message, you've hit the login rate limit. Wait a minute and try again.
+
 ## Login stopped working
 
 Tokens expire. Run:

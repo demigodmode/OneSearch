@@ -5,6 +5,28 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Several user accounts. Each user is an admin or a member. Admins add users on **Admin > Users** with a temporary password, and the new user picks their own password at first sign-in. Admins can change roles, disable and re-enable accounts, reset passwords and delete users. Nobody can disable, demote or delete their own account, and the last active admin can't be removed.
+- Members can search, open, preview and download documents. They don't see Sources, Status, Agents, Settings, Users or Audit log.
+- An Account page for every user, with password change and API tokens.
+- API tokens for scripts and other apps. They start with `os_`, can expire after 30 days, 90 days, a year, or never, and can only search and open documents. `onesearch login --token` and `ONESEARCH_TOKEN` accept them for `onesearch search`. Admins can see and revoke any user's tokens.
+- An audit log for admins under **Admin > Audit log**. It records sign-ins and failed sign-ins, user and token changes, source and agent changes, and settings changes. Entries are kept for 90 days by default. The number of days is set under **Settings > Audit log**.
+- `onesearch-admin reset-password` for when you're locked out. Run it with `docker exec`. It prints a temporary password and ends the user's sessions.
+
+### Changed
+
+- Upgrading from 1.7.x needs no steps. The existing account becomes an admin. Sessions from before the upgrade keep working until they expire.
+- Sessions and download links end right away when a user's role or status changes or an admin resets their password. Changing your own password ends your other sessions.
+
+### Security
+
+- For up to 60 seconds, a download link (the short-lived link behind the Download button) also worked as a normal sign-in. Sign-in now only accepts tokens issued for signing in, and anything else is rejected with a 401. This has been possible since download links were added.
+
+---
+
 ## [1.7.1] - 2026-10-25
 
 ### Breaking changes
