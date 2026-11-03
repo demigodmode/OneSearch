@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.auth import hash_password, rate_limit_store
 from app.db.database import get_db
 from app.main import app
-from app.models import ROLE_ADMIN, ROLE_MEMBER, User
+from app.models import ROLE_ADMIN, ROLE_MEMBER, AuditEvent, User
 
 BACKEND = Path(__file__).resolve().parents[1]
 OLD_PASSWORD = "old-password-123"
@@ -109,6 +109,20 @@ def test_reset_password_issues_a_working_temporary_password_and_ends_old_session
     with session_factory() as db:
         user = db.execute(select(User).where(User.username == username)).scalar_one()
         assert user.must_change_password is True
+
+
+def test_reset_password_is_logged_as_done_from_the_command_line(database):
+    database_path, session_factory = database
+
+    result = run_admin(database_path, "reset-password", "alice")
+
+    assert result.returncode == 0, result.stderr
+    with session_factory() as db:
+        event = db.execute(select(AuditEvent).where(AuditEvent.action == "user.password_reset")).scalar_one()
+        assert event.actor_user_id is None
+        assert event.actor_username == "command line"
+        assert event.target_label == "alice"
+        assert event.target_type == "user"
 
 
 def test_reset_password_for_unknown_user_lists_the_usernames(database):

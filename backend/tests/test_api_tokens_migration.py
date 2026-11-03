@@ -65,7 +65,7 @@ def test_api_tokens_migration_upgrades_and_downgrades(tmp_path):
         remaining = connection.execute("SELECT COUNT(*) FROM api_tokens").fetchone()[0]
     assert remaining == 0
 
-    alembic("downgrade", "-1")
+    alembic("downgrade", "5b9e0c3d7f16")
     with sqlite3.connect(database) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "api_tokens" not in tables

@@ -29,6 +29,8 @@ import type {
   ApiTokenCreated,
   CreateApiTokenRequest,
   AdminUser,
+  AuditPage,
+  AuditQuery,
   CreateUserRequest,
   ResetUserPasswordRequest,
   UpdateUserRequest,
@@ -674,6 +676,20 @@ export async function deleteUser(id: number): Promise<void> {
 }
 
 // ============================================================================
+// Audit log (admin)
+// ============================================================================
+
+export async function listAuditEvents(query: AuditQuery = {}): Promise<AuditPage> {
+  const params = new URLSearchParams()
+  if (query.user) params.set('user', query.user)
+  if (query.action) params.set('action', query.action)
+  if (query.before !== undefined) params.set('before', String(query.before))
+  if (query.limit !== undefined) params.set('limit', String(query.limit))
+  const suffix = params.toString() ? `?${params}` : ''
+  return apiFetch<AuditPage>(`/audit${suffix}`)
+}
+
+// ============================================================================
 // Query Keys for TanStack Query
 // ============================================================================
 
@@ -692,6 +708,7 @@ export const queryKeys = {
   authStatus: ['authStatus'] as const,
   currentUser: ['currentUser'] as const,
   users: ['users'] as const,
+  audit: (query: AuditQuery) => ['audit', query] as const,
   apiTokens: ['apiTokens'] as const,
   agents: ['agents'] as const,
   agent: (id: string) => ['agents', id] as const,

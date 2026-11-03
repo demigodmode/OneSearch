@@ -20,6 +20,7 @@ from sqlalchemy import select, func, or_, update
 import bcrypt
 import jwt
 
+from ..config import settings
 from ..db.database import get_db
 from ..models import ROLE_ADMIN, ApiToken, User, _utcnow
 from ..schemas import (
@@ -32,7 +33,7 @@ from ..schemas import (
 )
 from ..services.agent_auth import hash_token
 from ..services.api_tokens import is_api_token
-from ..config import settings
+from ..services.audit import AuditAction, AuditTarget, record_and_commit, record_event
 
 logger = logging.getLogger(__name__)
 
@@ -416,6 +417,14 @@ async def setup_admin(
     )
 
     db.add(user)
+    db.flush()
+    record_event(
+        db,
+        actor=user,
+        action=AuditAction.SETUP_COMPLETED,
+        target=AuditTarget.user(user.id, user.username),
+        ip=get_client_ip(request),
+    )
     db.commit()
     db.refresh(user)
 
@@ -428,6 +437,23 @@ async def setup_admin(
         access_token=token,
         token_type="bearer",
         expires_in=expires_in
+    )
+
+
+def _record_failed_sign_in(
+    db: Session,
+    *,
+    client_ip: str,
+    target: AuditTarget,
+    detail: dict[str, Any] | None = None,
+) -> None:
+    record_and_commit(
+        db,
+        actor=None,
+        action=AuditAction.AUTH_LOGIN_FAILED,
+        target=target,
+        detail=detail,
+        ip=client_ip,
     )
 
 
@@ -465,12 +491,24 @@ async def login(
     # Verify credentials (bcrypt uses constant-time comparison internally)
     if not user or not verify_password(login_data.password, user.password_hash):
         logger.warning(f"Failed login attempt for user: {login_data.username}")
+        _record_failed_sign_in(
+            db,
+            client_ip=client_ip,
+            target=AuditTarget.user(user.id if user else None, login_data.username),
+        )
         raise _unauthorized("Invalid username or password")
 
     if not user.is_active:
+        _record_failed_sign_in(
+            db,
+            client_ip=client_ip,
+            target=AuditTarget.user(user.id, user.username),
+            detail={"reason": "account disabled"},
+        )
         raise _unauthorized("Account is disabled")
 
     user.last_login_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    record_event(db, actor=user, action=AuditAction.AUTH_LOGIN, ip=client_ip)
     db.commit()
 
     logger.info(f"User logged in: {user.username}")
@@ -537,6 +575,13 @@ async def change_password(
             status_code=status.HTTP_409_CONFLICT,
             detail="Account changed. Sign in again and retry.",
         )
+    record_event(
+        db,
+        actor=current_user,
+        action=AuditAction.USER_PASSWORD_CHANGED,
+        target=AuditTarget.user(current_user.id, current_user.username),
+        ip=get_client_ip(request),
+    )
     db.commit()
     db.refresh(current_user)
 

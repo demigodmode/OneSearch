@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from .api.auth import hash_password
 from .db.database import SessionLocal
 from .models import User
+from .services.audit import COMMAND_LINE_ACTOR, AuditAction, AuditTarget, record_event
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,14 @@ def generate_temporary_password() -> str:
     return "".join(secrets.choice(TEMP_PASSWORD_ALPHABET) for _ in range(TEMP_PASSWORD_LENGTH))
 
 
-def record_password_reset(username: str) -> None:
-    logger.info("Password reset from the command line for user: %s", username)
+def record_password_reset_event(db: Session, user: User) -> None:
+    logger.info("Password reset from the command line for user: %s", user.username)
+    record_event(
+        db,
+        actor=COMMAND_LINE_ACTOR,
+        action=AuditAction.USER_PASSWORD_RESET,
+        target=AuditTarget.user(user.id, user.username),
+    )
 
 
 def reset_password(db: Session, username: str) -> str | None:
@@ -44,8 +51,8 @@ def reset_password(db: Session, username: str) -> str | None:
     user.password_hash = hash_password(password)
     user.must_change_password = True
     user.session_version += 1
+    record_password_reset_event(db, user)
     db.commit()
-    record_password_reset(user.username)
     return password
 
 

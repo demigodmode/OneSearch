@@ -17,7 +17,18 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from . import __version__
-from .api import agent_protocol, agents, auth, preview, search, sources, status, tokens, users
+from .api import (
+    agent_protocol,
+    agents,
+    audit,
+    auth,
+    preview,
+    search,
+    sources,
+    status,
+    tokens,
+    users,
+)
 from .api import settings as settings_api
 from .api.auth import allow_anyone
 from .config import settings
@@ -174,6 +185,7 @@ app.include_router(preview.router)
 app.include_router(agents.router)
 app.include_router(agent_protocol.router)
 app.include_router(users.router)
+app.include_router(audit.router)
 
 
 @app.get("/api/health", dependencies=[Depends(allow_anyone)])

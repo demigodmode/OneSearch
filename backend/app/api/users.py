@@ -20,6 +20,7 @@ from ..schemas import (
     UserPasswordResetRequest,
     UserUpdateRequest,
 )
+from ..services.audit import AuditAction, AuditTarget, record_event
 from .auth import ending_sessions_values, hash_password, require_admin
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,14 @@ async def create_user(
     )
     db.add(user)
     try:
+        db.flush()
+        record_event(
+            db,
+            actor=admin,
+            action=AuditAction.USER_CREATED,
+            target=AuditTarget.user(user.id, user.username),
+            detail={"role": user.role},
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -180,9 +189,11 @@ async def update_user(
     active_admin_ids = _active_admin_ids_locked(db)
     user = _user_or_404(db, user_id)
     changes = update_data.model_dump(exclude_none=True)
+    old_role = user.role
     new_role = changes.get("role", user.role)
+    was_active = user.is_active
     new_active = changes.get("is_active", user.is_active)
-    role_changed = new_role != user.role
+    role_changed = new_role != old_role
     disabled_now = user.is_active and not new_active
 
     if user.is_active and user.is_admin and (new_role != ROLE_ADMIN or not new_active):
@@ -192,6 +203,22 @@ async def update_user(
         changes.update(ending_sessions_values())
     if changes:
         db.execute(update(User).where(User.id == user.id).values(**changes))
+    target = AuditTarget.user(user.id, user.username)
+    if role_changed:
+        record_event(
+            db,
+            actor=admin,
+            action=AuditAction.USER_ROLE_CHANGED,
+            target=target,
+            detail={"old": old_role, "new": new_role},
+        )
+    if new_active != was_active:
+        record_event(
+            db,
+            actor=admin,
+            action=AuditAction.USER_ENABLED if new_active else AuditAction.USER_DISABLED,
+            target=target,
+        )
     db.commit()
     db.refresh(user)
 
@@ -223,6 +250,12 @@ async def reset_user_password(
             **ending_sessions_values(),
         )
     )
+    record_event(
+        db,
+        actor=admin,
+        action=AuditAction.USER_PASSWORD_RESET,
+        target=AuditTarget.user(user.id, user.username),
+    )
     db.commit()
     db.refresh(user)
 
@@ -248,6 +281,7 @@ async def delete_user(
     active_admin_ids = _active_admin_ids_locked(db)
     user = _user_or_404(db, user_id)
     _guard_admin_removal(admin, user, active_admin_ids)
+    target = AuditTarget.user(user.id, user.username)
 
     db.execute(delete(AgentEnrollment).where(AgentEnrollment.created_by_user_id == user.id))
     db.execute(delete(ApiToken).where(ApiToken.user_id == user.id))
@@ -258,6 +292,7 @@ async def delete_user(
     db.execute(
         update(SourceBatch).where(SourceBatch.owner_user_id == user.id).values(owner_user_id=None)
     )
+    record_event(db, actor=admin, action=AuditAction.USER_DELETED, target=target)
     db.commit()
 
     logger.info(f"User deleted: {user.username} by {admin.username}")

@@ -17,11 +17,16 @@ describe('AdminLayout navigation', () => {
     expect(screen.getByText('Users')).toBeInTheDocument()
   })
 
-  it('keeps Sources, Status, Users, Agents, Settings in that order', () => {
+  it('links the Audit log page', () => {
+    render(<MemoryRouter><AdminLayout /></MemoryRouter>)
+    expect(screen.getByRole('link', { name: 'Audit log' })).toHaveAttribute('href', '/admin/audit')
+  })
+
+  it('keeps Sources, Status, Users, Audit log, Agents, Settings in that order', () => {
     enabled = true
     render(<MemoryRouter><AdminLayout /></MemoryRouter>)
     const labels = within(screen.getByRole('navigation')).getAllByRole('link').map((link) => link.textContent)
-    expect(labels).toEqual(['Sources', 'Status', 'Users', 'Agents', 'Settings'])
+    expect(labels).toEqual(['Sources', 'Status', 'Users', 'Audit log', 'Agents', 'Settings'])
   })
 
   it('hides Agents while disabled and shows it once enabled', () => {

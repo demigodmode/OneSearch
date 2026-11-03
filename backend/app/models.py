@@ -5,8 +5,10 @@
 SQLAlchemy ORM models for OneSearch
 """
 
+import json
 from datetime import datetime, timezone
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -482,6 +484,33 @@ class ApiToken(Base):
     expires_at = Column(DateTime, nullable=True)
     last_used_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
+
+
+class AuditEvent(Base):
+    """One audit log entry. Keeps the actor's username so history survives a user delete."""
+
+    __tablename__ = "audit_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, default=_utcnow, nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_username = Column(Text, nullable=True)
+    action = Column(String(64), nullable=False, index=True)
+    target_type = Column(String(32), nullable=True)
+    target_id = Column(Integer, nullable=True)
+    target_label = Column(Text, nullable=True)
+    detail = Column(Text, nullable=True)
+    ip = Column(String(64), nullable=True)
+
+    @property
+    def detail_dict(self) -> dict[str, Any] | None:
+        if not self.detail:
+            return None
+        try:
+            decoded = json.loads(self.detail)
+        except ValueError:
+            return None
+        return decoded if isinstance(decoded, dict) else None
 
 
 @event.listens_for(User, "before_delete")

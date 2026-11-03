@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Database, Activity, ArrowLeft, Terminal, LogOut, User, Settings, Cpu, Users } from 'lucide-react'
+import { Database, Activity, ArrowLeft, Terminal, LogOut, User, Settings, Cpu, Users, ScrollText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/useAuth'
 import { Button } from '@/components/ui/button'
@@ -10,11 +10,12 @@ import { OneSearchLogo } from '@/components/OneSearchLogo'
 import { useAppSettings } from '@/hooks/useApi'
 
 const navItemsFor = (remoteAgentsEnabled: boolean) => [
-  { path: '/admin/sources',  label: 'Sources',  icon: Database,  enabled: true },
-  { path: '/admin/status',   label: 'Status',   icon: Activity,  enabled: true },
-  { path: '/admin/users',    label: 'Users',    icon: Users,     enabled: true },
-  { path: '/admin/agents',   label: 'Agents',   icon: Cpu,       enabled: remoteAgentsEnabled },
-  { path: '/admin/settings', label: 'Settings', icon: Settings,  enabled: true },
+  { path: '/admin/sources',  label: 'Sources',   icon: Database,   enabled: true },
+  { path: '/admin/status',   label: 'Status',    icon: Activity,   enabled: true },
+  { path: '/admin/users',    label: 'Users',     icon: Users,      enabled: true },
+  { path: '/admin/audit',    label: 'Audit log', icon: ScrollText, enabled: true },
+  { path: '/admin/agents',   label: 'Agents',    icon: Cpu,        enabled: remoteAgentsEnabled },
+  { path: '/admin/settings', label: 'Settings',  icon: Settings,   enabled: true },
 ]
 
 export default function AdminLayout() {

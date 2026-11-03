@@ -15,6 +15,7 @@ import StatusPage from './pages/admin/StatusPage'
 import SettingsPage from './pages/admin/SettingsPage'
 import AgentsPage from './pages/admin/AgentsPage'
 import UsersPage from './pages/admin/UsersPage'
+import AuditLogPage from './pages/admin/AuditLogPage'
 import AccountPage from './pages/AccountPage'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
@@ -60,6 +61,7 @@ function App() {
           <Route path="status" element={<StatusPage />} />
           <Route path="agents" element={<AgentsPage />} />
           <Route path="users" element={<UsersPage />} />
+          <Route path="audit" element={<AuditLogPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
 

@@ -400,6 +400,28 @@ class ApiTokenCreatedResponse(ApiTokenResponse):
     token: str
 
 
+class AuditEventResponse(BaseModel):
+    """One audit log entry. Actor is null for failed sign-ins; the name is still kept."""
+
+    id: int
+    created_at: datetime
+    actor_user_id: int | None = None
+    actor_username: str | None = None
+    action: str
+    target_type: str | None = None
+    target_id: int | None = None
+    target_label: str | None = None
+    detail: dict[str, Any] | None = None
+    ip: str | None = None
+
+
+class AuditPageResponse(BaseModel):
+    """A page of audit entries, newest first. Pass next_before back as `before` next time."""
+
+    events: list[AuditEventResponse]
+    next_before: int | None = None
+
+
 class AuthResponse(BaseModel):
     """Schema for authentication response"""
 

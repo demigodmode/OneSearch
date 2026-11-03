@@ -430,6 +430,40 @@ export interface CreateApiTokenRequest {
 export type UserRole = 'admin' | 'member'
 
 /**
+ * One audit log entry. actor_username is kept after the user is deleted; it is null for failed sign-ins.
+ */
+export interface AuditEvent {
+  id: number
+  created_at: string
+  actor_user_id: number | null
+  actor_username: string | null
+  action: string
+  target_type: string | null
+  target_id: number | null
+  target_label: string | null
+  detail: Record<string, unknown> | null
+  ip: string | null
+}
+
+/**
+ * A page of audit entries, newest first. Pass next_before as `before` to get the next page.
+ */
+export interface AuditPage {
+  events: AuditEvent[]
+  next_before: number | null
+}
+
+/**
+ * Filters for the audit log. Leave a field out to not filter on it.
+ */
+export interface AuditQuery {
+  user?: string
+  action?: string
+  before?: number
+  limit?: number
+}
+
+/**
  * A user as listed on the admin Users screen
  */
 export interface AdminUser {
