@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import UsersPage from './UsersPage'
-import type { AdminUser, User } from '@/types/api'
+import type { AdminUser, ApiToken, User } from '@/types/api'
 
 const api = vi.hoisted(() => ({
   listUsers: vi.fn(),
@@ -14,6 +14,8 @@ const api = vi.hoisted(() => ({
   updateUser: vi.fn(),
   resetUserPassword: vi.fn(),
   deleteUser: vi.fn(),
+  listUserTokens: vi.fn(),
+  revokeUserToken: vi.fn(),
 }))
 vi.mock('@/lib/api', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/api')>()), ...api }))
 
@@ -23,6 +25,7 @@ vi.mock('@/contexts/useAuth', () => ({ useAuth: () => ({ user: signedIn.user, lo
 const alice: AdminUser = { id: 1, username: 'alice', role: 'admin', is_active: true, must_change_password: false, created_at: '2026-01-02T10:00:00Z', created_by: null, last_login_at: '2026-01-03T10:00:00Z' }
 const bob: AdminUser = { id: 2, username: 'bob', role: 'member', is_active: false, must_change_password: true, created_at: '2026-01-04T10:00:00Z', created_by: 'alice', last_login_at: null }
 const carol: AdminUser = { id: 3, username: 'carol', role: 'admin', is_active: true, must_change_password: true, created_at: '2026-01-05T10:00:00Z', created_by: 'alice', last_login_at: null }
+const laptop: ApiToken = { id: 7, name: 'Laptop', scope: 'search', display_prefix: 'os_AbCd', created_at: '2026-01-02T10:00:00Z', expires_at: null, last_used_at: null, revoked: false }
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -288,5 +291,52 @@ describe('UsersPage', () => {
     } finally {
       styles.mockRestore()
     }
+  })
+
+  it("opens the tokens dialog from the row menu and lists that user's tokens", async () => {
+    api.listUsers.mockResolvedValue([alice, bob])
+    api.listUserTokens.mockResolvedValue([laptop])
+    renderPage()
+    await screen.findByText('bob')
+
+    await openActions('bob')
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Tokens' }))
+
+    const dialog = within(await screen.findByRole('dialog', { name: "bob's API tokens" }))
+    expect(api.listUserTokens).toHaveBeenCalledWith(2)
+    const row = within(await dialog.findByRole('row', { name: /Laptop/ }))
+    expect(row.getAllByText('Never')).toHaveLength(2)
+    expect(row.getByRole('button', { name: 'Revoke' })).toBeInTheDocument()
+  })
+
+  it('shows the empty state when the user has no tokens', async () => {
+    api.listUsers.mockResolvedValue([alice, bob])
+    api.listUserTokens.mockResolvedValue([])
+    renderPage()
+    await screen.findByText('bob')
+
+    await openActions('bob')
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Tokens' }))
+
+    expect(await screen.findByText('bob has no API tokens.')).toBeInTheDocument()
+  })
+
+  it("revokes a user's token after confirming and refreshes their list", async () => {
+    api.listUsers.mockResolvedValue([alice, bob])
+    api.listUserTokens.mockResolvedValueOnce([laptop]).mockResolvedValue([])
+    api.revokeUserToken.mockResolvedValue(undefined)
+    renderPage()
+    await screen.findByText('bob')
+
+    await openActions('bob')
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Tokens' }))
+    await userEvent.click(within(await screen.findByRole('row', { name: /Laptop/ })).getByRole('button', { name: 'Revoke' }))
+    const confirm = within(screen.getByRole('dialog', { name: 'Revoke Laptop?' }))
+    expect(confirm.getByText('Anything using this token will stop working straight away.')).toBeInTheDocument()
+    await userEvent.click(confirm.getByRole('button', { name: 'Revoke token' }))
+
+    await waitFor(() => expect(api.revokeUserToken).toHaveBeenCalledWith(2, 7))
+    expect(await screen.findByText('bob has no API tokens.')).toBeInTheDocument()
+    expect(api.listUserTokens).toHaveBeenCalledTimes(2)
   })
 })

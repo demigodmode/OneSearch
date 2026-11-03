@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useCreateApiToken, useRevokeApiToken } from '@/hooks/useApi'
+import { useCreateApiToken } from '@/hooks/useApi'
 import type { ApiToken } from '@/types/api'
 
 const EXPIRY_OPTIONS = [
@@ -201,11 +201,17 @@ interface RevokeApiTokenDialogProps {
   token: ApiToken | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onRevoke: (token: ApiToken) => Promise<unknown>
 }
 
-export function RevokeApiTokenDialog({ token, open, onOpenChange }: RevokeApiTokenDialogProps) {
-  const revokeToken = useRevokeApiToken()
+export function RevokeApiTokenDialog({
+  token,
+  open,
+  onOpenChange,
+  onRevoke,
+}: RevokeApiTokenDialogProps) {
   const [error, setError] = useState('')
+  const [pending, setPending] = useState(false)
 
   const handleOpenChange = (next: boolean) => {
     if (!next) setError('')
@@ -215,11 +221,14 @@ export function RevokeApiTokenDialog({ token, open, onOpenChange }: RevokeApiTok
   const handleConfirm = async () => {
     if (!token) return
     setError('')
+    setPending(true)
     try {
-      await revokeToken.mutateAsync(token.id)
+      await onRevoke(token)
       handleOpenChange(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not revoke token')
+    } finally {
+      setPending(false)
     }
   }
 
@@ -239,7 +248,7 @@ export function RevokeApiTokenDialog({ token, open, onOpenChange }: RevokeApiTok
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
-          <Button variant="destructive" onClick={handleConfirm} disabled={revokeToken.isPending}>
+          <Button variant="destructive" onClick={handleConfirm} disabled={pending}>
             Revoke token
           </Button>
         </DialogFooter>

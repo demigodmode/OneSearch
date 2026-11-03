@@ -13,6 +13,7 @@ import { CreateUserDialog } from '@/pages/admin/CreateUserDialog'
 import { DeleteUserDialog } from '@/pages/admin/DeleteUserDialog'
 import { ResetPasswordDialog } from '@/pages/admin/ResetPasswordDialog'
 import { UserActionsMenu } from '@/pages/admin/UserActionsMenu'
+import { UserTokensDialog } from '@/pages/admin/UserTokensDialog'
 
 // The one place that decides what a row's role and active toggles change to.
 const roleToggle = (user: AdminUser): UpdateUserRequest => ({ role: user.role === 'admin' ? 'member' : 'admin' })
@@ -28,6 +29,8 @@ export default function UsersPage() {
   const [resetOpen, setResetOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [tokensTarget, setTokensTarget] = useState<AdminUser | null>(null)
+  const [tokensOpen, setTokensOpen] = useState(false)
   const [actionError, setActionError] = useState('')
 
   const changeUser = async (user: AdminUser, data: UpdateUserRequest) => {
@@ -89,6 +92,10 @@ export default function UsersPage() {
                           setResetTarget(user)
                           setResetOpen(true)
                         }}
+                        onViewTokens={() => {
+                          setTokensTarget(user)
+                          setTokensOpen(true)
+                        }}
                         onDelete={() => {
                           setDeleteTarget(user)
                           setDeleteOpen(true)
@@ -106,6 +113,7 @@ export default function UsersPage() {
       <CreateUserDialog open={createOpen} onOpenChange={setCreateOpen} />
       <ResetPasswordDialog user={resetTarget} open={resetOpen} onOpenChange={setResetOpen} />
       <DeleteUserDialog user={deleteTarget} open={deleteOpen} onOpenChange={setDeleteOpen} />
+      <UserTokensDialog user={tokensTarget} open={tokensOpen} onOpenChange={setTokensOpen} />
     </div>
   )
 }

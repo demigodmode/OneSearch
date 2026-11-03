@@ -11,10 +11,18 @@ interface UserActionsMenuProps {
   onChangeRole: () => void
   onToggleActive: () => void
   onResetPassword: () => void
+  onViewTokens: () => void
   onDelete: () => void
 }
 
-export function UserActionsMenu({ user, onChangeRole, onToggleActive, onResetPassword, onDelete }: UserActionsMenuProps) {
+export function UserActionsMenu({
+  user,
+  onChangeRole,
+  onToggleActive,
+  onResetPassword,
+  onViewTokens,
+  onDelete,
+}: UserActionsMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -31,6 +39,9 @@ export function UserActionsMenu({ user, onChangeRole, onToggleActive, onResetPas
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={onResetPassword}>
           Reset password
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onViewTokens}>
+          Tokens
         </DropdownMenuItem>
         <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={onDelete}>
           Delete

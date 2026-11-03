@@ -84,6 +84,8 @@ def test_route_without_a_level_is_reported():
         ("PATCH", "/api/users/{user_id}", AccessLevel.ADMIN),
         ("POST", "/api/users/{user_id}/reset-password", AccessLevel.ADMIN),
         ("DELETE", "/api/users/{user_id}", AccessLevel.ADMIN),
+        ("GET", "/api/users/{user_id}/tokens", AccessLevel.ADMIN),
+        ("DELETE", "/api/users/{user_id}/tokens/{token_id}", AccessLevel.ADMIN),
         ("GET", "/api/audit", AccessLevel.ADMIN),
         ("POST", "/api/agent/v1/heartbeat", AccessLevel.AGENT),
         ("POST", "/api/agent/v1/jobs/claim", AccessLevel.AGENT),

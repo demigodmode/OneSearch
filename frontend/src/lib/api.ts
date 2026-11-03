@@ -675,6 +675,14 @@ export async function deleteUser(id: number): Promise<void> {
   return apiFetch<void>(`/users/${id}`, { method: 'DELETE' })
 }
 
+export async function listUserTokens(userId: number): Promise<ApiToken[]> {
+  return apiFetch<ApiToken[]>(`/users/${userId}/tokens`)
+}
+
+export async function revokeUserToken(userId: number, tokenId: number): Promise<void> {
+  return apiFetch<void>(`/users/${userId}/tokens/${tokenId}`, { method: 'DELETE' })
+}
+
 // ============================================================================
 // Audit log (admin)
 // ============================================================================
@@ -708,6 +716,7 @@ export const queryKeys = {
   authStatus: ['authStatus'] as const,
   currentUser: ['currentUser'] as const,
   users: ['users'] as const,
+  userTokens: (userId: number) => ['users', userId, 'tokens'] as const,
   audit: (query: AuditQuery) => ['audit', query] as const,
   apiTokens: ['apiTokens'] as const,
   agents: ['agents'] as const,

@@ -3,14 +3,14 @@
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { useApiTokens } from '@/hooks/useApi'
-import { formatDateTime } from '@/lib/utils'
+import { useApiTokens, useRevokeApiToken } from '@/hooks/useApi'
 import type { ApiToken } from '@/types/api'
 import { ApiTokenShownDialog, CreateApiTokenDialog, RevokeApiTokenDialog } from './ApiTokenDialogs'
+import { ApiTokenTable } from './ApiTokenTable'
 
 export function ApiTokensSection() {
   const tokens = useApiTokens()
+  const revokeToken = useRevokeApiToken()
   const [createOpen, setCreateOpen] = useState(false)
   const [shownToken, setShownToken] = useState<string | null>(null)
   // The target stays set after the dialog closes so its title doesn't change mid-animation.
@@ -34,44 +34,23 @@ export function ApiTokensSection() {
       )}
 
       {tokens.data && tokens.data.length > 0 && (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead>Expires</TableHead>
-              <TableHead>Last used</TableHead>
-              <TableHead><span className="sr-only">Actions</span></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tokens.data.map((token) => (
-              <TableRow key={token.id}>
-                <TableCell className="font-medium">{token.name}</TableCell>
-                <TableCell>{formatDateTime(token.created_at)}</TableCell>
-                <TableCell>{token.expires_at ? formatDateTime(token.expires_at) : 'Never'}</TableCell>
-                <TableCell>{token.last_used_at ? formatDateTime(token.last_used_at) : 'Never'}</TableCell>
-                <TableCell>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setRevokeTarget(token)
-                      setRevokeOpen(true)
-                    }}
-                  >
-                    Revoke
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <ApiTokenTable
+          tokens={tokens.data}
+          onRevoke={(token) => {
+            setRevokeTarget(token)
+            setRevokeOpen(true)
+          }}
+        />
       )}
 
       <CreateApiTokenDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={setShownToken} />
       <ApiTokenShownDialog token={shownToken} onClose={() => setShownToken(null)} />
-      <RevokeApiTokenDialog token={revokeTarget} open={revokeOpen} onOpenChange={setRevokeOpen} />
+      <RevokeApiTokenDialog
+        token={revokeTarget}
+        open={revokeOpen}
+        onOpenChange={setRevokeOpen}
+        onRevoke={(token) => revokeToken.mutateAsync(token.id)}
+      />
     </section>
   )
 }

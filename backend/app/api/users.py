@@ -15,11 +15,13 @@ from ..db.database import get_db
 from ..db.locks import begin_immediate
 from ..models import ROLE_ADMIN, AgentEnrollment, ApiToken, SourceBatch, User
 from ..schemas import (
+    ApiTokenResponse,
     UserAdminResponse,
     UserCreateRequest,
     UserPasswordResetRequest,
     UserUpdateRequest,
 )
+from ..services.api_tokens import api_token_response, list_active_tokens, revoke_token
 from ..services.audit import AuditAction, AuditTarget, record_event
 from .auth import ending_sessions_values, hash_password, require_admin
 
@@ -262,6 +264,44 @@ async def reset_user_password(
     logger.info(f"Password reset: {user.username} by {admin.username}")
 
     return _to_admin_response(user, _created_by_name(db, user))
+
+
+@router.get("/{user_id}/tokens", response_model=list[ApiTokenResponse])
+async def list_user_tokens(
+    user_id: int,
+    admin: User = Depends(require_admin),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+) -> list[ApiTokenResponse]:
+    """List a user's API tokens, newest first. Revoked tokens are left out and secrets are never shown.
+
+    Raises:
+        404: Unknown user
+    """
+    _user_or_404(db, user_id)
+    return [api_token_response(token) for token in list_active_tokens(db, user_id)]
+
+
+@router.delete("/{user_id}/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_user_token(
+    user_id: int,
+    token_id: int,
+    admin: User = Depends(require_admin),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
+) -> Response:
+    """
+    Revoke one of a user's API tokens. It stops working straight away.
+
+    Raises:
+        404: No active token with that id belongs to the user
+    """
+    if not revoke_token(db, user_id, token_id):
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API token not found")
+    db.commit()
+
+    logger.info(f"API token revoked: user {user_id} by {admin.username}")
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -25,7 +25,7 @@ import {
   queryKeys,
   getAgents, getAgent, createAgentEnrollment, approveAgent, disableAgent, revokeAgent, updateAgentProcessingMode,
   getLocalSourceRoots, listSourceBatches,
-  listUsers, createUser, updateUser, resetUserPassword, deleteUser,
+  listUsers, createUser, updateUser, resetUserPassword, deleteUser, listUserTokens, revokeUserToken,
   listAuditEvents,
   listApiTokens, createApiToken, revokeApiToken,
 } from '@/lib/api'
@@ -313,6 +313,25 @@ export function useDeleteUser() {
     mutationFn: (id: number) => deleteUser(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.users })
+    },
+  })
+}
+
+export function useUserTokens(userId: number | undefined) {
+  return useQuery({
+    queryKey: queryKeys.userTokens(userId ?? 0),
+    queryFn: () => listUserTokens(userId as number),
+    enabled: userId !== undefined,
+  })
+}
+
+export function useRevokeUserToken() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ userId, tokenId }: { userId: number; tokenId: number }) => revokeUserToken(userId, tokenId),
+    onSuccess: (_data, { userId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.userTokens(userId) })
     },
   })
 }
