@@ -6,10 +6,12 @@ Pydantic schemas for request/response validation
 """
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from onesearch_shared import BrowseDirectoryEntry, BrowseResult
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+
+from .models import ApiTokenScope
 
 
 class Document(BaseModel):
@@ -370,6 +372,32 @@ class UserAdminResponse(BaseModel):
     created_at: datetime
     created_by: str | None = None
     last_login_at: datetime | None = None
+
+
+class ApiTokenCreateRequest(BaseModel):
+    """Schema for creating an API token for the signed-in user"""
+
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+    expires_in_days: Literal[30, 90, 365] | None = None
+
+
+class ApiTokenResponse(BaseModel):
+    """An API token as its owner sees it. Never includes the secret."""
+
+    id: int
+    name: str
+    scope: ApiTokenScope
+    display_prefix: str
+    created_at: datetime
+    expires_at: datetime | None = None
+    last_used_at: datetime | None = None
+    revoked: bool
+
+
+class ApiTokenCreatedResponse(ApiTokenResponse):
+    """A new API token. The secret is only in this response."""
+
+    token: str
 
 
 class AuthResponse(BaseModel):

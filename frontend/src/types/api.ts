@@ -398,6 +398,35 @@ export interface ChangePasswordRequest {
   new_password: string
 }
 
+/**
+ * An API token as its owner sees it. The secret is never included.
+ */
+export interface ApiToken {
+  id: number
+  name: string
+  scope: 'search'
+  display_prefix: string
+  created_at: string
+  expires_at: string | null
+  last_used_at: string | null
+  revoked: boolean
+}
+
+/**
+ * A newly created API token. `token` is the full secret and is only sent once.
+ */
+export interface ApiTokenCreated extends ApiToken {
+  token: string
+}
+
+/**
+ * Request body for creating an API token. null means it never expires.
+ */
+export interface CreateApiTokenRequest {
+  name: string
+  expires_in_days: 30 | 90 | 365 | null
+}
+
 export type UserRole = 'admin' | 'member'
 
 /**

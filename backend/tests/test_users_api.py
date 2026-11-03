@@ -5,19 +5,20 @@ import re
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, update
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import sessionmaker
 
 from app.api import auth as auth_module
-from app.api.access import AccessLevel, access_level_of
+from app.api.access import AccessLevel
 from app.api.auth import create_access_token, hash_password
 from app.api.users import _active_admins_lock_statement
 from app.db.database import get_db
 from app.main import app
 from app.models import ROLE_ADMIN, AgentEnrollment, Base, User
+
+from .route_helpers import routes_at
 
 PASSWORD_CHANGE_EXEMPT = {
     ("GET", "/api/auth/me"),
@@ -64,13 +65,11 @@ def _change_password(client, token, current, new):
 
 
 def _gated_routes():
-    gated = []
-    for route in app.routes:
-        if isinstance(route, APIRoute) and access_level_of(route) in (AccessLevel.SIGNED_IN, AccessLevel.ADMIN):
-            for method in sorted(route.methods):
-                if (method, route.path) not in PASSWORD_CHANGE_EXEMPT:
-                    gated.append((method, route.path))
-    return gated
+    return [
+        route
+        for route in routes_at(AccessLevel.SIGNED_IN, AccessLevel.SEARCH, AccessLevel.ADMIN)
+        if route not in PASSWORD_CHANGE_EXEMPT
+    ]
 
 
 def _fill_path(path: str) -> str:

@@ -6,20 +6,22 @@ Authentication API endpoints
 Handles user setup, login, logout, and session management
 """
 import logging
+from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
-from collections import defaultdict
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, or_, update
 import bcrypt
 import jwt
 
 from ..db.database import get_db
-from ..models import ROLE_ADMIN, User
+from ..models import ROLE_ADMIN, ApiToken, User, _utcnow
 from ..schemas import (
     SetupRequest,
     LoginRequest,
@@ -28,6 +30,8 @@ from ..schemas import (
     AuthResponse,
     MessageResponse,
 )
+from ..services.agent_auth import hash_token
+from ..services.api_tokens import is_api_token
 from ..config import settings
 
 logger = logging.getLogger(__name__)
@@ -38,6 +42,8 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 ALGORITHM = "HS256"
 SESSION_PURPOSE = "session"
 BCRYPT_ROUNDS = 12  # Cost factor for bcrypt
+API_TOKEN_USE_WRITE_INTERVAL = timedelta(seconds=60)
+TOKEN_SCOPE_ERROR = "API tokens can only be used for search"
 
 # Rate limiting storage (in-memory, resets on restart)
 rate_limit_store: dict[str, list[float]] = defaultdict(list)
@@ -172,53 +178,112 @@ def _session_is_current(payload: dict[str, Any], user: User) -> bool:
     return token_version is None or token_version == user.session_version
 
 
+def _unauthorized(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _record_api_token_use(token_id: int, now: datetime, db: Session) -> None:
+    """Best effort. A busy database must not fail the request that carried the token."""
+    # One conditional UPDATE, so concurrent requests write at most once per interval.
+    try:
+        result = db.execute(
+            update(ApiToken)
+            .where(
+                ApiToken.id == token_id,
+                or_(
+                    ApiToken.last_used_at.is_(None),
+                    ApiToken.last_used_at <= now - API_TOKEN_USE_WRITE_INTERVAL,
+                ),
+            )
+            .values(last_used_at=now)
+            .execution_options(synchronize_session=False)
+        )
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.debug("Could not record use of API token %s", token_id, exc_info=True)
+        return
+    if result.rowcount == 0:
+        logger.debug("API token %s last-used time not updated (used recently or deleted)", token_id)
+
+
+def _user_from_api_token(credential: str, db: Session) -> User:
+    token = db.execute(
+        select(ApiToken).where(ApiToken.token_hash == hash_token(credential))
+    ).scalar_one_or_none()
+    if token is None:
+        raise _unauthorized("Invalid API token")
+    if token.revoked_at is not None:
+        raise _unauthorized("API token revoked")
+
+    now = _utcnow()
+    if token.expires_at is not None and token.expires_at <= now:
+        raise _unauthorized("API token expired")
+
+    user = db.get(User, token.user_id)
+    if not user or not user.is_active:
+        raise _unauthorized("User not found or inactive")
+
+    _record_api_token_use(token.id, now, db)
+    return user
+
+
+@dataclass(frozen=True)
+class Caller:
+    user: User
+    via_token: bool
+
+
+def _authenticate(credentials: HTTPAuthorizationCredentials | None, db: Session) -> Caller:
+    """The one place that decides whether a request is a session or an API token."""
+    if not credentials:
+        raise _unauthorized("Not authenticated")
+
+    if is_api_token(credentials.credentials):
+        return Caller(user=_user_from_api_token(credentials.credentials, db), via_token=True)
+
+    payload = decode_token(credentials.credentials)
+    if not payload or not _is_session_payload(payload):
+        raise _unauthorized("Invalid or expired token")
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise _unauthorized("Invalid token payload")
+
+    user = db.get(User, int(user_id))
+    if not user or not user.is_active:
+        raise _unauthorized("User not found or inactive")
+
+    if not _session_is_current(payload, user):
+        raise _unauthorized("Session expired")
+
+    return Caller(user=user, via_token=False)
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db)
 ) -> User:
     """
-    Dependency to get the current authenticated user from JWT token.
-    Raises 401 if not authenticated.
+    Dependency to get the current user from a session.
+    Raises 401 if not authenticated, and 403 if the caller used an API token.
     """
-    if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    caller = _authenticate(credentials, db)
+    if caller.via_token:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=TOKEN_SCOPE_ERROR)
+    return caller.user
 
-    payload = decode_token(credentials.credentials)
-    if not payload or not _is_session_payload(payload):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
 
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    user = db.get(User, int(user_id))
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found or inactive",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if not _session_is_current(payload, user):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    return user
+async def get_search_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),  # noqa: B008
+    db: Session = Depends(get_db)  # noqa: B008
+) -> User:
+    """Dependency for the search-scope routes. Accepts a session or an API token."""
+    return _authenticate(credentials, db).user
 
 
 async def get_optional_user(
@@ -226,8 +291,8 @@ async def get_optional_user(
     db: Session = Depends(get_db)
 ) -> Optional[User]:
     """
-    Dependency to get the current user if authenticated, or None.
-    Does not raise exceptions for unauthenticated requests.
+    Dependency to get the current session user if authenticated, or None.
+    Does not raise exceptions for unauthenticated requests. API tokens count as unauthenticated.
     """
     if not credentials:
         return None
@@ -256,13 +321,22 @@ async def require_user(user: User = Depends(get_current_user)) -> User:  # noqa:
     return user
 
 
-async def require_signed_in(user: User = Depends(require_user)) -> User:  # noqa: B008
+def _password_is_current(user: User) -> User:
     if user.must_change_password:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Password change required",
         )
     return user
+
+
+async def require_signed_in(user: User = Depends(require_user)) -> User:  # noqa: B008
+    return _password_is_current(user)
+
+
+async def require_search(user: User = Depends(get_search_user)) -> User:  # noqa: B008
+    """Signed in with a session or an API token. Only for the search-scope routes."""
+    return _password_is_current(user)
 
 
 async def require_admin(user: User = Depends(require_signed_in)) -> User:  # noqa: B008
@@ -391,18 +465,10 @@ async def login(
     # Verify credentials (bcrypt uses constant-time comparison internally)
     if not user or not verify_password(login_data.password, user.password_hash):
         logger.warning(f"Failed login attempt for user: {login_data.username}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise _unauthorized("Invalid username or password")
 
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account is disabled",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise _unauthorized("Account is disabled")
 
     user.last_login_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()

@@ -26,8 +26,10 @@ import {
   getAgents, getAgent, createAgentEnrollment, approveAgent, disableAgent, revokeAgent, updateAgentProcessingMode,
   getLocalSourceRoots, listSourceBatches,
   listUsers, createUser, updateUser, resetUserPassword, deleteUser,
+  listApiTokens, createApiToken, revokeApiToken,
 } from '@/lib/api'
 import type {
+  CreateApiTokenRequest,
   CreateUserRequest,
   ResetUserPasswordRequest,
   UpdateUserRequest,
@@ -297,6 +299,36 @@ export function useDeleteUser() {
     mutationFn: (id: number) => deleteUser(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.users })
+    },
+  })
+}
+
+// ============================================================================
+// API Token Hooks (your own)
+// ============================================================================
+
+export function useApiTokens() {
+  return useQuery({ queryKey: queryKeys.apiTokens, queryFn: listApiTokens })
+}
+
+export function useCreateApiToken() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: CreateApiTokenRequest) => createApiToken(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.apiTokens })
+    },
+  })
+}
+
+export function useRevokeApiToken() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) => revokeApiToken(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.apiTokens })
     },
   })
 }

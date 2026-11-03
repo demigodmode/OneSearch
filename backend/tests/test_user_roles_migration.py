@@ -37,7 +37,7 @@ def test_user_roles_migration_makes_existing_users_admins_and_downgrades(tmp_pat
         ).fetchone()
     assert row == ("admin", 0, 0, None, None)
 
-    alembic("downgrade", "-1")
+    alembic("downgrade", "f9c23a14b980")
     with sqlite3.connect(database) as connection:
         columns = {info[1] for info in connection.execute("PRAGMA table_info(users)")}
     assert not {"role", "session_version", "must_change_password", "created_by_id", "last_login_at"} & columns

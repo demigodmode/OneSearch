@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from . import __version__
-from .api import agent_protocol, agents, auth, preview, search, sources, status, users
+from .api import agent_protocol, agents, auth, preview, search, sources, status, tokens, users
 from .api import settings as settings_api
 from .api.auth import allow_anyone
 from .config import settings
@@ -165,6 +165,7 @@ async def log_requests(request: Request, call_next):
 # Include API routers
 app.add_middleware(RemoteAgentBodyLimitMiddleware)
 app.include_router(auth.router)
+app.include_router(tokens.router)
 app.include_router(sources.router)
 app.include_router(search.router)
 app.include_router(status.router)

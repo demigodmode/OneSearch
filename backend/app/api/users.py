@@ -13,7 +13,7 @@ from sqlalchemy.sql import Select
 
 from ..db.database import get_db
 from ..db.locks import begin_immediate
-from ..models import ROLE_ADMIN, AgentEnrollment, SourceBatch, User
+from ..models import ROLE_ADMIN, AgentEnrollment, ApiToken, SourceBatch, User
 from ..schemas import (
     UserAdminResponse,
     UserCreateRequest,
@@ -250,6 +250,7 @@ async def delete_user(
     _guard_admin_removal(admin, user, active_admin_ids)
 
     db.execute(delete(AgentEnrollment).where(AgentEnrollment.created_by_user_id == user.id))
+    db.execute(delete(ApiToken).where(ApiToken.user_id == user.id))
     db.execute(update(User).where(User.created_by_id == user.id).values(created_by_id=None))
     db.delete(user)
     # The before_delete hook on User reads the batches it owns, so flush before clearing the owner.

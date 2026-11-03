@@ -6,6 +6,7 @@ SQLAlchemy ORM models for OneSearch
 """
 
 from datetime import datetime, timezone
+from enum import StrEnum
 
 from sqlalchemy import (
     BigInteger,
@@ -455,6 +456,32 @@ class User(Base):
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username})>"
+
+
+class ApiTokenScope(StrEnum):
+    SEARCH = "search"
+
+
+class ApiToken(Base):
+    """A long-lived credential that acts as its owner, limited to a scope. Only the hash is stored."""
+
+    __tablename__ = "api_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(80), nullable=False)
+    scope = Column(
+        String(16),
+        nullable=False,
+        default=ApiTokenScope.SEARCH,
+        server_default=ApiTokenScope.SEARCH.value,
+    )
+    token_hash = Column(String(64), unique=True, index=True, nullable=False)
+    display_prefix = Column(String(16), nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
 
 
 @event.listens_for(User, "before_delete")

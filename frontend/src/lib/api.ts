@@ -25,6 +25,9 @@ import type {
   LoginRequest,
   AuthResponse,
   ChangePasswordRequest,
+  ApiToken,
+  ApiTokenCreated,
+  CreateApiTokenRequest,
   AdminUser,
   CreateUserRequest,
   ResetUserPasswordRequest,
@@ -619,6 +622,25 @@ export async function changePassword(data: ChangePasswordRequest): Promise<AuthR
 }
 
 // ============================================================================
+// API tokens (your own)
+// ============================================================================
+
+export async function listApiTokens(): Promise<ApiToken[]> {
+  return apiFetch<ApiToken[]>('/auth/tokens')
+}
+
+export async function createApiToken(data: CreateApiTokenRequest): Promise<ApiTokenCreated> {
+  return apiFetch<ApiTokenCreated>('/auth/tokens', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function revokeApiToken(id: number): Promise<void> {
+  return apiFetch<void>(`/auth/tokens/${id}`, { method: 'DELETE' })
+}
+
+// ============================================================================
 // Users (admin)
 // ============================================================================
 
@@ -670,6 +692,7 @@ export const queryKeys = {
   authStatus: ['authStatus'] as const,
   currentUser: ['currentUser'] as const,
   users: ['users'] as const,
+  apiTokens: ['apiTokens'] as const,
   agents: ['agents'] as const,
   agent: (id: string) => ['agents', id] as const,
   localSourceRoots: ['sources', 'local-roots'] as const,

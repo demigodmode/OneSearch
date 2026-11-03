@@ -7,7 +7,8 @@ Who may call a route.
 Every API route declares one access level through the dependency it uses:
 
 - ``dependencies=[Depends(allow_anyone)]`` for routes anyone can call
-- ``require_signed_in`` for anything a signed-in user may do
+- ``require_signed_in`` for anything a signed-in user may do (sessions only, API tokens get 403)
+- ``require_search`` for the search-scope routes, which an API token may call too
 - ``require_user`` for the few signed-in routes a user with a pending password change may still call
 - ``require_admin`` for changing how OneSearch is set up
 - ``get_authenticated_agent`` from ``services.agent_auth`` for the agent protocol
@@ -25,12 +26,13 @@ from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute
 
 from ..services.agent_auth import get_authenticated_agent
-from .auth import allow_anyone, require_admin, require_signed_in, require_user
+from .auth import allow_anyone, require_admin, require_search, require_signed_in, require_user
 
 
 class AccessLevel(Enum):
     PUBLIC = "public"
     SIGNED_IN = "signed_in"
+    SEARCH = "search"
     ADMIN = "admin"
     AGENT = "agent"
 
@@ -38,6 +40,7 @@ class AccessLevel(Enum):
 # Checked in this order, so a route that pulls in several gets the strictest.
 _LEVELS = (
     (require_admin, AccessLevel.ADMIN),
+    (require_search, AccessLevel.SEARCH),
     (require_signed_in, AccessLevel.SIGNED_IN),
     (require_user, AccessLevel.SIGNED_IN),
     (get_authenticated_agent, AccessLevel.AGENT),
