@@ -54,7 +54,7 @@ def status(ctx: Context, source_id: str | None, as_json: bool):
             # Backend returns flat: {source_id, source_name, total_files, successful, failed, skipped, last_indexed_at, failed_files}
             result = api.source_status(source_id)
             if as_json:
-                console.print(json.dumps(result, indent=2, default=str))
+                click.echo(json.dumps(result, indent=2, default=str))
                 return
 
             console.print(f"\n[bold cyan]{result.get('source_name', 'Unknown')}[/bold cyan] (ID: {result.get('source_id', source_id)})")
@@ -92,7 +92,7 @@ def status(ctx: Context, source_id: str | None, as_json: bool):
             # Backend returns: {sources: [{source_id, source_name, total_files, successful, failed, skipped, last_indexed_at, ...}]}
             result = api.status()
             if as_json:
-                console.print(json.dumps(result, indent=2, default=str))
+                click.echo(json.dumps(result, indent=2, default=str))
                 return
 
             sources = result.get("sources", [])
@@ -172,7 +172,7 @@ def health(ctx: Context, as_json: bool):
                 "config_exists": config_path.exists(),
                 "backend_url": ctx.url,
             }
-            console.print(json.dumps(result, indent=2))
+            click.echo(json.dumps(result, indent=2))
             return
 
         # Essential status always shown (even in quiet mode)
