@@ -30,7 +30,7 @@ from .api import (
     users,
 )
 from .api import settings as settings_api
-from .api.auth import allow_anyone
+from .api.auth import allow_anyone, get_secret_key
 from .config import settings
 from .db.database import engine, get_db
 from .request_body_limits import RemoteAgentBodyLimitMiddleware
@@ -64,6 +64,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"Log level: {settings.log_level}")
     logger.info(f"Database: {settings.database_url.split('://')[0]}")
     logger.info(f"Meilisearch: {settings.meili_url}")
+
+    # Load or create the signing key now, so a missing SESSION_SECRET is logged
+    # and an unwritable data dir stops startup instead of the first sign-in.
+    get_secret_key()
 
     # Initialize Meilisearch connection
     if meili_service.connect():

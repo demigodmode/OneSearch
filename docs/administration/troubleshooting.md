@@ -93,7 +93,7 @@ MEILI_MASTER_KEY=...
 SESSION_SECRET=...
 ```
 
-A missing `MEILI_MASTER_KEY` stops the container at startup. A missing `SESSION_SECRET` doesn't: OneSearch logs a warning and signs logins with a built-in development key, which is not safe to leave in place.
+A missing `MEILI_MASTER_KEY` stops the container at startup. A missing `SESSION_SECRET` doesn't. OneSearch generates a key, saves it as `session_secret` in the data volume, and logs a warning. Set your own `SESSION_SECRET` so sessions don't depend on that volume.
 
 Then check the compose service:
 
@@ -193,7 +193,7 @@ Tokens expire. Run:
 onesearch login
 ```
 
-If every token becomes invalid after restart, check that `SESSION_SECRET` is set and stable in `.env`.
+If every token becomes invalid after restart, check that `SESSION_SECRET` is set and stable in `.env`. If you didn't set it, check that `session_secret` is still in the data volume. Replacing the volume signs everyone out.
 
 ## Health endpoint is degraded
 

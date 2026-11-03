@@ -5,9 +5,13 @@
 Authentication API endpoints
 Handles user setup, login, logout, and session management
 """
+import ipaddress
 import logging
+import os
+import secrets
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 import time
@@ -53,13 +57,66 @@ rate_limit_store: dict[str, list[float]] = defaultdict(list)
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
+SESSION_SECRET_FILE = "session_secret"
+_generated_secret: str | None = None
+
+
+def _session_secret_path() -> Path:
+    # Kept next to the database, same as the preview cache.
+    prefix = "sqlite:///"
+    if settings.database_url.startswith(prefix):
+        return Path(settings.database_url.removeprefix(prefix)).parent / SESSION_SECRET_FILE
+    return Path("/app/data") / SESSION_SECRET_FILE
+
+
+def _read_secret_file(path: Path) -> str:
+    # A writer may have created the file but not written it yet, so wait briefly.
+    deadline = time.monotonic() + 5
+    while True:
+        secret = path.read_text().strip()
+        if secret:
+            return secret
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"{path} is empty. Delete it or set SESSION_SECRET.")
+        time.sleep(0.05)
+
+
+def _load_or_create_secret_file(path: Path) -> str:
+    """Return the key in path, creating it if no other process has yet."""
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return _read_secret_file(path)
+    except OSError as exc:
+        raise RuntimeError(
+            f"SESSION_SECRET is not set and {path} can't be created ({exc.strerror}). "
+            "Set SESSION_SECRET or make the data directory writable."
+        ) from exc
+
+    secret = secrets.token_urlsafe(48)
+    with os.fdopen(fd, "w") as f:
+        f.write(secret)
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        # Root (docker exec) would leave a file the server user can't read.
+        owner = path.parent.stat()
+        os.chown(path, owner.st_uid, owner.st_gid)
+    return secret
+
+
 def get_secret_key() -> str:
-    """Get or generate session secret key"""
+    """Return the JWT signing key. SESSION_SECRET wins; otherwise a generated key kept in the data dir."""
+    global _generated_secret
     if settings.session_secret:
         return settings.session_secret
-    # Generate a temporary key if not configured (dev only)
-    logger.warning("SESSION_SECRET not configured. Using temporary key (insecure for production)")
-    return "temporary-dev-key-do-not-use-in-production"
+    if _generated_secret is None:
+        path = _session_secret_path()
+        _generated_secret = _load_or_create_secret_file(path)
+        logger.warning(
+            "SESSION_SECRET is not set. Using a generated key from %s. "
+            "Set SESSION_SECRET so the key doesn't depend on this volume.",
+            path,
+        )
+    return _generated_secret
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -113,25 +170,39 @@ def _is_session_payload(payload: dict[str, Any]) -> bool:
 _last_prune = 0.0
 
 
+def _is_loopback(host: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
+    return addr.is_loopback
+
+
 def get_client_ip(request: Request) -> str:
     """
-    Extract real client IP from proxy headers.
+    Return the client address used for rate limits and the audit log.
 
-    Checks X-Forwarded-For and X-Real-IP headers (set by nginx/reverse proxies)
-    before falling back to request.client.host. Without this, all requests
-    behind a proxy share the same rate limit bucket (127.0.0.1).
+    Forwarding headers are only read when the connection comes from loopback,
+    which is where the bundled nginx connects from. Anything else can send its
+    own headers, so those are ignored. Behind a proxy on another address every
+    user shares that proxy's bucket.
     """
-    # X-Forwarded-For can contain a chain: "client, proxy1, proxy2"
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        # The leftmost IP is the original client
-        return forwarded_for.split(",")[0].strip()
+    if request.client is None:
+        return "unknown"
 
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
+    peer = request.client.host
+    if _is_loopback(peer):
+        # nginx appends the address it saw, so the rightmost entry is the real one
+        hops = [hop.strip() for hop in request.headers.get("x-forwarded-for", "").split(",") if hop.strip()]
+        if hops:
+            return hops[-1]
+        real_ip = request.headers.get("x-real-ip", "").strip()
+        if real_ip:
+            return real_ip
 
-    return request.client.host if request.client else "unknown"
+    return peer
 
 
 

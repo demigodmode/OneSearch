@@ -24,6 +24,17 @@ from app.api.auth import hash_password, create_access_token
 
 
 @pytest.fixture(autouse=True)
+def generated_session_secret_in_tmp(tmp_path):
+    """Keep the generated session key out of /app/data during tests."""
+    import app.api.auth as auth_module
+    # Own MonkeyPatch, so a test calling monkeypatch.undo() doesn't swap the key mid-test.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(auth_module, "_session_secret_path", lambda: tmp_path / "session_secret")
+        mp.setattr(auth_module, "_generated_secret", None)
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _no_startup_purge_on_the_configured_db(monkeypatch):
     # The app's own scheduler uses DATABASE_URL, not the test database, so keep
     # its startup audit purge from deleting rows in whatever database that is.

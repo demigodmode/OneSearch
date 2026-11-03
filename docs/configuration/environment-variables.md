@@ -241,9 +241,13 @@ Plain text longer than this uses the paginated reader.
 
 **SESSION_SECRET**
 
-Secret key used for signing JWT tokens. If not set, a hardcoded fallback is used (fine for dev, but you'll want to set this in production).
+Secret key used for signing login tokens and download links.
 
-- Default: hardcoded fallback (logs a warning)
+If you don't set it, OneSearch generates a random key the first time it starts, saves it to `session_secret` in the data folder (`/app/data` in the container), and reuses that file on later starts. The server logs a warning when this happens. Setting `SESSION_SECRET` is still recommended, so the key doesn't depend on that volume. If the data volume is lost or replaced, everyone is signed out.
+
+Installs that didn't set `SESSION_SECRET` before 1.8.0 are signed out once after upgrading.
+
+- Default: a generated key saved in the data folder
 - Example: `SESSION_SECRET=your-random-secret-here`
 
 Generate one:

@@ -12,6 +12,8 @@ from app.services import audit
 
 TEMPORARY = "temporary-pass-1"
 FORWARDED = {"X-Forwarded-For": "203.0.113.7"}
+# Forwarded headers are only read from loopback, which is where the bundled nginx connects from.
+BEHIND_NGINX = ("127.0.0.1", 50000)
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +30,7 @@ def signed_out(db_session):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as anonymous:
+    with TestClient(app, client=BEHIND_NGINX) as anonymous:
         yield anonymous
     app.dependency_overrides.clear()
 
@@ -38,7 +40,7 @@ def _as(token):
 
 
 def _sign_in(username, password, headers=None):
-    response = TestClient(app).post(
+    response = TestClient(app, client=BEHIND_NGINX).post(
         "/api/auth/login", json={"username": username, "password": password}, headers=headers or {}
     )
     assert response.status_code == 200, response.text

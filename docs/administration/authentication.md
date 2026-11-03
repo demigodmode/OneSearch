@@ -121,7 +121,7 @@ Entries are kept for 90 days by default. To change that, go to **Settings > Audi
 Two things to know if other people use your instance:
 
 - A failed sign-in stores the username that was typed, cut to 50 characters, and the client's IP address. If someone types their password into the username box by mistake, that password ends up in the log until it ages out.
-- The IP address comes from the `X-Forwarded-For` and `X-Real-IP` headers. If you run a reverse proxy, set it up to overwrite those headers with the address it sees. Otherwise a client can send any address it likes, and the log will show that address.
+- The IP address is the one the connection came from. OneSearch only trusts the `X-Forwarded-For` header from the nginx bundled inside its own container, so a client can't pick its own address. If you put your own reverse proxy in front, even on the same host, every request comes from the proxy's address. Users then share one sign-in rate limit, and the log shows the proxy's address.
 
 ## Recovering access
 
@@ -148,7 +148,7 @@ You can run the command as root. It switches to the app user before it touches t
 
 Three environment variables control auth behavior:
 
-**SESSION_SECRET**: The key used to sign JWT tokens. If you don't set this, a hardcoded fallback is used and you'll see a warning in the logs. Fine for development, but set a proper secret for anything else.
+**SESSION_SECRET**: The key used to sign login tokens and download links. If you don't set this, OneSearch generates a key and saves it as `session_secret` in the data folder, then reuses it on later starts. You'll see a warning in the logs. Setting your own secret is still recommended, so sessions don't depend on the data volume.
 
 ```bash
 # Generate a good secret

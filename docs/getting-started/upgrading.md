@@ -71,7 +71,7 @@ There is no major-only tag like `1`.
 
 Nothing to set up. Pull the new image and restart as usual.
 
-Startup runs a migration that adds user roles, API tokens and the audit log. The account you set up becomes an admin, and it's the only account there is until you add more from **Admin > Users**. Sessions you already have keep working until they expire, so the upgrade doesn't sign anyone out.
+Startup runs a migration that adds user roles, API tokens and the audit log. The account you set up becomes an admin, and it's the only account there is until you add more from **Admin > Users**. Sessions you already have keep working until they expire. The exception is installs that never set `SESSION_SECRET`: they get signed out once, because the key they used before was a built-in one that is now replaced. Setting `SESSION_SECRET` avoids that on future upgrades.
 
 This release also fixes a sign-in issue with download links. See the [changelog](../about/changelog.md) for details.
 

@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     indexing_progress_interval: int = 100
 
     # Authentication settings
-    session_secret: str = ""  # Required in production
+    session_secret: str = ""  # Recommended. If empty, a generated key is kept in the data dir
     session_expire_hours: int = 24
     auth_rate_limit: int = 5  # Max attempts per minute
 

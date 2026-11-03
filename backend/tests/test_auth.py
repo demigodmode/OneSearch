@@ -20,6 +20,9 @@ from app.api.auth import (
 )
 import app.api.auth as auth_module
 
+# conftest replaces this for every test, so keep the real one for the path tests
+real_session_secret_path = auth_module._session_secret_path
+
 
 # In-memory SQLite database for testing
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
@@ -415,9 +418,41 @@ class TestGetClientIp:
         req = self._make_request(headers={"x-forwarded-for": "1.2.3.4"})
         assert get_client_ip(req) == "1.2.3.4"
 
-    def test_x_forwarded_for_chain(self):
-        req = self._make_request(headers={"x-forwarded-for": "1.2.3.4, 10.0.0.1, 10.0.0.2"})
+    def test_x_forwarded_for_uses_rightmost_entry(self):
+        # From a trusted proxy the rightmost entry is the one the proxy appended.
+        req = self._make_request(headers={"x-forwarded-for": "9.9.9.9, 1.2.3.4"})
         assert get_client_ip(req) == "1.2.3.4"
+
+    def test_x_forwarded_for_chain_takes_last_hop(self):
+        req = self._make_request(headers={"x-forwarded-for": "1.2.3.4, 10.0.0.1, 10.0.0.2"})
+        assert get_client_ip(req) == "10.0.0.2"
+
+    def test_client_sent_forwarded_for_is_not_trusted_from_public_peer(self):
+        req = self._make_request(
+            headers={"x-forwarded-for": "1.2.3.4"}, client_host="203.0.113.9"
+        )
+        assert get_client_ip(req) == "203.0.113.9"
+
+    def test_client_sent_real_ip_is_not_trusted_from_public_peer(self):
+        req = self._make_request(headers={"x-real-ip": "1.2.3.4"}, client_host="203.0.113.9")
+        assert get_client_ip(req) == "203.0.113.9"
+
+    def test_rotating_forwarded_for_from_public_peer_gives_same_ip(self):
+        ips = {
+            get_client_ip(self._make_request(
+                headers={"x-forwarded-for": f"10.0.0.{i}"}, client_host="203.0.113.9"
+            ))
+            for i in range(10)
+        }
+        assert ips == {"203.0.113.9"}
+
+    def test_ipv6_loopback_peer_is_trusted(self):
+        req = self._make_request(headers={"x-forwarded-for": "1.2.3.4"}, client_host="::1")
+        assert get_client_ip(req) == "1.2.3.4"
+
+    def test_non_ip_peer_is_not_trusted(self):
+        req = self._make_request(headers={"x-forwarded-for": "1.2.3.4"}, client_host="testclient")
+        assert get_client_ip(req) == "testclient"
 
     def test_x_real_ip(self):
         req = self._make_request(headers={"x-real-ip": "5.6.7.8"})
@@ -442,6 +477,52 @@ class TestGetClientIp:
         assert get_client_ip(req) == "1.1.1.1"
 
 
+class TestProxiedRateLimit:
+    """Login rate limit when the client can send its own forwarding headers."""
+
+    @pytest.fixture
+    def make_client(self, db_session):
+        def override_get_db():
+            yield db_session
+
+        app.dependency_overrides[get_db] = override_get_db
+        yield lambda peer: TestClient(app, client=(peer, 50000))
+        app.dependency_overrides.clear()
+
+    def _wrong_login(self, client, headers=None):
+        return client.post(
+            "/api/auth/login",
+            json={"username": "testuser", "password": "wrongpassword"},
+            headers=headers or {},
+        )
+
+    def test_rotating_forwarded_for_on_direct_connection_still_limited(self, make_client, sample_user):
+        client = make_client("203.0.113.9")
+        for i in range(5):
+            response = self._wrong_login(client, {"X-Forwarded-For": f"10.1.1.{i}"})
+            assert response.status_code == 401
+        response = self._wrong_login(client, {"X-Forwarded-For": "10.1.1.99"})
+        assert response.status_code == 429
+
+    def test_rotating_forwarded_for_behind_bundled_nginx_still_limited(self, make_client, sample_user):
+        # nginx appends the address it saw, so the rightmost entry stays the real client.
+        client = make_client("127.0.0.1")
+        for i in range(5):
+            response = self._wrong_login(client, {"X-Forwarded-For": f"10.1.1.{i}, 203.0.113.9"})
+            assert response.status_code == 401
+        response = self._wrong_login(client, {"X-Forwarded-For": "10.1.1.99, 203.0.113.9"})
+        assert response.status_code == 429
+
+    def test_spoofed_headers_from_one_peer_do_not_reset_another_peers_bucket(self, make_client, sample_user):
+        attacker = make_client("203.0.113.9")
+        for i in range(6):
+            self._wrong_login(attacker, {"X-Forwarded-For": f"10.1.1.{i}", "X-Real-IP": f"10.2.2.{i}"})
+
+        other = make_client("198.51.100.7")
+        response = self._wrong_login(other)
+        assert response.status_code == 401
+
+
 class TestGetSecretKey:
 
     def test_with_session_secret(self, monkeypatch):
@@ -449,11 +530,105 @@ class TestGetSecretKey:
         monkeypatch.setattr(settings, "session_secret", "my-secret-key")
         assert get_secret_key() == "my-secret-key"
 
-    def test_without_session_secret(self, monkeypatch):
+    def test_without_session_secret_uses_generated_file(self, monkeypatch, tmp_path):
         from app.config import settings
         monkeypatch.setattr(settings, "session_secret", "")
+        monkeypatch.setattr(auth_module, "_generated_secret", None)
+        monkeypatch.setattr(auth_module, "_session_secret_path", lambda: tmp_path / "session_secret")
         key = get_secret_key()
-        assert "temporary" in key
+        assert key
+        assert (tmp_path / "session_secret").read_text() == key
+
+
+class TestGeneratedSessionSecret:
+    """SESSION_SECRET unset: the key is generated once and kept in the data dir."""
+
+    @pytest.fixture
+    def secret_file(self, monkeypatch, tmp_path):
+        from app.config import settings
+        path = tmp_path / "session_secret"
+        monkeypatch.setattr(settings, "session_secret", "")
+        monkeypatch.setattr(auth_module, "_generated_secret", None)
+        monkeypatch.setattr(auth_module, "_session_secret_path", lambda: path)
+        return path
+
+    def test_env_secret_wins_over_file(self, monkeypatch, secret_file):
+        from app.config import settings
+        secret_file.write_text("file-secret")
+        monkeypatch.setattr(settings, "session_secret", "env-secret")
+        assert get_secret_key() == "env-secret"
+
+    def test_file_is_created_with_0600_and_reused(self, secret_file):
+        first = get_secret_key()
+        assert secret_file.stat().st_mode & 0o777 == 0o600
+
+        auth_module._generated_secret = None
+        assert get_secret_key() == first
+
+    def test_key_is_cached_between_calls(self, secret_file):
+        first = get_secret_key()
+        secret_file.unlink()
+        assert get_secret_key() == first
+
+    def test_warning_is_logged_once_and_key_is_not_logged(self, secret_file, caplog):
+        with caplog.at_level("WARNING", logger="app.api.auth"):
+            key = get_secret_key()
+            get_secret_key()
+        warnings = [r for r in caplog.records if r.levelname == "WARNING" and "SESSION_SECRET" in r.getMessage()]
+        assert len(warnings) == 1
+        assert all(key not in r.getMessage() for r in caplog.records)
+
+    def test_concurrent_creation_keeps_one_key(self, secret_file):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+
+        barrier = threading.Barrier(12)
+
+        def start(_):
+            barrier.wait()
+            return auth_module._load_or_create_secret_file(secret_file)
+
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            keys = set(pool.map(start, range(12)))
+
+        assert len(keys) == 1
+        assert secret_file.read_text() == keys.pop()
+
+    def test_empty_file_is_read_once_the_writer_finishes(self, secret_file):
+        import threading
+        import time
+
+        secret_file.touch()
+
+        def finish_write():
+            time.sleep(0.2)
+            secret_file.write_text("late-writer-key")
+
+        writer = threading.Thread(target=finish_write)
+        writer.start()
+        assert auth_module._load_or_create_secret_file(secret_file) == "late-writer-key"
+        writer.join()
+
+    def test_unwritable_data_dir_fails_loudly(self, monkeypatch, tmp_path):
+        from app.config import settings
+        monkeypatch.setattr(settings, "session_secret", "")
+        monkeypatch.setattr(auth_module, "_generated_secret", None)
+        monkeypatch.setattr(auth_module, "_session_secret_path", lambda: tmp_path / "missing" / "session_secret")
+        with pytest.raises(RuntimeError, match="SESSION_SECRET"):
+            get_secret_key()
+
+    def test_root_created_file_goes_to_data_dir_owner(self, monkeypatch, secret_file):
+        import os
+        calls = []
+        monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
+        monkeypatch.setattr(os, "chown", lambda path, uid, gid: calls.append((path, uid, gid)))
+        get_secret_key()
+        owner = secret_file.parent.stat()
+        assert calls == [(secret_file, owner.st_uid, owner.st_gid)]
+
+    def test_hardcoded_fallback_is_gone(self):
+        import inspect
+        assert "temporary-dev-key" not in inspect.getsource(auth_module)
 
 
 class TestCheckRateLimitPruning:
@@ -605,3 +780,15 @@ class TestGetOptionalUser:
 
         result = await get_optional_user(credentials=creds, db=db_session)
         assert result is not None
+
+
+class TestSessionSecretPath:
+    def test_lives_next_to_the_sqlite_database(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(auth_module, "_session_secret_path", real_session_secret_path)
+        monkeypatch.setattr(auth_module.settings, "database_url", f"sqlite:///{tmp_path}/onesearch.db")
+        assert auth_module._session_secret_path() == tmp_path / "session_secret"
+
+    def test_falls_back_to_app_data_for_other_databases(self, monkeypatch):
+        monkeypatch.setattr(auth_module, "_session_secret_path", real_session_secret_path)
+        monkeypatch.setattr(auth_module.settings, "database_url", "postgresql://db/onesearch")
+        assert str(auth_module._session_secret_path()) == "/app/data/session_secret"

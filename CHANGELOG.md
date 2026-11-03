@@ -18,11 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Upgrading from 1.7.x needs no steps. The existing account becomes an admin. Sessions from before the upgrade keep working until they expire.
+- Upgrading from 1.7.x needs no steps if you set `SESSION_SECRET`. The existing account becomes an admin. Sessions from before the upgrade keep working until they expire. Installs without `SESSION_SECRET` are signed out once.
 - Sessions and download links end right away when a user's role or status changes or an admin resets their password. Changing your own password ends your other sessions.
 
 ### Security
 
+- Sign-in rate limiting could be bypassed by sending a made-up `X-Forwarded-For` header. The client address now comes from the bundled proxy only, and anything sent by other clients is ignored.
+- The fallback signing key was a fixed string in the source, so anyone could forge a session, admin included. Without `SESSION_SECRET`, a random key is now generated and saved in the data folder.
 - For up to 60 seconds, a download link (the short-lived link behind the Download button) also worked as a normal sign-in. Sign-in now only accepts tokens issued for signing in, and anything else is rejected with a 401. This has been possible since download links were added.
 
 ---
