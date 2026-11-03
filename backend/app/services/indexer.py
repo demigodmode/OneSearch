@@ -28,6 +28,11 @@ from .search import SearchService
 logger = logging.getLogger(__name__)
 
 
+def document_id_for_path(source_id: str, file_path: str) -> str:
+    path_hash = hashlib.sha256(file_path.encode()).hexdigest()[:12]
+    return f"{source_id}--{path_hash}"
+
+
 class IndexingStats:
     """Statistics for an indexing run"""
 
@@ -240,6 +245,8 @@ class IndexingService:
 
                     # Update indexed_files with error
                     self._update_indexed_file(source_id, file_path, status="failed", error=str(e))
+                    if file_path in indexed_files_map:
+                        await self._remove_stale_document(source_id, file_path)
 
             # Index remaining documents
             if documents_to_index:
@@ -428,6 +435,7 @@ class IndexingService:
                 extra={"file_path": file_path, "error": str(e)},
             )
             self._update_indexed_file(source.id, file_path, status="failed", error=str(e))
+            await self._remove_stale_document(source.id, file_path)
             return "failed"
 
     def _update_indexed_file(
@@ -490,6 +498,14 @@ class IndexingService:
             )
             self.db.add(indexed_file)
 
+    async def _remove_stale_document(self, source_id: str, file_path: str) -> None:
+        """Drop the old index entry for a file that can no longer be indexed"""
+        try:
+            await self.search_service.delete_document(document_id_for_path(source_id, file_path))
+        except Exception as e:
+            # Left for the next successful run or clear-stale to pick up
+            logger.warning(f"Could not remove stale index entry for '{Path(file_path).name}': {e}")
+
     async def _handle_deleted_files(
         self, source_id: str, current_files: set, indexed_files_map: dict[str, IndexedFile]
     ) -> int:
@@ -511,10 +527,7 @@ class IndexingService:
                 # File was deleted
                 logger.info(f"File deleted: {indexed_path}")
 
-                # Remove from Meilisearch using hash-based ID
-                path_hash = hashlib.sha256(indexed_path.encode()).hexdigest()[:12]
-                doc_id = f"{source_id}--{path_hash}"
-                await self.search_service.delete_document(doc_id)
+                await self.search_service.delete_document(document_id_for_path(source_id, indexed_path))
 
                 # Remove from database
                 self.db.delete(indexed_file)

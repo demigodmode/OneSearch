@@ -33,6 +33,74 @@ def write_jpeg_with_exif(path: Path) -> None:
     image.save(path, exif=exif)
 
 
+def write_jpeg_with_sub_ifd_exif(path: Path) -> None:
+    """Camera-style layout: shooting settings live in the Exif sub-IFD, GPS in its own IFD"""
+    image = Image.new("RGB", (64, 32), color="red")
+    exif = Image.Exif()
+    exif[271] = "Canon"
+    exif[272] = "EOS R6"
+    exif[306] = "2024:08:12 18:43:00"
+    sub = exif.get_ifd(0x8769)
+    sub[36867] = "2024:08:12 18:43:00"
+    sub[33434] = (1, 125)
+    sub[33437] = (4, 1)
+    sub[34855] = 800
+    sub[37386] = (50, 1)
+    sub[42036] = "RF24-105mm F4"
+    gps = exif.get_ifd(0x8825)
+    gps[1] = "N"
+    gps[2] = (40.0, 42.0, 30.0)
+    gps[3] = "W"
+    gps[4] = (74.0, 0.0, 0.0)
+    image.save(path, exif=exif)
+
+
+@pytest.mark.asyncio
+async def test_extract_jpeg_exif_reads_sub_ifd_camera_fields(temp_dir, monkeypatch):
+    file_path = temp_dir / "IMG_5678.jpg"
+    write_jpeg_with_sub_ifd_exif(file_path)
+    monkeypatch.setattr(ImageExtractor, "_gps_enabled", lambda self: True)
+
+    doc = await ImageExtractor("src", "Photos").extract_with_timeout(str(file_path))
+
+    assert doc.metadata["camera_make"] == "Canon"
+    assert doc.metadata["camera_model"] == "EOS R6"
+    assert doc.metadata["date_taken"] == "2024:08:12 18:43:00"
+    assert doc.metadata["iso"] == 800
+    assert doc.metadata["aperture"] == "f/4"
+    assert doc.metadata["exposure_time"] == "1/125"
+    assert doc.metadata["focal_length"] == "50mm"
+    assert doc.metadata["lens_model"] == "RF24-105mm F4"
+    assert doc.metadata["gps"]["GPSLatitudeRef"] == "N"
+    assert doc.metadata["gps"]["GPSLongitudeRef"] == "W"
+
+
+@pytest.mark.asyncio
+async def test_gps_ifd_offset_is_decoded_from_real_jpeg(temp_dir, monkeypatch):
+    file_path = temp_dir / "geo.jpg"
+    write_jpeg_with_sub_ifd_exif(file_path)
+    monkeypatch.setattr(ImageExtractor, "_gps_enabled", lambda self: True)
+
+    doc = await ImageExtractor("src", "Photos").extract_with_timeout(str(file_path))
+
+    assert "raw" not in doc.metadata["gps"]
+    assert doc.metadata["gps"]["GPSLatitude"] == (40.0, 42.0, 30.0)
+
+
+@pytest.mark.asyncio
+async def test_sub_ifd_value_wins_over_ifd0_copy(temp_dir):
+    file_path = temp_dir / "IMG_9999.jpg"
+    image = Image.new("RGB", (16, 16), color="red")
+    exif = Image.Exif()
+    exif[33437] = (2, 1)
+    exif.get_ifd(0x8769)[33437] = (4, 1)
+    image.save(file_path, exif=exif)
+
+    doc = await ImageExtractor("src", "Photos").extract_with_timeout(str(file_path))
+
+    assert doc.metadata["aperture"] == "f/4"
+
+
 @pytest.mark.asyncio
 async def test_extract_jpeg_exif_metadata_is_searchable(temp_dir):
     file_path = temp_dir / "IMG_1234.jpg"

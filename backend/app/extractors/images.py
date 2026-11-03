@@ -23,6 +23,8 @@ _STANDARD_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", 
 _RAW_IMAGE_EXTENSIONS = [".cr2", ".cr3", ".nef", ".arw", ".raf", ".orf", ".rw2", ".dng"]
 _EXIF_TAGS = {value: key for key, value in ExifTags.TAGS.items()}
 _GPS_TAGS = ExifTags.GPSTAGS
+_EXIF_SUB_IFD = 0x8769
+_GPS_IFD_POINTER = 0x8825
 
 
 class ImageExtractor(BaseExtractor):
@@ -171,6 +173,17 @@ class ImageExtractor(BaseExtractor):
         return metadata
 
     def _add_exif_fields(self, metadata: dict[str, Any], exif: Image.Exif) -> None:
+        # Cameras put shooting settings in the Exif sub-IFD; IFD0 is the fallback
+        sub_ifd = exif.get_ifd(_EXIF_SUB_IFD)
+
+        def lookup(tag_name: str) -> Any:
+            tag_id = _EXIF_TAGS.get(tag_name)
+            if tag_id is None:
+                return None
+            if tag_id in sub_ifd:
+                return sub_ifd[tag_id]
+            return exif.get(tag_id)
+
         field_map = {
             "Make": "camera_make",
             "Model": "camera_model",
@@ -181,23 +194,23 @@ class ImageExtractor(BaseExtractor):
             "LensModel": "lens_model",
         }
         for tag_name, metadata_key in field_map.items():
-            tag_id = _EXIF_TAGS.get(tag_name)
-            if tag_id in exif:
-                metadata[metadata_key] = _clean_value(exif.get(tag_id))
+            value = lookup(tag_name)
+            if value is not None:
+                metadata[metadata_key] = _clean_value(value)
 
-        f_number = exif.get(_EXIF_TAGS.get("FNumber"))
+        f_number = lookup("FNumber")
         if f_number is not None:
             metadata["aperture"] = f"f/{_format_decimal(_to_float(f_number))}"
 
-        exposure = exif.get(_EXIF_TAGS.get("ExposureTime"))
+        exposure = lookup("ExposureTime")
         if exposure is not None:
             metadata["exposure_time"] = _format_exposure(exposure)
 
-        focal_length = exif.get(_EXIF_TAGS.get("FocalLength"))
+        focal_length = lookup("FocalLength")
         if focal_length is not None:
             metadata["focal_length"] = f"{_format_decimal(_to_float(focal_length))}mm"
 
-        orientation = exif.get(_EXIF_TAGS.get("Orientation"))
+        orientation = lookup("Orientation")
         if orientation is not None:
             metadata["orientation"] = _clean_value(orientation)
 
@@ -218,6 +231,9 @@ class ImageExtractor(BaseExtractor):
     def _extract_gps(self, exif: Image.Exif) -> dict[str, Any]:
         gps_tag = _EXIF_TAGS.get("GPSInfo")
         gps_info = exif.get(gps_tag) if gps_tag in exif else None
+        if isinstance(gps_info, int):
+            # Pillow hands back the raw IFD offset here; the decoded GPS IFD is behind get_ifd
+            gps_info = exif.get_ifd(_GPS_IFD_POINTER)
         if not gps_info:
             return {}
         gps: dict[str, Any] = {}

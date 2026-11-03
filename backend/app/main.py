@@ -203,7 +203,7 @@ async def health_check(db: Session = Depends(get_db)):
     from .api.auth import is_setup_required
 
     # Check Meilisearch health
-    meili_health = meili_service.health_check()
+    meili_health = await asyncio.to_thread(meili_service.health_check)
 
     # Check if initial setup is required
     setup_required = is_setup_required(db)

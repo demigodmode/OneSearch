@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgrading from 1.7.x needs no steps if you set `SESSION_SECRET`. The existing account becomes an admin. Sessions from before the upgrade keep working until they expire. Installs without `SESSION_SECRET` are signed out once.
 - Sessions and download links end right away when a user's role or status changes or an admin resets their password. Changing your own password ends your other sessions.
 
+### Fixed
+
+- `/api/health`, and the rest of the API with it, could hang forever when Meilisearch stopped answering. Meilisearch calls now time out, and the health check no longer blocks other requests.
+- A file that changed and then failed to index kept showing up for its old text. Its old index entry is now removed.
+- Photo metadata was missing aperture, exposure, focal length, ISO and lens for most camera photos, because those are stored in a part of the EXIF data that wasn't read. GPS from real photo files was broken for the same reason.
+- Search snippets could end in a broken highlight tag.
+- `onesearch ... --json` could print invalid JSON when piped, because long lines got wrapped.
+- Clear filters on the search page came back after a reload.
+- Reindex, full reindex and delete on the Sources page failed silently. They now show the error.
+- Status didn't show "Next scan" for sources on an interval or the global default schedule.
+- On a phone, the header buttons had no name for screen readers, and search results couldn't be opened from the keyboard.
+
 ### Security
 
 - Sign-in rate limiting could be bypassed by sending a made-up `X-Forwarded-For` header. The client address now comes from the bundled proxy only, and anything sent by other clients is ignored.
