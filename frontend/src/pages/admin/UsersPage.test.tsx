@@ -94,6 +94,29 @@ describe('UsersPage', () => {
     expect(screen.getByRole('button', { name: 'Actions for bob' })).toBeInTheDocument()
   })
 
+  it('opens the actions with Enter and returns focus to the trigger on Escape', async () => {
+    renderPage()
+    await screen.findByText('bob')
+
+    const trigger = screen.getByRole('button', { name: 'Actions for bob' })
+    trigger.focus()
+    await userEvent.keyboard('{Enter}')
+    expect(await screen.findByRole('menuitem', { name: 'Make admin' })).toBeInTheDocument()
+
+    await userEvent.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+    expect(trigger).toHaveFocus()
+  })
+
+  it('moves into the actions with ArrowDown', async () => {
+    renderPage()
+    await screen.findByText('bob')
+
+    screen.getByRole('button', { name: 'Actions for bob' }).focus()
+    await userEvent.keyboard('{ArrowDown}')
+    expect(await screen.findByRole('menuitem', { name: 'Make admin' })).toHaveFocus()
+  })
+
   it('makes a member an admin and refreshes the list', async () => {
     api.listUsers.mockResolvedValueOnce([alice, bob]).mockResolvedValueOnce([alice, { ...bob, role: 'admin' }])
     api.updateUser.mockResolvedValue({ ...bob, role: 'admin' })
