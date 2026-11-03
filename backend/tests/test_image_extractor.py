@@ -352,3 +352,20 @@ def test_image_and_raw_extensions_are_registered(temp_dir):
     ]:
         assert ImageExtractor.supports_file(str(temp_dir / name)), name
         assert extractor_registry.get_extractor(str(temp_dir / name), "src", "Source") is not None
+
+
+@pytest.mark.asyncio
+async def test_gps_from_real_jpeg_is_plain_json(temp_dir, monkeypatch):
+    import json
+
+    file_path = temp_dir / "geo.jpg"
+    write_jpeg_with_sub_ifd_exif(file_path)
+    monkeypatch.setattr(ImageExtractor, "_gps_enabled", lambda self: True)
+
+    doc = await ImageExtractor("src", "Photos").extract_with_timeout(str(file_path))
+
+    # Pillow hands back IFDRational, which neither json nor pydantic can serialise
+    dumped = json.loads(json.dumps(doc.model_dump(mode="json")))
+    assert dumped["metadata"]["gps"]["GPSLatitude"] == [40.0, 42.0, 30.0]
+    assert all(type(v) is float for v in doc.metadata["gps"]["GPSLatitude"])
+    json.dumps(doc.metadata)

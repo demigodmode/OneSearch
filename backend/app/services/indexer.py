@@ -203,6 +203,9 @@ class IndexingService:
                         )
                         continue
 
+                    # A value that can't be serialised would fail the whole batch later, so catch it here
+                    document.model_dump(mode="json")
+
                     # Add to batch for indexing
                     documents_to_index.append(document)
                     total_bytes_processed += document.size_bytes

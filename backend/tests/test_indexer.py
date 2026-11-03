@@ -769,3 +769,45 @@ class TestStaleDocumentCleanup:
             path_hash = hashlib.sha256(str(file_path).encode()).hexdigest()[:12]
             assert result == "failed"
             mock_search_service.delete_document.assert_awaited_once_with(f"retry_src--{path_hash}")
+
+
+class TestOneBadDocument:
+    @pytest.mark.asyncio
+    @patch('app.services.indexer.FileScanner')
+    async def test_document_that_cant_be_serialised_fails_only_that_file(
+        self, mock_scanner_class, db_session, mock_search_service, monkeypatch
+    ):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good = root / "good.txt"
+            bad = root / "bad.txt"
+            good.write_text("fine")
+            bad.write_text("not fine")
+            db_session.add(Source(
+                id="mixed_src", name="Mixed", root_path=str(root),
+                include_patterns=json.dumps(["**/*.txt"]), exclude_patterns=json.dumps([]),
+            ))
+            db_session.commit()
+            mock_scanner = Mock()
+            mock_scanner.scan.return_value = [str(good), str(bad)]
+            mock_scanner_class.return_value = mock_scanner
+
+            service = IndexingService(db_session, mock_search_service)
+            real_extract = service._extract_document
+
+            async def extract(file_path, source_id, source_name):
+                doc = await real_extract(file_path, source_id, source_name)
+                if file_path == str(bad):
+                    doc.metadata["oops"] = object()
+                return doc
+
+            monkeypatch.setattr(service, "_extract_document", extract)
+
+            stats = await service.index_source("mixed_src")
+
+            assert stats.successful == 1
+            assert stats.failed == 1
+            indexed = [d for call in mock_search_service.index_documents.await_args_list for d in call.args[0]]
+            assert [d.path for d in indexed] == [str(good)]
+            statuses = {f.path: f.status for f in db_session.query(IndexedFile).filter_by(source_id="mixed_src")}
+            assert statuses == {str(good): "success", str(bad): "failed"}

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from PIL import ExifTags, Image, UnidentifiedImageError
+from PIL.TiffImagePlugin import IFDRational
 
 from ..config import settings
 from ..schemas import Document
@@ -316,8 +317,11 @@ def _format_exposure(value: Any) -> str:
 def _clean_value(value: Any) -> Any:
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace").strip("\x00")
-    if isinstance(value, tuple):
+    if isinstance(value, (tuple, list)):
         return tuple(_clean_value(item) for item in value)
+    if isinstance(value, IFDRational):
+        # metadata goes to JSON, and IFDRational isn't serialisable
+        return None if value.denominator == 0 else float(value)
     return value
 
 
