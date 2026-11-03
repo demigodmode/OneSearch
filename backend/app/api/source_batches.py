@@ -17,6 +17,7 @@ from ..db.database import get_db
 from ..db.locks import begin_immediate
 from ..models import Agent, Source, SourceBatch, SourceBatchItem, User, _utcnow
 from ..schemas import SourceBatchCreate, SourceBatchItemCreateRequest, SourceCreate
+from ..services.audit import AuditAction, AuditTarget, record_event
 from ..services.scheduler import validate_interval, validate_schedule
 from .auth import require_admin
 
@@ -176,7 +177,7 @@ def _local_identity_without_io(path: str) -> tuple:
 
 
 def _write_item(db: Session, batch_id: str, item_id: str, owner_id: int, source: Source | None,
-                preflight_error: str | None, proof: str | None):
+                preflight_error: str | None, proof: str | None, actor: User | None = None):
     from .sources import (
         _configured_allowed_paths,
         _remote_agent,
@@ -278,6 +279,12 @@ def _write_item(db: Session, batch_id: str, item_id: str, owner_id: int, source:
                         if db.get(Source, source.id):
                             raise HTTPException(status_code=409, detail="Generated source ID is already used")
                         db.add(source)
+                        record_event(
+                            db,
+                            actor=actor,
+                            action=AuditAction.SOURCE_CREATED,
+                            target=AuditTarget.source(source.name),
+                        )
                         item.state, item.source_id = "created", source.id
                 item.last_error = None
             item.updated_at = batch.updated_at = _utcnow()
@@ -316,7 +323,10 @@ def create_item(batch_id: str, item_id: str, data: SourceBatchItemCreateRequest,
         error = str(exc.detail)[:500]
     except (OSError, ValueError):
         error = "Path or schedule is unavailable; check settings and retry"
-    result, created = _write_item(db, batch_id, item_id, owner_id, source, error, data.path_validation_job_id)
+    result, created = _write_item(
+        db, batch_id, item_id, owner_id, source, error, data.path_validation_job_id,
+        actor=current_user,
+    )
     if created and hasattr(request.app.state, "scheduler"):
         try:
             request.app.state.scheduler.update_source_schedule(result["source_id"])

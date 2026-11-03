@@ -12,7 +12,7 @@ import type { AppSettings, ScheduleConfig } from '@/types/api'
 import { cn } from '@/lib/utils'
 import { SchedulePicker, formatScheduleConfig } from '@/components/SchedulePicker'
 
-type SettingsPanel = 'appearance' | 'file-previews' | 'indexing' | 'scheduling' | 'search' | 'remote-agents'
+type SettingsPanel = 'appearance' | 'file-previews' | 'indexing' | 'scheduling' | 'search' | 'remote-agents' | 'audit-log'
 
 export default function SettingsPage() {
   const { theme, themeMode, customHue, setPreset, setCustomHue, setThemeMode } = useTheme()
@@ -39,6 +39,7 @@ export default function SettingsPage() {
         <SettingsPanelButton label="Scheduling" isOpen={openPanel === 'scheduling'} onClick={() => togglePanel('scheduling')} />
         <SettingsPanelButton label="Search" isOpen={openPanel === 'search'} onClick={() => togglePanel('search')} />
         <SettingsPanelButton label="Remote Agents" isOpen={openPanel === 'remote-agents'} onClick={() => togglePanel('remote-agents')} />
+        <SettingsPanelButton label="Audit log" isOpen={openPanel === 'audit-log'} onClick={() => togglePanel('audit-log')} />
       </div>
 
       <div className="mt-6 space-y-6">
@@ -84,9 +85,42 @@ export default function SettingsPage() {
         )}
 
         {openPanel === 'search' && <SearchSection settings={settings} onUpdate={updateSettings} />}
+        {openPanel === 'audit-log' && (
+          <AuditLogSection
+            settings={appSettings.data}
+            isLoading={appSettings.isLoading}
+            error={appSettings.error}
+            isSaving={updateAppSettings.isPending}
+            onUpdate={(partial) => updateAppSettings.mutate(partial)}
+          />
+        )}
         {openPanel === 'remote-agents' && <RemoteAgentsSection settings={appSettings.data} isLoading={appSettings.isLoading} error={appSettings.error} isSaving={updateAppSettings.isPending} onUpdate={(partial) => updateAppSettings.mutate(partial)} />}
       </div>
     </div>
+  )
+}
+
+function AuditLogSection({ settings, isLoading, error, isSaving, onUpdate }: AppSettingsSectionProps) {
+  return (
+    <section className="bg-card border border-border rounded-lg p-6 max-w-lg">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">Audit log</h2>
+        {isSaving && <Loader2 className="h-4 w-4 text-brand animate-spin" />}
+      </div>
+
+      <SettingsLoadingState isLoading={isLoading} error={error} message="Unable to load audit log settings." />
+
+      {settings && (
+        <NumberSetting
+          label="Keep audit log for (days)"
+          value={settings.audit_retention_days}
+          min={1}
+          max={3650}
+          onChange={(v) => onUpdate({ audit_retention_days: v })}
+          description="Entries older than this are deleted once a day."
+        />
+      )}
+    </section>
   )
 }
 
@@ -249,12 +283,14 @@ function NumberSetting({
   onChange,
   description,
   min = 0,
+  max,
 }: {
   label: string
   value: number
   onChange: (v: number) => void
   description?: string
   min?: number
+  max?: number
 }) {
   const [draft, setDraft] = useState(String(value))
   const skipNextBlurCommit = useRef(false)
@@ -275,7 +311,7 @@ function NumberSetting({
       return
     }
     const parsed = Number(draft)
-    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < min) {
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < min || (max !== undefined && parsed > max)) {
       setDraft(String(value))
       return
     }
@@ -288,6 +324,7 @@ function NumberSetting({
       <input
         type="number"
         min={min}
+        max={max}
         step={1}
         value={draft}
         title={description ?? label}

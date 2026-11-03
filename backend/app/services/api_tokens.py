@@ -50,19 +50,22 @@ def list_active_tokens(db: Session, user_id: int) -> list[ApiToken]:
     return list(db.execute(stmt).scalars())
 
 
-def revoke_token(db: Session, user_id: int, token_id: int) -> bool:
+def revoke_token(db: Session, user_id: int, token_id: int) -> str | None:
     """
-    Mark one active token that belongs to user_id as revoked. Returns False when there is no such token.
+    Mark one active token that belongs to user_id as revoked.
 
+    Returns the token's name, or None when there is no such active token.
     Does not commit. The caller commits with whatever else the request changes.
     """
-    result = db.execute(
-        update(ApiToken)
-        .where(
+    token = db.scalar(
+        select(ApiToken).where(
             ApiToken.id == token_id,
             ApiToken.user_id == user_id,
             ApiToken.revoked_at.is_(None),
         )
-        .values(revoked_at=_utcnow())
     )
-    return result.rowcount == 1
+    if token is None:
+        return None
+    name = token.name
+    db.execute(update(ApiToken).where(ApiToken.id == token_id).values(revoked_at=_utcnow()))
+    return name

@@ -261,6 +261,7 @@ export interface AppSettings {
   long_text_pagination_threshold_chars: number
   default_scan_schedule?: ScheduleConfig | null
   remote_agents_enabled: boolean
+  audit_retention_days: number
 }
 
 export type AppSettingsUpdate = Partial<AppSettings>

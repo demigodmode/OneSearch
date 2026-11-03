@@ -42,6 +42,7 @@ from ..schemas import (
 from ..services.agent_auth import effective_agent_status
 from ..services.agent_jobs import AgentJobService, JobConflict
 from ..services.app_settings import AppSettingsService
+from ..services.audit import AuditAction, AuditTarget, record_event
 from ..services.indexer import IndexingService
 from ..services.local_browse import LocalBrowseError, list_local_directories
 from ..services.scan_dispatcher import (
@@ -531,6 +532,39 @@ def generate_source_id(name: str) -> str:
     return source_id or "source"
 
 
+# Only these fields decide whether an update is logged. Their values are never recorded.
+SOURCE_AUDIT_FIELDS = (
+    "name",
+    "location_type",
+    "agent_id",
+    "processing_mode",
+    "root_path",
+    "include_patterns",
+    "exclude_patterns",
+    "schedule_type",
+    "scan_schedule",
+    "interval_value",
+    "interval_unit",
+    "use_default_schedule",
+)
+
+
+def _audit_source(
+    db: Session,
+    actor: User,
+    action: AuditAction,
+    source: Source,
+    detail: dict | None = None,
+) -> None:
+    record_event(
+        db,
+        actor=actor,
+        action=action,
+        target=AuditTarget.source(source.name),
+        detail=detail,
+    )
+
+
 def _build_source(db: Session, data: SourceCreate, source_id: str, root_path: str) -> Source:
     """Build and schedule a complete source before its creation transaction."""
     if not data.use_default_schedule:
@@ -821,6 +855,7 @@ async def create_source(
 
     source = _build_source(db, source_data, source_id, root_path)
     db.add(source)
+    _audit_source(db, current_user, AuditAction.SOURCE_CREATED, source)
     db.commit()
     db.refresh(source)
 
@@ -865,6 +900,8 @@ async def update_source(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Source '{source_id}' not found"
         )
+
+    before = {field: getattr(source, field) for field in SOURCE_AUDIT_FIELDS}
 
     # Validate the prospective combined binding before mutating the persistent object.
     prospective = {
@@ -973,6 +1010,13 @@ async def update_source(
     # Update timestamp
     source.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    changed_fields = sorted(
+        field for field in SOURCE_AUDIT_FIELDS if getattr(source, field) != before[field]
+    )
+    if changed_fields:
+        _audit_source(
+            db, current_user, AuditAction.SOURCE_UPDATED, source, {"fields": changed_fields}
+        )
     db.commit()
     db.refresh(source)
 
@@ -1026,9 +1070,11 @@ async def delete_source(
     from ..services.source_cleanup import purge_source
 
     scheduler = request.app.state.scheduler if hasattr(request.app.state, "scheduler") else None
+    _audit_source(db, current_user, AuditAction.SOURCE_DELETED, source)
     try:
         await purge_source(source, db, scheduler=scheduler)
     except Exception as error:
+        db.rollback()
         logger.exception(f"Failed to purge source {source_id}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -1078,6 +1124,7 @@ async def reindex_source(
             raise HTTPException(status_code=409, detail="remote_agents_disabled") from exc
         except AgentUnavailableError as exc:
             raise HTTPException(status_code=409, detail="agent_unavailable") from exc
+        _audit_source(db, current_user, AuditAction.SOURCE_REINDEXED, source, {"full": full})
         db.commit()
         return JSONResponse(
             status_code=202,
@@ -1103,6 +1150,8 @@ async def reindex_source(
         from sqlalchemy.orm import sessionmaker
         from starlette.concurrency import run_in_threadpool
 
+        _audit_source(db, current_user, AuditAction.SOURCE_REINDEXED, source, {"full": full})
+        db.commit()
         db_bind = db.get_bind()
 
         def sync_index_wrapper():

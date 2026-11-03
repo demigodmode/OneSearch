@@ -11,12 +11,16 @@ import { AUDIT_ACTION_PREFIXES, AUDIT_ACTIONS, describeAuditEvent } from '@/lib/
 import { formatDateTime } from '@/lib/utils'
 import type { AuditEvent, AuditQuery } from '@/types/api'
 
-// Option values are the action names the API filters on. The user prefix matches every user change.
+// Option values are the action names the API filters on. Prefixes end with a dot and match every action under them.
 const EVENT_OPTIONS = [
   { value: 'all', label: 'All' },
   { value: AUDIT_ACTIONS.LOGIN, label: 'Sign-ins' },
   { value: AUDIT_ACTIONS.LOGIN_FAILED, label: 'Failed sign-ins' },
   { value: AUDIT_ACTION_PREFIXES.USERS, label: 'Users' },
+  { value: AUDIT_ACTION_PREFIXES.TOKENS, label: 'Tokens' },
+  { value: AUDIT_ACTION_PREFIXES.SOURCES, label: 'Sources' },
+  { value: AUDIT_ACTION_PREFIXES.AGENTS, label: 'Agents' },
+  { value: AUDIT_ACTION_PREFIXES.SETTINGS, label: 'Settings' },
 ]
 
 const USER_FILTER_DELAY_MS = 300
@@ -47,7 +51,7 @@ export default function AuditLogPage() {
     <div className="animate-fade-in">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Audit log</h1>
-        <p className="text-sm text-muted-foreground mt-1">Who changed what, and every sign-in. Kept for 90 days.</p>
+        <p className="text-sm text-muted-foreground mt-1">Who changed what, and every sign-in. Old entries are deleted automatically.</p>
       </div>
 
       <div className="mb-4 flex flex-col sm:flex-row gap-3">

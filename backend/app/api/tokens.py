@@ -23,6 +23,7 @@ from ..services.api_tokens import (
     new_api_token_secret,
     revoke_token,
 )
+from ..services.audit import AuditAction, AuditTarget, record_event
 from .auth import require_signed_in
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,13 @@ async def create_api_token(
         expires_at=expires_at,
     )
     db.add(token)
+    record_event(
+        db,
+        actor=current_user,
+        action=AuditAction.TOKEN_CREATED,
+        target=AuditTarget.user(current_user.id, current_user.username),
+        detail={"name": token.name, "expires_in_days": token_data.expires_in_days},
+    )
     db.commit()
     db.refresh(token)
 
@@ -86,9 +94,17 @@ async def revoke_api_token(
     Raises:
         404: No active token with that id belongs to you
     """
-    if not revoke_token(db, current_user.id, token_id):
+    name = revoke_token(db, current_user.id, token_id)
+    if name is None:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API token not found")
+    record_event(
+        db,
+        actor=current_user,
+        action=AuditAction.TOKEN_REVOKED,
+        target=AuditTarget.user(current_user.id, current_user.username),
+        detail={"name": name},
+    )
     db.commit()
 
     logger.info(f"API token revoked by {current_user.username}")

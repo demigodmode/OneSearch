@@ -48,7 +48,7 @@ def update_settings(
                 detail=f"Invalid scan schedule: {default_schedule.scan_schedule}",
             )
 
-    result = AppSettingsService(db).update_settings(update)
+    result = AppSettingsService(db).update_settings(update, actor=current_user)
 
     if "default_scan_schedule" in update.model_fields_set and hasattr(request.app.state, "scheduler"):
         request.app.state.scheduler.sync_default_schedule_sources()

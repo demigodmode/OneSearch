@@ -50,7 +50,7 @@ describe('AuditLogPage', () => {
     renderPage()
 
     expect(screen.getByRole('heading', { name: 'Audit log' })).toBeInTheDocument()
-    expect(screen.getByText('Who changed what, and every sign-in. Kept for 90 days.')).toBeInTheDocument()
+    expect(screen.getByText('Who changed what, and every sign-in. Old entries are deleted automatically.')).toBeInTheDocument()
     expect(screen.getByLabelText('User')).toBeInTheDocument()
     const eventSelect = screen.getByLabelText('Event')
     expect(within(eventSelect).getAllByRole('option').map((option) => option.textContent)).toEqual([
@@ -58,6 +58,10 @@ describe('AuditLogPage', () => {
       'Sign-ins',
       'Failed sign-ins',
       'Users',
+      'Tokens',
+      'Sources',
+      'Agents',
+      'Settings',
     ])
     await screen.findByText('No audit entries match these filters.')
   })
@@ -99,8 +103,8 @@ describe('AuditLogPage', () => {
     },
     {
       action: 'settings.changed',
-      entry: event({ id: 11, action: 'settings.changed' }),
-      sentence: 'settings.changed',
+      entry: event({ id: 11, action: 'settings.changed', detail: { keys: ['show_previews'] } }),
+      sentence: 'Changed settings: show_previews',
     },
   ])('describes $action as a sentence', async ({ entry, sentence }) => {
     api.listAuditEvents.mockResolvedValue(page([entry]))
@@ -144,6 +148,11 @@ describe('AuditLogPage', () => {
 
     fireEvent.change(screen.getByLabelText('Event'), { target: { value: 'user.' } })
     await waitFor(() => expect(api.listAuditEvents).toHaveBeenLastCalledWith({ action: 'user.' }))
+
+    for (const prefix of ['token.', 'source.', 'agent.', 'settings.']) {
+      fireEvent.change(screen.getByLabelText('Event'), { target: { value: prefix } })
+      await waitFor(() => expect(api.listAuditEvents).toHaveBeenLastCalledWith({ action: prefix }))
+    }
 
     fireEvent.change(screen.getByLabelText('Event'), { target: { value: 'all' } })
     await waitFor(() => expect(api.listAuditEvents).toHaveBeenLastCalledWith({}))

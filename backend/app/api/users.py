@@ -294,9 +294,18 @@ async def revoke_user_token(
     Raises:
         404: No active token with that id belongs to the user
     """
-    if not revoke_token(db, user_id, token_id):
+    owner = _user_or_404(db, user_id)
+    name = revoke_token(db, user_id, token_id)
+    if name is None:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API token not found")
+    record_event(
+        db,
+        actor=admin,
+        action=AuditAction.TOKEN_REVOKED,
+        target=AuditTarget.user(owner.id, owner.username),
+        detail={"name": name},
+    )
     db.commit()
 
     logger.info(f"API token revoked: user {user_id} by {admin.username}")

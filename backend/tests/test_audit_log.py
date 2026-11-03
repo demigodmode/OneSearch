@@ -363,6 +363,18 @@ def test_action_names_are_the_stored_strings():
         "user.enabled",
         "user.deleted",
         "setup.completed",
+        "token.created",
+        "token.revoked",
+        "source.created",
+        "source.updated",
+        "source.deleted",
+        "source.reindexed",
+        "agent.enrollment_created",
+        "agent.updated",
+        "agent.approved",
+        "agent.disabled",
+        "agent.revoked",
+        "settings.changed",
     }
 
 

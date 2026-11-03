@@ -37,6 +37,18 @@ class AuditAction(StrEnum):
     USER_ENABLED = "user.enabled"
     USER_DELETED = "user.deleted"
     SETUP_COMPLETED = "setup.completed"
+    TOKEN_CREATED = "token.created"
+    TOKEN_REVOKED = "token.revoked"
+    SOURCE_CREATED = "source.created"
+    SOURCE_UPDATED = "source.updated"
+    SOURCE_DELETED = "source.deleted"
+    SOURCE_REINDEXED = "source.reindexed"
+    AGENT_ENROLLMENT_CREATED = "agent.enrollment_created"
+    AGENT_UPDATED = "agent.updated"
+    AGENT_APPROVED = "agent.approved"
+    AGENT_DISABLED = "agent.disabled"
+    AGENT_REVOKED = "agent.revoked"
+    SETTINGS_CHANGED = "settings.changed"
 
 
 # A signed-in user, a plain name such as COMMAND_LINE_ACTOR, or None for nobody (failed sign-ins).
@@ -52,6 +64,15 @@ class AuditTarget:
     @classmethod
     def user(cls, user_id: int | None, username: str) -> "AuditTarget":
         return cls(type="user", id=user_id, label=username)
+
+    # Sources and agents have text ids, so only the name is kept.
+    @classmethod
+    def source(cls, name: str) -> "AuditTarget":
+        return cls(type="source", id=None, label=name)
+
+    @classmethod
+    def agent(cls, name: str) -> "AuditTarget":
+        return cls(type="agent", id=None, label=name)
 
 
 def action_clause(action: str):

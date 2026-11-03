@@ -10,8 +10,9 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..models import AppSetting
+from ..models import AppSetting, User
 from ..schemas import AppSettingsResponse, AppSettingsUpdate
+from .audit import AuditAction, record_event
 
 SETTING_KEYS = (
     "remote_agents_enabled",
@@ -33,6 +34,7 @@ SETTING_KEYS = (
     "readable_preview_page_chars",
     "long_text_pagination_threshold_chars",
     "default_scan_schedule",
+    "audit_retention_days",
 )
 
 
@@ -90,6 +92,7 @@ def _coerce_value(key: str, value: str) -> Any:
         "comic_extraction_max_size_mb",
         "readable_preview_page_chars",
         "long_text_pagination_threshold_chars",
+        "audit_retention_days",
     }:
         return int(value)
     return value
@@ -116,8 +119,15 @@ class AppSettingsService:
                 values["comic_extraction_max_size_mb"] = legacy_archive_limit
         return AppSettingsResponse(**values)
 
-    def update_settings(self, update: AppSettingsUpdate) -> AppSettingsResponse:
+    def update_settings(
+        self, update: AppSettingsUpdate, actor: User | None = None
+    ) -> AppSettingsResponse:
+        """Save the given keys.
+
+        With an actor, the audit log records the keys that changed, never their values.
+        """
         update_values = update.model_dump(exclude_unset=True)
+        before = self.get_settings().model_dump()
         for key, value in update_values.items():
             row = self.db.get(AppSetting, key)
             if row is None:
@@ -125,5 +135,20 @@ class AppSettingsService:
                 self.db.add(row)
             else:
                 row.value = _serialize(value)
+        self.db.flush()
+        after = self.get_settings()
+        if actor is not None:
+            after_values = after.model_dump()
+            changed = sorted(
+                key for key in update_values if before.get(key) != after_values.get(key)
+            )
+            if changed:
+                record_event(
+                    self.db,
+                    actor=actor,
+                    action=AuditAction.SETTINGS_CHANGED,
+                    target=None,
+                    detail={"keys": changed},
+                )
         self.db.commit()
-        return self.get_settings()
+        return after

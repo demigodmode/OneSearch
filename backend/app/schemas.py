@@ -451,6 +451,7 @@ class AppSettingsResponse(BaseModel):
     long_text_pagination_threshold_chars: int = Field(default=20000, ge=1000)
     default_scan_schedule: ScheduleConfig | None = None
     remote_agents_enabled: bool = False
+    audit_retention_days: int = Field(default=90, ge=1, le=3650)
 
 
 class AppSettingsUpdate(BaseModel):
@@ -474,6 +475,7 @@ class AppSettingsUpdate(BaseModel):
     long_text_pagination_threshold_chars: int | None = Field(default=None, ge=1000)
     default_scan_schedule: ScheduleConfig | None = None
     remote_agents_enabled: bool | None = None
+    audit_retention_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 class AgentEnrollmentCodeResponse(BaseModel):

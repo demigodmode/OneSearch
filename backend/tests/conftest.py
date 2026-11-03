@@ -23,6 +23,20 @@ from app.config import settings
 from app.api.auth import hash_password, create_access_token
 
 
+@pytest.fixture(autouse=True)
+def _no_startup_purge_on_the_configured_db(monkeypatch):
+    # The app's own scheduler uses DATABASE_URL, not the test database, so keep
+    # its startup audit purge from deleting rows in whatever database that is.
+    import app.main as main
+    from app.services.scheduler import SchedulerService
+
+    class TestScheduler(SchedulerService):
+        def _purge_audit_log(self, now=None):
+            return None
+
+    monkeypatch.setattr(main, "SchedulerService", TestScheduler)
+
+
 # In-memory SQLite for tests
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
 
