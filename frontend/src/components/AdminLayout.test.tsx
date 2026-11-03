@@ -37,3 +37,10 @@ describe('AdminLayout navigation', () => {
     expect(screen.getByText('Agents')).toBeInTheDocument()
   })
 })
+
+describe('AdminLayout header names', () => {
+  it('names Back to Search at every width', () => {
+    render(<MemoryRouter><AdminLayout /></MemoryRouter>)
+    expect(screen.getByRole('link', { name: 'Back to Search' })).toHaveAttribute('href', '/')
+  })
+})

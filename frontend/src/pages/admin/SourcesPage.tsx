@@ -8,7 +8,7 @@ import type { Agent, ProcessingMode, Source, SourceCreate, SourceUpdate, SourceP
 import { RemotePathPicker } from '@/components/agents/RemotePathPicker'
 import { LocalFolderPicker } from '@/components/LocalFolderPicker'
 import { cn, formatRelativeTime } from '@/lib/utils'
-import { browseSourceDirectory, dismissSourceBatch, listSourceBatches } from '@/lib/api'
+import { ApiError, browseSourceDirectory, dismissSourceBatch, listSourceBatches } from '@/lib/api'
 import { BatchSourceDialog } from './BatchSourceDialog'
 import type { SourceBatchSummary } from '@/types/api'
 import { AgentUnavailableBadge } from '@/components/agents/AgentUnavailableBadge'
@@ -344,6 +344,20 @@ export function SourceForm({
   )
 }
 
+// The API sends bare codes for some refused reindexes, so map those to plain text.
+const REINDEX_REFUSAL_MESSAGES: Record<string, string> = {
+  agent_unavailable: 'The agent is offline. Try again once it reconnects.',
+  remote_agents_disabled: 'Remote agents are turned off. Turn them on to reindex this source.',
+}
+
+function actionErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError && error.detail && REINDEX_REFUSAL_MESSAGES[error.detail]) {
+    return REINDEX_REFUSAL_MESSAGES[error.detail]
+  }
+  if (error instanceof Error && error.message) return error.message
+  return fallback
+}
+
 // Delete confirmation dialog
 function DeleteConfirmDialog({
   source,
@@ -351,12 +365,14 @@ function DeleteConfirmDialog({
   onOpenChange,
   onConfirm,
   isLoading,
+  error,
 }: {
   source: Source | null
   open: boolean
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
   isLoading: boolean
+  error?: string | null
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -368,6 +384,12 @@ function DeleteConfirmDialog({
             This action cannot be undone.
           </DialogDescription>
         </DialogHeader>
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isLoading}>
             Cancel
@@ -397,6 +419,9 @@ export default function SourcesPage() {
   const [deletingSource, setDeletingSource] = useState<Source | null>(null)
   const [fullReindexSource, setFullReindexSource] = useState<Source | null>(null)
   const [reindexingId, setReindexingId] = useState<string | null>(null)
+  const [reindexError, setReindexError] = useState<string | null>(null)
+  const [fullReindexError, setFullReindexError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // Queries and mutations
   const { data: sources, isLoading: isLoadingSources, error: sourcesError, refetch: refetchSources } = useSources()
@@ -462,16 +487,24 @@ export default function SourcesPage() {
 
   const handleDelete = () => {
     if (!deletingSource) return
+    setDeleteError(null)
     deleteMutation.mutate(deletingSource.id, {
       onSuccess: () => {
         setDeletingSource(null)
+      },
+      onError: (error) => {
+        setDeleteError(actionErrorMessage(error, 'Could not delete this source.'))
       },
     })
   }
 
   const handleReindex = (id: string) => {
+    setReindexError(null)
     setReindexingId(id)
     reindexMutation.mutate({ id }, {
+      onError: (error) => {
+        setReindexError(actionErrorMessage(error, 'Could not start the reindex.'))
+      },
       onSettled: () => {
         setReindexingId(null)
       },
@@ -480,11 +513,17 @@ export default function SourcesPage() {
 
   const handleFullReindex = () => {
     if (!fullReindexSource) return
+    setFullReindexError(null)
     setReindexingId(fullReindexSource.id)
     reindexMutation.mutate({ id: fullReindexSource.id, full: true }, {
+      onSuccess: () => {
+        setFullReindexSource(null)
+      },
+      onError: (error) => {
+        setFullReindexError(actionErrorMessage(error, 'Could not start the full reindex.'))
+      },
       onSettled: () => {
         setReindexingId(null)
-        setFullReindexSource(null)
       },
     })
   }
@@ -543,6 +582,13 @@ export default function SourcesPage() {
           <Plus className="h-4 w-4" /> Add Source
         </Button></div>
       </div>
+
+      {reindexError && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{reindexError}</AlertDescription>
+        </Alert>
+      )}
 
       {hasSources ? (
         // Sources table — @container so columns show based on table width, not viewport
@@ -634,7 +680,7 @@ export default function SourcesPage() {
                         className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-brand hover:bg-brand/10 rounded-lg transition-all active:scale-95 disabled:opacity-50 disabled:active:scale-100"
                         title="Clear this source from the index and rebuild every matching file from scratch."
                         aria-label={`Full reindex ${source.name}`}
-                        onClick={() => setFullReindexSource(source)}
+                        onClick={() => { setFullReindexError(null); setFullReindexSource(source) }}
                         disabled={reindexingId === source.id}
                       >
                         <Database className="h-4 w-4" />
@@ -651,7 +697,7 @@ export default function SourcesPage() {
                         className="min-h-[44px] min-w-[44px] flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all active:scale-95"
                         title="Delete this source and remove its indexed documents."
                         aria-label={`Delete ${source.name}`}
-                        onClick={() => setDeletingSource(source)}
+                        onClick={() => { setDeleteError(null); setDeletingSource(source) }}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -771,6 +817,12 @@ export default function SourcesPage() {
               </AlertDescription>
             </Alert>
           )}
+          {fullReindexError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{fullReindexError}</AlertDescription>
+            </Alert>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setFullReindexSource(null)} disabled={reindexMutation.isPending}>
               Cancel
@@ -790,6 +842,7 @@ export default function SourcesPage() {
         onOpenChange={(open) => !open && setDeletingSource(null)}
         onConfirm={handleDelete}
         isLoading={deleteMutation.isPending}
+        error={deleteError}
       />
     </div>
   )

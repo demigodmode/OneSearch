@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SourcesPage, { SourceForm } from './SourcesPage'
 import { ApiError } from '@/lib/api'
@@ -12,6 +12,8 @@ let localRootsState: { data: { browse_available: boolean; roots: { root_id: stri
   { data: { browse_available: false, roots: [] }, isLoading: false, isError: false, refetch: vi.fn() }
 const browseLocalDirectory = vi.fn()
 const refetchSources = vi.fn()
+const deleteMutate = vi.fn()
+const reindexMutate = vi.fn()
 let deferredBatchCreated: ((id: string) => void) | null = null
 vi.mock('./BatchSourceDialog', () => ({
   BatchSourceDialog: ({ onClose, onSourceCreated }: { onClose: () => void; onSourceCreated: (id: string) => void }) => <div>
@@ -31,8 +33,8 @@ vi.mock('@/hooks/useApi', async () => {
     useSourceBatches: () => ({ data: mockBatchPage, isLoading: false, refetch: vi.fn() }),
     useCreateSource: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false }),
     useUpdateSource: () => ({ mutate: vi.fn(), isPending: false }),
-    useDeleteSource: () => ({ mutate: vi.fn(), isPending: false }),
-    useReindexSource: () => ({ mutate: vi.fn(), isPending: false }),
+    useDeleteSource: () => ({ mutate: deleteMutate, isPending: false }),
+    useReindexSource: () => ({ mutate: reindexMutate, isPending: false }),
     useLocalSourceRoots: () => localRootsState,
   }
 })
@@ -432,5 +434,52 @@ describe('SourcesPage list', () => {
     })), next_cursor: 'older-page' }
     render(<SourcesPage />)
     expect(screen.getByRole('button', { name: 'More batches' })).toBeInTheDocument()
+  })
+})
+
+describe('SourcesPage action errors', () => {
+  const remoteSource = {
+    id: 'remote-source',
+    name: 'Remote docs',
+    root_path: '/srv/docs',
+    location_type: 'agent',
+    agent_id: 'agent-1',
+    agent_status: 'online',
+    processing_mode: null,
+    created_at: '',
+    updated_at: '',
+  } as Source
+
+  beforeEach(() => {
+    mockSources = [remoteSource]
+    mockBatchPage = { batches: [], next_cursor: null }
+    deleteMutate.mockReset()
+    reindexMutate.mockReset()
+  })
+
+  it('explains a refused agent reindex in plain words', () => {
+    render(<SourcesPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Reindex Remote docs' }))
+    act(() => reindexMutate.mock.calls[0][1].onError(new ApiError('agent_unavailable', 409, 'agent_unavailable')))
+    expect(screen.getByRole('alert')).toHaveTextContent('The agent is offline. Try again once it reconnects.')
+  })
+
+  it('keeps the full reindex dialog open and shows why it failed', () => {
+    render(<SourcesPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Full reindex Remote docs' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Full reindex' }))
+    act(() => reindexMutate.mock.calls[0][1].onError(new ApiError('remote_agents_disabled', 409, 'remote_agents_disabled')))
+    expect(screen.getByText('Full reindex source?')).toBeInTheDocument()
+    expect(within(screen.getByRole('dialog')).getByText('Remote agents are turned off. Turn them on to reindex this source.')).toBeInTheDocument()
+  })
+
+  it('keeps the delete dialog open and shows the API message', () => {
+    render(<SourcesPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Remote docs' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    const message = 'Failed to remove source data; try again.'
+    act(() => deleteMutate.mock.calls[0][1].onError(new ApiError(message, 502, message)))
+    expect(screen.getByText('Delete Source')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(message)
   })
 })

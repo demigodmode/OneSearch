@@ -33,3 +33,13 @@ describe('MainLayout admin link', () => {
     expect(screen.queryByText('Admin')).not.toBeInTheDocument()
   })
 })
+
+describe('MainLayout header names', () => {
+  it('gives the icon-only header controls an accessible name', () => {
+    role = 'admin'
+    render(<MemoryRouter><MainLayout /></MemoryRouter>)
+    expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account')
+    expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin/sources')
+    expect(screen.getByRole('button', { name: 'Logout' })).toBeInTheDocument()
+  })
+})

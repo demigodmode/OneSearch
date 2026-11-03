@@ -127,7 +127,7 @@ function SourceStatusCard({ source, index }: { source: SourceStatus; index: numb
               <p className="font-medium text-foreground">{source.source_name}</p>
               <p className="text-xs text-muted-foreground">
                 Last indexed {formatDate(source.last_indexed_at)}
-                {source.scan_schedule && source.next_scan_at && (
+                {source.next_scan_at && (
                   <span className="ml-2">
                     &middot; Next scan {formatRelativeTime(source.next_scan_at)}
                   </span>
