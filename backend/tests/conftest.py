@@ -24,12 +24,14 @@ from app.api.auth import hash_password, create_access_token
 
 
 @pytest.fixture(autouse=True)
-def generated_session_secret_in_tmp(tmp_path):
+def generated_session_secret_in_tmp(tmp_path_factory):
     """Keep the generated session key out of /app/data during tests."""
     import app.api.auth as auth_module
+    # Not tmp_path: some tests check their tmp dir is empty after cleanup.
+    secret_path = tmp_path_factory.mktemp("secret") / "session_secret"
     # Own MonkeyPatch, so a test calling monkeypatch.undo() doesn't swap the key mid-test.
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(auth_module, "_session_secret_path", lambda: tmp_path / "session_secret")
+        mp.setattr(auth_module, "_session_secret_path", lambda: secret_path)
         mp.setattr(auth_module, "_generated_secret", None)
         yield
 
