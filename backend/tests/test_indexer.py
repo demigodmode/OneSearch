@@ -4,6 +4,7 @@
 """
 Tests for indexing service
 """
+import hashlib
 import pytest
 import asyncio
 from pathlib import Path
@@ -659,3 +660,154 @@ class TestIndexingService:
             source_id="test_source2"
         ).all()
         assert len(indexed_files) == 2
+
+
+class TestStaleDocumentCleanup:
+    """A file that changed and now fails must not keep matching its old text"""
+
+    @staticmethod
+    def _source(db_session, source_id, root):
+        source = Source(
+            id=source_id,
+            name="Stale Source",
+            root_path=str(root),
+            include_patterns=json.dumps(["**/*.txt"]),
+            exclude_patterns=json.dumps([]),
+        )
+        db_session.add(source)
+        db_session.commit()
+        return source
+
+    @pytest.mark.asyncio
+    @patch('app.services.indexer.FileScanner')
+    async def test_modified_file_that_fails_removes_old_document(
+        self, mock_scanner_class, db_session, mock_search_service
+    ):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            file_path = root / "notes.txt"
+            file_path.write_text("ambergloam")
+            self._source(db_session, "stale_src", root)
+            mock_scanner = Mock()
+            mock_scanner.scan.return_value = [str(file_path)]
+            mock_scanner_class.return_value = mock_scanner
+
+            service = IndexingService(db_session, mock_search_service)
+            await service.index_source("stale_src")
+
+            db_session.add(AppSetting(key="max_text_file_size_mb", value="1"))
+            db_session.commit()
+            file_path.write_text("x" * 2_400_000)
+            mock_search_service.delete_document.reset_mock()
+
+            stats = await service.index_source("stale_src")
+
+            path_hash = hashlib.sha256(str(file_path).encode()).hexdigest()[:12]
+            assert stats.failed == 1
+            mock_search_service.delete_document.assert_awaited_once_with(f"stale_src--{path_hash}")
+            record = db_session.query(IndexedFile).filter_by(source_id="stale_src").one()
+            assert record.status == "failed"
+
+    @pytest.mark.asyncio
+    @patch('app.services.indexer.FileScanner')
+    async def test_first_index_failure_does_not_touch_search(
+        self, mock_scanner_class, db_session, mock_search_service
+    ):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            file_path = root / "huge.txt"
+            file_path.write_text("x" * 2_400_000)
+            db_session.add(AppSetting(key="max_text_file_size_mb", value="1"))
+            self._source(db_session, "fresh_src", root)
+            mock_scanner = Mock()
+            mock_scanner.scan.return_value = [str(file_path)]
+            mock_scanner_class.return_value = mock_scanner
+
+            stats = await IndexingService(db_session, mock_search_service).index_source("fresh_src")
+
+            assert stats.failed == 1
+            mock_search_service.delete_document.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @patch('app.services.indexer.FileScanner')
+    async def test_failed_stale_delete_does_not_abort_run(
+        self, mock_scanner_class, db_session, mock_search_service
+    ):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            file_path = root / "notes.txt"
+            file_path.write_text("ambergloam")
+            self._source(db_session, "flaky_src", root)
+            mock_scanner = Mock()
+            mock_scanner.scan.return_value = [str(file_path)]
+            mock_scanner_class.return_value = mock_scanner
+            service = IndexingService(db_session, mock_search_service)
+            await service.index_source("flaky_src")
+
+            db_session.add(AppSetting(key="max_text_file_size_mb", value="1"))
+            db_session.commit()
+            file_path.write_text("x" * 2_400_000)
+            mock_search_service.delete_document.side_effect = RuntimeError("meili down")
+
+            stats = await service.index_source("flaky_src")
+
+            assert stats.failed == 1
+            assert stats.errors[0]["file"] == str(file_path)
+
+    @pytest.mark.asyncio
+    async def test_retry_failed_file_removes_old_document(self, db_session, mock_search_service):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            file_path = root / "notes.txt"
+            file_path.write_text("x" * 2_400_000)
+            db_session.add(AppSetting(key="max_text_file_size_mb", value="1"))
+            source = self._source(db_session, "retry_src", root)
+            service = IndexingService(db_session, mock_search_service)
+
+            result = await service.retry_failed_file(source, str(file_path))
+
+            path_hash = hashlib.sha256(str(file_path).encode()).hexdigest()[:12]
+            assert result == "failed"
+            mock_search_service.delete_document.assert_awaited_once_with(f"retry_src--{path_hash}")
+
+
+class TestOneBadDocument:
+    @pytest.mark.asyncio
+    @patch('app.services.indexer.FileScanner')
+    async def test_document_that_cant_be_serialised_fails_only_that_file(
+        self, mock_scanner_class, db_session, mock_search_service, monkeypatch
+    ):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good = root / "good.txt"
+            bad = root / "bad.txt"
+            good.write_text("fine")
+            bad.write_text("not fine")
+            db_session.add(Source(
+                id="mixed_src", name="Mixed", root_path=str(root),
+                include_patterns=json.dumps(["**/*.txt"]), exclude_patterns=json.dumps([]),
+            ))
+            db_session.commit()
+            mock_scanner = Mock()
+            mock_scanner.scan.return_value = [str(good), str(bad)]
+            mock_scanner_class.return_value = mock_scanner
+
+            service = IndexingService(db_session, mock_search_service)
+            real_extract = service._extract_document
+
+            async def extract(file_path, source_id, source_name):
+                doc = await real_extract(file_path, source_id, source_name)
+                if file_path == str(bad):
+                    doc.metadata["oops"] = object()
+                return doc
+
+            monkeypatch.setattr(service, "_extract_document", extract)
+
+            stats = await service.index_source("mixed_src")
+
+            assert stats.successful == 1
+            assert stats.failed == 1
+            indexed = [d for call in mock_search_service.index_documents.await_args_list for d in call.args[0]]
+            assert [d.path for d in indexed] == [str(good)]
+            statuses = {f.path: f.status for f in db_session.query(IndexedFile).filter_by(source_id="mixed_src")}
+            assert statuses == {str(good): "success", str(bad): "failed"}

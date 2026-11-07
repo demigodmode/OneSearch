@@ -20,7 +20,7 @@ PDF text extraction depends on the PDF. A born-digital PDF usually works well. A
 
 ## Limits
 
-PDF extraction is bounded by the PDF size limit shown in **Admin → Settings → Indexing**. `MAX_PDF_FILE_SIZE_MB` provides the default value, and `PDF_EXTRACTION_TIMEOUT` controls how long extraction can run.
+PDF extraction is bounded by the PDF size limit shown in **Settings → Indexing**. `MAX_PDF_FILE_SIZE_MB` provides the default value, and `PDF_EXTRACTION_TIMEOUT` controls how long extraction can run.
 
 Encrypted PDFs are tried with an empty password. If that fails, the file is recorded as an extraction failure and can still show basic filename/path metadata.
 

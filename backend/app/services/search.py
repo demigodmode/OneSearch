@@ -23,6 +23,11 @@ SEARCHABLE_FIELDS = ["content", "basename", "path", "title"]
 FILTERABLE_FIELDS = ["source_id", "type", "extension", "modified_at"]
 SORTABLE_FIELDS = ["modified_at", "size_bytes", "basename"]
 
+# Health probes must answer fast enough for the container healthcheck (10s).
+HEALTH_TIMEOUT_SECONDS = 5
+# Searches, task polling and batch indexing requests share this budget.
+REQUEST_TIMEOUT_SECONDS = 30
+
 
 class MeilisearchService:
     """
@@ -34,6 +39,7 @@ class MeilisearchService:
     def __init__(self):
         """Initialize Meilisearch client"""
         self.client: Client | None = None
+        self.health_client: Client | None = None
         self.index: Index | None = None
 
     def connect(self) -> bool:
@@ -44,7 +50,12 @@ class MeilisearchService:
             bool: True if connection successful
         """
         try:
-            self.client = Client(settings.meili_url, settings.meili_master_key)
+            self.client = Client(
+                settings.meili_url, settings.meili_master_key, timeout=REQUEST_TIMEOUT_SECONDS
+            )
+            self.health_client = Client(
+                settings.meili_url, settings.meili_master_key, timeout=HEALTH_TIMEOUT_SECONDS
+            )
 
             # Test connection
             self.client.health()
@@ -105,11 +116,11 @@ class MeilisearchService:
             dict: Health status information
         """
         try:
-            if not self.client:
+            if not self.health_client:
                 return {"status": "disconnected", "error": "Client not initialized"}
 
-            health = self.client.health()
-            stats = self.index.get_stats() if self.index else None
+            health = self.health_client.health()
+            stats = self.health_client.index(INDEX_NAME).get_stats() if self.index else None
 
             # Handle both dict and object responses from meilisearch client
             health_status = (

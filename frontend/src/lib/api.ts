@@ -24,6 +24,16 @@ import type {
   SetupRequest,
   LoginRequest,
   AuthResponse,
+  ChangePasswordRequest,
+  ApiToken,
+  ApiTokenCreated,
+  CreateApiTokenRequest,
+  AdminUser,
+  AuditPage,
+  AuditQuery,
+  CreateUserRequest,
+  ResetUserPasswordRequest,
+  UpdateUserRequest,
   User,
   AppSettings,
   AppSettingsUpdate,
@@ -603,6 +613,90 @@ export async function getCurrentUser(): Promise<User> {
   return apiFetch<User>('/auth/me')
 }
 
+/**
+ * Change your own password. Returns a fresh session token.
+ */
+export async function changePassword(data: ChangePasswordRequest): Promise<AuthResponse> {
+  return apiFetch<AuthResponse>('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+// ============================================================================
+// API tokens (your own)
+// ============================================================================
+
+export async function listApiTokens(): Promise<ApiToken[]> {
+  return apiFetch<ApiToken[]>('/auth/tokens')
+}
+
+export async function createApiToken(data: CreateApiTokenRequest): Promise<ApiTokenCreated> {
+  return apiFetch<ApiTokenCreated>('/auth/tokens', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function revokeApiToken(id: number): Promise<void> {
+  return apiFetch<void>(`/auth/tokens/${id}`, { method: 'DELETE' })
+}
+
+// ============================================================================
+// Users (admin)
+// ============================================================================
+
+export async function listUsers(): Promise<AdminUser[]> {
+  return apiFetch<AdminUser[]>('/users')
+}
+
+export async function createUser(data: CreateUserRequest): Promise<AdminUser> {
+  return apiFetch<AdminUser>('/users', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateUser(id: number, data: UpdateUserRequest): Promise<AdminUser> {
+  return apiFetch<AdminUser>(`/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function resetUserPassword(id: number, data: ResetUserPasswordRequest): Promise<AdminUser> {
+  return apiFetch<AdminUser>(`/users/${id}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteUser(id: number): Promise<void> {
+  return apiFetch<void>(`/users/${id}`, { method: 'DELETE' })
+}
+
+export async function listUserTokens(userId: number): Promise<ApiToken[]> {
+  return apiFetch<ApiToken[]>(`/users/${userId}/tokens`)
+}
+
+export async function revokeUserToken(userId: number, tokenId: number): Promise<void> {
+  return apiFetch<void>(`/users/${userId}/tokens/${tokenId}`, { method: 'DELETE' })
+}
+
+// ============================================================================
+// Audit log (admin)
+// ============================================================================
+
+export async function listAuditEvents(query: AuditQuery = {}): Promise<AuditPage> {
+  const params = new URLSearchParams()
+  if (query.user) params.set('user', query.user)
+  if (query.action) params.set('action', query.action)
+  if (query.before !== undefined) params.set('before', String(query.before))
+  if (query.limit !== undefined) params.set('limit', String(query.limit))
+  const suffix = params.toString() ? `?${params}` : ''
+  return apiFetch<AuditPage>(`/audit${suffix}`)
+}
+
 // ============================================================================
 // Query Keys for TanStack Query
 // ============================================================================
@@ -621,6 +715,10 @@ export const queryKeys = {
   appSettings: ['appSettings'] as const,
   authStatus: ['authStatus'] as const,
   currentUser: ['currentUser'] as const,
+  users: ['users'] as const,
+  userTokens: (userId: number) => ['users', userId, 'tokens'] as const,
+  audit: (query: AuditQuery) => ['audit', query] as const,
+  apiTokens: ['apiTokens'] as const,
   agents: ['agents'] as const,
   agent: (id: string) => ['agents', id] as const,
   localSourceRoots: ['sources', 'local-roots'] as const,

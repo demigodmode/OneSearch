@@ -2,7 +2,7 @@
 
 ## Remote agents
 
-Start with the state shown under **Admin > Agents**:
+Start with the state shown under **Settings > Agents**:
 
 - `pending`: enrollment saved a credential, but an administrator has not approved the agent. Approve it before expecting jobs to run.
 - `degraded`: the agent is connected, but a source had a recent indexing failure. Open the agent details, find the affected source in recent scan jobs, and run another scan after correcting the path, permissions, storage, or extraction problem.
@@ -93,7 +93,7 @@ MEILI_MASTER_KEY=...
 SESSION_SECRET=...
 ```
 
-A missing `MEILI_MASTER_KEY` stops the container at startup. A missing `SESSION_SECRET` doesn't: OneSearch logs a warning and signs logins with a built-in development key, which is not safe to leave in place.
+A missing `MEILI_MASTER_KEY` stops the container at startup. A missing `SESSION_SECRET` doesn't. OneSearch generates a key, saves it as `session_secret` in the data volume, and logs a warning. Set your own `SESSION_SECRET` so sessions don't depend on that volume.
 
 Then check the compose service:
 
@@ -115,7 +115,7 @@ Then open `http://localhost:8080`.
 
 In Docker, source paths are container paths.
 
-Use **Test** in the source form under **Admin → Sources** first. It reports whether the path is inside allowed roots, exists, is a directory, and is readable from inside the container.
+Use **Test** in the source form under **Settings → Sources** first. It reports whether the path is inside allowed roots, exists, is a directory, and is readable from inside the container.
 
 If compose has:
 
@@ -137,7 +137,7 @@ Check these in order:
 
 1. Is the source added?
 2. Did you run **Reindex**?
-3. Does **Admin → Status** show successful files?
+3. Does **Settings → Status** show successful files?
 4. Are include patterns too narrow?
 5. Are you filtering by the wrong source or type?
 6. Are files failing because of size limits or extractor errors?
@@ -173,6 +173,18 @@ For deeper drift, run a full reindex:
 onesearch source reindex documents --full
 ```
 
+## Locked out
+
+If you forgot the password, or the only admin can't sign in, reset a password from inside the container. Use your container name from your compose file:
+
+```bash
+docker exec onesearch-app onesearch-admin reset-password <username>
+```
+
+The command prints a temporary password. Sign in with it and you'll be asked to choose a new password. If the username doesn't exist, the command lists the usernames that do. This works for any account, not only admins. See [Recovering access](authentication.md#recovering-access).
+
+If you get a 429 error instead of a wrong-password message, you've hit the login rate limit. Wait a minute and try again.
+
 ## Login stopped working
 
 Tokens expire. Run:
@@ -181,7 +193,7 @@ Tokens expire. Run:
 onesearch login
 ```
 
-If every token becomes invalid after restart, check that `SESSION_SECRET` is set and stable in `.env`.
+If every token becomes invalid after restart, check that `SESSION_SECRET` is set and stable in `.env`. If you didn't set it, check that `session_secret` is still in the data volume. Replacing the volume signs everyone out.
 
 ## Health endpoint is degraded
 

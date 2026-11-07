@@ -14,10 +14,12 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, selectinload
 
 from ..db.database import get_db
+from ..db.locks import begin_immediate
 from ..models import Agent, Source, SourceBatch, SourceBatchItem, User, _utcnow
 from ..schemas import SourceBatchCreate, SourceBatchItemCreateRequest, SourceCreate
+from ..services.audit import AuditAction, AuditTarget, record_event
 from ..services.scheduler import validate_interval, validate_schedule
-from .auth import get_current_user
+from .auth import require_admin
 
 router = APIRouter(prefix="/batches")
 logger = logging.getLogger(__name__)
@@ -67,7 +69,7 @@ def _summary(batch: SourceBatch) -> dict:
 
 
 @router.post("", status_code=201)
-def create_batch(payload: SourceBatchCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):  # noqa: B008
+def create_batch(payload: SourceBatchCreate, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):  # noqa: B008
     # The ASGI body limiter checks raw bytes before JSON parsing; also bound the
     # normalized snapshot persisted to the database.
     snapshot = payload.model_dump(mode="json")
@@ -112,7 +114,7 @@ def create_batch(payload: SourceBatchCreate, db: Session = Depends(get_db), curr
 
 
 @router.get("")
-def list_batches(cursor: str | None = None, limit: int = 20, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):  # noqa: B008
+def list_batches(cursor: str | None = None, limit: int = 20, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):  # noqa: B008
     if not 1 <= limit <= 20:
         raise HTTPException(status_code=422, detail="Page size must be 1–20")
     stmt = select(SourceBatch).options(selectinload(SourceBatch.items)).where(SourceBatch.owner_user_id == current_user.id)
@@ -130,12 +132,12 @@ def list_batches(cursor: str | None = None, limit: int = 20, db: Session = Depen
 
 
 @router.get("/{batch_id}")
-def get_batch(batch_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):  # noqa: B008
+def get_batch(batch_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):  # noqa: B008
     return _detail(db, _owned(db, batch_id, current_user.id))
 
 
 @router.post("/{batch_id}/dismiss")
-def dismiss_batch(batch_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):  # noqa: B008
+def dismiss_batch(batch_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):  # noqa: B008
     batch = _owned(db, batch_id, current_user.id)
     batch.dismissed = True
     batch.updated_at = _utcnow()
@@ -174,20 +176,8 @@ def _local_identity_without_io(path: str) -> tuple:
     return ("local", os.path.normpath(os.path.abspath(os.path.expanduser(path))))
 
 
-def _begin_immediate(db: Session):
-    # Only wait briefly for the write lock. busy_timeout sticks to the pooled
-    # connection, so put the old value back before anything else gets it.
-    conn = db.connection()
-    previous = int(conn.exec_driver_sql("PRAGMA busy_timeout").scalar())
-    conn.exec_driver_sql("PRAGMA busy_timeout=400")
-    try:
-        conn.exec_driver_sql("BEGIN IMMEDIATE")
-    finally:
-        conn.exec_driver_sql(f"PRAGMA busy_timeout={previous}")
-
-
 def _write_item(db: Session, batch_id: str, item_id: str, owner_id: int, source: Source | None,
-                preflight_error: str | None, proof: str | None):
+                preflight_error: str | None, proof: str | None, actor: User | None = None):
     from .sources import (
         _configured_allowed_paths,
         _remote_agent,
@@ -225,7 +215,7 @@ def _write_item(db: Session, batch_id: str, item_id: str, owner_id: int, source:
                     for row in db.execute(select(Source).where(Source.location_type == "local")).scalars()
                 }
             db.rollback()
-            _begin_immediate(db)
+            begin_immediate(db)
             batch = _owned(db, batch_id, owner_id)
             item = db.get(SourceBatchItem, (batch_id, item_id))
             if item is None:
@@ -289,6 +279,12 @@ def _write_item(db: Session, batch_id: str, item_id: str, owner_id: int, source:
                         if db.get(Source, source.id):
                             raise HTTPException(status_code=409, detail="Generated source ID is already used")
                         db.add(source)
+                        record_event(
+                            db,
+                            actor=actor,
+                            action=AuditAction.SOURCE_CREATED,
+                            target=AuditTarget.source(source.name),
+                        )
                         item.state, item.source_id = "created", source.id
                 item.last_error = None
             item.updated_at = batch.updated_at = _utcnow()
@@ -311,7 +307,7 @@ def _write_item(db: Session, batch_id: str, item_id: str, owner_id: int, source:
 
 @router.post("/{batch_id}/items/{item_id}/create")
 def create_item(batch_id: str, item_id: str, data: SourceBatchItemCreateRequest, request: Request,
-                db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):  # noqa: B008
+                db: Session = Depends(get_db), current_user: User = Depends(require_admin)):  # noqa: B008
     owner_id = current_user.id
     batch = _owned(db, batch_id, owner_id)
     item = db.get(SourceBatchItem, (batch_id, item_id))
@@ -327,7 +323,10 @@ def create_item(batch_id: str, item_id: str, data: SourceBatchItemCreateRequest,
         error = str(exc.detail)[:500]
     except (OSError, ValueError):
         error = "Path or schedule is unavailable; check settings and retry"
-    result, created = _write_item(db, batch_id, item_id, owner_id, source, error, data.path_validation_job_id)
+    result, created = _write_item(
+        db, batch_id, item_id, owner_id, source, error, data.path_validation_job_id,
+        actor=current_user,
+    )
     if created and hasattr(request.app.state, "scheduler"):
         try:
             request.app.state.scheduler.update_source_schedule(result["source_id"])

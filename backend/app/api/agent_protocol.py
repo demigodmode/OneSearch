@@ -49,6 +49,7 @@ from ..services.agent_auth import (
     require_remote_agents_enabled,
 )
 from ..services.agent_jobs import AgentJobService, JobConflict, JobLeaseError, JobNotFound
+from ..services.audit import AuditAction, AuditTarget, record_event
 from ..services.remote_files import (
     RemoteFileChanged,
     RemoteFileError,
@@ -60,6 +61,7 @@ from ..services.remote_files import (
 )
 from ..services.remote_ingest import RemoteIngestService, canonical_remote_path
 from ..services.search import meili_service
+from .auth import allow_anyone
 
 router = APIRouter(prefix="/api/agent/v1", tags=["agent-protocol"])
 Database = Annotated[Session, Depends(get_db)]
@@ -154,7 +156,7 @@ def _validate_enrollment(request: AgentEnrollmentRequest) -> None:
     "/enroll",
     response_model=AgentEnrollmentResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_remote_agents_enabled)],
+    dependencies=[Depends(allow_anyone), Depends(require_remote_agents_enabled)],
 )
 async def enroll_agent(request: AgentEnrollmentRequest, db: Database):
     _validate_enrollment(request)
@@ -190,6 +192,13 @@ async def enroll_agent(request: AgentEnrollmentRequest, db: Database):
 async def revoke_self(agent: AuthenticatedAgent, db: Database):
     """Let a newly enrolled agent invalidate itself if local persistence fails."""
     agent.status = "revoked"
+    record_event(
+        db,
+        actor=None,
+        action=AuditAction.AGENT_REVOKED,
+        target=AuditTarget.agent(agent.name),
+        detail={"by": "agent"},
+    )
     db.commit()
 
 

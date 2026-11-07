@@ -63,7 +63,7 @@ docker compose run --rm onesearch-agent config check
 
 ## Enroll once
 
-Enable remote agents in the OneSearch settings, create an enrollment code in **Admin > Agents**, then run:
+Enable remote agents in the OneSearch settings, create an enrollment code in **Settings > Agents**, then run:
 
 ```bash
 docker compose run --rm onesearch-agent enroll --server https://search.example
@@ -71,7 +71,7 @@ docker compose run --rm onesearch-agent enroll --server https://search.example
 
 Enter the code at the hidden prompt. Compose uses the same persistent state volume for this one-shot command and the long-running service, so the saved agent credential remains available. Do not put the code or agent token in compose YAML, environment variables, or command arguments.
 
-Approve the pending machine in **Admin > Agents**, then start it:
+Approve the pending machine in **Settings > Agents**, then start it:
 
 ```bash
 docker compose up -d onesearch-agent
@@ -105,7 +105,7 @@ Keep the state volume and configuration mount in place. Review the release notes
 
 ## Remove the container
 
-Revoke its credential from **Admin > Agents**. The confirmation dialog lets you keep its sources or select **Also delete this agent's sources** to remove their indexed data without deleting original files. If cleanup fails, use **Delete remaining sources** on the revoked agent to retry. See [Agent removal](../administration/remote-agents.md#backup-restore-and-removal) for backup and preview-cleanup details. Stop the container after revocation:
+Revoke its credential from **Settings > Agents**. The confirmation dialog lets you keep its sources or select **Also delete this agent's sources** to remove their indexed data without deleting original files. If cleanup fails, use **Delete remaining sources** on the revoked agent to retry. See [Agent removal](../administration/remote-agents.md#backup-restore-and-removal) for backup and preview-cleanup details. Stop the container after revocation:
 
 ```bash
 docker compose down

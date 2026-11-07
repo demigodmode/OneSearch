@@ -26,6 +26,7 @@ Recent milestones that are already in the product:
 - a folder browser for picking local source paths
 - Markdown previews with tables and task lists, plus a Rendered/Raw toggle
 - a Clean action for failed files
+- several user accounts with admin and member roles, search-only API tokens, and a basic audit log
 
 See the [changelog](changelog.md) for release-by-release details.
 
@@ -82,12 +83,11 @@ Cloud and remote storage would probably go through rclone or a similar layer:
 
 ### Access control
 
-Right now, if a user can log in, they can search the indexed content. More granular access would need careful design:
+Accounts have two roles, admin and member, and everyone can search the indexed content. Admins also get a basic audit log. More granular access would need careful design:
 
 - per-source permissions
-- read-only users
 - SSO/LDAP/OAuth
-- audit logs
+- more audit log options, beyond the basic log that shipped in 1.8.0
 
 ## Not planned right now
 

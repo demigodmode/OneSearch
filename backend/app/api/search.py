@@ -7,6 +7,7 @@ Provides full-text search across indexed documents
 """
 import json
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -17,11 +18,38 @@ from ..schemas import Document, SearchQuery, SearchResponse, SearchResult
 from ..services.agent_auth import effective_agent_status
 from ..services.app_settings import AppSettingsService
 from ..services.search import meili_service
-from .auth import get_current_user
+from .auth import require_search
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["search"])
+
+_HIGHLIGHT_TAG = re.compile(r"(</?mark>)")
+
+
+def _trim_snippet(formatted: str, limit: int) -> str:
+    """Cut highlighted text after `limit` visible characters, keeping every <mark> closed"""
+    parts: list[str] = []
+    visible = 0
+    in_mark = False
+    for part in _HIGHLIGHT_TAG.split(formatted):
+        if part == "<mark>":
+            if visible >= limit:
+                break
+            in_mark = True
+            parts.append(part)
+        elif part == "</mark>":
+            in_mark = False
+            parts.append(part)
+        else:
+            room = limit - visible
+            parts.append(part[:room])
+            visible += min(len(part), room)
+            if len(part) > room:
+                break
+    if in_mark:
+        parts.append("</mark>")
+    return "".join(parts)
 
 # Rounding precision (decimal places) applied to the Meili _rankingScore when
 # grouping hits into a "near-equal relevance" band for the availability tie-breaker.
@@ -41,7 +69,7 @@ def _apply_relevance_tiebreak(results: list[SearchResult]) -> None:
 @router.post("/search", response_model=SearchResponse)
 async def search(
     query: SearchQuery,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_search),
     db: Session = Depends(get_db),
 ):
     """
@@ -138,7 +166,7 @@ async def search(
             # Extract content snippet with highlighting
             # Meilisearch provides _formatted field with <em> tags for matches
             formatted = hit.get("_formatted", hit)
-            snippet = formatted.get("content", "")[:query.snippet_length]
+            snippet = _trim_snippet(formatted.get("content", ""), query.snippet_length)
             if len(hit.get("content", "")) > query.snippet_length:
                 snippet += "..."
 
@@ -190,7 +218,7 @@ async def search(
 
 
 @router.get("/documents/{document_id}", response_model=Document)
-async def get_document(document_id: str, current_user: User = Depends(get_current_user)):
+async def get_document(document_id: str, current_user: User = Depends(require_search)):
     """
     Get a single document by ID
 

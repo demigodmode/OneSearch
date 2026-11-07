@@ -23,7 +23,7 @@ The `:ro` part is recommended. OneSearch only needs to read your files.
 
 ## Add a source in the web UI
 
-Go to **Admin → Sources**, click **Add Source**, then fill in:
+Go to **Settings → Sources**, click **Add Source**, then fill in:
 
 - **Name**: something you recognize later, like `Documents` or `NAS Photos`
 - **Path**: the container path, such as `/data/documents`
@@ -39,7 +39,7 @@ After saving, run a reindex from the same page unless you set a schedule and are
 
 ## Add several folders at once
 
-In **Admin > Sources**, choose **Add folders as sources**. Browse a local allowed root, or select one approved online remote agent if remote agents are enabled. Check up to 25 folders, then review the selection. Give each folder a name and set the patterns and schedule shared by the batch. Remote batches also share a processing mode. Choose **Create sources** to see a result for each folder.
+In **Settings > Sources**, choose **Add folders as sources**. Browse a local allowed root, or select one approved online remote agent if remote agents are enabled. Check up to 25 folders, then review the selection. Give each folder a name and set the patterns and schedule shared by the batch. Remote batches also share a processing mode. Choose **Create sources** to see a result for each folder.
 
 Each checked folder becomes one source. OneSearch scans files in its subfolders recursively; checking a parent does not create a separate source for every child. You can check a child as well if you want it to be a separate source. Local paths must still be under `ALLOWED_SOURCE_PATHS`. Remote paths must be under the selected agent's allowed roots, and the agent must be online for each path test.
 
@@ -51,7 +51,7 @@ The batch dialog creates source records. Run a reindex on a new source to index 
 
 ## Add a remote source
 
-Remote agents are optional. Local remains the default and uses a path mounted read-only on the server. To use a remote machine instead, enable **Remote agents** in Settings, enroll and approve its agent, and wait for it to show `online` under **Admin > Agents**.
+Remote agents are optional. Local remains the default and uses a path mounted read-only on the server. To use a remote machine instead, enable **Remote agents** in Settings, enroll and approve its agent, and wait for it to show `online` under **Settings > Agents**.
 
 In the source form:
 

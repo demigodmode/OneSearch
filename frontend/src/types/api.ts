@@ -261,6 +261,7 @@ export interface AppSettings {
   long_text_pagination_threshold_chars: number
   default_scan_schedule?: ScheduleConfig | null
   remote_agents_enabled: boolean
+  audit_retention_days: number
 }
 
 export type AppSettingsUpdate = Partial<AppSettings>
@@ -306,11 +307,6 @@ export interface HealthResponse {
   meilisearch: {
     status: string
     [key: string]: unknown
-  }
-  config: {
-    database: string
-    meilisearch_url: string
-    log_level: string
   }
 }
 
@@ -396,6 +392,124 @@ export interface AuthResponse {
 }
 
 /**
+ * Request body for changing your own password
+ */
+export interface ChangePasswordRequest {
+  current_password: string
+  new_password: string
+}
+
+/**
+ * An API token as its owner sees it. The secret is never included.
+ */
+export interface ApiToken {
+  id: number
+  name: string
+  scope: 'search'
+  display_prefix: string
+  created_at: string
+  expires_at: string | null
+  last_used_at: string | null
+  revoked: boolean
+  revoked_at: string | null
+  status: ApiTokenStatus
+}
+
+/**
+ * Revoked wins over expired, the same as the server checks.
+ */
+export type ApiTokenStatus = 'active' | 'revoked' | 'expired'
+
+/**
+ * A newly created API token. `token` is the full secret and is only sent once.
+ */
+export interface ApiTokenCreated extends ApiToken {
+  token: string
+}
+
+/**
+ * Request body for creating an API token. null means it never expires.
+ */
+export interface CreateApiTokenRequest {
+  name: string
+  expires_in_days: 30 | 90 | 365 | null
+}
+
+export type UserRole = 'admin' | 'member'
+
+/**
+ * One audit log entry. actor_username is kept after the user is deleted; it is null for failed sign-ins.
+ */
+export interface AuditEvent {
+  id: number
+  created_at: string
+  actor_user_id: number | null
+  actor_username: string | null
+  action: string
+  target_type: string | null
+  target_id: number | null
+  target_label: string | null
+  detail: Record<string, unknown> | null
+  ip: string | null
+}
+
+/**
+ * A page of audit entries, newest first. Pass next_before as `before` to get the next page.
+ */
+export interface AuditPage {
+  events: AuditEvent[]
+  next_before: number | null
+}
+
+/**
+ * Filters for the audit log. Leave a field out to not filter on it.
+ */
+export interface AuditQuery {
+  user?: string
+  action?: string
+  before?: number
+  limit?: number
+}
+
+/**
+ * A user as listed on the admin Users screen
+ */
+export interface AdminUser {
+  id: number
+  username: string
+  role: UserRole
+  is_active: boolean
+  must_change_password: boolean
+  created_at: string
+  created_by: string | null
+  last_login_at: string | null
+}
+
+/**
+ * Request body for an admin creating a user
+ */
+export interface CreateUserRequest {
+  username: string
+  password: string
+  role: UserRole
+}
+
+/**
+ * Request body for an admin changing a user's role or active state
+ */
+export interface UpdateUserRequest {
+  role?: UserRole
+  is_active?: boolean
+}
+
+/**
+ * Request body for an admin setting a temporary password
+ */
+export interface ResetUserPasswordRequest {
+  password: string
+}
+
+/**
  * User info response from /api/auth/me
  */
 export interface User {
@@ -403,6 +517,8 @@ export interface User {
   username: string
   is_active: boolean
   created_at: string
+  role: 'admin' | 'member'
+  must_change_password: boolean
 }
 
 /**

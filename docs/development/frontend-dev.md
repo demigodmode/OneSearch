@@ -51,7 +51,7 @@ frontend/
 │   │       ├── StatusPage.tsx    # Indexing status
 │   │       └── SettingsPage.tsx  # Appearance/indexing/search settings
 │   ├── components/          # Reusable components and layouts
-│   │   ├── AdminLayout.tsx
+│   │   ├── SettingsLayout.tsx
 │   │   ├── MainLayout.tsx
 │   │   ├── ProtectedRoute.tsx
 │   │   ├── OneSearchLogo.tsx

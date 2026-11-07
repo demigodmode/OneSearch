@@ -4,7 +4,7 @@ OneSearch does not need much babysitting, but there are a few places worth check
 
 ## Web UI
 
-Use **Admin → Status** for day-to-day monitoring.
+Use **Settings → Status** for day-to-day monitoring.
 
 It shows:
 

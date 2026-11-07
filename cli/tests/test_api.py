@@ -2,6 +2,7 @@ import pytest
 import requests
 
 from onesearch.api import APIError, OneSearchAPI
+from onesearch.config import get_auth_token
 
 
 class DummyResponse:
@@ -21,6 +22,13 @@ class DummyResponse:
 def test_api_client_sets_bearer_token():
     api = OneSearchAPI(base_url="http://localhost:8000", token="secret")
     assert api.session.headers["Authorization"] == "Bearer secret"
+
+
+def test_api_token_is_sent_unchanged_as_bearer(monkeypatch):
+    token = "os_AbCd-efGh_ijKlMnOpQrStUvWxYz0123456789abcdefgh"
+    monkeypatch.setenv("ONESEARCH_TOKEN", token)
+    api = OneSearchAPI(base_url="http://localhost:8000", token=get_auth_token())
+    assert api.session.headers["Authorization"] == f"Bearer {token}"
 
 
 def test_auth_error_message_is_actionable(monkeypatch):

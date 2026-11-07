@@ -24,7 +24,7 @@ Search your documents, use filters to narrow results, and click results to previ
 
 ### Adding New Content
 
-After adding files to your source directories, trigger a reindex from **Admin → Sources**. Use incremental reindex (the default) for speed - OneSearch only processes changed files.
+After adding files to your source directories, trigger a reindex from **Settings → Sources**. Use incremental reindex (the default) for speed - OneSearch only processes changed files.
 
 ### Maintaining Your Index
 
@@ -78,7 +78,7 @@ Incremental reindex is fast for regular updates. Full reindex rebuilds everythin
 
 The main page has a search box (press `Ctrl+K` or `Cmd+K` to focus it), filters for source and file type, and clickable result cards with highlighted snippets. Pagination lets you browse through results.
 
-### Admin Section
+### Admin pages
 
 **Sources**: Manage sources - test root paths, add, edit, delete, trigger incremental reindexing, or run a full reindex when rebuilding the search index.
 

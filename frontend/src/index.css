@@ -363,6 +363,30 @@
   --tw-prose-td-borders: hsl(var(--border));
 }
 
+/* GFM task lists keep their checkbox and lose the list bullet and indent. */
+.prose ul.contains-task-list,
+.prose-invert ul.contains-task-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.prose li.task-list-item,
+.prose-invert li.task-list-item {
+  list-style: none;
+  padding-left: 0;
+}
+
+.prose li.task-list-item::before,
+.prose-invert li.task-list-item::before {
+  content: none;
+}
+
+.prose li.task-list-item input,
+.prose-invert li.task-list-item input {
+  margin: 0 0.5em 0 0;
+  vertical-align: middle;
+}
+
 /* Prism's markdown grammar tags table tokens with a bare "table" class, which
    picks up Tailwind's display: table utility and breaks the rows out of the
    highlighted block. */

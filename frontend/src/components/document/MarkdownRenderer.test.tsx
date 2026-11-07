@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
@@ -25,6 +25,29 @@ describe('MarkdownRenderer', () => {
 
     expect(screen.getByRole('link', { name: 'docs' })).toHaveClass('text-brand-strong')
     expect(screen.getByText('code')).toHaveClass('text-brand-strong')
+  })
+
+  it('marks task list items so the CSS can drop the bullet', () => {
+    const { container } = render(<MarkdownRenderer content={'- [x] shipped\n- [ ] still open'} />)
+
+    expect(container.querySelector('ul')).toHaveClass('contains-task-list')
+    expect(container.querySelectorAll('li.task-list-item')).toHaveLength(2)
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2)
+  })
+
+  it('shows task checkboxes at full strength but read-only', async () => {
+    render(<MarkdownRenderer content={'- [x] shipped\n- [ ] still open'} />)
+
+    const [done, open] = screen.getAllByRole('checkbox')
+    // disabled checkboxes are greyed out by the browser, so done items looked faded
+    expect(done).not.toBeDisabled()
+    expect(done).toHaveAttribute('aria-readonly', 'true')
+    expect(done).toHaveClass('accent-brand')
+
+    fireEvent.click(done)
+    fireEvent.click(open)
+    expect(done).toBeChecked()
+    expect(open).not.toBeChecked()
   })
 
   it('renders pipe tables inside a horizontal scroll wrapper', () => {

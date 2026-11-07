@@ -5,7 +5,10 @@
 SQLAlchemy ORM models for OneSearch
 """
 
+import json
 from datetime import datetime, timezone
+from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -421,10 +424,14 @@ class AppSetting(Base):
         return f"<AppSetting(key={self.key})>"
 
 
+ROLE_ADMIN = "admin"
+ROLE_MEMBER = "member"
+
+
 class User(Base):
     """
     User authentication table
-    Stores admin credentials for OneSearch
+    Stores login credentials and role for OneSearch users
     """
 
     __tablename__ = "users"
@@ -433,6 +440,11 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    role = Column(String(16), default=ROLE_MEMBER, nullable=False)
+    session_version = Column(Integer, default=0, server_default="0", nullable=False)
+    must_change_password = Column(Boolean, default=False, server_default="0", nullable=False)
+    created_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_utcnow, nullable=False)
     updated_at = Column(DateTime, default=_utcnow, onupdate=_utcnow, nullable=False)
 
@@ -440,8 +452,65 @@ class User(Base):
         "AgentEnrollment", back_populates="created_by_user", passive_deletes=True
     )
 
+    @property
+    def is_admin(self) -> bool:
+        return self.role == ROLE_ADMIN
+
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username})>"
+
+
+class ApiTokenScope(StrEnum):
+    SEARCH = "search"
+
+
+class ApiToken(Base):
+    """A long-lived credential that acts as its owner, limited to a scope. Only the hash is stored."""
+
+    __tablename__ = "api_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(80), nullable=False)
+    scope = Column(
+        String(16),
+        nullable=False,
+        default=ApiTokenScope.SEARCH,
+        server_default=ApiTokenScope.SEARCH.value,
+    )
+    token_hash = Column(String(64), unique=True, index=True, nullable=False)
+    display_prefix = Column(String(16), nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+
+
+class AuditEvent(Base):
+    """One audit log entry. Keeps the actor's username so history survives a user delete."""
+
+    __tablename__ = "audit_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, default=_utcnow, nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    actor_username = Column(Text, nullable=True)
+    action = Column(String(64), nullable=False, index=True)
+    target_type = Column(String(32), nullable=True)
+    target_id = Column(Integer, nullable=True)
+    target_label = Column(Text, nullable=True)
+    detail = Column(Text, nullable=True)
+    ip = Column(String(64), nullable=True)
+
+    @property
+    def detail_dict(self) -> dict[str, Any] | None:
+        if not self.detail:
+            return None
+        try:
+            decoded = json.loads(self.detail)
+        except ValueError:
+            return None
+        return decoded if isinstance(decoded, dict) else None
 
 
 @event.listens_for(User, "before_delete")

@@ -30,6 +30,18 @@ onesearch login --token
 
 For scripts, set `ONESEARCH_TOKEN` instead. Nothing is prompted and nothing is written to the config file.
 
+### Using an API token
+
+You can use an API token from the Account page instead of a password login. Tokens only work for search, so `onesearch search` works with one and the other commands still need a password login.
+
+```bash
+export ONESEARCH_URL=http://infra-stack:8000
+export ONESEARCH_TOKEN=os_your_token
+onesearch search "compose" --json
+```
+
+`onesearch login --token` works the same way if you'd rather store the token in the config file. Tokens are created and revoked on the Account page. See [API tokens](../administration/authentication.md#api-tokens).
+
 ### `onesearch logout`
 
 Removes the stored token.

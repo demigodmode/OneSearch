@@ -147,6 +147,12 @@ describe('DocumentPage raw view', () => {
     expect(useDocumentRawText).toHaveBeenCalledWith('doc-1', 1700000000, true, 25 * 1024 * 1024)
   })
 
+  it('keeps the modified and indexed dates on one line', () => {
+    renderPage()
+    expect(screen.getByText(/^Modified: /)).toHaveClass('whitespace-nowrap')
+    expect(screen.getByText(/^Indexed: /)).toHaveClass('whitespace-nowrap')
+  })
+
   it('has no toggle for other types', () => {
     current = { ...base, type: 'text', extension: 'txt', basename: 'notes.txt', content: 'plain' }
     renderPage()

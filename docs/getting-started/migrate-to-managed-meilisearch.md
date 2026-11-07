@@ -129,7 +129,7 @@ The health response should show Meilisearch as available.
 
 After switching modes, run a full reindex for each source. Source configuration and indexed-file metadata are kept in OneSearch's SQLite database, but the managed Meilisearch index starts with its own `/app/meili_data` volume. A normal incremental reindex may skip unchanged files because SQLite still remembers them from the old index.
 
-From the admin UI, go to **Admin → Sources** and use the **Full reindex** action for each source. Confirm the source path still exists inside the container before starting.
+From the admin UI, go to **Settings → Sources** and use the **Full reindex** action for each source. Confirm the source path still exists inside the container before starting.
 
 From the CLI, list sources and run full reindex per source:
 

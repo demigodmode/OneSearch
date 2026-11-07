@@ -6,10 +6,12 @@ Pydantic schemas for request/response validation
 """
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from onesearch_shared import BrowseDirectoryEntry, BrowseResult
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+
+from .models import ApiTokenScope
 
 
 class Document(BaseModel):
@@ -170,6 +172,13 @@ class LocalBrowseResponse(BaseModel):
     truncated: bool = False
 
 
+class SourceSummaryResponse(BaseModel):
+    """What a member sees of a source: enough to filter search by it"""
+
+    id: str
+    name: str
+
+
 class SourceResponse(SourceBase):
     """Schema for source response"""
 
@@ -280,13 +289,20 @@ class SourceStatus(BaseModel):
     next_scan_at: datetime | None = None
 
 
+class MeilisearchHealth(BaseModel):
+    """Meilisearch status nested in the health response"""
+
+    status: str
+
+
 class HealthResponse(BaseModel):
     """Schema for health check response"""
 
     status: str
-    meilisearch_connected: bool
-    database_connected: bool
+    service: str
+    version: str
     setup_required: bool = False
+    meilisearch: MeilisearchHealth
 
 
 # Authentication schemas
@@ -304,6 +320,34 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class PasswordChangeRequest(BaseModel):
+    """Schema for changing the signed-in user's own password"""
+
+    current_password: str
+    new_password: str = Field(..., min_length=8)
+
+
+class UserCreateRequest(BaseModel):
+    """Schema for an admin creating a user with a temporary password"""
+
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=8)
+    role: Literal["admin", "member"]
+
+
+class UserUpdateRequest(BaseModel):
+    """Schema for an admin changing a user's role or active state. Send only what changes."""
+
+    role: Literal["admin", "member"] | None = None
+    is_active: bool | None = None
+
+
+class UserPasswordResetRequest(BaseModel):
+    """Schema for an admin setting a new temporary password for a user"""
+
+    password: str = Field(..., min_length=8)
+
+
 class UserResponse(BaseModel):
     """Schema for user info response"""
 
@@ -312,7 +356,75 @@ class UserResponse(BaseModel):
     id: int
     username: str
     is_active: bool
+    role: Literal["admin", "member"]
+    must_change_password: bool
     created_at: datetime
+
+
+class UserAdminResponse(BaseModel):
+    """A user as an admin sees them in the Users list"""
+
+    id: int
+    username: str
+    role: Literal["admin", "member"]
+    is_active: bool
+    must_change_password: bool
+    created_at: datetime
+    created_by: str | None = None
+    last_login_at: datetime | None = None
+
+
+class ApiTokenCreateRequest(BaseModel):
+    """Schema for creating an API token for the signed-in user"""
+
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+    expires_in_days: Literal[30, 90, 365] | None = None
+
+
+ApiTokenStatus = Literal["active", "revoked", "expired"]
+
+
+class ApiTokenResponse(BaseModel):
+    """An API token as its owner sees it. Never includes the secret."""
+
+    id: int
+    name: str
+    scope: ApiTokenScope
+    display_prefix: str
+    created_at: datetime
+    expires_at: datetime | None = None
+    last_used_at: datetime | None = None
+    revoked: bool
+    revoked_at: datetime | None = None
+    status: ApiTokenStatus
+
+
+class ApiTokenCreatedResponse(ApiTokenResponse):
+    """A new API token. The secret is only in this response."""
+
+    token: str
+
+
+class AuditEventResponse(BaseModel):
+    """One audit log entry. Actor is null for failed sign-ins; the name is still kept."""
+
+    id: int
+    created_at: datetime
+    actor_user_id: int | None = None
+    actor_username: str | None = None
+    action: str
+    target_type: str | None = None
+    target_id: int | None = None
+    target_label: str | None = None
+    detail: dict[str, Any] | None = None
+    ip: str | None = None
+
+
+class AuditPageResponse(BaseModel):
+    """A page of audit entries, newest first. Pass next_before back as `before` next time."""
+
+    events: list[AuditEventResponse]
+    next_before: int | None = None
 
 
 class AuthResponse(BaseModel):
@@ -344,6 +456,7 @@ class AppSettingsResponse(BaseModel):
     long_text_pagination_threshold_chars: int = Field(default=20000, ge=1000)
     default_scan_schedule: ScheduleConfig | None = None
     remote_agents_enabled: bool = False
+    audit_retention_days: int = Field(default=90, ge=1, le=3650)
 
 
 class AppSettingsUpdate(BaseModel):
@@ -367,6 +480,7 @@ class AppSettingsUpdate(BaseModel):
     long_text_pagination_threshold_chars: int | None = Field(default=None, ge=1000)
     default_scan_schedule: ScheduleConfig | None = None
     remote_agents_enabled: bool | None = None
+    audit_retention_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 class AgentEnrollmentCodeResponse(BaseModel):

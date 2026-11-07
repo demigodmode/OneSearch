@@ -26,7 +26,7 @@ Options:
 - `metadata_only`: index unknown files by filename/path metadata
 - `skip`: ignore unknown files
 
-You can also change this in **Admin → Settings → Indexing**.
+You can also change this in **Settings → Indexing**.
 
 ## When this helps
 

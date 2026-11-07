@@ -48,9 +48,18 @@ function ResultCard({
 
   return (
     <div
+      role="link"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key !== 'Enter') return
+        e.preventDefault()
+        // Stop here so the page-level Enter handler doesn't open it a second time.
+        e.stopPropagation()
+        onClick()
+      }}
       className={cn(
-        'bg-card border rounded-lg card-hover animate-fade-in-up animate-initial cursor-pointer group',
+        'bg-card border rounded-lg card-hover animate-fade-in-up animate-initial cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         paddingClass,
         isSelected ? 'border-brand/60 ring-1 ring-brand/30' : 'border-border',
       )}
@@ -93,7 +102,7 @@ function ResultCard({
 
 export default function SearchPage() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const searchParamString = searchParams.toString()
   const [query, setQuery] = useState(searchParams.get('q') || '')
   const [debouncedQuery, setDebouncedQuery] = useState(searchParams.get('q') || '')
@@ -103,6 +112,22 @@ export default function SearchPage() {
   const [selectedIndex, setSelectedIndex] = useState(-1)
   const [showSearchSkeleton, setShowSearchSkeleton] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Query string we last wrote ourselves, so the URL sync effect doesn't
+  // overwrite text the user is still typing.
+  const ownParamString = useRef<string | null>(null)
+
+  const applyFilters = (source: string, type: string) => {
+    setSourceFilter(source)
+    setTypeFilter(type)
+    setPage(0)
+    const params = new URLSearchParams(searchParams)
+    if (source) params.set('source', source)
+    else params.delete('source')
+    if (type) params.set('type', type)
+    else params.delete('type')
+    ownParamString.current = params.toString()
+    setSearchParams(params, { replace: true })
+  }
 
   const { settings } = useSearchSettings()
   const limit = settings.resultsPerPage
@@ -127,6 +152,7 @@ export default function SearchPage() {
   }, [debouncedQuery, sourceFilter, typeFilter, navigate])
 
   useEffect(() => {
+    if (searchParamString === ownParamString.current) return
     const timer = window.setTimeout(() => {
       const params = new URLSearchParams(searchParamString)
       setQuery(params.get('q') || '')
@@ -271,7 +297,7 @@ export default function SearchPage() {
           <select
             value={sourceFilter}
             title="Limit search results to one indexed source."
-            onChange={(e) => { setSourceFilter(e.target.value); setPage(0) }}
+            onChange={(e) => applyFilters(e.target.value, typeFilter)}
             className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
           >
             <option value="">All Sources</option>
@@ -285,7 +311,7 @@ export default function SearchPage() {
           <select
             value={typeFilter}
             title="Limit search results to one file type."
-            onChange={(e) => { setTypeFilter(e.target.value); setPage(0) }}
+            onChange={(e) => applyFilters(sourceFilter, e.target.value)}
             className="px-3 py-2 bg-card border border-border rounded-lg text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background"
           >
             <option value="">All Types</option>
@@ -310,7 +336,7 @@ export default function SearchPage() {
           {(sourceFilter || typeFilter) && (
             <button
               title="Clear source and type filters."
-              onClick={() => { setSourceFilter(''); setTypeFilter(''); setPage(0) }}
+              onClick={() => applyFilters('', '')}
               className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               Clear filters

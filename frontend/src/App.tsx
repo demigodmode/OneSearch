@@ -2,22 +2,25 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Suspense, lazy } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { SearchSettingsProvider } from './contexts/SearchSettingsContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import MainLayout from './components/MainLayout'
-import AdminLayout from './components/AdminLayout'
+import SettingsLayout from './components/SettingsLayout'
 import SearchPage from './pages/SearchPage'
 import SourcesPage from './pages/admin/SourcesPage'
 import StatusPage from './pages/admin/StatusPage'
 import SettingsPage from './pages/admin/SettingsPage'
 import AgentsPage from './pages/admin/AgentsPage'
+import UsersPage from './pages/admin/UsersPage'
+import AuditLogPage from './pages/admin/AuditLogPage'
+import AccountPage from './pages/AccountPage'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
 
-// Lazy-load DocumentPage — it pulls in react-syntax-highlighter + react-markdown (~400KB)
+// Lazy-load DocumentPage, it pulls in react-syntax-highlighter + react-markdown (~400KB)
 const DocumentPage = lazy(() => import('./pages/DocumentPage'))
 
 function App() {
@@ -43,20 +46,32 @@ function App() {
           <Route path="document/:id" element={<Suspense fallback={null}><DocumentPage /></Suspense>} />
         </Route>
 
-        {/* Protected admin routes */}
+        {/* Settings area: account and preferences for everyone, admin pages under /admin */}
         <Route
-          path="/admin"
           element={
             <ProtectedRoute>
-              <AdminLayout />
+              <SettingsLayout />
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate to="/admin/sources" replace />} />
-          <Route path="sources" element={<SourcesPage />} />
-          <Route path="status" element={<StatusPage />} />
-          <Route path="agents" element={<AgentsPage />} />
+          <Route path="account" element={<AccountPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route
+            path="admin"
+            element={
+              <ProtectedRoute requireAdmin>
+                <Outlet />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<Navigate to="/admin/sources" replace />} />
+            <Route path="sources" element={<SourcesPage />} />
+            <Route path="status" element={<StatusPage />} />
+            <Route path="agents" element={<AgentsPage />} />
+            <Route path="users" element={<UsersPage />} />
+            <Route path="audit" element={<AuditLogPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
         </Route>
 
         {/* Catch-all 404 */}

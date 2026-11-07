@@ -32,13 +32,15 @@ export default function MainLayout() {
 
             {/* Navigation */}
             <nav className="flex items-center gap-2">
-              <Link
-                to="/admin/sources"
-                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
-              >
-                <Settings className="h-4 w-4" />
-                <span className="hidden sm:inline">Admin</span>
-              </Link>
+              {user && (
+                <Link
+                  to="/account"
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
+                >
+                  <Settings className="h-4 w-4" />
+                  <span className="sr-only sm:not-sr-only">Settings</span>
+                </Link>
+              )}
               {user && (
                 <>
                   <span className="hidden md:flex items-center gap-1.5 px-2 text-sm text-muted-foreground">
@@ -52,7 +54,7 @@ export default function MainLayout() {
                     className="text-muted-foreground hover:text-foreground"
                   >
                     <LogOut className="h-4 w-4" />
-                    <span className="hidden sm:inline ml-2">Logout</span>
+                    <span className="sr-only sm:not-sr-only sm:ml-2">Logout</span>
                   </Button>
                 </>
               )}

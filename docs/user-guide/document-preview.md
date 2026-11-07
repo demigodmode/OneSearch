@@ -45,7 +45,7 @@ When you open a result from the search page, OneSearch carries the query into th
 
 ## Preview limits
 
-Admins can disable previews, turn RAW embedded previews on or off, and set size limits in **Admin → Settings → File Previews**. The same panel sets how many characters a page of a long text preview holds, and how long a text has to be before it gets split into pages.
+Admins can disable previews, turn RAW embedded previews on or off, and set size limits in **Settings → File Previews**. The same panel sets how many characters a page of a long text preview holds, and how long a text has to be before it gets split into pages.
 
 RAW previews use embedded JPEGs when available. OneSearch does not decode RAW sensor data, which keeps previews fast and avoids a lot of format-specific trouble.
 

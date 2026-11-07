@@ -5,6 +5,42 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Several user accounts. Each user is an admin or a member. Admins add users on **Admin > Users** with a temporary password, and the new user picks their own password at first sign-in. Admins can change roles, disable and re-enable accounts, reset passwords and delete users. Nobody can disable, demote or delete their own account, and the last active admin can't be removed.
+- Members can search, open, preview and download documents. They don't see Sources, Status, Agents, Settings, Users or Audit log.
+- An Account page for every user, with password change and API tokens.
+- API tokens for scripts and other apps. They start with `os_`, can expire after 30 days, 90 days, a year, or never, and can only search and open documents. `onesearch login --token` and `ONESEARCH_TOKEN` accept them for `onesearch search`. Admins can see and revoke any user's tokens.
+- An audit log for admins under **Admin > Audit log**. It records sign-ins and failed sign-ins, user and token changes, source and agent changes, and settings changes. Entries are kept for 90 days by default. The number of days is set under **Settings > Audit log**.
+- `onesearch-admin reset-password` for when you're locked out. Run it with `docker exec`. It prints a temporary password and ends the user's sessions.
+
+### Changed
+
+- Upgrading from 1.7.x needs no steps if you set `SESSION_SECRET`. The existing account becomes an admin. Sessions from before the upgrade keep working until they expire. Installs without `SESSION_SECRET` are signed out once.
+- Sessions and download links end right away when a user's role or status changes or an admin resets their password. Changing your own password ends your other sessions.
+
+### Fixed
+
+- `/api/health`, and the rest of the API with it, could hang forever when Meilisearch stopped answering. Meilisearch calls now time out, and the health check no longer blocks other requests.
+- A file that changed and then failed to index kept showing up for its old text. Its old index entry is now removed.
+- Photo metadata was missing aperture, exposure, focal length, ISO and lens for most camera photos, because those are stored in a part of the EXIF data that wasn't read. GPS from real photo files was broken for the same reason.
+- Search snippets could end in a broken highlight tag.
+- `onesearch ... --json` could print invalid JSON when piped, because long lines got wrapped.
+- Clear filters on the search page came back after a reload.
+- Reindex, full reindex and delete on the Sources page failed silently. They now show the error.
+- Status didn't show "Next scan" for sources on an interval or the global default schedule.
+- On a phone, the header buttons had no name for screen readers, and search results couldn't be opened from the keyboard.
+
+### Security
+
+- Sign-in rate limiting could be bypassed by sending a made-up `X-Forwarded-For` header. The client address now comes from the bundled proxy only, and anything sent by other clients is ignored.
+- The fallback signing key was a fixed string in the source, so anyone could forge a session, admin included. Without `SESSION_SECRET`, a random key is now generated and saved in the data folder.
+- For up to 60 seconds, a download link (the short-lived link behind the Download button) also worked as a normal sign-in. Sign-in now only accepts tokens issued for signing in, and anything else is rejected with a 401. This has been possible since download links were added.
+
+---
+
 ## [1.7.1] - 2026-10-25
 
 ### Breaking changes

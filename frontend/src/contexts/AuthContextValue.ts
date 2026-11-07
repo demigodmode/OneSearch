@@ -12,6 +12,7 @@ export interface AuthContextType {
   login: (data: LoginRequest) => Promise<void>
   logout: () => Promise<void>
   setup: (data: SetupRequest) => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   checkAuth: () => Promise<void>
 }
 
