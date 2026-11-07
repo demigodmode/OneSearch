@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -21,6 +21,8 @@ const doc = { id: 'doc-1', modified_at: 1700000000, size_bytes: 2048 }
 function pageStatus(pageIndex: number, pageCount: number) {
   return (_content: string, element: Element | null) => element?.textContent === `Page ${pageIndex} of ${pageCount}`
 }
+
+const topPager = () => screen.getByRole('navigation', { name: 'Pages (top)' })
 
 function renderedSource(container: HTMLElement) {
   const code = container.querySelector('code')?.cloneNode(true) as HTMLElement | null
@@ -62,14 +64,14 @@ describe('RawTextView', () => {
     expect(renderedSource(container)).toBe(source.slice(pages[0].start, pages[0].end))
     expect(container.querySelectorAll('mark')).toHaveLength(0)
 
-    await user.click(screen.getByRole('button', { name: /next/i }))
+    await user.click(within(topPager()).getByRole('button', { name: /next/i }))
     expect(renderedSource(container)).toBe(source.slice(pages[1].start, pages[1].end))
     expect(container.querySelectorAll('mark')).toHaveLength(1)
     expect(container.querySelector('mark')).toHaveTextContent('body text')
 
-    await user.click(screen.getByRole('button', { name: /previous/i }))
+    await user.click(within(topPager()).getByRole('button', { name: /previous/i }))
     expect(renderedSource(container)).toBe(source.slice(pages[0].start, pages[0].end))
-    await user.click(screen.getByRole('button', { name: /next/i }))
+    await user.click(within(topPager()).getByRole('button', { name: /next/i }))
     expect(renderedSource(container)).toBe(source.slice(pages[1].start, pages[1].end))
     expect(container.querySelectorAll('mark')).toHaveLength(1)
   })
@@ -81,15 +83,15 @@ describe('RawTextView', () => {
     const pages = buildRawTextPages(source)
     const { container, rerender } = render(<RawTextView document={doc} language="markdown" maxBytes={25 * 1024 * 1024} searchQuery="body token" />)
 
-    await user.click(screen.getByRole('button', { name: /next/i }))
-    expect(screen.getByText(pageStatus(2, pages.length))).toBeInTheDocument()
+    await user.click(within(topPager()).getByRole('button', { name: /next/i }))
+    expect(within(topPager()).getByText(pageStatus(2, pages.length))).toBeInTheDocument()
     rerender(<RawTextView document={doc} language="markdown" maxBytes={25 * 1024 * 1024} searchQuery="body text" />)
 
-    expect(screen.getByText(pageStatus(2, pages.length))).toBeInTheDocument()
+    expect(within(topPager()).getByText(pageStatus(2, pages.length))).toBeInTheDocument()
     expect(renderedSource(container)).toBe(source.slice(pages[1].start, pages[1].end))
     expect(Array.from(container.querySelectorAll('mark')).map((mark) => mark.textContent).join('')).toBe('body text')
 
-    await user.click(screen.getByRole('button', { name: /previous/i }))
+    await user.click(within(topPager()).getByRole('button', { name: /previous/i }))
     expect(renderedSource(container)).toBe(source.slice(pages[0].start, pages[0].end))
     expect(container.querySelectorAll('mark')).toHaveLength(0)
   })
@@ -100,7 +102,7 @@ describe('RawTextView', () => {
     const { container } = render(<RawTextView document={doc} language="markdown" maxBytes={25 * 1024 * 1024} searchQuery="body text" />)
 
     expect(container.querySelectorAll('mark')).toHaveLength(0)
-    await user.click(screen.getByRole('button', { name: /next/i }))
+    await user.click(within(topPager()).getByRole('button', { name: /next/i }))
     expect(container.querySelectorAll('mark')).toHaveLength(1)
     expect(container.querySelector('mark')).toHaveTextContent('body text')
   })
@@ -118,7 +120,7 @@ describe('RawTextView', () => {
     const { container } = render(<RawTextView document={doc} language="markdown" maxBytes={25 * 1024 * 1024} />)
 
     const pageCount = buildRawTextPages(rawState.data).length
-    expect(screen.getByText(pageStatus(1, pageCount))).toBeInTheDocument()
+    expect(within(topPager()).getByText(pageStatus(1, pageCount))).toBeInTheDocument()
     expect(screen.getByText('Showing plain text for this large file.')).toBeInTheDocument()
     expect(container.querySelector('code')).toHaveClass('language-text')
     expect(container.querySelectorAll('.linenumber')).toHaveLength(RAW_PAGE_LINES + 1)
@@ -175,8 +177,8 @@ describe('RawTextView', () => {
     const { container, rerender } = render(<RawTextView document={doc} language="markdown" maxBytes={25 * 1024 * 1024} />)
 
     expect(container.querySelector('code')).toHaveClass('language-text')
-    await user.click(screen.getByRole('button', { name: /next/i }))
-    expect(screen.getByText(pageStatus(2, 2))).toBeInTheDocument()
+    await user.click(within(topPager()).getByRole('button', { name: /next/i }))
+    expect(within(topPager()).getByText(pageStatus(2, 2))).toBeInTheDocument()
     expect(screen.getByText('201')).toBeInTheDocument()
 
     rawState.data = 'replacement'
@@ -190,14 +192,31 @@ describe('RawTextView', () => {
     rawState.data = Array.from({ length: RAW_PAGE_LINES + 1 }, (_, index) => `line ${index + 1}`).join('\n')
     const { rerender } = render(<RawTextView document={doc} language="markdown" maxBytes={25 * 1024 * 1024} />)
 
-    await user.click(screen.getByRole('button', { name: /next/i }))
-    expect(screen.getByText(pageStatus(2, 2))).toBeInTheDocument()
+    await user.click(within(topPager()).getByRole('button', { name: /next/i }))
+    expect(within(topPager()).getByText(pageStatus(2, 2))).toBeInTheDocument()
 
     rerender(<RawTextView document={{ ...doc, id: 'doc-2' }} language="markdown" maxBytes={25 * 1024 * 1024} />)
-    expect(screen.getByText(pageStatus(1, 2))).toBeInTheDocument()
+    expect(within(topPager()).getByText(pageStatus(1, 2))).toBeInTheDocument()
 
     rerender(<RawTextView document={doc} language="markdown" maxBytes={25 * 1024 * 1024} />)
-    expect(screen.getByText(pageStatus(1, 2))).toBeInTheDocument()
+    expect(within(topPager()).getByText(pageStatus(1, 2))).toBeInTheDocument()
+  })
+
+  it('repeats the page controls under the text and scrolls to the top from the bottom', async () => {
+    const user = userEvent.setup()
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    rawState.data = Array.from({ length: RAW_PAGE_LINES + 1 }, (_, index) => `line ${index + 1}`).join('\n')
+    render(<RawTextView document={doc} language="markdown" maxBytes={25 * 1024 * 1024} />)
+
+    const bottom = screen.getByRole('navigation', { name: 'Pages (bottom)' })
+    expect(screen.getByRole('navigation', { name: 'Pages (top)' })).toBeInTheDocument()
+    await user.click(within(bottom).getByRole('button', { name: /next/i }))
+
+    expect(within(topPager()).getByText(pageStatus(2, 2))).toBeInTheDocument()
+    expect(within(bottom).getByText(/Page/)).toHaveTextContent('Page 2 of 2')
+    expect(within(bottom).getByRole('button', { name: /next/i })).toBeDisabled()
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
   })
 
   it('does not fetch files over the preview size limit', () => {
