@@ -39,7 +39,7 @@ def _list(client, user_id: int):
     return client.get(f"/api/users/{user_id}/tokens")
 
 
-def test_admin_lists_only_that_users_active_tokens_without_secrets(client, member_user, member_client):
+def test_admin_lists_only_that_users_tokens_with_status_and_no_secrets(client, member_user, member_client):
     _create_token(client, name="admin laptop")
     created = _create_token(member_client, name="member laptop")
     revoked = _create_token(member_client, name="old laptop")
@@ -49,9 +49,10 @@ def test_admin_lists_only_that_users_active_tokens_without_secrets(client, membe
 
     assert response.status_code == 200
     rows = response.json()
-    assert [row["name"] for row in rows] == ["member laptop"]
-    assert rows[0] == member_client.get("/api/auth/tokens").json()[0]
-    assert rows[0]["id"] == created["id"]
+    assert [(row["name"], row["status"]) for row in rows] == [("old laptop", "revoked"), ("member laptop", "active")]
+    assert rows == member_client.get("/api/auth/tokens").json()
+    assert rows[1]["id"] == created["id"]
+    assert rows[0]["revoked_at"] is not None
     assert "token" not in rows[0]
     assert created["token"] not in response.text
 
@@ -73,7 +74,7 @@ def test_admin_revokes_a_members_token_and_it_gets_401(client, member_user, memb
     response = _search(member_client, created["token"])
     assert response.status_code == 401
     assert response.json()["detail"] == "API token revoked"
-    assert _list(client, member_user.id).json() == []
+    assert [row["status"] for row in _list(client, member_user.id).json()] == ["revoked"]
 
 
 def test_revoke_with_the_wrong_user_is_404_and_leaves_the_token_alone(

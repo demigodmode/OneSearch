@@ -381,6 +381,9 @@ class ApiTokenCreateRequest(BaseModel):
     expires_in_days: Literal[30, 90, 365] | None = None
 
 
+ApiTokenStatus = Literal["active", "revoked", "expired"]
+
+
 class ApiTokenResponse(BaseModel):
     """An API token as its owner sees it. Never includes the secret."""
 
@@ -392,6 +395,8 @@ class ApiTokenResponse(BaseModel):
     expires_at: datetime | None = None
     last_used_at: datetime | None = None
     revoked: bool
+    revoked_at: datetime | None = None
+    status: ApiTokenStatus
 
 
 class ApiTokenCreatedResponse(ApiTokenResponse):

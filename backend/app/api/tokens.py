@@ -19,7 +19,7 @@ from ..services.agent_auth import hash_token
 from ..services.api_tokens import (
     API_TOKEN_DISPLAY_LENGTH,
     api_token_response,
-    list_active_tokens,
+    list_tokens_for_user,
     new_api_token_secret,
     revoke_token,
 )
@@ -36,8 +36,9 @@ async def list_api_tokens(
     current_user: User = Depends(require_signed_in),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ) -> list[ApiTokenResponse]:
-    """List your API tokens, newest first. Revoked tokens are left out."""
-    return [api_token_response(token) for token in list_active_tokens(db, current_user.id)]
+    """List your API tokens, newest first. Revoked and expired tokens stay in the list with their status."""
+    now = _utcnow()
+    return [api_token_response(token, now) for token in list_tokens_for_user(db, current_user.id)]
 
 
 @router.post("/tokens", response_model=ApiTokenCreatedResponse, status_code=status.HTTP_201_CREATED)

@@ -411,7 +411,14 @@ export interface ApiToken {
   expires_at: string | null
   last_used_at: string | null
   revoked: boolean
+  revoked_at: string | null
+  status: ApiTokenStatus
 }
+
+/**
+ * Revoked wins over expired, the same as the server checks.
+ */
+export type ApiTokenStatus = 'active' | 'revoked' | 'expired'
 
 /**
  * A newly created API token. `token` is the full secret and is only sent once.

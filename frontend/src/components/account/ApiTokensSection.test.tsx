@@ -24,6 +24,8 @@ const laptop: ApiToken = {
   expires_at: null,
   last_used_at: null,
   revoked: false,
+  revoked_at: null,
+  status: 'active',
 }
 
 const SECRET = 'os_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'
@@ -82,6 +84,34 @@ describe('ApiTokensSection', () => {
     const row = within(await screen.findByRole('row', { name: /Laptop/ }))
     expect(row.getAllByText('Never')).toHaveLength(2)
     expect(row.getByRole('button', { name: 'Revoke' })).toBeInTheDocument()
+  })
+
+  it('keeps revoked and expired tokens listed, greyed out, with no revoke button', async () => {
+    const revoked: ApiToken = { ...laptop, id: 4, name: 'old-laptop', revoked: true, revoked_at: '2026-11-06T09:00:00Z', status: 'revoked' }
+    const expired: ApiToken = { ...laptop, id: 5, name: 'ci-job', expires_at: '2026-10-30T09:00:00Z', status: 'expired' }
+    api.listApiTokens.mockResolvedValue([laptop, revoked, expired])
+    renderSection()
+
+    const revokedRow = within(await screen.findByRole('row', { name: /old-laptop/ }))
+    expect(revokedRow.getByText(/^Revoked /)).toBeInTheDocument()
+    expect(revokedRow.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument()
+    expect(screen.getByRole('row', { name: /old-laptop/ })).toHaveClass('opacity-60')
+
+    const expiredRow = within(screen.getByRole('row', { name: /ci-job/ }))
+    expect(expiredRow.getByText(/^Expired /)).toBeInTheDocument()
+    expect(expiredRow.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument()
+
+    const activeRow = within(screen.getByRole('row', { name: /Laptop/ }))
+    expect(activeRow.getByRole('button', { name: 'Revoke' })).toBeInTheDocument()
+    expect(screen.getByRole('row', { name: /Laptop/ })).not.toHaveClass('opacity-60')
+  })
+
+  it('does not show the empty state when every token is revoked', async () => {
+    api.listApiTokens.mockResolvedValue([{ ...laptop, revoked: true, revoked_at: '2026-11-06T09:00:00Z', status: 'revoked' }])
+    renderSection()
+
+    expect(await screen.findByRole('row', { name: /Laptop/ })).toBeInTheDocument()
+    expect(screen.queryByText("You haven't made any API tokens yet.")).not.toBeInTheDocument()
   })
 
   it('shows an empty state when there are no tokens', async () => {
@@ -159,8 +189,9 @@ describe('ApiTokensSection', () => {
   })
 
   it('revokes a token after confirming', async () => {
+    const revoked: ApiToken = { ...laptop, revoked: true, revoked_at: '2026-11-06T09:00:00Z', status: 'revoked' }
     api.revokeApiToken.mockResolvedValue(undefined)
-    api.listApiTokens.mockResolvedValueOnce([laptop]).mockResolvedValue([])
+    api.listApiTokens.mockResolvedValueOnce([laptop]).mockResolvedValue([revoked])
     renderSection()
 
     await userEvent.click(within(await screen.findByRole('row', { name: /Laptop/ })).getByRole('button', { name: 'Revoke' }))
@@ -168,8 +199,9 @@ describe('ApiTokensSection', () => {
     await userEvent.click(confirm.getByRole('button', { name: 'Revoke token' }))
 
     expect(api.revokeApiToken).toHaveBeenCalledWith(1)
-    await waitFor(() => expect(screen.queryByRole('row', { name: /Laptop/ })).not.toBeInTheDocument())
-    expect(await screen.findByText("You haven't made any API tokens yet.")).toBeInTheDocument()
+    await waitFor(() => expect(within(screen.getByRole('row', { name: /Laptop/ })).getByText(/^Revoked /)).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument()
+    expect(screen.queryByText("You haven't made any API tokens yet.")).not.toBeInTheDocument()
   })
 
   it('leaves the token alone when revoke is cancelled', async () => {

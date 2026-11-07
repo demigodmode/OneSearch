@@ -25,7 +25,7 @@ vi.mock('@/contexts/useAuth', () => ({ useAuth: () => ({ user: signedIn.user, lo
 const alice: AdminUser = { id: 1, username: 'alice', role: 'admin', is_active: true, must_change_password: false, created_at: '2026-01-02T10:00:00Z', created_by: null, last_login_at: '2026-01-03T10:00:00Z' }
 const bob: AdminUser = { id: 2, username: 'bob', role: 'member', is_active: false, must_change_password: true, created_at: '2026-01-04T10:00:00Z', created_by: 'alice', last_login_at: null }
 const carol: AdminUser = { id: 3, username: 'carol', role: 'admin', is_active: true, must_change_password: true, created_at: '2026-01-05T10:00:00Z', created_by: 'alice', last_login_at: null }
-const laptop: ApiToken = { id: 7, name: 'Laptop', scope: 'search', display_prefix: 'os_AbCd', created_at: '2026-01-02T10:00:00Z', expires_at: null, last_used_at: null, revoked: false }
+const laptop: ApiToken = { id: 7, name: 'Laptop', scope: 'search', display_prefix: 'os_AbCd', created_at: '2026-01-02T10:00:00Z', expires_at: null, last_used_at: null, revoked: false, revoked_at: null, status: 'active' }
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -323,7 +323,9 @@ describe('UsersPage', () => {
 
   it("revokes a user's token after confirming and refreshes their list", async () => {
     api.listUsers.mockResolvedValue([alice, bob])
-    api.listUserTokens.mockResolvedValueOnce([laptop]).mockResolvedValue([])
+    api.listUserTokens
+      .mockResolvedValueOnce([laptop])
+      .mockResolvedValue([{ ...laptop, revoked: true, revoked_at: '2026-11-06T09:00:00Z', status: 'revoked' }])
     api.revokeUserToken.mockResolvedValue(undefined)
     renderPage()
     await screen.findByText('bob')
@@ -336,7 +338,9 @@ describe('UsersPage', () => {
     await userEvent.click(confirm.getByRole('button', { name: 'Revoke token' }))
 
     await waitFor(() => expect(api.revokeUserToken).toHaveBeenCalledWith(2, 7))
-    expect(await screen.findByText('bob has no API tokens.')).toBeInTheDocument()
+    const row = within(await screen.findByRole('row', { name: /Laptop/ }))
+    expect(row.getByText(/^Revoked /)).toBeInTheDocument()
+    expect(row.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument()
     expect(api.listUserTokens).toHaveBeenCalledTimes(2)
   })
 })

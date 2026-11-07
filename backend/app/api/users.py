@@ -13,7 +13,7 @@ from sqlalchemy.sql import Select
 
 from ..db.database import get_db
 from ..db.locks import begin_immediate
-from ..models import ROLE_ADMIN, AgentEnrollment, ApiToken, SourceBatch, User
+from ..models import ROLE_ADMIN, AgentEnrollment, ApiToken, SourceBatch, User, _utcnow
 from ..schemas import (
     ApiTokenResponse,
     UserAdminResponse,
@@ -21,7 +21,7 @@ from ..schemas import (
     UserPasswordResetRequest,
     UserUpdateRequest,
 )
-from ..services.api_tokens import api_token_response, list_active_tokens, revoke_token
+from ..services.api_tokens import api_token_response, list_tokens_for_user, revoke_token
 from ..services.audit import AuditAction, AuditTarget, record_event
 from .auth import ending_sessions_values, hash_password, require_admin
 
@@ -272,13 +272,14 @@ async def list_user_tokens(
     admin: User = Depends(require_admin),  # noqa: B008
     db: Session = Depends(get_db),  # noqa: B008
 ) -> list[ApiTokenResponse]:
-    """List a user's API tokens, newest first. Revoked tokens are left out and secrets are never shown.
+    """List a user's API tokens, newest first. Revoked and expired tokens are included. Secrets are never shown.
 
     Raises:
         404: Unknown user
     """
     _user_or_404(db, user_id)
-    return [api_token_response(token) for token in list_active_tokens(db, user_id)]
+    now = _utcnow()
+    return [api_token_response(token, now) for token in list_tokens_for_user(db, user_id)]
 
 
 @router.delete("/{user_id}/tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)

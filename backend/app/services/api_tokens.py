@@ -7,12 +7,13 @@ that both the owner's routes and the admin routes call.
 """
 
 import secrets
+from datetime import datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..models import ApiToken, _utcnow
-from ..schemas import ApiTokenResponse
+from ..schemas import ApiTokenResponse, ApiTokenStatus
 
 API_TOKEN_PREFIX = "os_"
 # The start of the secret that is kept in the clear so people can tell tokens apart.
@@ -27,7 +28,16 @@ def new_api_token_secret() -> str:
     return f"{API_TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
 
 
-def api_token_response(token: ApiToken) -> ApiTokenResponse:
+def token_status(token: ApiToken, now: datetime) -> ApiTokenStatus:
+    # Same order as the checks in _user_from_api_token, so a token that is both shows as revoked.
+    if token.revoked_at is not None:
+        return "revoked"
+    if token.expires_at is not None and token.expires_at <= now:
+        return "expired"
+    return "active"
+
+
+def api_token_response(token: ApiToken, now: datetime | None = None) -> ApiTokenResponse:
     return ApiTokenResponse(
         id=token.id,
         name=token.name,
@@ -37,16 +47,14 @@ def api_token_response(token: ApiToken) -> ApiTokenResponse:
         expires_at=token.expires_at,
         last_used_at=token.last_used_at,
         revoked=token.revoked_at is not None,
+        revoked_at=token.revoked_at,
+        status=token_status(token, now or _utcnow()),
     )
 
 
-def list_active_tokens(db: Session, user_id: int) -> list[ApiToken]:
-    """Newest first. Revoked tokens are left out."""
-    stmt = (
-        select(ApiToken)
-        .where(ApiToken.user_id == user_id, ApiToken.revoked_at.is_(None))
-        .order_by(ApiToken.id.desc())
-    )
+def list_tokens_for_user(db: Session, user_id: int) -> list[ApiToken]:
+    """Every token the user has, newest first. Revoked and expired ones are included."""
+    stmt = select(ApiToken).where(ApiToken.user_id == user_id).order_by(ApiToken.id.desc())
     return list(db.execute(stmt).scalars())
 
 

@@ -196,8 +196,48 @@ def test_revoked_token_is_401_and_drops_off_the_list(client, search_stub):
     response = _search(client, created["token"])
     assert response.status_code == 401
     assert response.json()["detail"] == "API token revoked"
-    assert client.get("/api/auth/tokens").json() == []
+    rows = client.get("/api/auth/tokens").json()
+    assert [(row["id"], row["status"], row["revoked"]) for row in rows] == [(created["id"], "revoked", True)]
+    assert rows[0]["revoked_at"] is not None
     assert client.delete(f"/api/auth/tokens/{created['id']}").status_code == 404
+
+
+def test_list_keeps_revoked_and_expired_tokens_newest_first(client, db_session):
+    active = _create_token(client, name="backup-script")
+    revoked = _create_token(client, name="old-laptop")
+    expired = _create_token(client, name="ci-job", expires_in_days=30)
+    assert client.delete(f"/api/auth/tokens/{revoked['id']}").status_code == 204
+    db_session.execute(
+        update(ApiToken)
+        .where(ApiToken.id == expired["id"])
+        .values(expires_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1))
+    )
+    db_session.commit()
+
+    rows = client.get("/api/auth/tokens").json()
+
+    assert [(row["name"], row["status"]) for row in rows] == [
+        ("ci-job", "expired"),
+        ("old-laptop", "revoked"),
+        ("backup-script", "active"),
+    ]
+    assert rows[0]["revoked_at"] is None
+    assert rows[0]["revoked"] is False
+    assert rows[2]["id"] == active["id"]
+    assert rows[2]["revoked_at"] is None
+
+
+def test_revoked_and_expired_token_reports_revoked(client, db_session):
+    created = _create_token(client, expires_in_days=30)
+    assert client.delete(f"/api/auth/tokens/{created['id']}").status_code == 204
+    db_session.execute(
+        update(ApiToken)
+        .where(ApiToken.id == created["id"])
+        .values(expires_at=datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1))
+    )
+    db_session.commit()
+
+    assert client.get("/api/auth/tokens").json()[0]["status"] == "revoked"
 
 
 def test_expired_token_is_401(client, db_session, search_stub):
