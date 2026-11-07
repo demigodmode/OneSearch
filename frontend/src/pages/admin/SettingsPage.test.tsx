@@ -2,10 +2,26 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPage from './SettingsPage'
 
+const { useAppSettingsMock } = vi.hoisted(() => ({
+  useAppSettingsMock: vi.fn(() => ({ data: { remote_agents_enabled: false, audit_retention_days: 90 }, isLoading: false, error: null })),
+}))
+
 const mutate = vi.fn()
+let role: 'admin' | 'member' = 'admin'
+vi.mock('@/contexts/useAuth', () => ({
+  useAuth: () => ({
+    user: { id: 1, username: 'alice', role, is_active: true, created_at: '', must_change_password: false },
+    logout: vi.fn(),
+  }),
+}))
 vi.mock('@/contexts/useTheme', () => ({ useTheme: () => ({ theme: { id: 'x', brandH: 1, brandS: 1, brandL: 1 }, themeMode: 'dark', customHue: null, setPreset: vi.fn(), setCustomHue: vi.fn(), setThemeMode: vi.fn() }) }))
 vi.mock('@/contexts/useSearchSettings', () => ({ useSearchSettings: () => ({ settings: {}, updateSettings: vi.fn() }) }))
-vi.mock('@/hooks/useApi', () => ({ useAppSettings: () => ({ data: { remote_agents_enabled: false, audit_retention_days: 90 }, isLoading: false, error: null }), useUpdateAppSettings: () => ({ mutate, isPending: false }) }))
+vi.mock('@/hooks/useApi', () => ({ useAppSettings: () => useAppSettingsMock(), useUpdateAppSettings: () => ({ mutate, isPending: false }) }))
+
+beforeEach(() => {
+  role = 'admin'
+  useAppSettingsMock.mockClear()
+})
 
 describe('SettingsPage remote agents', () => {
   it('persists enabling the remote-agents feature', () => {
@@ -43,5 +59,38 @@ describe('SettingsPage audit log retention', () => {
 
     expect(mutate).not.toHaveBeenCalled()
     expect(input).toHaveValue(90)
+  })
+})
+
+describe('SettingsPage for members', () => {
+  beforeEach(() => {
+    role = 'member'
+  })
+
+  it('shows only the per-browser panels', () => {
+    render(<SettingsPage />)
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Appearance', 'Search'])
+  })
+
+  it('never renders server sections', () => {
+    render(<SettingsPage />)
+    for (const label of ['File Previews', 'Indexing', 'Scheduling', 'Remote Agents', 'Audit log']) {
+      expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument()
+    }
+  })
+
+  it('does not request the server app settings', () => {
+    render(<SettingsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    expect(screen.getByText('Results per page')).toBeInTheDocument()
+    expect(useAppSettingsMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('SettingsPage for admins', () => {
+  it('keeps the server panels next to the per-browser ones', () => {
+    render(<SettingsPage />)
+    expect(screen.getByRole('button', { name: 'Indexing' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Appearance' })).toBeInTheDocument()
   })
 })

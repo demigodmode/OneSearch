@@ -44,7 +44,7 @@ RTF counts as a text file for limits: it uses the text size limit and `TEXT_EXTR
 
 ## Limits
 
-Office extraction uses the Office size limit shown in **Admin → Settings → Indexing**. `MAX_OFFICE_FILE_SIZE_MB` provides the default value, and `OFFICE_EXTRACTION_TIMEOUT` controls how long extraction can run.
+Office extraction uses the Office size limit shown in **Settings → Indexing**. `MAX_OFFICE_FILE_SIZE_MB` provides the default value, and `OFFICE_EXTRACTION_TIMEOUT` controls how long extraction can run.
 
 Password-protected or corrupt files are handled as extraction failures. OneSearch keeps going and records enough metadata to show what failed.
 

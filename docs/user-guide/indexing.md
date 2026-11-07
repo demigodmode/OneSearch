@@ -16,7 +16,7 @@ Reindexing is incremental by default. OneSearch tracks each file's path, modifie
 
 That makes regular indexing cheap after the first scan. A big source might take a while the first time, then finish quickly on later runs.
 
-Run it from the web UI with **Admin → Sources → Reindex**, or from the CLI:
+Run it from the web UI with **Settings → Sources → Reindex**, or from the CLI:
 
 ```bash
 onesearch source reindex documents
@@ -50,7 +50,7 @@ curl -X POST "http://localhost:8000/api/sources/documents/reindex?full=true" \
 
 Supported formats get full text extraction where possible. PDFs, Office docs, Markdown, text, code, RTF, EPUB, subtitles, comics, images, RAW photos, and media files all have dedicated handling.
 
-Unsupported files can still be indexed as metadata-only entries if **Admin → Settings → Indexing → Unsupported files** is set to metadata-only. That makes filenames and paths searchable even when OneSearch cannot read the file contents.
+Unsupported files can still be indexed as metadata-only entries if **Settings → Indexing → Unsupported files** is set to metadata-only. That makes filenames and paths searchable even when OneSearch cannot read the file contents.
 
 ## Failures and skipped files
 
@@ -64,7 +64,7 @@ Common reasons:
 - file is corrupt or encrypted
 - source mount is no longer available
 
-Check **Admin → Status** for failed file details. If a file is too large, raise the matching size limit in **Admin → Settings → Indexing**, then use **Clean** in that source's failed files list on the Status page, or run a reindex.
+Check **Settings → Status** for failed file details. If a file is too large, raise the matching size limit in **Settings → Indexing**, then use **Clean** in that source's failed files list on the Status page, or run a reindex.
 
 ## Schedules
 

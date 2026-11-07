@@ -2,7 +2,7 @@
 
 ## Remote agents
 
-Start with the state shown under **Admin > Agents**:
+Start with the state shown under **Settings > Agents**:
 
 - `pending`: enrollment saved a credential, but an administrator has not approved the agent. Approve it before expecting jobs to run.
 - `degraded`: the agent is connected, but a source had a recent indexing failure. Open the agent details, find the affected source in recent scan jobs, and run another scan after correcting the path, permissions, storage, or extraction problem.
@@ -115,7 +115,7 @@ Then open `http://localhost:8080`.
 
 In Docker, source paths are container paths.
 
-Use **Test** in the source form under **Admin → Sources** first. It reports whether the path is inside allowed roots, exists, is a directory, and is readable from inside the container.
+Use **Test** in the source form under **Settings → Sources** first. It reports whether the path is inside allowed roots, exists, is a directory, and is readable from inside the container.
 
 If compose has:
 
@@ -137,7 +137,7 @@ Check these in order:
 
 1. Is the source added?
 2. Did you run **Reindex**?
-3. Does **Admin → Status** show successful files?
+3. Does **Settings → Status** show successful files?
 4. Are include patterns too narrow?
 5. Are you filtering by the wrong source or type?
 6. Are files failing because of size limits or extractor errors?

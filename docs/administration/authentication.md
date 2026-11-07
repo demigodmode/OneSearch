@@ -40,9 +40,9 @@ curl http://localhost:8000/api/sources \
 
 ## Users and roles
 
-Each person who signs in has their own account, and each account is either an admin or a member. Admins run the instance: they manage sources, agents, settings, users and the audit log, and they can search too. Members can search and open, preview and download documents. They also get their Account page and the theme setting.
+Each person who signs in has their own account, and each account is either an admin or a member. Admins run the instance: they manage sources, agents, settings, users and the audit log, and they can search too. Members can search and open, preview and download documents. They also get the Account page and the Settings page, which holds the theme and search display options saved in their browser.
 
-Members don't see Sources, Status, Agents, Settings, Users, or Audit log in the navigation. If a member opens one of those pages by URL, they're sent back to search. The API returns 403 for those routes.
+Members only see Account and Settings in the settings sidebar. Sources, Status, Agents, Users and Audit log are hidden. If a member opens one of those pages by URL, they're sent back to search. The API returns 403 for those routes. Server-wide settings such as indexing and previews are admin-only too, so the Settings page doesn't show them to members.
 
 Everyone searches the same documents. Per-source access isn't available yet.
 
@@ -50,7 +50,7 @@ You can have as many admins as you need. The last active admin can't be demoted,
 
 ## Adding users
 
-Go to **Admin > Users** and select **Create user**. Enter a username, pick a role, and set a temporary password. Give the username and the temporary password to the person through a channel you trust.
+Go to **Settings > Users** and select **Create user**. Enter a username, pick a role, and set a temporary password. Give the username and the temporary password to the person through a channel you trust.
 
 The new user has to choose their own password the first time they sign in. Until they do, they can't search or do anything else except change the password or sign out.
 
@@ -76,7 +76,7 @@ Sessions that were created before you upgraded to 1.8.0 keep working until they 
 
 ## Changing your password
 
-Go to **Account** and use **Change password**. You need your current password to change it.
+Open **Account** and use **Change password**. Members can reach it from the gear icon in the header. Admins can pick **Account** in the settings sidebar. You need your current password to change it.
 
 ## API tokens
 
@@ -87,6 +87,7 @@ Scripts and other apps can use an API token instead of a password. Tokens are ma
 - Tokens start with `os_`, so you can tell them apart from other secrets.
 - A token can search, open, preview, and download documents. It can't do anything else. It can't change settings, manage sources, or create more tokens.
 - You can revoke a token at any time from the Account page. Revoked and expired tokens get a 401.
+- Revoked and expired tokens stay in the list, greyed out, so you can see when they stopped working.
 - A token acts as the user who made it. If that user is disabled or deleted, the token stops working. A password change doesn't revoke tokens.
 
 Send the token as a bearer token:
@@ -102,7 +103,7 @@ The CLI accepts tokens too. See [Using an API token](../cli/commands.md#using-an
 
 ## Audit log
 
-Admins can see the audit log under **Admin > Audit log**. The newest entries come first. You can filter by user or by kind of event, and page through older entries.
+Admins can see the audit log under **Settings > Audit log**. The newest entries come first. You can filter by user or by kind of event, and page through older entries.
 
 The log records:
 

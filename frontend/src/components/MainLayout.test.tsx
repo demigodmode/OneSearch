@@ -14,32 +14,43 @@ vi.mock('@/contexts/useAuth', () => ({
   }),
 }))
 
-describe('MainLayout admin link', () => {
-  it('shows Admin to admins', () => {
+describe('MainLayout settings link', () => {
+  it('opens the admin landing page from the gear for admins', () => {
     role = 'admin'
     render(<MemoryRouter><MainLayout /></MemoryRouter>)
-    expect(screen.getByText('Admin')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/admin/sources')
   })
 
-  it('shows Account to every signed-in user', () => {
+  it('opens Account from the gear for members', () => {
     role = 'member'
     render(<MemoryRouter><MainLayout /></MemoryRouter>)
-    expect(screen.getByText('Account')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/account')
   })
 
-  it('hides Admin from members', () => {
-    role = 'member'
+  it('has no separate Account link for either role', () => {
+    for (const r of ['admin', 'member'] as const) {
+      role = r
+      const { unmount } = render(<MemoryRouter><MainLayout /></MemoryRouter>)
+      expect(screen.queryByRole('link', { name: 'Account' })).not.toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('does not show the old Admin wording', () => {
+    role = 'admin'
     render(<MemoryRouter><MainLayout /></MemoryRouter>)
     expect(screen.queryByText('Admin')).not.toBeInTheDocument()
   })
 })
 
-describe('MainLayout header names', () => {
-  it('gives the icon-only header controls an accessible name', () => {
-    role = 'admin'
-    render(<MemoryRouter><MainLayout /></MemoryRouter>)
-    expect(screen.getByRole('link', { name: 'Account' })).toHaveAttribute('href', '/account')
-    expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin/sources')
-    expect(screen.getByRole('button', { name: 'Logout' })).toBeInTheDocument()
+describe('MainLayout header controls', () => {
+  it('shows the username and a named Logout button to every role', () => {
+    for (const r of ['admin', 'member'] as const) {
+      role = r
+      const { unmount } = render(<MemoryRouter><MainLayout /></MemoryRouter>)
+      expect(screen.getByText('alice')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Logout' })).toBeInTheDocument()
+      unmount()
+    }
   })
 })

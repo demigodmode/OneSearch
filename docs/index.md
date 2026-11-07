@@ -22,7 +22,7 @@ Search across all your files, documents, and notes from a single interface. No c
 
 **Three ways to use it**: Web UI for browsing and searching, REST API for integrations, and CLI for automation.
 
-**Themeable**: choose Light, Dark, or System mode, then pick an accent color preset or dial in a custom hue from Admin → Settings. Persists across reloads.
+**Themeable**: choose Light, Dark, or System mode, then pick an accent color preset or dial in a custom hue from Settings. Persists across reloads.
 
 **Privacy first**: Everything runs locally. No telemetry, no cloud services, and the server makes no outbound connections. Your data never leaves your network.
 

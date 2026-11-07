@@ -5,7 +5,7 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import ProtectedRoute from './ProtectedRoute'
-import AdminLayout from './AdminLayout'
+import SettingsLayout from './SettingsLayout'
 
 let auth = {
   user: null as null | { role: 'admin' | 'member'; must_change_password?: boolean },
@@ -23,7 +23,7 @@ function renderAdminRoute(path = '/admin/sources') {
         <Route path="/" element={<div>Search page</div>} />
         <Route
           path="/admin"
-          element={<ProtectedRoute requireAdmin><AdminLayout /></ProtectedRoute>}
+          element={<ProtectedRoute requireAdmin><SettingsLayout /></ProtectedRoute>}
         >
           <Route path="sources" element={<div>Sources content</div>} />
         </Route>

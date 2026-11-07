@@ -6,7 +6,7 @@ An agent represents a machine connection. It does not turn the whole machine int
 
 ## Before you enroll
 
-1. Enable **Remote agents** under **Admin > Settings**.
+1. Enable **Remote agents** under **Settings**.
 2. Download the native agent and updater assets for your platform from a OneSearch release when those assets are included:
 
    - Linux amd64
@@ -73,7 +73,7 @@ Create the state and allowed-root directories before checking the configuration.
 
 ## Enroll and approve
 
-In **Admin > Agents**, choose **Add agent enrollment**. The code is valid for 15 minutes and can be used once.
+In **Settings > Agents**, choose **Add agent enrollment**. The code is valid for 15 minutes and can be used once.
 
 Run enrollment on the machine that will run the agent:
 
@@ -83,7 +83,7 @@ onesearch-agent --config /etc/onesearch-agent/config.toml enroll --server https:
 
 The command prompts for the enrollment code without echoing it. Do not put the code in an argument, compose file, or shell history. The `--server` value must match `server_url` in the configuration.
 
-The server returns an agent token during enrollment, and the agent saves it locally. The machine then appears with **Pending approval** status. It cannot claim work until an administrator approves it in **Admin > Agents**.
+The server returns an agent token during enrollment, and the agent saves it locally. The machine then appears with **Pending approval** status. It cannot claim work until an administrator approves it in **Settings > Agents**.
 
 The enrollment code, agent token, and user login token are separate credentials:
 
@@ -130,7 +130,7 @@ For Docker setup, see [Docker agent](../configuration/agent-docker.md).
 
 ## Create remote sources
 
-The server owns source configuration and scheduling. After the agent is online, create a source under **Admin > Sources**:
+The server owns source configuration and scheduling. After the agent is online, create a source under **Settings > Sources**:
 
 1. Select **Remote agent** as the location.
 2. Select an approved agent.
@@ -203,7 +203,7 @@ Agent state contains credentials and update recovery files. Treat a Docker state
 
 To retire an agent:
 
-1. Open its details in **Admin > Agents** and choose **Revoke credential**.
+1. Open its details in **Settings > Agents** and choose **Revoke credential**.
 2. Leave **Also delete this agent's sources** unchecked to keep their indexed content and stored previews, or select it to remove the sources and indexed documents. Choose **Confirm revoke**.
 3. Uninstall the native service or stop and remove the container.
 4. Remove the local state and configuration only after confirming that the credential was revoked.

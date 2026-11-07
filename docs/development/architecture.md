@@ -204,7 +204,7 @@ frontend/src/
 │       ├── StatusPage.tsx    # Indexing status
 │       └── SettingsPage.tsx  # Appearance, preview, indexing, search settings
 ├── components/
-│   ├── AdminLayout.tsx
+│   ├── SettingsLayout.tsx
 │   ├── MainLayout.tsx
 │   ├── ProtectedRoute.tsx
 │   ├── OneSearchLogo.tsx

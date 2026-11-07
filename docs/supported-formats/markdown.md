@@ -40,6 +40,6 @@ Markdown previews render as formatted content in the document page, including ta
 
 ## Limits
 
-Markdown uses the text extraction limit shown in **Admin → Settings → Indexing**. `MAX_TEXT_FILE_SIZE_MB` provides the default value, and `TEXT_EXTRACTION_TIMEOUT` controls how long extraction can run.
+Markdown uses the text extraction limit shown in **Settings → Indexing**. `MAX_TEXT_FILE_SIZE_MB` provides the default value, and `TEXT_EXTRACTION_TIMEOUT` controls how long extraction can run.
 
 If the front matter can't be parsed, OneSearch still indexes the body of the file and just skips the front matter fields. A file over the size limit is recorded as failed, not indexed.

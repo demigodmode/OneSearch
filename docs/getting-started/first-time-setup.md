@@ -14,7 +14,7 @@ A source is a directory that OneSearch will index. You can have multiple sources
 
 ### Using the Web UI
 
-After logging in, click **Admin** in the top nav, then **Sources**.
+After logging in, click the gear icon in the top bar. It opens **Sources** for admins and **Account** for members.
 
 Click **Add Source** and fill in:
 
@@ -64,7 +64,7 @@ Adding a source doesn't automatically index it unless you set up a schedule. You
 
 ### Web UI
 
-Go to **Admin → Sources**, find your source, and click the **Reindex** button.
+Go to **Settings → Sources**, find your source, and click the **Reindex** button.
 
 ### CLI
 
@@ -87,7 +87,7 @@ Indexing large directories takes time, especially for PDFs and Office documents.
 
 ### Web UI
 
-Go to **Admin → Status** to see a compact status bar showing API health, search engine status, total documents, source count, and last index time. Below it, each source gets its own row with total/indexed/skipped/failed counts. Click a source to expand and see failed file details.
+Go to **Settings → Status** to see a compact status bar showing API health, search engine status, total documents, source count, and last index time. Below it, each source gets its own row with total/indexed/skipped/failed counts. Click a source to expand and see failed file details.
 
 The page auto-refreshes every 30 seconds.
 

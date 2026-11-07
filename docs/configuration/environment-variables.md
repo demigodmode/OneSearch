@@ -108,7 +108,7 @@ Use `DEBUG` for troubleshooting, `INFO` for normal operation, `WARNING` or `ERRO
 
 ### File Size Limits
 
-These set the default indexing size limits. The text, PDF, Office, image, EPUB, comic and media probe limits can also be changed at runtime in **Admin → Settings → Indexing**; saved app settings override these environment defaults.
+These set the default indexing size limits. The text, PDF, Office, image, EPUB, comic and media probe limits can also be changed at runtime in **Settings → Indexing**; saved app settings override these environment defaults.
 
 **MAX_TEXT_FILE_SIZE_MB**
 
@@ -137,7 +137,7 @@ Maximum size for Office files (docx, xlsx, pptx).
 
 ### Rich Media Defaults
 
-Most rich media behavior can also be changed in Admin → Settings. Environment variables set the defaults used before an app setting is saved.
+Most rich media behavior can also be changed in Settings. Environment variables set the defaults used before an app setting is saved.
 
 **UNSUPPORTED_FILE_POLICY**
 
@@ -497,7 +497,7 @@ If search goes down while a big source is indexing and the container log shows M
 
 ### Files being skipped
 
-Check file size limits. Files over the limit are recorded as failed with a "File too large" error. They show up in the failed files list under **Admin → Status**, and in the logs:
+Check file size limits. Files over the limit are recorded as failed with a "File too large" error. They show up in the failed files list under **Settings → Status**, and in the logs:
 
 ```bash
 docker compose logs onesearch | grep "File too large"

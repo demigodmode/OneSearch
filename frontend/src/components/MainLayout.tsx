@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 import { Outlet, Link } from 'react-router-dom'
-import { Settings, LogOut, User, UserCog } from 'lucide-react'
+import { Settings, LogOut, User } from 'lucide-react'
 import { useAuth } from '@/contexts/useAuth'
 import { Button } from '@/components/ui/button'
 import { OneSearchLogo } from '@/components/OneSearchLogo'
@@ -35,20 +35,11 @@ export default function MainLayout() {
             <nav className="flex items-center gap-2">
               {user && (
                 <Link
-                  to="/account"
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
-                >
-                  <UserCog className="h-4 w-4" />
-                  <span className="sr-only sm:not-sr-only">Account</span>
-                </Link>
-              )}
-              {isAdmin(user) && (
-                <Link
-                  to="/admin/sources"
+                  to={isAdmin(user) ? '/admin/sources' : '/account'}
                   className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
                 >
                   <Settings className="h-4 w-4" />
-                  <span className="sr-only sm:not-sr-only">Admin</span>
+                  <span className="sr-only sm:not-sr-only">Settings</span>
                 </Link>
               )}
               {user && (

@@ -7,18 +7,30 @@ import { PRESETS, type ThemeMode, type ThemePreset } from '@/contexts/theme'
 import { useTheme } from '@/contexts/useTheme'
 import type { SearchSettings } from '@/contexts/searchSettings'
 import { useSearchSettings } from '@/contexts/useSearchSettings'
+import { useAuth } from '@/contexts/useAuth'
 import { useAppSettings, useUpdateAppSettings } from '@/hooks/useApi'
 import type { AppSettings, ScheduleConfig } from '@/types/api'
-import { cn } from '@/lib/utils'
+import { cn, isAdmin } from '@/lib/utils'
 import { SchedulePicker, formatScheduleConfig } from '@/components/SchedulePicker'
 
 type SettingsPanel = 'appearance' | 'file-previews' | 'indexing' | 'scheduling' | 'search' | 'remote-agents' | 'audit-log'
 
+// Server panels change app settings, so only admins get them
+const PANELS: { id: SettingsPanel; label: string; serverOnly: boolean }[] = [
+  { id: 'appearance', label: 'Appearance', serverOnly: false },
+  { id: 'file-previews', label: 'File Previews', serverOnly: true },
+  { id: 'indexing', label: 'Indexing', serverOnly: true },
+  { id: 'scheduling', label: 'Scheduling', serverOnly: true },
+  { id: 'search', label: 'Search', serverOnly: false },
+  { id: 'remote-agents', label: 'Remote Agents', serverOnly: true },
+  { id: 'audit-log', label: 'Audit log', serverOnly: true },
+]
+
 export default function SettingsPage() {
+  const { user } = useAuth()
+  const admin = isAdmin(user)
   const { theme, themeMode, customHue, setPreset, setCustomHue, setThemeMode } = useTheme()
   const { settings, updateSettings } = useSearchSettings()
-  const appSettings = useAppSettings()
-  const updateAppSettings = useUpdateAppSettings()
   const [openPanel, setOpenPanel] = useState<SettingsPanel | null>(null)
 
   const togglePanel = (panel: SettingsPanel) => {
@@ -29,17 +41,20 @@ export default function SettingsPage() {
     <div className="animate-fade-in">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground mt-1">Customize your OneSearch instance</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          {admin ? 'Customize your OneSearch instance' : 'Saved in this browser'}
+        </p>
       </div>
 
       <div className="grid max-w-lg grid-cols-2 gap-3 sm:grid-cols-3">
-        <SettingsPanelButton label="Appearance" isOpen={openPanel === 'appearance'} onClick={() => togglePanel('appearance')} />
-        <SettingsPanelButton label="File Previews" isOpen={openPanel === 'file-previews'} onClick={() => togglePanel('file-previews')} />
-        <SettingsPanelButton label="Indexing" isOpen={openPanel === 'indexing'} onClick={() => togglePanel('indexing')} />
-        <SettingsPanelButton label="Scheduling" isOpen={openPanel === 'scheduling'} onClick={() => togglePanel('scheduling')} />
-        <SettingsPanelButton label="Search" isOpen={openPanel === 'search'} onClick={() => togglePanel('search')} />
-        <SettingsPanelButton label="Remote Agents" isOpen={openPanel === 'remote-agents'} onClick={() => togglePanel('remote-agents')} />
-        <SettingsPanelButton label="Audit log" isOpen={openPanel === 'audit-log'} onClick={() => togglePanel('audit-log')} />
+        {PANELS.filter((panel) => admin || !panel.serverOnly).map((panel) => (
+          <SettingsPanelButton
+            key={panel.id}
+            label={panel.label}
+            isOpen={openPanel === panel.id}
+            onClick={() => togglePanel(panel.id)}
+          />
+        ))}
       </div>
 
       <div className="mt-6 space-y-6">
@@ -54,49 +69,62 @@ export default function SettingsPage() {
           />
         )}
 
-        {openPanel === 'file-previews' && (
-          <FilePreviewsSection
-            settings={appSettings.data}
-            isLoading={appSettings.isLoading}
-            error={appSettings.error}
-            isSaving={updateAppSettings.isPending}
-            onUpdate={(partial) => updateAppSettings.mutate(partial)}
-          />
-        )}
-
-        {openPanel === 'indexing' && (
-          <IndexingSection
-            settings={appSettings.data}
-            isLoading={appSettings.isLoading}
-            error={appSettings.error}
-            isSaving={updateAppSettings.isPending}
-            onUpdate={(partial) => updateAppSettings.mutate(partial)}
-          />
-        )}
-
-        {openPanel === 'scheduling' && (
-          <SchedulingSection
-            settings={appSettings.data}
-            isLoading={appSettings.isLoading}
-            error={appSettings.error}
-            isSaving={updateAppSettings.isPending}
-            onUpdate={(partial) => updateAppSettings.mutateAsync(partial)}
-          />
-        )}
-
         {openPanel === 'search' && <SearchSection settings={settings} onUpdate={updateSettings} />}
-        {openPanel === 'audit-log' && (
-          <AuditLogSection
-            settings={appSettings.data}
-            isLoading={appSettings.isLoading}
-            error={appSettings.error}
-            isSaving={updateAppSettings.isPending}
-            onUpdate={(partial) => updateAppSettings.mutate(partial)}
-          />
-        )}
-        {openPanel === 'remote-agents' && <RemoteAgentsSection settings={appSettings.data} isLoading={appSettings.isLoading} error={appSettings.error} isSaving={updateAppSettings.isPending} onUpdate={(partial) => updateAppSettings.mutate(partial)} />}
+
+        {admin && <ServerSettingsPanels openPanel={openPanel} />}
       </div>
     </div>
+  )
+}
+
+// Mounted for admins only, so the app settings request never runs for members
+function ServerSettingsPanels({ openPanel }: { openPanel: SettingsPanel | null }) {
+  const appSettings = useAppSettings()
+  const updateAppSettings = useUpdateAppSettings()
+
+  return (
+    <>
+      {openPanel === 'file-previews' && (
+        <FilePreviewsSection
+          settings={appSettings.data}
+          isLoading={appSettings.isLoading}
+          error={appSettings.error}
+          isSaving={updateAppSettings.isPending}
+          onUpdate={(partial) => updateAppSettings.mutate(partial)}
+        />
+      )}
+
+      {openPanel === 'indexing' && (
+        <IndexingSection
+          settings={appSettings.data}
+          isLoading={appSettings.isLoading}
+          error={appSettings.error}
+          isSaving={updateAppSettings.isPending}
+          onUpdate={(partial) => updateAppSettings.mutate(partial)}
+        />
+      )}
+
+      {openPanel === 'scheduling' && (
+        <SchedulingSection
+          settings={appSettings.data}
+          isLoading={appSettings.isLoading}
+          error={appSettings.error}
+          isSaving={updateAppSettings.isPending}
+          onUpdate={(partial) => updateAppSettings.mutateAsync(partial)}
+        />
+      )}
+
+      {openPanel === 'audit-log' && (
+        <AuditLogSection
+          settings={appSettings.data}
+          isLoading={appSettings.isLoading}
+          error={appSettings.error}
+          isSaving={updateAppSettings.isPending}
+          onUpdate={(partial) => updateAppSettings.mutate(partial)}
+        />
+      )}
+      {openPanel === 'remote-agents' && <RemoteAgentsSection settings={appSettings.data} isLoading={appSettings.isLoading} error={appSettings.error} isSaving={updateAppSettings.isPending} onUpdate={(partial) => updateAppSettings.mutate(partial)} />}
+    </>
   )
 }
 
