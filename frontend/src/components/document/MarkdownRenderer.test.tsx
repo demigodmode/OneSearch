@@ -50,6 +50,28 @@ describe('MarkdownRenderer', () => {
     expect(open).not.toBeChecked()
   })
 
+  it('names each task checkbox after its item text', () => {
+    render(<MarkdownRenderer content={'- [x] shipped\n- [ ] **bold** thing'} />)
+
+    expect(screen.getByRole('checkbox', { name: 'shipped' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'bold thing' })).not.toBeChecked()
+  })
+
+  it('keeps nested task items out of their parent checkbox name', () => {
+    const { container } = render(<MarkdownRenderer content={'- [ ] outer\n  - [x] inner'} />)
+
+    expect(screen.getByRole('checkbox', { name: 'outer' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'inner' })).toBeChecked()
+    expect(container.querySelectorAll('li.task-list-item')).toHaveLength(2)
+  })
+
+  it('names task items in loose lists', () => {
+    render(<MarkdownRenderer content={'- [x] shipped\n\n- [ ] still open'} />)
+
+    expect(screen.getByRole('checkbox', { name: 'shipped' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'still open' })).not.toBeChecked()
+  })
+
   it('renders pipe tables inside a horizontal scroll wrapper', () => {
     const md = '| Name | Size |\n| --- | --- |\n| a.txt | 1 KB |\n| b.txt | 2 KB |'
     render(<MarkdownRenderer content={md} />)

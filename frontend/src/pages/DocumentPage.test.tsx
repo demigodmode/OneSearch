@@ -153,6 +153,33 @@ describe('DocumentPage raw view', () => {
     expect(screen.getByText(/^Indexed: /)).toHaveClass('whitespace-nowrap')
   })
 
+  it('shows the extension for PDFs too', () => {
+    current = { ...base, type: 'pdf', extension: 'pdf', basename: 'notes.pdf', content: '' }
+    renderPage()
+
+    expect(screen.getByText('.pdf')).toBeInTheDocument()
+  })
+
+  it('keeps the metadata collapsed until it is opened, and closes it on the next document', async () => {
+    const user = userEvent.setup()
+    current = { ...base, metadata: { extraction_failed: false } }
+    docTwo.metadata = { has_frontmatter: true }
+    renderWithNav()
+
+    const toggle = screen.getByRole('button', { name: 'Metadata' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('extraction_failed:')).not.toBeInTheDocument()
+
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('extraction_failed:')).toBeInTheDocument()
+
+    await user.click(screen.getByText('go-to-doc-2'))
+    expect(screen.getByRole('button', { name: 'Metadata' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('has_frontmatter:')).not.toBeInTheDocument()
+    docTwo.metadata = {}
+  })
+
   it('has no toggle for other types', () => {
     current = { ...base, type: 'text', extension: 'txt', basename: 'notes.txt', content: 'plain' }
     renderPage()
