@@ -13,9 +13,12 @@ export default function AccountPage() {
       </div>
 
       <div className="space-y-8">
-        <section className="bg-card border border-border rounded-lg p-6 max-w-lg">
+        <section className="bg-card border border-border rounded-lg p-6">
           <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider mb-4">Change password</h2>
-          <PasswordChangeForm submitLabel="Change password" />
+          {/* card matches the token card's width, the form itself stays narrow */}
+          <div className="max-w-lg">
+            <PasswordChangeForm submitLabel="Change password" />
+          </div>
         </section>
 
         <ApiTokensSection />

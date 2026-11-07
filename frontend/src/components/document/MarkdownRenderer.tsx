@@ -51,6 +51,22 @@ export function MarkdownRenderer({ content, searchQuery }: { content: string; se
               </a>
             )
           },
+          // GFM task boxes come through disabled, which the browser greys out.
+          // Keep them enabled so ticked ones are readable; controlled + readOnly
+          // means React puts the state back if someone clicks.
+          input({ node: _node, type, checked, disabled: _disabled, ...props }) {
+            if (type !== 'checkbox') return <input type={type} {...props} />
+            return (
+              <input
+                type="checkbox"
+                checked={!!checked}
+                readOnly
+                aria-readonly="true"
+                className="accent-brand"
+                {...props}
+              />
+            )
+          },
           // Wide tables scroll instead of stretching the card
           table({ node: _node, children, ...props }) {
             return (
