@@ -485,6 +485,8 @@ async def setup_admin(
         password_hash=hash_password(setup_data.password),
         is_active=True,
         role=ROLE_ADMIN,
+        # setup signs you straight in, so it's the first login
+        last_login_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
 
     db.add(user)

@@ -188,6 +188,15 @@ class TestSetupEndpoint:
         assert data["token_type"] == "bearer"
         assert data["expires_in"] > 0
 
+    def test_setup_counts_as_the_first_sign_in(self, client):
+        response = client.post("/api/auth/setup", json={"username": "admin", "password": "securepassword123"})
+        headers = {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+        users = client.get("/api/users", headers=headers).json()
+
+        assert users[0]["username"] == "admin"
+        assert users[0]["last_login_at"] is not None
+
     def test_setup_forbidden_after_completion(self, client, sample_user):
         """Test setup is forbidden after first user exists"""
         setup_data = {
