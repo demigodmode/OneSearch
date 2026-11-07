@@ -225,7 +225,7 @@ export function ReadableTextRenderer({
       </div>
 
       {pages.length > 1 && (
-        <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm">
+        <div className="flex flex-col rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm sm:flex-row">
           <TextPager label="Pages (bottom)" pageIndex={pageIndex} pageCount={pages.length} onPageChange={goToPageFromBottom} />
         </div>
       )}
