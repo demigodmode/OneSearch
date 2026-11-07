@@ -76,7 +76,7 @@ Sessions that were created before you upgraded to 1.8.0 keep working until they 
 
 ## Changing your password
 
-Open **Account** and use **Change password**. Members can reach it from the gear icon in the header. Admins can pick **Account** in the settings sidebar. You need your current password to change it.
+Open **Account** and use **Change password**. Everyone can reach it from the gear icon in the header, and admins can also pick **Account** in the settings sidebar. You need your current password to change it.
 
 ## API tokens
 

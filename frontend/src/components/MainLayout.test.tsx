@@ -15,10 +15,10 @@ vi.mock('@/contexts/useAuth', () => ({
 }))
 
 describe('MainLayout settings link', () => {
-  it('opens the admin landing page from the gear for admins', () => {
+  it('opens Account from the gear for admins', () => {
     role = 'admin'
     render(<MemoryRouter><MainLayout /></MemoryRouter>)
-    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/admin/sources')
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/account')
   })
 
   it('opens Account from the gear for members', () => {

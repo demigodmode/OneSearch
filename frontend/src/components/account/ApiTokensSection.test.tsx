@@ -7,6 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiTokensSection } from './ApiTokensSection'
 import type { ApiToken, ApiTokenCreated } from '@/types/api'
+import { formatDateTime } from '@/lib/utils'
 
 const api = vi.hoisted(() => ({
   listApiTokens: vi.fn(),
@@ -84,6 +85,17 @@ describe('ApiTokensSection', () => {
     const row = within(await screen.findByRole('row', { name: /Laptop/ }))
     expect(row.getAllByText('Never')).toHaveLength(2)
     expect(row.getByRole('button', { name: 'Revoke' })).toBeInTheDocument()
+  })
+
+  it('keeps headers and dates on one line and gives long names a full title', async () => {
+    const longName = 'old backup script for the nas share'
+    api.listApiTokens.mockResolvedValue([{ ...laptop, name: longName }])
+    renderSection()
+
+    const name = await screen.findByTitle(longName)
+    expect(name).toHaveClass('truncate')
+    expect(screen.getByRole('columnheader', { name: 'Last used' })).toHaveClass('whitespace-nowrap')
+    expect(screen.getByText(formatDateTime(laptop.created_at))).toHaveClass('whitespace-nowrap')
   })
 
   it('keeps revoked and expired tokens listed, greyed out, with no revoke button', async () => {

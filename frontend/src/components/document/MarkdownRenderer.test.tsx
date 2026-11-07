@@ -27,6 +27,14 @@ describe('MarkdownRenderer', () => {
     expect(screen.getByText('code')).toHaveClass('text-brand-strong')
   })
 
+  it('marks task list items so the CSS can drop the bullet', () => {
+    const { container } = render(<MarkdownRenderer content={'- [x] shipped\n- [ ] still open'} />)
+
+    expect(container.querySelector('ul')).toHaveClass('contains-task-list')
+    expect(container.querySelectorAll('li.task-list-item')).toHaveLength(2)
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2)
+  })
+
   it('renders pipe tables inside a horizontal scroll wrapper', () => {
     const md = '| Name | Size |\n| --- | --- |\n| a.txt | 1 KB |\n| b.txt | 2 KB |'
     render(<MarkdownRenderer content={md} />)

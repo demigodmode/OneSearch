@@ -14,7 +14,7 @@ A source is a directory that OneSearch will index. You can have multiple sources
 
 ### Using the Web UI
 
-After logging in, click the gear icon in the top bar. It opens **Sources** for admins and **Account** for members.
+After logging in, click the gear icon in the top bar. It opens **Account** for everyone. Admins find **Sources** and the other admin pages in the sidebar there.
 
 Click **Add Source** and fill in:
 

@@ -23,10 +23,10 @@ export function ApiTokenTable({ tokens, onRevoke }: ApiTokenTableProps) {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Name</TableHead>
-          <TableHead>Created</TableHead>
-          <TableHead>Expires</TableHead>
-          <TableHead>Last used</TableHead>
+          <TableHead className="whitespace-nowrap">Name</TableHead>
+          <TableHead className="whitespace-nowrap">Created</TableHead>
+          <TableHead className="whitespace-nowrap">Expires</TableHead>
+          <TableHead className="whitespace-nowrap">Last used</TableHead>
           <TableHead><span className="sr-only">Actions</span></TableHead>
         </TableRow>
       </TableHeader>
@@ -35,14 +35,16 @@ export function ApiTokenTable({ tokens, onRevoke }: ApiTokenTableProps) {
           const inactive = token.status !== 'active'
           return (
             <TableRow key={token.id} className={inactive ? 'text-muted-foreground opacity-60' : undefined}>
-              <TableCell className="font-medium">{token.name}</TableCell>
-              <TableCell>{formatDateTime(token.created_at)}</TableCell>
+              <TableCell className="font-medium">
+                <span className="block max-w-[12rem] truncate" title={token.name}>{token.name}</span>
+              </TableCell>
+              <TableCell className="whitespace-nowrap">{formatDateTime(token.created_at)}</TableCell>
               {inactive ? (
-                <TableCell colSpan={2}>{inactiveLabel(token)}</TableCell>
+                <TableCell colSpan={2} className="whitespace-nowrap">{inactiveLabel(token)}</TableCell>
               ) : (
                 <>
-                  <TableCell>{token.expires_at ? formatDateTime(token.expires_at) : 'Never'}</TableCell>
-                  <TableCell>{token.last_used_at ? formatDateTime(token.last_used_at) : 'Never'}</TableCell>
+                  <TableCell className="whitespace-nowrap">{token.expires_at ? formatDateTime(token.expires_at) : 'Never'}</TableCell>
+                  <TableCell className="whitespace-nowrap">{token.last_used_at ? formatDateTime(token.last_used_at) : 'Never'}</TableCell>
                 </>
               )}
               <TableCell>

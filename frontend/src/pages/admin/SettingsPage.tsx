@@ -696,6 +696,7 @@ function SearchSection({ settings, onUpdate }: SearchSectionProps) {
           <SegmentedButtons
             options={[
               { value: 10 as const, label: '10' },
+              { value: 20 as const, label: '20' },
               { value: 25 as const, label: '25' },
               { value: 50 as const, label: '50' },
             ]}

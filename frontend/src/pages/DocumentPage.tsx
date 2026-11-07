@@ -395,11 +395,11 @@ export default function DocumentPage() {
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Calendar className="h-4 w-4" />
-                  <span>Modified: {formatFullDate(document.modified_at)}</span>
+                  <span className="whitespace-nowrap">Modified: {formatFullDate(document.modified_at)}</span>
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Clock className="h-4 w-4" />
-                  <span>Indexed: {formatFullDate(document.indexed_at)}</span>
+                  <span className="whitespace-nowrap">Indexed: {formatFullDate(document.indexed_at)}</span>
                 </div>
               </div>
             </div>

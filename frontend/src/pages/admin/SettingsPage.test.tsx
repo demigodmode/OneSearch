@@ -15,7 +15,10 @@ vi.mock('@/contexts/useAuth', () => ({
   }),
 }))
 vi.mock('@/contexts/useTheme', () => ({ useTheme: () => ({ theme: { id: 'x', brandH: 1, brandS: 1, brandL: 1 }, themeMode: 'dark', customHue: null, setPreset: vi.fn(), setCustomHue: vi.fn(), setThemeMode: vi.fn() }) }))
-vi.mock('@/contexts/useSearchSettings', () => ({ useSearchSettings: () => ({ settings: {}, updateSettings: vi.fn() }) }))
+vi.mock('@/contexts/useSearchSettings', async () => {
+  const { DEFAULT_SETTINGS } = await import('@/contexts/searchSettings')
+  return { useSearchSettings: () => ({ settings: DEFAULT_SETTINGS, updateSettings: vi.fn() }) }
+})
 vi.mock('@/hooks/useApi', () => ({ useAppSettings: () => useAppSettingsMock(), useUpdateAppSettings: () => ({ mutate, isPending: false }) }))
 
 beforeEach(() => {
@@ -84,6 +87,15 @@ describe('SettingsPage for members', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
     expect(screen.getByText('Results per page')).toBeInTheDocument()
     expect(useAppSettingsMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('SettingsPage search results per page', () => {
+  it('shows the default of 20 as selected', () => {
+    render(<SettingsPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    expect(screen.getByRole('radio', { name: '20' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('radio', { name: '10' })).toHaveAttribute('aria-checked', 'false')
   })
 })
 

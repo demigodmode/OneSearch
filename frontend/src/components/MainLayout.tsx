@@ -6,7 +6,6 @@ import { Settings, LogOut, User } from 'lucide-react'
 import { useAuth } from '@/contexts/useAuth'
 import { Button } from '@/components/ui/button'
 import { OneSearchLogo } from '@/components/OneSearchLogo'
-import { isAdmin } from '@/lib/utils'
 
 export default function MainLayout() {
   const { user, logout } = useAuth()
@@ -35,7 +34,7 @@ export default function MainLayout() {
             <nav className="flex items-center gap-2">
               {user && (
                 <Link
-                  to={isAdmin(user) ? '/admin/sources' : '/account'}
+                  to="/account"
                   className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary transition-colors"
                 >
                   <Settings className="h-4 w-4" />
