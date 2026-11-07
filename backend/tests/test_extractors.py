@@ -201,6 +201,34 @@ class TestTextExtractor:
         assert doc.title == "short second line"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("name", "text", "title"),
+        [
+            ("one_line.py", '"""Tiny helper for parsing dates."""\nimport os\n', "Tiny helper for parsing dates."),
+            ("single.py", "'''Single-quoted docstring'''\n", "Single-quoted docstring"),
+            ("opening.py", '"""\nLoads the config file.\n"""\n', "Loads the config file."),
+            ("block.js", "/* Builds the bundle */\nconst x = 1\n", "Builds the bundle"),
+            ("page.html", "<!-- Landing page -->\n<html>\n", "Landing page"),
+        ],
+    )
+    async def test_title_drops_docstring_and_comment_markers(self, temp_dir, name, text, title):
+        f = temp_dir / name
+        f.write_text(text)
+
+        doc = await TextExtractor("src", "Source").extract_with_timeout(str(f))
+
+        assert doc.title == title
+
+    @pytest.mark.asyncio
+    async def test_title_falls_back_to_filename_when_only_markers(self, temp_dir):
+        f = temp_dir / "empty_doc.py"
+        f.write_text('"""\n"""\n')
+
+        doc = await TextExtractor("src", "Source").extract_with_timeout(str(f))
+
+        assert doc.title == "empty_doc"
+
+    @pytest.mark.asyncio
     async def test_timeout(self, temp_dir, monkeypatch):
         """Test extraction timeout"""
         import time

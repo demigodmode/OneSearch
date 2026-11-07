@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Code files that start with a docstring got the docstring as their title, quotes included. Quote and comment markers are now stripped. Existing files pick up the new title on their next full reindex.
 - `/api/health`, and the rest of the API with it, could hang forever when Meilisearch stopped answering. Meilisearch calls now time out, and the health check no longer blocks other requests.
 - A file that changed and then failed to index kept showing up for its old text. Its old index entry is now removed.
 - Photo metadata was missing aperture, exposure, focal length, ISO and lens for most camera photos, because those are stored in a part of the EXIF data that wasn't read. GPS from real photo files was broken for the same reason.

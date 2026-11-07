@@ -214,15 +214,30 @@ class TextExtractor(BaseExtractor):
         for line in lines[:5]:  # Check first 5 lines
             line = line.strip()
             if line and len(line) <= 100:
-                # Remove common comment markers
-                for prefix in ['#', '//', '/*', '--', '<!--']:
-                    if line.startswith(prefix):
-                        line = line[len(prefix):].strip()
+                line = _strip_comment_markers(line)
                 if line:
                     return line
 
         # Fallback to filename without extension
         return path.stem
+
+
+# Longest first, so '"""' wins over '"' style partial matches
+_OPENERS = ('"""', "'''", '<!--', '/*', '//', '--', '#')
+_CLOSERS = ('"""', "'''", '-->', '*/')
+
+
+def _strip_comment_markers(line: str) -> str:
+    """Drop comment and docstring markers from both ends of a title candidate"""
+    for opener in _OPENERS:
+        if line.startswith(opener):
+            line = line[len(opener):].strip()
+            break
+    for closer in _CLOSERS:
+        if line.endswith(closer):
+            line = line[: -len(closer)].strip()
+            break
+    return line
 
 
 # Register this extractor
