@@ -20,6 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Upgrading from 1.7.x needs no steps if you set `SESSION_SECRET`. The existing account becomes an admin. Sessions from before the upgrade keep working until they expire. Installs without `SESSION_SECRET` are signed out once.
 - Sessions and download links end right away when a user's role or status changes or an admin resets their password. Changing your own password ends your other sessions.
+- The gear icon in the header now opens Account for everyone. Admins see the admin pages listed under it, and members get a Settings page with the Appearance and Search options, saved in their browser.
+- Long text pages have Previous/Next under the text as well as above it.
+- The Metadata card on document pages starts collapsed.
 
 ### Fixed
 
@@ -28,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A file that changed and then failed to index kept showing up for its old text. Its old index entry is now removed.
 - Photo metadata was missing aperture, exposure, focal length, ISO and lens for most camera photos, because those are stored in a part of the EXIF data that wasn't read. GPS from real photo files was broken for the same reason.
 - Search snippets could end in a broken highlight tag.
+- Document pages didn't always show the file extension, PDFs included.
+- Markdown task list checkboxes had no name for screen readers, and ticked ones were hard to read.
 - `onesearch ... --json` could print invalid JSON when piped, because long lines got wrapped.
 - Clear filters on the search page came back after a reload.
 - Reindex, full reindex and delete on the Sources page failed silently. They now show the error.
