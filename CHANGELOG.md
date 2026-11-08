@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.8.0] - 2026-11-08
 
+OneSearch isn't single-user anymore. You can add more people as admins or members, everyone gets their own sign-in and API tokens, and admins get an audit log of who did what.
+
+If `SESSION_SECRET` is set, upgrading from 1.7.x needs no extra steps. If it isn't, everyone gets signed out once. To set it, generate a key with `openssl rand -base64 32` and add `SESSION_SECRET=<that key>` to your `.env` ([details](https://onesearch.readthedocs.io/en/latest/configuration/environment-variables/#authentication)). See also the [1.8.0 upgrade notes](https://onesearch.readthedocs.io/en/latest/getting-started/upgrading/#upgrading-to-180).
+
 ### Added
 
-- Several user accounts. Each user is an admin or a member. Admins add users on **Admin > Users** with a temporary password, and the new user picks their own password at first sign-in. Admins can change roles, disable and re-enable accounts, reset passwords and delete users. Nobody can disable, demote or delete their own account, and the last active admin can't be removed.
+- User accounts, each one an admin or a member. Admins add users on **Admin > Users** with a temporary password, and the new user picks their own password at first sign-in. Admins can change roles, disable and re-enable accounts, reset passwords and delete users. Nobody can disable, demote or delete their own account, and the last active admin can't be removed.
 - Members can search, open, preview and download documents. They don't see Sources, Status, Agents, Settings, Users or Audit log.
 - An Account page for every user, with password change and API tokens.
 - API tokens for scripts and other apps. They start with `os_`, can expire after 30 days, 90 days, a year, or never, and can only search and open documents. `onesearch login --token` and `ONESEARCH_TOKEN` accept them for `onesearch search`. Admins can see and revoke any user's tokens.
@@ -22,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sessions and download links end right away when a user's role or status changes or an admin resets their password. Changing your own password ends your other sessions.
 - The gear icon in the header now opens Account for everyone. Admins see the admin pages listed under it, and members get a Settings page with the Appearance and Search options, saved in their browser.
 - Long text pages have Previous/Next under the text as well as above it.
-- The Metadata card on document pages starts collapsed.
+- The Metadata card on a file's page starts collapsed.
 
 ### Fixed
 
