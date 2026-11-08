@@ -71,7 +71,7 @@ There is no major-only tag like `1`.
 
 Nothing to set up. Pull the new image and restart as usual.
 
-Startup runs a migration that adds user roles, API tokens and the audit log. The account you set up becomes an admin, and it's the only account there is until you add more from **Settings > Users**. Sessions you already have keep working until they expire. The exception is installs that never set `SESSION_SECRET`: they get signed out once, because the key they used before was a built-in one that is now replaced. Setting `SESSION_SECRET` avoids that on future upgrades.
+Startup runs a migration that adds user roles, API tokens and the audit log. The account you set up becomes an admin, and it's the only account there is until you add more from **Settings > Users**. Sessions you already have keep working until they expire. The exception is installs that never set `SESSION_SECRET`: they get signed out once, because the key they used before was a built-in one that is now replaced. Setting `SESSION_SECRET` avoids that on future upgrades: generate a key with `openssl rand -base64 32`, add `SESSION_SECRET=<that key>` to your `.env`, and restart. See [Authentication](../configuration/environment-variables.md#authentication) for more.
 
 Code files that start with a docstring or comment get a cleaner title now. Files that are already indexed keep their old title until you run a full reindex on their source.
 
