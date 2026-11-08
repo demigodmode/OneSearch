@@ -51,7 +51,13 @@ def db_session():
 
 
 @pytest.fixture
-def backend_client(db_session):
+def backend_client(db_session, tmp_path, monkeypatch):
+    # The app writes a generated session key to /app/data at startup when
+    # SESSION_SECRET isn't set. Keep it in tmp instead.
+    import app.api.auth as auth_module
+    monkeypatch.setattr(auth_module, "_session_secret_path", lambda: tmp_path / "session_secret")
+    monkeypatch.setattr(auth_module, "_generated_secret", None)
+
     def override_get_db():
         try:
             yield db_session
