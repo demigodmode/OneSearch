@@ -7,6 +7,7 @@ import base64
 import os
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -59,6 +60,14 @@ def test_runtime_image_ships_ffprobe_for_media_metadata():
     flags = [line.strip() for line in dockerfile.splitlines() if line.strip().startswith("--")]
     assert not any(flag.startswith(("--enable-gpl", "--enable-nonfree")) for flag in flags)
     assert "COPY --from=ffprobe-builder /out/licenses /usr/share/licenses/ffmpeg" in dockerfile
+
+
+def test_admin_console_script_is_declared_and_copied_onto_path():
+    pyproject = tomllib.loads(Path("backend/pyproject.toml").read_text(encoding="utf-8"))
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+
+    assert pyproject["project"]["scripts"]["onesearch-admin"] == "app.admin_cli:main"
+    assert "COPY --from=backend-builder /usr/local/bin /usr/local/bin" in dockerfile
 
 
 def test_runtime_python_packages_are_not_editable_build_paths():

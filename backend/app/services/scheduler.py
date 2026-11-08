@@ -18,7 +18,8 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import settings
-from ..models import Source
+from ..models import Source, _utcnow
+from ..services.audit_retention import purge_old_audit_events
 from ..services.indexer import IndexingService  # noqa: F401 - legacy patch target
 from ..services.scan_dispatcher import (
     AgentUnavailableError,
@@ -235,6 +236,9 @@ class SchedulerService:
         self._session_factory = sessionmaker(bind=engine)
 
     def start(self):
+        # Runs with the scheduler off too, so retention still applies after a restart.
+        self._purge_audit_log()
+
         if not settings.scheduler_enabled:
             logger.info("Scheduler disabled via SCHEDULER_ENABLED=false")
             return
@@ -246,6 +250,14 @@ class SchedulerService:
             self.scheduler.start()
             logger.info(f"Scheduler started (timezone={settings.schedule_timezone})")
 
+            self.scheduler.add_job(
+                func=self._purge_audit_log,
+                trigger=build_cron_trigger("17 3 * * *"),
+                id="audit-retention",
+                name="Delete old audit log entries",
+                replace_existing=True,
+            )
+
             self._sync_all_jobs()
         except Exception as e:
             logger.warning(f"Failed to start scheduler: {e}")
@@ -255,6 +267,17 @@ class SchedulerService:
         if self.scheduler and self.scheduler.running:
             self.scheduler.shutdown(wait=False)
             logger.info("Scheduler shut down")
+
+    def _purge_audit_log(self, now: datetime | None = None):
+        """Drop audit entries past the retention setting. Errors are logged, never raised."""
+        db = self._session_factory()
+        try:
+            removed = purge_old_audit_events(db, now or _utcnow())
+            logger.info(f"Audit log retention removed {removed} entries")
+        except Exception:
+            logger.exception("Audit log retention failed")
+        finally:
+            db.close()
 
     def _sync_all_jobs(self):
         """Load schedules from DB and sync with APScheduler state."""

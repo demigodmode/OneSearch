@@ -24,6 +24,7 @@ Indexed data stays on infrastructure you control:
 - Derived remote image previews: Stored in the server data directory so previews remain available while an agent is offline
 - Agent configuration and credential: Stored on the agent machine
 - Logs: Stored only on your systems
+- Audit log: Stored in the server database. It records sign-ins (including the username typed and the IP address of failed ones) and admin changes, and keeps them for 90 days by default. See [Audit log](../administration/authentication.md#audit-log).
 
 With on-agent processing, the agent sends extracted text and metadata to the server. Remote image sources may also send reduced JPEG previews for offline viewing; these derived assets remain in the server data directory until replaced or the source is removed. With on-server processing, the agent sends changed originals to temporary server storage for extraction. The server does not retain those original-file transfers after processing. Searchable text and metadata remain in the central index in both modes.
 
@@ -56,7 +57,7 @@ The backend and the bundled Meilisearch run as an unprivileged `onesearch` user,
 
 ### Built-in authentication
 
-OneSearch includes JWT-based authentication with bcrypt password hashing. A setup wizard creates the initial admin account on first launch. Login is rate-limited to prevent brute force attacks.
+OneSearch includes JWT-based authentication with bcrypt password hashing. A setup wizard creates the first admin account on first launch, and admins can add more users as admins or members. Login is rate-limited to slow down password guessing. API tokens for scripts can only search, and only their hashes are stored.
 
 For additional security layers (especially if exposing to the internet), consider pairing with a reverse proxy, VPN, or firewall rules.
 

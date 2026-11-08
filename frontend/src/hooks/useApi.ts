@@ -5,7 +5,7 @@
  * TanStack Query hooks for API data fetching
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useRef } from 'react'
 import {
   getSources,
@@ -25,8 +25,16 @@ import {
   queryKeys,
   getAgents, getAgent, createAgentEnrollment, approveAgent, disableAgent, revokeAgent, updateAgentProcessingMode,
   getLocalSourceRoots, listSourceBatches,
+  listUsers, createUser, updateUser, resetUserPassword, deleteUser, listUserTokens, revokeUserToken,
+  listAuditEvents,
+  listApiTokens, createApiToken, revokeApiToken,
 } from '@/lib/api'
 import type {
+  AuditQuery,
+  CreateApiTokenRequest,
+  CreateUserRequest,
+  ResetUserPasswordRequest,
+  UpdateUserRequest,
   SourceCreate,
   SourceUpdate,
   SearchQuery,
@@ -241,6 +249,119 @@ export function useReindexSource() {
       // Invalidate both sources (for updated_at) and status (for indexing info)
       queryClient.invalidateQueries({ queryKey: queryKeys.sources })
       queryClient.invalidateQueries({ queryKey: queryKeys.status })
+    },
+  })
+}
+
+// ============================================================================
+// Users Hooks (admin)
+// ============================================================================
+
+export function useUsers() {
+  return useQuery({ queryKey: queryKeys.users, queryFn: listUsers })
+}
+
+/**
+ * Audit entries for the given filters. fetchNextPage loads the next (older) page.
+ */
+export function useAuditEvents(filters: Omit<AuditQuery, 'before'>) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.audit(filters),
+    queryFn: ({ pageParam }) => listAuditEvents(pageParam === undefined ? filters : { ...filters, before: pageParam }),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (lastPage) => lastPage.next_before ?? undefined,
+  })
+}
+
+export function useCreateUser() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: CreateUserRequest) => createUser(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.users })
+    },
+  })
+}
+
+export function useUpdateUser() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: UpdateUserRequest }) => updateUser(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.users })
+    },
+  })
+}
+
+export function useResetUserPassword() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: ResetUserPasswordRequest }) => resetUserPassword(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.users })
+    },
+  })
+}
+
+export function useDeleteUser() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) => deleteUser(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.users })
+    },
+  })
+}
+
+export function useUserTokens(userId: number | undefined) {
+  return useQuery({
+    queryKey: queryKeys.userTokens(userId ?? 0),
+    queryFn: () => listUserTokens(userId as number),
+    enabled: userId !== undefined,
+  })
+}
+
+export function useRevokeUserToken() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ userId, tokenId }: { userId: number; tokenId: number }) => revokeUserToken(userId, tokenId),
+    onSuccess: (_data, { userId }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.userTokens(userId) })
+    },
+  })
+}
+
+// ============================================================================
+// API Token Hooks (your own)
+// ============================================================================
+
+export function useApiTokens() {
+  return useQuery({ queryKey: queryKeys.apiTokens, queryFn: listApiTokens })
+}
+
+export function useCreateApiToken() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (data: CreateApiTokenRequest) => createApiToken(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.apiTokens })
+    },
+  })
+}
+
+export function useRevokeApiToken() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (id: number) => revokeApiToken(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.apiTokens })
     },
   })
 }

@@ -1,6 +1,6 @@
 # Settings API
 
-The settings API manages app-level indexing, preview, and search defaults that are normally changed from **Admin → Settings**.
+The settings API manages app-level indexing, preview, and search defaults that are normally changed from **Settings**.
 
 All settings endpoints require authentication.
 

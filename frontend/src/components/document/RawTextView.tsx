@@ -1,14 +1,15 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { AlertCircle, ChevronLeft, ChevronRight, FileWarning, Loader2, RotateCw } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { AlertCircle, FileWarning, Loader2, RotateCw } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
 import { useDocumentRawText } from '@/hooks/useApi'
 import { formatSize } from '@/lib/utils'
 import type { Document } from '@/types/api'
 import { CodeRenderer } from './CodeRenderer'
 import { buildRawTextPages } from './rawTextPages'
 import { RawQueryCursor, type TextMatch } from './queryHighlight'
+import { TextPager } from './TextPager'
 
 type RawDocument = Pick<Document, 'id' | 'modified_at' | 'size_bytes'>
 
@@ -29,6 +30,7 @@ export function RawTextView({
   const pages = useMemo(() => buildRawTextPages(rawContent), [rawContent])
   const cursor = useMemo(() => new RawQueryCursor(rawContent, searchQuery), [rawContent, searchQuery])
   const [pageState, setPageState] = useState(() => ({ documentId: document.id, modifiedAt: document.modified_at, content: rawContent, pageIndex: 0 }))
+  const topRef = useRef<HTMLDivElement>(null)
   const pageStateMatchesContent = pageState.documentId === document.id && pageState.modifiedAt === document.modified_at && pageState.content === rawContent
   if (!pageStateMatchesContent) {
     setPageState({ documentId: document.id, modifiedAt: document.modified_at, content: rawContent, pageIndex: 0 })
@@ -82,37 +84,29 @@ export function RawTextView({
     )
   }
 
+  const setPage = (nextIndex: number) =>
+    setPageState({ documentId: document.id, modifiedAt: document.modified_at, content: rawContent, pageIndex: nextIndex })
+  const goToPageFromBottom = (nextIndex: number) => {
+    setPage(nextIndex)
+    topRef.current?.scrollIntoView({ block: 'start' })
+  }
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" ref={topRef}>
       {pages.length > 1 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm">
-          <button
-            type="button"
-            onClick={() => setPageState({ documentId: document.id, modifiedAt: document.modified_at, content: rawContent, pageIndex: Math.max(0, pageIndex - 1) })}
-            disabled={pageIndex === 0}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 disabled:opacity-40 disabled:hover:text-muted-foreground"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Previous
-          </button>
-          <span aria-live="polite" className="text-muted-foreground">
-            Page <span className="text-foreground">{pageIndex + 1}</span> of {pages.length}
-          </span>
-          <button
-            type="button"
-            onClick={() => setPageState({ documentId: document.id, modifiedAt: document.modified_at, content: rawContent, pageIndex: Math.min(pages.length - 1, pageIndex + 1) })}
-            disabled={pageIndex >= pages.length - 1}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 disabled:opacity-40 disabled:hover:text-muted-foreground"
-          >
-            Next
-            <ChevronRight className="h-4 w-4" />
-          </button>
+        <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm">
+          <TextPager label="Pages (top)" pageIndex={pageIndex} pageCount={pages.length} onPageChange={setPage} />
         </div>
       )}
       {plainText && <p className="text-sm text-muted-foreground">Showing plain text for this large file.</p>}
       {page.continuesFromPrevious && <p className="text-sm text-muted-foreground">Continued from line {page.startingLineNumber}</p>}
       <CodeRenderer content={content} language={plainText ? 'text' : language} startingLineNumber={page.startingLineNumber} highlightRanges={highlights} />
       {page.continuesOnNext && <p className="text-sm text-muted-foreground">Line {page.endingLineNumber} continues on the next page.</p>}
+      {pages.length > 1 && (
+        <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm">
+          <TextPager label="Pages (bottom)" pageIndex={pageIndex} pageCount={pages.length} onPageChange={goToPageFromBottom} />
+        </div>
+      )}
     </div>
   )
 }

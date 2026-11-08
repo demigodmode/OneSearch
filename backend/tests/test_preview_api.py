@@ -133,7 +133,7 @@ def auth_headers(db_session):
     user = User(username="previewer", password_hash=hash_password("testpass"), is_active=True)
     db_session.add(user)
     db_session.commit()
-    token, _ = create_access_token(user.id, user.username)
+    token, _ = create_access_token(user.id, user.username, user.session_version)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -448,6 +448,52 @@ def test_download_streams_original_file_from_signed_link(client, source, temp_so
     assert response.content == image_path.read_bytes()
     assert response.headers["content-disposition"].startswith("attachment;")
     assert 'filename="photo.jpg"' in response.headers["content-disposition"]
+
+
+def test_download_link_stops_working_after_session_version_bump(
+    client, db_session, source, temp_source, monkeypatch
+):
+    _, image_path, _ = temp_source
+
+    async def get_document(document_id):
+        return image_doc(source, image_path)
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+    url = client.post("/api/documents/photos--image123/download-link").json()["url"]
+
+    previewer = db_session.query(User).filter_by(username="previewer").one()
+    previewer.session_version += 1
+    db_session.commit()
+
+    response = client.get(url)
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "download_token_invalid"
+
+
+@pytest.mark.parametrize("change", ["disabled", "must_change_password"])
+def test_download_link_rejected_when_user_state_blocks_signed_in_use(
+    client, db_session, source, temp_source, monkeypatch, change
+):
+    _, image_path, _ = temp_source
+
+    async def get_document(document_id):
+        return image_doc(source, image_path)
+
+    monkeypatch.setattr("app.api.preview.meili_service.get_document", get_document)
+    url = client.post("/api/documents/photos--image123/download-link").json()["url"]
+
+    previewer = db_session.query(User).filter_by(username="previewer").one()
+    if change == "disabled":
+        previewer.is_active = False
+    else:
+        previewer.must_change_password = True
+    db_session.commit()
+
+    response = client.get(url)
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "download_token_invalid"
 
 
 @pytest.mark.parametrize("agent_state", ["offline", "pending", "disabled", "revoked", "missing"])
@@ -1759,3 +1805,12 @@ def test_upload_preview_rejects_path_traversal(db_session, monkeypatch):
         assert response2.status_code in {400, 409}
 
     app.dependency_overrides.clear()
+
+
+def test_download_rejects_session_token(client, test_user):
+    response = client.get(
+        "/api/documents/photos--image123/download", params={"token": test_user["token"]}
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "download_token_wrong_purpose"

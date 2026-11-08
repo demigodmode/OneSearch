@@ -36,11 +36,13 @@ from ..schemas import (
     SourcePathTestRequest,
     SourcePathTestResponse,
     SourceResponse,
+    SourceSummaryResponse,
     SourceUpdate,
 )
 from ..services.agent_auth import effective_agent_status
 from ..services.agent_jobs import AgentJobService, JobConflict
 from ..services.app_settings import AppSettingsService
+from ..services.audit import AuditAction, AuditTarget, record_event
 from ..services.indexer import IndexingService
 from ..services.local_browse import LocalBrowseError, list_local_directories
 from ..services.scan_dispatcher import (
@@ -57,7 +59,7 @@ from ..services.scheduler import (
     validate_schedule,
 )
 from ..services.search import meili_service
-from .auth import get_current_user
+from .auth import require_admin, require_signed_in
 from .source_batches import router as batch_router
 
 logger = logging.getLogger(__name__)
@@ -530,6 +532,39 @@ def generate_source_id(name: str) -> str:
     return source_id or "source"
 
 
+# Only these fields decide whether an update is logged. Their values are never recorded.
+SOURCE_AUDIT_FIELDS = (
+    "name",
+    "location_type",
+    "agent_id",
+    "processing_mode",
+    "root_path",
+    "include_patterns",
+    "exclude_patterns",
+    "schedule_type",
+    "scan_schedule",
+    "interval_value",
+    "interval_unit",
+    "use_default_schedule",
+)
+
+
+def _audit_source(
+    db: Session,
+    actor: User,
+    action: AuditAction,
+    source: Source,
+    detail: dict | None = None,
+) -> None:
+    record_event(
+        db,
+        actor=actor,
+        action=action,
+        target=AuditTarget.source(source.name),
+        detail=detail,
+    )
+
+
 def _build_source(db: Session, data: SourceCreate, source_id: str, root_path: str) -> Source:
     """Build and schedule a complete source before its creation transaction."""
     if not data.use_default_schedule:
@@ -558,15 +593,18 @@ def _build_source(db: Session, data: SourceCreate, source_id: str, root_path: st
     return source
 
 
-@router.get("", response_model=list[SourceResponse])
+@router.get("", response_model=list[SourceResponse] | list[SourceSummaryResponse])
 async def list_sources(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db), current_user: User = Depends(require_signed_in)
 ):
     """
     List all configured sources
 
-    Returns list of sources with configuration details
+    Admins get full source details. Members get only id and name.
     """
+    if not current_user.is_admin:
+        rows = db.execute(select(Source.id, Source.name).order_by(Source.created_at.desc())).all()
+        return [SourceSummaryResponse(id=row.id, name=row.name) for row in rows]
     stmt = select(Source).options(selectinload(Source.agent)).order_by(Source.created_at.desc())
     sources = db.execute(stmt).scalars().all()
     app_settings = AppSettingsService(db).get_settings()
@@ -596,7 +634,7 @@ async def list_sources(
 async def test_source_path(
     request_data: SourcePathTestRequest,
     db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Test a source path before saving it."""
     if request_data.location_type == "local":
@@ -626,7 +664,7 @@ async def test_source_path(
 async def get_source_path_test(
     job_id: str,
     db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: User = Depends(require_admin),  # noqa: B008
 ):
     """Return the sanitized result of a queued remote path validation."""
     job = db.get(AgentJob, job_id)
@@ -643,7 +681,7 @@ async def get_source_path_test(
 async def browse_source_directory(
     request_data: SourceBrowseRequest,
     db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: User = Depends(require_admin),  # noqa: B008
 ):
     """Queue a bounded directory-only browse; this never creates a source."""
     if not AppSettingsService(db).get_settings().remote_agents_enabled:
@@ -670,7 +708,7 @@ async def browse_source_directory(
 async def get_source_directory_browse(
     job_id: str,
     db: Session = Depends(get_db),  # noqa: B008 - FastAPI dependency declaration
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: User = Depends(require_admin),  # noqa: B008
 ):
     job = db.get(AgentJob, job_id)
     payload = _browse_payload(job) if job is not None else None
@@ -681,7 +719,7 @@ async def get_source_directory_browse(
 
 @router.get("/local-roots", response_model=LocalSourceRootsResponse)
 async def get_local_source_roots(
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: User = Depends(require_admin),  # noqa: B008
 ):
     """Configured local source roots the folder picker may browse."""
     roots = _local_roots()
@@ -697,7 +735,7 @@ async def get_local_source_roots(
 @router.post("/browse-local", response_model=LocalBrowseResponse)
 async def browse_local_directory(
     request_data: LocalBrowseRequest,
-    current_user: User = Depends(get_current_user),  # noqa: B008
+    current_user: User = Depends(require_admin),  # noqa: B008
 ):
     """List folders under a configured local root; never creates a source."""
     roots = _local_roots()
@@ -740,7 +778,7 @@ router.include_router(batch_router)
 
 @router.get("/{source_id}", response_model=SourceResponse)
 async def get_source(
-    source_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    source_id: str, db: Session = Depends(get_db), current_user: User = Depends(require_admin)
 ):
     """
     Get a specific source by ID
@@ -770,7 +808,7 @@ async def create_source(
     request: Request,
     source_data: SourceCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Create a new search source
@@ -817,6 +855,7 @@ async def create_source(
 
     source = _build_source(db, source_data, source_id, root_path)
     db.add(source)
+    _audit_source(db, current_user, AuditAction.SOURCE_CREATED, source)
     db.commit()
     db.refresh(source)
 
@@ -839,7 +878,7 @@ async def update_source(
     source_id: str,
     source_data: SourceUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Update an existing source configuration
@@ -861,6 +900,8 @@ async def update_source(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Source '{source_id}' not found"
         )
+
+    before = {field: getattr(source, field) for field in SOURCE_AUDIT_FIELDS}
 
     # Validate the prospective combined binding before mutating the persistent object.
     prospective = {
@@ -969,6 +1010,13 @@ async def update_source(
     # Update timestamp
     source.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    changed_fields = sorted(
+        field for field in SOURCE_AUDIT_FIELDS if getattr(source, field) != before[field]
+    )
+    if changed_fields:
+        _audit_source(
+            db, current_user, AuditAction.SOURCE_UPDATED, source, {"fields": changed_fields}
+        )
     db.commit()
     db.refresh(source)
 
@@ -990,7 +1038,7 @@ async def delete_source(
     request: Request,
     source_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Delete a source and all its indexed files
@@ -1022,9 +1070,11 @@ async def delete_source(
     from ..services.source_cleanup import purge_source
 
     scheduler = request.app.state.scheduler if hasattr(request.app.state, "scheduler") else None
+    _audit_source(db, current_user, AuditAction.SOURCE_DELETED, source)
     try:
         await purge_source(source, db, scheduler=scheduler)
     except Exception as error:
+        db.rollback()
         logger.exception(f"Failed to purge source {source_id}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -1041,7 +1091,7 @@ async def reindex_source(
     source_id: str,
     full: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Manually trigger reindexing for a source
@@ -1074,6 +1124,7 @@ async def reindex_source(
             raise HTTPException(status_code=409, detail="remote_agents_disabled") from exc
         except AgentUnavailableError as exc:
             raise HTTPException(status_code=409, detail="agent_unavailable") from exc
+        _audit_source(db, current_user, AuditAction.SOURCE_REINDEXED, source, {"full": full})
         db.commit()
         return JSONResponse(
             status_code=202,
@@ -1099,6 +1150,8 @@ async def reindex_source(
         from sqlalchemy.orm import sessionmaker
         from starlette.concurrency import run_in_threadpool
 
+        _audit_source(db, current_user, AuditAction.SOURCE_REINDEXED, source, {"full": full})
+        db.commit()
         db_bind = db.get_bind()
 
         def sync_index_wrapper():
@@ -1156,7 +1209,7 @@ async def reindex_source(
 async def clear_stale_failed_files(
     source_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """
     Clean failed file entries for a source.

@@ -29,7 +29,7 @@ The default managed install stores app data in:
 
 ## File size limits
 
-Large files are where extraction gets expensive. The text, PDF, Office, image, EPUB, comic and media probe limits can be changed in **Admin → Settings → Indexing**. The matching environment variables set their defaults before an app setting is saved:
+Large files are where extraction gets expensive. The text, PDF, Office, image, EPUB, comic and media probe limits can be changed in **Settings → Indexing**. The matching environment variables set their defaults before an app setting is saved:
 
 ```env
 MAX_TEXT_FILE_SIZE_MB=10
@@ -48,10 +48,10 @@ RAW metadata uses `exiftool`; audio/video metadata uses `ffprobe` when available
 
 If media-heavy sources are slow, try:
 
-- turn RAW metadata off in **Admin → Settings → Indexing**
+- turn RAW metadata off in **Settings → Indexing**
 - turn media metadata off in the same page
 - keep GPS metadata disabled unless you need it
-- reduce preview limits in **Admin → Settings → File Previews**
+- reduce preview limits in **Settings → File Previews**
 
 Run a full reindex if you want existing documents refreshed after changing indexing settings.
 

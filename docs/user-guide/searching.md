@@ -40,7 +40,7 @@ With relevance sorting, local results and results from available agents take pri
 
 ## Search settings
 
-Go to **Admin → Settings → Search** to tune the search page:
+Go to **Settings → Search** to tune the search page:
 
 - results per page
 - sort order

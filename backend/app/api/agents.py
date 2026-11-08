@@ -32,13 +32,15 @@ from ..services.agent_auth import (
     hash_token,
     require_remote_agents_enabled,
 )
-from .auth import get_current_user
+from ..services.audit import AuditAction, AuditTarget, record_event
+from .auth import require_admin
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
+
+CurrentAdmin = Annotated[User, Depends(require_admin)]
 Database = Annotated[Session, Depends(get_db)]
-CurrentUser = Annotated[User, Depends(get_current_user)]
 RemoteAgentsEnabled = Annotated[None, Depends(require_remote_agents_enabled)]
 _DEGRADED_WINDOW = timedelta(hours=24)
 _AFFECTED_SOURCE_LIMIT = 99
@@ -250,7 +252,7 @@ def _get_agent(agent_id: str, db: Session) -> Agent:
     status_code=status.HTTP_201_CREATED,
 )
 async def create_enrollment(
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
     feature_enabled: RemoteAgentsEnabled,
     db: Database,
 ):
@@ -265,6 +267,7 @@ async def create_enrollment(
             created_by_user_id=current_user.id,
         )
     )
+    record_event(db, actor=current_user, action=AuditAction.AGENT_ENROLLMENT_CREATED)
     db.commit()
     return AgentEnrollmentCodeResponse(
         code=code,
@@ -275,7 +278,7 @@ async def create_enrollment(
 @router.get("", response_model=list[AgentAdminResponse])
 async def list_agents(
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
 ):
     del current_user
     agents = db.query(Agent).order_by(Agent.created_at).all()
@@ -289,7 +292,7 @@ async def list_agents(
 async def get_agent(
     agent_id: str,
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
 ):
     del current_user
     return _detail_response(_get_agent(agent_id, db), db)
@@ -300,11 +303,18 @@ async def update_agent(
     agent_id: str,
     update: AgentAdminUpdate,
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
 ):
     """Update the defaults inherited by future remote-source jobs."""
-    del current_user
     agent = _get_agent(agent_id, db)
+    if agent.default_processing_mode != update.default_processing_mode:
+        record_event(
+            db,
+            actor=current_user,
+            action=AuditAction.AGENT_UPDATED,
+            target=AuditTarget.agent(agent.name),
+            detail={"default_processing_mode": update.default_processing_mode},
+        )
     agent.default_processing_mode = update.default_processing_mode
     db.commit()
     db.refresh(agent)
@@ -319,9 +329,8 @@ async def update_agent(
 async def approve_agent(
     agent_id: str,
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
 ):
-    del current_user
     agent = _get_agent(agent_id, db)
     if agent.status == "revoked":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent is revoked")
@@ -333,6 +342,12 @@ async def approve_agent(
     agent.status = "offline"
     agent.approved_at = agent.approved_at or now
     agent.disabled_at = None
+    record_event(
+        db,
+        actor=current_user,
+        action=AuditAction.AGENT_APPROVED,
+        target=AuditTarget.agent(agent.name),
+    )
     db.commit()
     db.refresh(agent)
     return _response(
@@ -346,9 +361,8 @@ async def approve_agent(
 async def disable_agent(
     agent_id: str,
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
 ):
-    del current_user
     agent = _get_agent(agent_id, db)
     if agent.status == "revoked":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Agent is revoked")
@@ -358,6 +372,12 @@ async def disable_agent(
         )
     agent.status = "disabled"
     agent.disabled_at = _utcnow()
+    record_event(
+        db,
+        actor=current_user,
+        action=AuditAction.AGENT_DISABLED,
+        target=AuditTarget.agent(agent.name),
+    )
     db.commit()
     db.refresh(agent)
     return _response(
@@ -372,10 +392,9 @@ async def revoke_agent(
     agent_id: str,
     request: Request,
     db: Database,
-    current_user: CurrentUser,
+    current_user: CurrentAdmin,
     delete_sources: bool = False,
 ):
-    del current_user
     from ..services.source_cleanup import purge_source  # lazy: avoid api<->api import cycle
 
     agent = _get_agent(agent_id, db)
@@ -385,13 +404,26 @@ async def revoke_agent(
         agent.status = "revoked"
         agent.token_hash = None
         agent.disabled_at = _utcnow()
+        record_event(
+            db,
+            actor=current_user,
+            action=AuditAction.AGENT_REVOKED,
+            target=AuditTarget.agent(agent.name),
+        )
         db.commit()
     if delete_sources:
         scheduler = request.app.state.scheduler if hasattr(request.app.state, "scheduler") else None
         for source in list(agent.sources):
+            record_event(
+                db,
+                actor=current_user,
+                action=AuditAction.SOURCE_DELETED,
+                target=AuditTarget.source(source.name),
+            )
             try:
                 await purge_source(source, db, scheduler=scheduler)
             except Exception as error:
+                db.rollback()
                 logger.exception(f"Failed to purge source {source.id} during agent revoke")
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,

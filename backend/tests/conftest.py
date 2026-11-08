@@ -6,6 +6,7 @@ Shared test fixtures for OneSearch backend tests.
 """
 import json
 import pytest
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from datetime import datetime, timezone
@@ -16,10 +17,37 @@ from sqlalchemy.pool import StaticPool
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models import Base, Source, User
+from app.models import ROLE_ADMIN, ROLE_MEMBER, Base, Source, User
 from app.db.database import get_db
 from app.config import settings
 from app.api.auth import hash_password, create_access_token
+
+
+@pytest.fixture(autouse=True)
+def generated_session_secret_in_tmp(tmp_path_factory):
+    """Keep the generated session key out of /app/data during tests."""
+    import app.api.auth as auth_module
+    # Not tmp_path: some tests check their tmp dir is empty after cleanup.
+    secret_path = tmp_path_factory.mktemp("secret") / "session_secret"
+    # Own MonkeyPatch, so a test calling monkeypatch.undo() doesn't swap the key mid-test.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(auth_module, "_session_secret_path", lambda: secret_path)
+        mp.setattr(auth_module, "_generated_secret", None)
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _no_startup_purge_on_the_configured_db(monkeypatch):
+    # The app's own scheduler uses DATABASE_URL, not the test database, so keep
+    # its startup audit purge from deleting rows in whatever database that is.
+    import app.main as main
+    from app.services.scheduler import SchedulerService
+
+    class TestScheduler(SchedulerService):
+        def _purge_audit_log(self, now=None):
+            return None
+
+    monkeypatch.setattr(main, "SchedulerService", TestScheduler)
 
 
 # In-memory SQLite for tests
@@ -51,6 +79,19 @@ def db_session():
         Base.metadata.drop_all(bind=_engine)
 
 
+@contextmanager
+def _signed_in_client(db_session, headers: dict[str, str]):
+    """TestClient that reads from db_session and sends headers on every request"""
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        test_client.headers.update(headers)
+        yield test_client
+    app.dependency_overrides.clear()
+
+
 @pytest.fixture
 def test_user(db_session):
     """Create a test user and return auth headers"""
@@ -58,16 +99,40 @@ def test_user(db_session):
         username="testuser",
         password_hash=hash_password("testpass"),
         is_active=True,
+        role=ROLE_ADMIN,
     )
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
-    token, _ = create_access_token(user.id, user.username)
+    token, _ = create_access_token(user.id, user.username, user.session_version)
     return {
         "user": user,
         "token": token,
         "headers": {"Authorization": f"Bearer {token}"},
     }
+
+
+@pytest.fixture
+def member_user(db_session):
+    """A signed-in user with the member role, created directly in the database"""
+    user = User(
+        username="member",
+        password_hash=hash_password("memberpass"),
+        is_active=True,
+        role=ROLE_MEMBER,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def member_client(db_session, member_user):
+    """Test client signed in as the member user"""
+    token, _ = create_access_token(member_user.id, member_user.username, member_user.session_version)
+    with _signed_in_client(db_session, {"Authorization": f"Bearer {token}"}) as test_client:
+        yield test_client
 
 
 @pytest.fixture
@@ -79,19 +144,8 @@ def auth_headers(test_user):
 @pytest.fixture
 def client(db_session, test_user):
     """Create test client with database dependency override and auth"""
-    def override_get_db():
-        try:
-            yield db_session
-        finally:
-            pass
-
-    app.dependency_overrides[get_db] = override_get_db
-
-    with TestClient(app) as test_client:
-        test_client.headers.update(test_user["headers"])
+    with _signed_in_client(db_session, test_user["headers"]) as test_client:
         yield test_client
-
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture

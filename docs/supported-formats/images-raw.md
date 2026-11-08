@@ -46,7 +46,7 @@ RAW_PREVIEW_ENABLED=true
 MAX_PREVIEW_SIZE_MB=50
 ```
 
-Most of these can also be changed in **Admin → Settings**.
+Most of these can also be changed in **Settings**.
 
 ## Failure behavior
 

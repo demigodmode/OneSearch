@@ -1,8 +1,9 @@
 // Copyright (C) 2025 demigodmode
 // SPDX-License-Identifier: AGPL-3.0-only
 
-import { useMemo, useState, type ReactNode } from 'react'
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { Search } from 'lucide-react'
+import { TextPager } from './TextPager'
 
 const DEFAULT_PAGE_CHARS = 6000
 
@@ -173,33 +174,18 @@ export function ReadableTextRenderer({
     setPageIndex(matches[bounded].pageIndex)
   }
 
+  const topRef = useRef<HTMLDivElement>(null)
+  const goToPage = (nextIndex: number) => setPageIndex(nextIndex)
+  const goToPageFromBottom = (nextIndex: number) => {
+    setPageIndex(nextIndex)
+    topRef.current?.scrollIntoView({ block: 'start' })
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" ref={topRef}>
       {(pages.length > 1 || matches.length > 0) && (
         <div className="flex flex-col gap-2 rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
-              disabled={pageIndex === 0}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              Previous
-            </button>
-            <span className="text-muted-foreground">
-              Page <span className="text-foreground">{pageIndex + 1}</span> of {pages.length}
-            </span>
-            <button
-              type="button"
-              onClick={() => setPageIndex((value) => Math.min(pages.length - 1, value + 1))}
-              disabled={pageIndex >= pages.length - 1}
-              className="flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground"
-            >
-              Next
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
+          <TextPager label="Pages (top)" pageIndex={pageIndex} pageCount={pages.length} onPageChange={goToPage} />
 
           {matches.length > 0 && (
             <div className="flex items-center justify-between gap-3 border-t border-border pt-2 sm:border-l sm:border-t-0 sm:pl-3 sm:pt-0">
@@ -237,6 +223,12 @@ export function ReadableTextRenderer({
           </p>
         ))}
       </div>
+
+      {pages.length > 1 && (
+        <div className="flex flex-col rounded-lg border border-border bg-secondary/30 px-3 py-2 text-sm sm:flex-row">
+          <TextPager label="Pages (bottom)" pageIndex={pageIndex} pageCount={pages.length} onPageChange={goToPageFromBottom} />
+        </div>
+      )}
     </div>
   )
 }

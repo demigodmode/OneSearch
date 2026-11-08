@@ -90,7 +90,7 @@ Common codes:
 
 ## Settings
 
-Preview behavior is controlled by the [Settings API](settings.md) and **Admin → Settings → File Previews**:
+Preview behavior is controlled by the [Settings API](settings.md) and **Settings → File Previews**:
 
 - `show_previews`
 - `raw_preview_enabled`

@@ -4,6 +4,8 @@
 """
 Tests for backend-managed app settings.
 """
+import pytest
+
 from app.models import AppSetting
 
 
@@ -30,6 +32,7 @@ def test_get_settings_returns_defaults(client):
         "long_text_pagination_threshold_chars": 20000,
         "default_scan_schedule": None,
         "remote_agents_enabled": False,
+        "audit_retention_days": 90,
     }
 
 
@@ -60,6 +63,7 @@ def test_update_settings_persists_values(client):
         **update,
         "default_scan_schedule": None,
         "remote_agents_enabled": False,
+        "audit_retention_days": 90,
     }
     assert response.json() == expected_response
 
@@ -137,6 +141,18 @@ def test_update_settings_rejects_invalid_limit_values(client):
     ]:
         response = client.put("/api/settings", json=payload)
         assert response.status_code == 422
+
+
+@pytest.mark.parametrize("days", [0, 3651])
+def test_update_rejects_audit_retention_outside_1_to_3650(client, days):
+    assert client.put("/api/settings", json={"audit_retention_days": days}).status_code == 422
+
+
+def test_update_persists_audit_retention(client):
+    response = client.put("/api/settings", json={"audit_retention_days": 365})
+
+    assert response.status_code == 200
+    assert response.json()["audit_retention_days"] == 365
 
 
 def test_settings_requires_auth(client):

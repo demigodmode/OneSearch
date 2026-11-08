@@ -90,7 +90,7 @@ def search(
         out = ctx.get_console()
 
         if as_json:
-            console.print(json.dumps(result, indent=2))
+            click.echo(json.dumps(result, indent=2))
             return
 
         # Backend returns: {results, total, limit, offset, processing_time_ms}

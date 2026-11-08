@@ -26,7 +26,8 @@ from app.api.auth import create_access_token, hash_password
 from app.config import settings
 from app.db.database import get_db
 from app.main import app
-from app.models import AppSetting, Base, IndexedFile, Source, User
+from app.models import ROLE_ADMIN, AppSetting, Base, IndexedFile, Source, User
+from app.schemas import HealthResponse
 from app.services.search import meili_service
 
 # In-memory SQLite database for testing
@@ -71,11 +72,12 @@ def test_user(db_session):
         username="testuser",
         password_hash=hash_password("testpass"),
         is_active=True,
+        role=ROLE_ADMIN,
     )
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
-    token, _ = create_access_token(user.id, user.username)
+    token, _ = create_access_token(user.id, user.username, user.session_version)
     return {"user": user, "token": token, "headers": {"Authorization": f"Bearer {token}"}}
 
 
@@ -167,6 +169,16 @@ class TestHealthEndpoint:
 
         assert "meilisearch" in data
         assert "status" in data["meilisearch"]
+
+    def test_health_check_matches_health_response_schema(self, client):
+        """Test the real /api/health payload validates against HealthResponse"""
+        response = client.get("/api/health")
+
+        health = HealthResponse.model_validate(response.json())
+
+        assert health.service == "onesearch-backend"
+        assert health.status in ("healthy", "degraded")
+        assert isinstance(health.meilisearch.status, str)
 
 
 class TestSourceEndpoints:

@@ -1,5 +1,5 @@
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter, useLocation, useNavigationType } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import SearchPage from './SearchPage'
 import { SearchSettingsProvider } from '@/contexts/SearchSettingsContext'
@@ -43,5 +43,44 @@ describe('SearchPage result availability indicator', () => {
     renderSearchPage()
     expect(await screen.findByText('Agent revoked')).toBeInTheDocument()
     expect(screen.queryByText(/preview only/i)).not.toBeInTheDocument()
+  })
+})
+
+function LocationProbe() {
+  const location = useLocation()
+  const navigationType = useNavigationType()
+  return <output data-testid="location" data-nav={navigationType}>{location.pathname + location.search}</output>
+}
+
+describe('SearchPage filters and URL', () => {
+  it('drops source and type from the URL when Clear filters is used', () => {
+    render(
+      <MemoryRouter initialEntries={['/search?q=report&source=src-1&type=pdf']}>
+        <SearchSettingsProvider>
+          <SearchPage />
+        </SearchSettingsProvider>
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    const probe = screen.getByTestId('location')
+    expect(probe).toHaveTextContent(/^\/search\?q=report$/)
+    expect(probe).toHaveAttribute('data-nav', 'REPLACE')
+  })
+
+  it('opens a result with Enter from the keyboard', () => {
+    render(
+      <MemoryRouter initialEntries={['/search?q=report']}>
+        <SearchSettingsProvider>
+          <SearchPage />
+        </SearchSettingsProvider>
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+    const card = screen.getByRole('link', { name: /report\.pdf/ })
+    card.focus()
+    expect(card).toHaveFocus()
+    fireEvent.keyDown(card, { key: 'Enter' })
+    expect(screen.getByTestId('location')).toHaveTextContent('/document/doc-1?q=report')
   })
 })

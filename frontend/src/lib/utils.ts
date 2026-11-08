@@ -3,6 +3,7 @@
 
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import type { User } from '@/types/api'
 
 /**
  * Utility function to merge Tailwind CSS classes
@@ -13,11 +14,22 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Whether the signed-in user is an admin
+ */
+export function isAdmin(user: Pick<User, 'role'> | null | undefined): boolean {
+  return user?.role === 'admin'
+}
+
+/**
  * Format a future ISO date as relative time (e.g., "in 3h", "in 2d")
  */
 function parseApiDate(isoString: string): Date {
   const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(isoString)
   return new Date(hasTimezone ? isoString : `${isoString}Z`)
+}
+
+export function formatDateTime(isoString: string): string {
+  return parseApiDate(isoString).toLocaleString()
 }
 
 export function formatRelativeTime(isoString?: string | null): string | null {

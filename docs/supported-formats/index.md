@@ -27,8 +27,8 @@ OneSearch supports searchable text extraction, format metadata, and safe preview
 
 - RAW metadata extraction uses `exiftool` when available. The Docker image includes it; non-Docker installs can leave it unavailable and RAW files will still index with basic metadata.
 - Media metadata extraction uses `ffprobe` when available. If it is missing or fails, media files fall back to filename/path metadata instead of failing the whole index run.
-- GPS photo metadata is off by default. Enable it in Admin → Settings → Indexing only if you want location data searchable.
-- Image and RAW previews are served only for indexed documents, require authentication, and respect the preview size limits in Admin → Settings → File Previews.
+- GPS photo metadata is off by default. Enable it in Settings → Indexing only if you want location data searchable.
+- Image and RAW previews are served only for indexed documents, require authentication, and respect the preview size limits in Settings → File Previews.
 - Changing indexing settings affects future indexing. Run a full reindex if you want existing documents updated with new metadata behavior.
 
 ## Format Details

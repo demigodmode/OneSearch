@@ -7,6 +7,7 @@ Tests for MeilisearchService - mocked, no running instance needed
 
 import asyncio
 import json
+import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -16,7 +17,13 @@ import pytest
 from app.models import Agent, AppSetting, Source
 from app.schemas import Document
 from app.services.agent_auth import AGENT_ONLINE_MAX_AGE
-from app.services.search import INDEX_NAME, MeilisearchService, meili_service
+from app.services.search import (
+    HEALTH_TIMEOUT_SECONDS,
+    INDEX_NAME,
+    REQUEST_TIMEOUT_SECONDS,
+    MeilisearchService,
+    meili_service,
+)
 
 
 def _fake_task(**kwargs):
@@ -68,6 +75,8 @@ def connected_service():
     svc = MeilisearchService()
     svc.client = Mock()
     svc.index = Mock()
+    svc.health_client = Mock()
+    svc.health_client.index.return_value = svc.index
     return svc
 
 
@@ -111,9 +120,54 @@ class TestConnect:
         assert service.index is None
 
 
+class TestTimeouts:
+    @patch("app.services.search.Client")
+    def test_connect_uses_request_and_health_timeouts(self, MockClient, service):
+        mock_client = MockClient.return_value
+        mock_client.health.return_value = {"status": "available"}
+        mock_client.get_index.return_value = Mock()
+
+        service.connect()
+
+        assert MockClient.call_args_list[0].kwargs["timeout"] == REQUEST_TIMEOUT_SECONDS
+        assert MockClient.call_args_list[1].kwargs["timeout"] == HEALTH_TIMEOUT_SECONDS
+        assert service.health_client is MockClient.return_value
+        assert HEALTH_TIMEOUT_SECONDS < REQUEST_TIMEOUT_SECONDS
+
+
+class TestHealthRoute:
+    @pytest.mark.asyncio
+    async def test_health_route_does_not_block_event_loop(self, monkeypatch):
+        from app import main
+
+        def slow_health_check():
+            time.sleep(0.5)
+            return {"status": "error"}
+
+        monkeypatch.setattr(main.meili_service, "health_check", slow_health_check)
+        monkeypatch.setattr("app.api.auth.is_setup_required", lambda db: False)
+
+        ticks = 0
+
+        async def ticker():
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        task = asyncio.create_task(ticker())
+        try:
+            response = await main.health_check(db=None)
+        finally:
+            task.cancel()
+
+        assert response.status_code == 503
+        assert ticks >= 5
+
+
 class TestHealthCheck:
     def test_health_check_connected(self, connected_service):
-        connected_service.client.health.return_value = {"status": "available"}
+        connected_service.health_client.health.return_value = {"status": "available"}
         mock_stats = Mock()
         mock_stats.number_of_documents = 42
         mock_stats.is_indexing = False
@@ -132,7 +186,7 @@ class TestHealthCheck:
         assert "error" in result
 
     def test_health_check_error(self, connected_service):
-        connected_service.client.health.side_effect = Exception("timeout /srv/private/token.txt")
+        connected_service.health_client.health.side_effect = Exception("timeout /srv/private/token.txt")
 
         result = connected_service.health_check()
 
@@ -141,7 +195,7 @@ class TestHealthCheck:
 
     def test_health_check_dict_response(self, connected_service):
         """Handle Meilisearch returning dicts instead of objects"""
-        connected_service.client.health.return_value = {"status": "available"}
+        connected_service.health_client.health.return_value = {"status": "available"}
         connected_service.index.get_stats.return_value = {
             "numberOfDocuments": 10,
             "isIndexing": True,
@@ -694,3 +748,48 @@ class TestDeleteDocumentsByFilterConfirmed:
 
         with pytest.raises(RuntimeError):
             await service.delete_documents_by_filter_confirmed("source_id = 'x'")
+
+
+class TestSnippetTrim:
+    """Snippets are cut on visible text and never leave a broken highlight tag"""
+
+    def test_cut_inside_highlight_closes_the_mark(self):
+        from app.api.search import _trim_snippet
+
+        formatted = "x" * 45 + "<mark>matched</mark> tail words"
+
+        assert _trim_snippet(formatted, 50) == "x" * 45 + "<mark>match</mark>"
+
+    def test_cut_never_leaves_partial_tag(self):
+        from app.api.search import _trim_snippet
+
+        formatted = "x" * 48 + "<mark>hit</mark> more"
+
+        snippet = _trim_snippet(formatted, 50)
+
+        assert snippet == "x" * 48 + "<mark>hi</mark>"
+        assert "<mark" not in snippet.replace("<mark>", "")
+
+    def test_limit_reached_before_a_mark_drops_it(self):
+        from app.api.search import _trim_snippet
+
+        assert _trim_snippet("x" * 50 + "<mark>y</mark>", 50) == "x" * 50
+
+    def test_short_snippet_is_unchanged(self):
+        from app.api.search import _trim_snippet
+
+        formatted = "a <mark>match</mark> b"
+
+        assert _trim_snippet(formatted, 300) == formatted
+
+    def test_visible_length_ignores_markup(self):
+        import re
+
+        from app.api.search import _trim_snippet
+
+        formatted = "<mark>aa</mark>" * 20
+
+        snippet = _trim_snippet(formatted, 25)
+
+        assert len(re.sub(r"</?mark>", "", snippet)) == 25
+        assert snippet.count("<mark>") == snippet.count("</mark>")

@@ -27,6 +27,9 @@ dependencies = [
     "APScheduler>=3.10.0,<4.0.0",
 ]
 
+[project.scripts]
+onesearch-admin = "app.admin_cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

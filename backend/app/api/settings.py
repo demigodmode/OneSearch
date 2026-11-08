@@ -12,7 +12,7 @@ from ..models import User
 from ..schemas import AppSettingsResponse, AppSettingsUpdate
 from ..services.app_settings import AppSettingsService
 from ..services.scheduler import validate_interval, validate_schedule
-from .auth import get_current_user
+from .auth import require_admin, require_signed_in
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api", tags=["settings"])
 @router.get("/settings", response_model=AppSettingsResponse)
 def get_settings(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_signed_in),
 ):
     """Get backend-managed indexing and preview settings."""
     return AppSettingsService(db).get_settings()
@@ -31,7 +31,7 @@ def update_settings(
     request: Request,
     update: AppSettingsUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Update backend-managed indexing and preview settings."""
     default_schedule = update.default_scan_schedule
@@ -48,7 +48,7 @@ def update_settings(
                 detail=f"Invalid scan schedule: {default_schedule.scan_schedule}",
             )
 
-    result = AppSettingsService(db).update_settings(update)
+    result = AppSettingsService(db).update_settings(update, actor=current_user)
 
     if "default_scan_schedule" in update.model_fields_set and hasattr(request.app.state, "scheduler"):
         request.app.state.scheduler.sync_default_schedule_sources()

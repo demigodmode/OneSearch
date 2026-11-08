@@ -32,7 +32,7 @@ from ..services.remote_files import (
     remote_streams,
 )
 from ..services.search import meili_service
-from .auth import ALGORITHM, get_current_user, get_secret_key
+from .auth import ALGORITHM, allow_anyone, get_secret_key, require_search
 
 router = APIRouter(prefix="/api", tags=["preview"])
 
@@ -54,7 +54,7 @@ async def get_document_preview(
     request: Request,
     document_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_search),
 ):
     """Stream a safe preview for an indexed image document."""
     app_settings = AppSettingsService(db).get_settings()
@@ -151,7 +151,7 @@ async def get_document_preview(
 async def create_document_download_link(
     document_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_search),
 ):
     """Create a short-lived signed URL for downloading an indexed document."""
     document = _document_to_dict(await meili_service.get_document(document_id))
@@ -165,7 +165,7 @@ async def create_document_download_link(
     file_path = (
         None if source.location_type == "agent" else _validated_document_path(document, source)
     )
-    token = _create_download_token(current_user.id, document_id)
+    token = _create_download_token(current_user.id, document_id, current_user.session_version)
     url = f"/api/documents/{quote(document_id, safe='')}/download?{urlencode({'token': token})}"
     return {
         "url": url,
@@ -174,7 +174,7 @@ async def create_document_download_link(
     }
 
 
-@router.get("/documents/{document_id}/download")
+@router.get("/documents/{document_id}/download", dependencies=[Depends(allow_anyone)])
 async def download_document(
     request: Request,
     document_id: str,
@@ -182,7 +182,7 @@ async def download_document(
     db: Session = Depends(get_db),
 ):
     """Download the original file for an indexed document using a short-lived token."""
-    _validate_download_token(token, document_id)
+    _validate_download_token(token, document_id, db)
     document = _document_to_dict(await meili_service.get_document(document_id))
     if not document:
         _preview_error(status.HTTP_404_NOT_FOUND, "document_not_found", "Document not found")
@@ -345,11 +345,12 @@ def _remote_headers(filename: str | None) -> dict[str, str]:
     return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(safe_filename, safe='')}"}
 
 
-def _create_download_token(user_id: int, document_id: str) -> str:
+def _create_download_token(user_id: int, document_id: str, session_version: int) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
         "doc": document_id,
+        "sv": session_version,
         "purpose": _DOWNLOAD_TOKEN_PURPOSE,
         "iat": now,
         "exp": now + timedelta(seconds=_DOWNLOAD_TOKEN_EXPIRE_SECONDS),
@@ -357,7 +358,7 @@ def _create_download_token(user_id: int, document_id: str) -> str:
     return jwt.encode(payload, get_secret_key(), algorithm=ALGORITHM)
 
 
-def _validate_download_token(token: str | None, document_id: str) -> dict[str, Any]:
+def _validate_download_token(token: str | None, document_id: str, db: Session) -> dict[str, Any]:
     if not token:
         _preview_error(
             status.HTTP_401_UNAUTHORIZED, "download_token_missing", "Download token is required"
@@ -387,6 +388,17 @@ def _validate_download_token(token: str | None, document_id: str) -> dict[str, A
             "Download token is for a different document",
         )
     if not payload.get("sub"):
+        _preview_error(
+            status.HTTP_401_UNAUTHORIZED, "download_token_invalid", "Invalid download token"
+        )
+
+    user = db.get(User, int(payload["sub"]))
+    if (
+        user is None
+        or not user.is_active
+        or user.must_change_password
+        or payload.get("sv") != user.session_version
+    ):
         _preview_error(
             status.HTTP_401_UNAUTHORIZED, "download_token_invalid", "Invalid download token"
         )

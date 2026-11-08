@@ -26,6 +26,7 @@ import {
   BookOpen,
   FileArchive,
   Download,
+  ChevronDown,
 } from 'lucide-react'
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 // Register only the languages we use — keeps the chunk ~300KB lighter than full Prism
@@ -169,6 +170,37 @@ function PlainTextRenderer({ content }: { content: string }) {
     <pre className="bg-card border border-border rounded-lg p-4 overflow-x-auto text-sm font-mono text-foreground whitespace-pre-wrap break-words">
       {content}
     </pre>
+  )
+}
+
+function MetadataSection({ metadata }: { metadata: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="@container mt-6 bg-card border border-border rounded-lg p-4">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+      >
+        Metadata
+        <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <dl className="grid grid-cols-1 @[480px]:grid-cols-2 gap-2 mt-3 text-sm">
+          {Object.entries(metadata).map(([key, value]) => (
+            <div key={key} className="flex gap-2">
+              <dt className="text-muted-foreground font-mono">{key}:</dt>
+              <dd className="text-foreground truncate">
+                {value != null && typeof value === 'object'
+                  ? JSON.stringify(value)
+                  : String(value ?? '')}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
   )
 }
 
@@ -395,11 +427,11 @@ export default function DocumentPage() {
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Calendar className="h-4 w-4" />
-                  <span>Modified: {formatFullDate(document.modified_at)}</span>
+                  <span className="whitespace-nowrap">Modified: {formatFullDate(document.modified_at)}</span>
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Clock className="h-4 w-4" />
-                  <span>Indexed: {formatFullDate(document.indexed_at)}</span>
+                  <span className="whitespace-nowrap">Indexed: {formatFullDate(document.indexed_at)}</span>
                 </div>
               </div>
             </div>
@@ -433,7 +465,7 @@ export default function DocumentPage() {
               <span className="uppercase font-mono bg-secondary px-2 py-0.5 rounded text-xs">
                 {document.type}
               </span>
-              {document.extension && document.extension !== document.type && (
+              {document.extension && (
                 <span className="font-mono">.{document.extension}</span>
               )}
             </div>
@@ -472,21 +504,7 @@ export default function DocumentPage() {
 
         {/* Metadata details (if any) */}
         {document.metadata && Object.keys(document.metadata).length > 0 && (
-          <div className="@container mt-6 bg-card border border-border rounded-lg p-4">
-            <h3 className="text-sm font-medium text-muted-foreground mb-3">Metadata</h3>
-            <dl className="grid grid-cols-1 @[480px]:grid-cols-2 gap-2 text-sm">
-              {Object.entries(document.metadata).map(([key, value]) => (
-                <div key={key} className="flex gap-2">
-                  <dt className="text-muted-foreground font-mono">{key}:</dt>
-                  <dd className="text-foreground truncate">
-                    {value != null && typeof value === 'object'
-                      ? JSON.stringify(value)
-                      : String(value ?? '')}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+          <MetadataSection key={document.id} metadata={document.metadata} />
         )}
       </div>
     </div>

@@ -17,8 +17,20 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from . import __version__
-from .api import agent_protocol, agents, auth, preview, search, sources, status
+from .api import (
+    agent_protocol,
+    agents,
+    audit,
+    auth,
+    preview,
+    search,
+    sources,
+    status,
+    tokens,
+    users,
+)
 from .api import settings as settings_api
+from .api.auth import allow_anyone, get_secret_key
 from .config import settings
 from .db.database import engine, get_db
 from .request_body_limits import RemoteAgentBodyLimitMiddleware
@@ -52,6 +64,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"Log level: {settings.log_level}")
     logger.info(f"Database: {settings.database_url.split('://')[0]}")
     logger.info(f"Meilisearch: {settings.meili_url}")
+
+    # Load or create the signing key now, so a missing SESSION_SECRET is logged
+    # and an unwritable data dir stops startup instead of the first sign-in.
+    get_secret_key()
 
     # Initialize Meilisearch connection
     if meili_service.connect():
@@ -164,6 +180,7 @@ async def log_requests(request: Request, call_next):
 # Include API routers
 app.add_middleware(RemoteAgentBodyLimitMiddleware)
 app.include_router(auth.router)
+app.include_router(tokens.router)
 app.include_router(sources.router)
 app.include_router(search.router)
 app.include_router(status.router)
@@ -171,9 +188,11 @@ app.include_router(settings_api.router)
 app.include_router(preview.router)
 app.include_router(agents.router)
 app.include_router(agent_protocol.router)
+app.include_router(users.router)
+app.include_router(audit.router)
 
 
-@app.get("/api/health")
+@app.get("/api/health", dependencies=[Depends(allow_anyone)])
 async def health_check(db: Session = Depends(get_db)):
     """
     Health check endpoint for container healthcheck
@@ -184,7 +203,7 @@ async def health_check(db: Session = Depends(get_db)):
     from .api.auth import is_setup_required
 
     # Check Meilisearch health
-    meili_health = meili_service.health_check()
+    meili_health = await asyncio.to_thread(meili_service.health_check)
 
     # Check if initial setup is required
     setup_required = is_setup_required(db)
@@ -210,7 +229,7 @@ async def health_check(db: Session = Depends(get_db)):
     return JSONResponse(content=response_data, status_code=status_code)
 
 
-@app.get("/")
+@app.get("/", dependencies=[Depends(allow_anyone)])
 async def root():
     """Root endpoint - API information"""
     return {
