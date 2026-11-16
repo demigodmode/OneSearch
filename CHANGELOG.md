@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 OneSearch isn't single-user anymore. You can add more people as admins or members, everyone gets their own sign-in and API tokens, and admins get an audit log of who did what.
 
-If `SESSION_SECRET` is set, upgrading from 1.7.x needs no extra steps. If it isn't, everyone gets signed out once. To set it, generate a key with `openssl rand -base64 32` and add `SESSION_SECRET=<that key>` to your `.env` ([details](https://onesearch.readthedocs.io/en/latest/configuration/environment-variables/#authentication)). See also the [1.8.0 upgrade notes](https://onesearch.readthedocs.io/en/latest/getting-started/upgrading/#upgrading-to-180).
+If `SESSION_SECRET` is set, upgrading from 1.7.x needs no extra steps. If it isn't, OneSearch now generates a key and saves it in the data folder, which signs everyone out once after the upgrade. You can set your own instead: generate one with `openssl rand -base64 32` and add `SESSION_SECRET=<that key>` to your `.env` ([details](https://onesearch.readthedocs.io/en/latest/configuration/environment-variables/#authentication)). See also the [1.8.0 upgrade notes](https://onesearch.readthedocs.io/en/latest/getting-started/upgrading/#upgrading-to-180).
 
 ### Added
 
