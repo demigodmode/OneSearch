@@ -9,9 +9,22 @@ from datetime import datetime
 from typing import Annotated, Any, Literal, Optional
 
 from onesearch_shared import BrowseDirectoryEntry, BrowseResult
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    computed_field,
+    model_validator,
+)
 
 from .models import ApiTokenScope
+
+# Metadata values that are worth searching by. Things like the PDF "creator" or
+# "producer" are left out: they name the software that made the file.
+METADATA_SEARCH_KEYS = ("tags", "keywords", "subject", "author")
+METADATA_TERMS_MAX = 50
+METADATA_TERM_MAX_CHARS = 500
 
 
 class Document(BaseModel):
@@ -33,6 +46,25 @@ class Document(BaseModel):
     content: str  # Extracted full text
     title: str | None = None  # Extracted or derived title
     metadata: dict[str, Any] = Field(default_factory=dict)  # Additional metadata
+
+    @computed_field
+    @property
+    def metadata_terms(self) -> list[str]:
+        """Tags, keywords, subject and author, copied out of metadata so search can use them.
+
+        This is a top-level field because Meilisearch doesn't apply a searchable
+        attributes change to nested fields of documents that are already indexed.
+        """
+        terms: list[str] = []
+        for key in METADATA_SEARCH_KEYS:
+            value = self.metadata.get(key)
+            values = value if isinstance(value, (list, tuple)) else [value]
+            for item in values:
+                if isinstance(item, (str, int, float)) and not isinstance(item, bool):
+                    text = str(item).strip()
+                    if text:
+                        terms.append(text[:METADATA_TERM_MAX_CHARS])
+        return terms[:METADATA_TERMS_MAX]
 
 
 class ScheduleConfig(BaseModel):

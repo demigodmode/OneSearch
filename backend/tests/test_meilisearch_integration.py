@@ -14,13 +14,13 @@ import uuid
 import pytest
 from meilisearch import Client
 
+from app.schemas import Document
 from app.services.search import (
     FILTERABLE_FIELDS,
     SEARCHABLE_FIELDS,
     SORTABLE_FIELDS,
     MeilisearchService,
 )
-
 
 RANKING_RULES = [
     "words",
@@ -149,3 +149,58 @@ async def test_onesearch_meilisearch_contract(live_meili_client, live_index):
 
     after_delete = await service.search("test", limit=10)
     assert [hit["id"] for hit in after_delete["hits"]] == ["doc-b"]
+
+
+@pytest.mark.asyncio
+async def test_document_tags_are_searchable_after_upgrade(live_meili_client, live_index):
+    service = MeilisearchService()
+    service.client = live_meili_client
+    service.index = live_index
+
+    # An index set up by 1.8.0, before metadata_terms was searchable.
+    task = live_index.update_searchable_attributes(["content", "basename", "path", "title"])
+    live_meili_client.wait_for_task(task.task_uid, timeout_in_ms=30000)
+    service._configure_index()
+    # Tasks run in order, so once this one is done the settings above are too.
+    task = live_index.update_sortable_attributes(SORTABLE_FIELDS)
+    live_meili_client.wait_for_task(task.task_uid, timeout_in_ms=30000)
+
+    metadata = {
+        "tagged": {"tags": ["mortgage", "house"]},
+        "keyworded": {"keywords": "taxes; receipts"},
+        "subjected": {"subject": "Insurance renewal"},
+        "authored": {"author": "Marigold"},
+        "produced": {"producer": "Ghostscript", "creator": "Typewriter"},
+    }
+    add_task = await service.index_documents([
+        Document(
+            id=doc_id,
+            source_id="source-a",
+            source_name="Source A",
+            path=f"/data/{doc_id}.txt",
+            basename=f"{doc_id}.txt",
+            extension="txt",
+            type="text",
+            size_bytes=1,
+            modified_at=1,
+            indexed_at=1,
+            content="nothing interesting here",
+            title="Scan",
+            metadata=meta,
+        )
+        for doc_id, meta in metadata.items()
+    ])
+    wait_for_task_from_dict(live_meili_client, add_task)
+
+    for query, expected in [
+        ("mortgage", "tagged"),
+        ("receipts", "keyworded"),
+        ("insurance", "subjected"),
+        ("marigold", "authored"),
+    ]:
+        hits = (await service.search(query))["hits"]
+        assert [hit["id"] for hit in hits] == [expected], query
+
+    # The software that made a file isn't something to search by.
+    for query in ("ghostscript", "typewriter"):
+        assert (await service.search(query))["hits"] == [], query

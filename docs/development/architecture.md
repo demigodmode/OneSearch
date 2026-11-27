@@ -124,7 +124,7 @@ Every document in Meilisearch follows this structure:
 
 **Document IDs** use the format `{source_id}--{sha256_hash[:12]}` where the hash is derived from the file path. This avoids Meilisearch character restrictions and prevents ID collisions.
 
-**Searchable fields:** content, basename, path, title
+**Searchable fields:** content, basename, path, title, metadata_terms. `metadata_terms` is a copy of the `tags`, `keywords`, `subject` and `author` values from `metadata`. It's top-level because Meilisearch doesn't apply a searchable attributes change to nested fields of documents already in the index.
 
 **Filterable fields:** source_id, type, extension, modified_at
 
