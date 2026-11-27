@@ -67,6 +67,12 @@ There is no major-only tag like `1`.
 
 ---
 
+## Upgrading to 1.8.1
+
+Nothing to set up. Search now also looks at a file's tags, keywords, subject and author (Markdown front matter, Office properties and PDF info). Files that are already indexed only get this after a **Full reindex** of their source on the Sources page. A normal Reindex isn't enough, because it skips files that haven't changed.
+
+---
+
 ## Upgrading to 1.8.0
 
 Nothing to set up. Pull the new image and restart as usual.

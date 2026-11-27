@@ -5,6 +5,14 @@ All notable changes to OneSearch will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Searching for a document's tags, keywords, subject or author found nothing unless the same words were in its text, name or path. This covers `tags` and `author` in Markdown front matter, keywords, subject and author in Office files, and subject and author in PDFs. Files that are already indexed pick this up on their next full reindex. A normal reindex skips unchanged files, so it won't.
+
+---
+
 ## [1.8.0] - 2026-11-08
 
 OneSearch isn't single-user anymore. You can add more people as admins or members, everyone gets their own sign-in and API tokens, and admins get an audit log of who did what.

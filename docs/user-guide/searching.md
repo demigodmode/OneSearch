@@ -8,6 +8,8 @@ Go to `/` and start typing. Searches are debounced, so results update shortly af
 
 Meilisearch handles typo tolerance and relevance ranking. You usually do not need exact filenames or exact casing.
 
+A search looks at each file's text, name, path and title, plus any tags, keywords, subject or author stored in the file itself (Markdown front matter, Office document properties, PDF info).
+
 Keyboard shortcuts:
 
 - `Ctrl+K` / `Cmd+K`: focus the search box

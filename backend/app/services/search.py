@@ -19,7 +19,14 @@ logger = logging.getLogger(__name__)
 
 # Document schema constants
 INDEX_NAME = "documents"
-SEARCHABLE_FIELDS = ["content", "basename", "path", "title"]
+# Order matters to ranking: a match in an earlier field counts for more.
+SEARCHABLE_FIELDS = [
+    "content",
+    "basename",
+    "path",
+    "title",
+    "metadata_terms",
+]
 FILTERABLE_FIELDS = ["source_id", "type", "extension", "modified_at"]
 SORTABLE_FIELDS = ["modified_at", "size_bytes", "basename"]
 
