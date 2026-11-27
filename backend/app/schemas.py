@@ -64,7 +64,9 @@ class Document(BaseModel):
                     text = str(item).strip()
                     if text:
                         terms.append(text[:METADATA_TERM_MAX_CHARS])
-        return terms[:METADATA_TERMS_MAX]
+                        if len(terms) == METADATA_TERMS_MAX:
+                            return terms
+        return terms
 
 
 class ScheduleConfig(BaseModel):

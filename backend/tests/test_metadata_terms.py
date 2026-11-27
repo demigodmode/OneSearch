@@ -54,3 +54,8 @@ def test_is_sent_to_the_index():
     dumped = make_doc({"tags": ["house"]}).model_dump(mode="json")
     assert dumped["metadata_terms"] == ["house"]
     assert make_doc({}).model_dump(mode="json")["metadata_terms"] == []
+
+
+def test_stops_at_the_limit_even_across_keys():
+    doc = make_doc({"tags": ["t"] * METADATA_TERMS_MAX, "author": "Ana"})
+    assert doc.metadata_terms == ["t"] * METADATA_TERMS_MAX
